@@ -7,4 +7,5 @@ georinex>=1.16.2
 scipy>=1.13.0
 fpdf2>=2.7.9
 anthropic>=0.25.0
-requests>=2.31.0
+folium>=0.16.0
+streamlit-folium>=0.18.0

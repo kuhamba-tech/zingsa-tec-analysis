@@ -85,7 +85,12 @@ with st.spinner("Interpolating TEC grid..."):
 
 # ── Station markers ───────────────────────────────────────────────────────────
 if show_stations:
-    status_colors = {"online": "#00ff88", "degraded": "#ff8c00", "offline": "#ff4444"}
+    status_colors = {
+        "online": "#00ff88",
+        "degraded": "#ff8c00",
+        "offline": "#ff4444",
+        "registered": "#38bdf8",
+    }
     traces.append(go.Scattermapbox(
         lat=sdf["lat"].tolist(), lon=sdf["lon"].tolist(),
         mode="markers+text" if show_labels else "markers",

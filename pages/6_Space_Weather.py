@@ -29,7 +29,7 @@ with st.sidebar:
 
     st.markdown("**Kp Scale Reference**")
     kp_table = [
-        ("0–2", "Quiet",          "#00ff88"),
+        ("0-2", "Quiet",          "#00ff88"),
         ("3",   "Unsettled",      "#88ff44"),
         ("4",   "Active",         "#ffff00"),
         ("5",   "Minor Storm G1", "#ff8c00"),

@@ -1,6 +1,7 @@
 """ZGIIS — RINEX/CMN Processing Module."""
 from __future__ import annotations
 
+from dataclasses import replace
 import re
 import sys
 from pathlib import Path
@@ -15,6 +16,13 @@ root = Path(__file__).resolve().parents[1]
 if str(root) not in sys.path:
     sys.path.insert(0, str(root))
 
+from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
+from zgiis.maps.station_map import (
+    MAP_STYLE_KEYS,
+    MAP_STYLE_OPTIONS,
+    render_cors_station_map,
+)
+from zgiis.processing.pipeline_explanations import render_pipeline_explorer
 from zgiis.theme import inject
 
 st.set_page_config(page_title="ZGIIS — Processing", page_icon="⚙️", layout="wide")
@@ -33,11 +41,10 @@ except Exception as exc:
     st.error(f"Failed to import tec_core: {exc}")
     st.stop()
 
-ZIM_CORS_STATIONS = {
-    "cent": "Centenary", "chim": "Chimanimani", "chir": "Chiredzi",
-    "gokw": "Gokwe", "gsu": "Gwanda", "hara": "Harare",
-    "karo": "Karoi", "kwek": "Kwekwe", "lupa": "Lupane",
-    "zinh": "ZINH", "bula": "Bulawayo", "gwer": "Gweru", "muta": "Mutare",
+STATIONS_BY_CODE = {station.code: station for station in ZIMBABWE_CORS_STATIONS}
+ZIM_CORS_STATION_NAMES = {
+    station.code: station.name
+    for station in ZIMBABWE_CORS_STATIONS
 }
 
 PROCESSING_STAGES = [
@@ -132,6 +139,78 @@ def keep_by_mode(file_date, mode, day_value, month_value, year_value):
     if mode == "This Month":     return fd.to_period("M") == pd.Timestamp(month_value).to_period("M")
     if mode == "This Year":      return int(fd.year) == int(year_value)
     return True
+
+
+def selected_station_previews(file_names: list[str]):
+    """Return only known CORS sites detected from the selected filenames."""
+    files_by_code: dict[str, list[str]] = {}
+    for file_name in file_names:
+        code = Path(file_name).name[:4].lower()
+        files_by_code.setdefault(code, []).append(Path(file_name).name)
+
+    previews = []
+    for code, names in sorted(files_by_code.items()):
+        station = STATIONS_BY_CODE.get(code)
+        if station is None:
+            continue
+        source_summary = names[0] if len(names) == 1 else f"{len(names)} selected files"
+        previews.append(
+            replace(
+                station,
+                status="loaded",
+                current_tec=0.0,
+                last_file=source_summary,
+            )
+        )
+    return previews
+
+
+def processed_station_results(df: pd.DataFrame):
+    """Build map stations from calculated TEC results."""
+    results = []
+    if df.empty or "station" not in df.columns:
+        return results
+
+    for code, station_df in df.groupby("station"):
+        station = STATIONS_BY_CODE.get(str(code).lower())
+        if station is None:
+            continue
+
+        valid_vtec = (
+            pd.to_numeric(station_df["vtec"], errors="coerce").dropna()
+            if "vtec" in station_df.columns
+            else pd.Series(dtype=float)
+        )
+        mean_vtec = float(valid_vtec.mean()) if not valid_vtec.empty else 0.0
+        source_files = (
+            station_df["source_file"].dropna().astype(str).unique().tolist()
+            if "source_file" in station_df.columns
+            else []
+        )
+        timestamps = (
+            pd.to_datetime(station_df["timestamp"], errors="coerce").dropna()
+            if "timestamp" in station_df.columns
+            else pd.Series(dtype="datetime64[ns]")
+        )
+        source_summary = (
+            source_files[0]
+            if len(source_files) == 1
+            else f"{len(source_files)} processed files"
+            if source_files
+            else ""
+        )
+        results.append(
+            replace(
+                station,
+                status="processed",
+                current_tec=round(mean_vtec, 2),
+                last_file=source_summary,
+                observation_count=len(station_df),
+                data_start=timestamps.min().strftime("%Y-%m-%d %H:%M") if not timestamps.empty else "",
+                data_end=timestamps.max().strftime("%Y-%m-%d %H:%M") if not timestamps.empty else "",
+            )
+        )
+    return results
 
 
 # ── Session state ─────────────────────────────────────────────────────────────
@@ -234,20 +313,20 @@ with st.sidebar:
         default_sel = st.session_state.get("proc_obs_sel", _override_names)
         default_sel = [n for n in default_sel if n in obs_names]
 
+        default_sel = st.session_state.get("proc_obs_sel", _override_names)
+        default_sel = [n for n in default_sel if n in obs_names]
+        st.session_state["proc_obs_sel"] = default_sel
         n_sel = len(default_sel)
-        st.markdown(
-            f"<div style='background:#0d1b2a;border:1px solid #1e3a5f;border-radius:6px;"
-            f"padding:8px 12px;margin-bottom:6px;font-family:monospace'>"
-            f"<div style='color:#00d4ff;font-size:0.78rem'>Type: RINEX</div>"
-            f"<div style='color:#00ff88;font-weight:700;font-size:0.9rem'>"
-            f"Total file(s) found#{total_found}</div>"
-            f"<div style='color:#f0c040;font-size:0.78rem'>"
-            f"Selected to process: {n_sel}</div>"
-            f"</div>",
-            unsafe_allow_html=True,
-        )
 
         if obs_names:
+            st.markdown(
+                f"<div style='font-size:0.76rem;color:#dbeafe;margin-bottom:0.3rem;white-space:nowrap'>"
+                f"<span style='color:#00d4ff'>RINEX</span>"
+                f" · <span style='color:#00ff88;font-weight:700'>Found: {total_found}</span>"
+                f" · <span style='color:#f0c040'>Selected: {n_sel}</span>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
             sa1, sa2 = st.columns(2)
             with sa1:
                 if st.button("Select all", use_container_width=True, key="sel_all"):
@@ -258,15 +337,9 @@ with st.sidebar:
                     st.session_state["proc_obs_sel"] = []
                     st.rerun()
 
-            selected_obs_names = st.multiselect(
-                "Files to process",
-                options=obs_names,
-                default=default_sel,
-                placeholder="Browse files… or Select all to add files",
-            )
-            st.session_state["proc_obs_sel"] = selected_obs_names
+            selected_obs_names = st.session_state.get("proc_obs_sel", [])
         else:
-            st.info("No RINEX obs files found for this mode/folder.")
+            st.caption("RINEX · Found: 0 · Selected: 0 — no obs files for this mode/folder.")
             selected_obs_names = []
     else:
         selected_obs_names = []
@@ -279,22 +352,19 @@ with st.sidebar:
 
     if load_cmn:
         cmn_names = [p.name for p in filtered_cmn]
-        # Default: no auto-select — user must explicitly pick
         default_cmn = st.session_state.get("proc_cmn_sel", [])
         default_cmn = [n for n in default_cmn if n in cmn_names]
+        st.session_state["proc_cmn_sel"] = default_cmn
 
-        st.markdown(
-            f"<div style='background:#0d1b2a;border:1px solid #1e3a5f;border-radius:6px;"
-            f"padding:8px 12px;margin-bottom:6px;font-family:monospace'>"
-            f"<div style='color:#00d4ff;font-size:0.78rem'>Type: CMN</div>"
-            f"<div style='color:#00ff88;font-weight:700;font-size:0.9rem'>"
-            f"Total file(s) found#{len(cmn_names)}</div>"
-            f"<div style='color:#f0c040;font-size:0.78rem'>"
-            f"Selected to process: {len(default_cmn)}</div>"
-            f"</div>",
-            unsafe_allow_html=True,
-        )
         if cmn_names:
+            st.markdown(
+                f"<div style='font-size:0.76rem;color:#dbeafe;margin-bottom:0.3rem;white-space:nowrap'>"
+                f"<span style='color:#00d4ff'>CMN</span>"
+                f" · <span style='color:#00ff88;font-weight:700'>Found: {len(cmn_names)}</span>"
+                f" · <span style='color:#f0c040'>Selected: {len(default_cmn)}</span>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
             ca1, ca2 = st.columns(2)
             with ca1:
                 if st.button("Select all", use_container_width=True, key="csel_all"):
@@ -304,14 +374,10 @@ with st.sidebar:
                 if st.button("Clear all", use_container_width=True, key="csel_none"):
                     st.session_state["proc_cmn_sel"] = []
                     st.rerun()
-            selected_cmn_names = st.multiselect(
-                "CMN files to process",
-                options=cmn_names,
-                default=default_cmn,
-                placeholder="Select all or pick individual files",
-            )
-            st.session_state["proc_cmn_sel"] = selected_cmn_names
+
+            selected_cmn_names = st.session_state.get("proc_cmn_sel", [])
         else:
+            st.caption("CMN · Found: 0 · Selected: 0 — no CMN files for this mode/folder.")
             selected_cmn_names = []
     else:
         selected_cmn_names = []
@@ -326,20 +392,23 @@ with st.sidebar:
     _all_sel_names = list(selected_obs_names) + list(selected_cmn_names)
     _detected_codes = {n[:4].lower() for n in _all_sel_names if len(n) >= 4}
     _detected_labels = [
-        f"{k} - {v}" for k, v in sorted(ZIM_CORS_STATIONS.items())
+        f"{k} - {v}" for k, v in sorted(ZIM_CORS_STATION_NAMES.items())
         if k in _detected_codes
     ]
-    # Unknown codes (not in ZIM_CORS_STATIONS dict)
-    _unknown_codes = _detected_codes - set(ZIM_CORS_STATIONS.keys())
+    # Unknown codes (not in the national CORS registry)
+    _unknown_codes = _detected_codes - set(ZIM_CORS_STATION_NAMES.keys())
 
-    cors_options = [f"{k} - {v}" for k, v in sorted(ZIM_CORS_STATIONS.items())]
+    cors_options = [f"{k} - {v}" for k, v in sorted(ZIM_CORS_STATION_NAMES.items())]
     # Pre-populate with auto-detected stations; user can override
     _cors_default = _detected_labels if _detected_labels else st.session_state.get("proc_cors_sel", [])
     _cors_default = [l for l in _cors_default if l in cors_options]
 
     # Station name display — shown where the red line is in the screenshot
     if _detected_labels:
-        _names_str = " · ".join(v for k, v in sorted(ZIM_CORS_STATIONS.items()) if k in _detected_codes)
+        _names_str = " · ".join(
+            v for k, v in sorted(ZIM_CORS_STATION_NAMES.items())
+            if k in _detected_codes
+        )
         st.markdown(
             f"<div style='background:#0d2a1a;border-left:3px solid #00ff88;"
             f"padding:5px 10px;border-radius:4px;margin-bottom:4px;"
@@ -383,7 +452,7 @@ with st.sidebar:
         checked = st.session_state.get(key, True)
         col_cb, col_lbl = st.columns([1, 6])
         with col_cb:
-            val = st.checkbox("", value=checked, key=key, label_visibility="collapsed")
+            val = st.checkbox(label, value=checked, key=key, label_visibility="collapsed")
         with col_lbl:
             bg = color if val else "#1a2a3a"
             st.markdown(
@@ -406,7 +475,7 @@ with st.sidebar:
     out_std    = _gop_checkbox("STD file (Mean TEC)",     "out_std",    "#006622")
     out_bias   = _gop_checkbox("Bias file (DCBs used)",   "out_bias",   "#006622")
     out_img    = _gop_checkbox(_img_label,                "out_img",    "#006622")
-    out_prn    = _gop_checkbox("TEC PRN Images",          "out_prn",    "#886600")
+    out_prn    = _gop_checkbox("TEC PRN Images",          "out_prn",    "#006622")
     out_unbias = _gop_checkbox("(Un)/Bias TEC image",     "out_unbias", "#006622")
 
     st.divider()
@@ -434,24 +503,92 @@ if not run_btn:
             "Click **▶ Start Process** in the sidebar."
         )
     else:
-        st.info("Browse to a folder in the sidebar — all files will be listed for selection.")
+        st.markdown(
+            "<div class='proc-prompt-banner'>"
+            "Browse to a folder in the sidebar — all files will be listed for selection."
+            "</div>",
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("<div class='proc-start-gap'></div>", unsafe_allow_html=True)
 
     if st.button("▶ Start Process", type="primary", key="run_main"):
         st.session_state.proc_run = True
         st.rerun()
 
+    selected_file_names = list(_sel_obs) + list(_sel_cmn)
+    loaded_sites = selected_station_previews(selected_file_names)
+    selected_codes_from_files = {
+        Path(file_name).name[:4].lower()
+        for file_name in selected_file_names
+    }
+    unknown_selected_codes = selected_codes_from_files - set(STATIONS_BY_CODE)
+    loaded_station_count = len(loaded_sites)
+    station_word = "station" if loaded_station_count == 1 else "stations"
+    map_title_col, map_layers_col = st.columns([2, 3])
+    with map_title_col:
+        map_subtitle = (
+            f"{loaded_station_count} {station_word} loaded for processing"
+            if loaded_sites
+            else "No stations loaded for processing. Select RINEX/CMN files to add sites."
+        )
+        st.markdown(
+            "<div style='margin-top:0.6rem'>"
+            "<div style='font-size:1rem;font-weight:800;color:#ffffff'>"
+            "Zimbabwe CORS Processing Map</div>"
+            f"<div style='font-size:0.78rem;color:#ffffff;margin-top:0.15rem'>"
+            f"{map_subtitle}</div>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+    with map_layers_col:
+        processing_map_layer = st.segmented_control(
+            "Processing map layer",
+            MAP_STYLE_OPTIONS,
+            default="Hybrid",
+            selection_mode="single",
+            label_visibility="collapsed",
+            key="processing_map_layer",
+        )
+    if processing_map_layer is None:
+        processing_map_layer = "Hybrid"
+    processing_map_style = MAP_STYLE_KEYS[
+        MAP_STYLE_OPTIONS.index(processing_map_layer)
+    ]
+
+    if loaded_sites:
+        render_cors_station_map(
+            st,
+            loaded_sites,
+            color_by="status",
+            map_style=processing_map_style,
+            height=330,
+            key="processing_loaded_sites",
+        )
+    else:
+        render_cors_station_map(
+            st,
+            [],
+            color_by="status",
+            map_style=processing_map_style,
+            height=330,
+            key="processing_empty_map",
+        )
+        if selected_file_names:
+            st.warning(
+                "The selected filenames do not begin with a known four-letter "
+                "Zimbabwe CORS station code."
+            )
+
+    if unknown_selected_codes:
+        st.caption(
+            "Unmapped file codes: "
+            + ", ".join(sorted(code.upper() for code in unknown_selected_codes))
+        )
+
     st.markdown("---")
     st.subheader("Processing Pipeline")
-    cols = st.columns(len(PROCESSING_STAGES))
-    for i, (stage, icon) in enumerate(PROCESSING_STAGES):
-        with cols[i]:
-            st.markdown(
-                f"<div class='zgiis-card' style='text-align:center;padding:0.7rem'>"
-                f"<div style='font-size:1.5rem'>{icon}</div>"
-                f"<div style='font-size:0.75rem;color:#6888aa;margin-top:4px'>{stage}</div>"
-                f"</div>",
-                unsafe_allow_html=True,
-            )
+    render_pipeline_explorer(PROCESSING_STAGES, key_prefix="proc_pipeline_preview")
     st.stop()
 
 st.session_state.proc_run = False
@@ -481,6 +618,9 @@ cmn_paths:   list[Path] = [cmn_name_to_path[n] for n in st.session_state.get("pr
 
 # ── Pipeline display ──────────────────────────────────────────────────────────
 st.subheader("Processing Pipeline")
+render_pipeline_explorer(PROCESSING_STAGES, key_prefix="proc_pipeline_run")
+
+st.caption("Live processing status")
 prog_cols = st.columns(len(PROCESSING_STAGES))
 stage_placeholders = []
 for i, (stage, icon) in enumerate(PROCESSING_STAGES):
@@ -489,7 +629,7 @@ for i, (stage, icon) in enumerate(PROCESSING_STAGES):
         ph.markdown(
             f"<div class='zgiis-card' style='text-align:center;padding:0.7rem;border-color:#1e3a5f'>"
             f"<div style='font-size:1.5rem'>{icon}</div>"
-            f"<div style='font-size:0.72rem;color:#334455;margin-top:4px'>{stage}</div>"
+            f"<div style='font-size:0.72rem;color:#ffffff;margin-top:4px'>{stage}</div>"
             f"</div>",
             unsafe_allow_html=True,
         )
@@ -499,12 +639,11 @@ for i, (stage, icon) in enumerate(PROCESSING_STAGES):
 def mark_stage(idx: int, done: bool = False) -> None:
     ph, stage, icon = stage_placeholders[idx]
     border = "#00ff88" if done else "#00d4ff"
-    color  = "#00ff88" if done else "#00d4ff"
     tick   = " ✓" if done else " …"
     ph.markdown(
         f"<div class='zgiis-card' style='text-align:center;padding:0.7rem;border-color:{border}'>"
         f"<div style='font-size:1.5rem'>{icon}</div>"
-        f"<div style='font-size:0.72rem;color:{color};margin-top:4px'>{stage}{tick}</div>"
+        f"<div style='font-size:0.72rem;color:#ffffff;margin-top:4px'>{stage}{tick}</div>"
         f"</div>",
         unsafe_allow_html=True,
     )
@@ -563,6 +702,53 @@ selected_codes = [lbl.split(" - ")[0].strip().lower() for lbl in selected_cors]
 if selected_codes:
     all_df = all_df[all_df["station"].isin(selected_codes)]
 mark_stage(5, done=True)
+
+# ── Processed-site TEC map ────────────────────────────────────────────────────
+processed_sites = processed_station_results(all_df)
+if processed_sites:
+    processed_rows = sum(station.observation_count for station in processed_sites)
+    processed_tec_values = [
+        station.current_tec
+        for station in processed_sites
+        if station.current_tec > 0
+    ]
+    mean_station_tec = (
+        float(np.mean(processed_tec_values))
+        if processed_tec_values
+        else 0.0
+    )
+    st.markdown("---")
+    st.subheader("Processed TEC Map")
+    st.caption(
+        f"{len(processed_sites)} processed site(s) · "
+        f"{processed_rows:,} observations · "
+        f"Network mean {mean_station_tec:.2f} TECU"
+    )
+    result_map_layer = st.segmented_control(
+        "Processed map layer",
+        MAP_STYLE_OPTIONS,
+        default=st.session_state.get("processing_map_layer", "TEC Heat Map"),
+        selection_mode="single",
+        label_visibility="collapsed",
+        key="processing_result_map_layer",
+    )
+    if result_map_layer is None:
+        result_map_layer = "TEC Heat Map"
+    result_map_style = MAP_STYLE_KEYS[MAP_STYLE_OPTIONS.index(result_map_layer)]
+    render_cors_station_map(
+        st,
+        processed_sites,
+        color_by="tec",
+        map_style=result_map_style,
+        height=440,
+        show_tec_legend=result_map_style == "tec_heatmap",
+        key="processing_tec_results",
+    )
+else:
+    st.warning(
+        "Processing completed, but none of the result station codes match "
+        "the Zimbabwe CORS registry, so no result map can be drawn."
+    )
 
 # ── GPS_TEC-style dual TEC plots ─────────────────────────────────────────────
 st.markdown("---")

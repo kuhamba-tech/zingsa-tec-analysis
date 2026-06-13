@@ -1,4 +1,4 @@
-"""ZGIIS — Research Centre."""
+"""ZGIIS — TEC Anomaly Detection."""
 from __future__ import annotations
 
 import io
@@ -18,7 +18,7 @@ if str(root) not in sys.path:
 from zgiis.space_weather.fetch_indices import get_space_weather
 from zgiis.theme import inject
 
-st.set_page_config(page_title="ZGIIS — Research Centre", page_icon="🔬", layout="wide")
+st.set_page_config(page_title="ZGIIS — TEC Anomaly Detection", page_icon="🔬", layout="wide")
 inject(st)
 
 
@@ -62,14 +62,14 @@ if "month" not in df.columns:
 sw = get_space_weather()
 
 with st.sidebar:
-    st.markdown("### 🔬 Research Tools")
+    st.markdown("### 🔬 TEC Anomaly Tools")
     anomaly_pct = st.slider("Anomaly threshold (percentile)", 80, 99, 95)
     storm_kp    = st.slider("Storm Kp threshold", 3.0, 9.0, 5.0, 0.5)
     ref_year    = st.selectbox("Reference year (climatology)", sorted(df["year"].unique()), index=0)
     st.divider()
     st.page_link("Home.py", label="← Back to Home")
 
-st.markdown("<div class='zgiis-title' style='font-size:1.7rem'>🔬 Research Centre</div>", unsafe_allow_html=True)
+st.markdown("<div class='zgiis-title' style='font-size:1.7rem'>🔬 TEC Anomaly Detection</div>", unsafe_allow_html=True)
 st.caption("TEC anomaly detection · storm analysis · diurnal/seasonal/solar-cycle tools")
 st.markdown("---")
 
