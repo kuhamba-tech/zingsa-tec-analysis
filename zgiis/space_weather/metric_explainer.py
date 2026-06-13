@@ -149,8 +149,7 @@ def render_sw_metric_cards(st, sw: Dict[str, Any], *, session_key: str = "sw_met
     """Home hero cards (image 1) — click for explanation panel below."""
     st.markdown(
         "<div class='sw-metric-hint' style='font-size:0.72rem;color:#8899bb;"
-        "margin:0 0 0.6rem'>Click a card for an explanation of what the value means.</div>"
-        "<div class='hero-click-row'></div>",
+        "margin:0 0 0.6rem'>Click a card for an explanation of what the value means.</div>",
         unsafe_allow_html=True,
     )
 
@@ -163,7 +162,8 @@ def render_sw_metric_cards(st, sw: Dict[str, Any], *, session_key: str = "sw_met
         active = st.session_state[session_key] == key
         with col:
             st.markdown(
-                _hero_card_html(icon, label, value, note, value_color, selected=active),
+                "<div class='hero-click-slot'></div>"
+                + _hero_card_html(icon, label, value, note, value_color, selected=active),
                 unsafe_allow_html=True,
             )
             if st.button(

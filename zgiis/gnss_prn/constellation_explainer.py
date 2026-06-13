@@ -210,8 +210,7 @@ def render_constellation_cards(
     st_module.markdown(
         "<div class='prn-const-hint' style='font-size:0.72rem;color:#8899bb;"
         "margin:0 0 0.6rem'>Click a card for Chapter 4 explanation of SVs, "
-        "VTEC, quality, and PRN range.</div>"
-        "<div class='hero-click-row'></div>",
+        "VTEC, quality, and PRN range.</div>",
         unsafe_allow_html=True,
     )
 
@@ -225,7 +224,8 @@ def render_constellation_cards(
         active = st_module.session_state[session_key] == name
         with col:
             st_module.markdown(
-                _hero_card_html(
+                "<div class='hero-click-slot'></div>"
+                + _hero_card_html(
                     name, cfg, n_prns, mean_vtec, mean_qual, selected=active
                 ),
                 unsafe_allow_html=True,

@@ -170,7 +170,8 @@ h1 *, h2 *, h3 *, h4 *, h5 *, h6 *,
 }
 
 /* ── Clickable hero cards (Space Weather, PRN Explorer) + invisible overlay ── */
-[data-testid="stMarkdown"]:has(.hero-click-row) + [data-testid="stHorizontalBlock"] {
+.hero-click-slot { display: none; }
+[data-testid="stHorizontalBlock"]:has([data-testid="column"] .hero-click-slot) {
     gap: 0.75rem;
     align-items: stretch;
 }
@@ -181,36 +182,46 @@ h1 *, h2 *, h3 *, h4 *, h5 *, h6 *,
     border-radius: 10px;
     pointer-events: none;
     transition: box-shadow 0.15s, background 0.15s;
+    width: 100%;
+    box-sizing: border-box;
 }
 .hero-click-selected,
 .prn-hero-selected {
     background: rgba(12, 28, 48, 0.98) !important;
     box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.4);
 }
-[data-testid="stMarkdown"]:has(.hero-click-row) + [data-testid="stHorizontalBlock"] [data-testid="column"]:hover .hero-click-card,
-[data-testid="stMarkdown"]:has(.hero-click-row) + [data-testid="stHorizontalBlock"] [data-testid="column"]:hover .prn-hero-card {
+[data-testid="column"]:has(.hero-click-slot) [data-testid="stVerticalBlock"] {
+    position: relative !important;
+    min-height: 148px;
+}
+[data-testid="column"]:has(.hero-click-slot):hover .hero-click-card,
+[data-testid="column"]:has(.hero-click-slot):hover .prn-hero-card {
     background: rgba(12, 28, 48, 0.98);
     box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.35);
 }
-[data-testid="stMarkdown"]:has(.hero-click-row) + [data-testid="stHorizontalBlock"] [data-testid="column"] [data-testid="stVerticalBlock"] > div:nth-child(1) {
+[data-testid="column"]:has(.hero-click-slot) [data-testid="stVerticalBlock"] > div:nth-child(1) {
     margin-bottom: 0 !important;
 }
-[data-testid="stMarkdown"]:has(.hero-click-row) + [data-testid="stHorizontalBlock"] [data-testid="column"] [data-testid="stVerticalBlock"] > div:nth-child(2) {
-    margin-top: -148px !important;
+[data-testid="column"]:has(.hero-click-slot) [data-testid="stVerticalBlock"] > div:nth-child(2) {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
     height: 148px !important;
-    margin-bottom: 0 !important;
-    position: relative !important;
+    margin: 0 !important;
     z-index: 6 !important;
+    padding: 0 !important;
 }
-[data-testid="stMarkdown"]:has(.hero-click-row) + [data-testid="stHorizontalBlock"] [data-testid="column"] [data-testid="stVerticalBlock"] > div:nth-child(2) [data-testid="stButton"] {
+[data-testid="column"]:has(.hero-click-slot) [data-testid="stVerticalBlock"] > div:nth-child(2) [data-testid="stButton"] {
     width: 100% !important;
     height: 148px !important;
 }
-[data-testid="stMarkdown"]:has(.hero-click-row) + [data-testid="stHorizontalBlock"] [data-testid="column"] [data-testid="stVerticalBlock"] > div:nth-child(2) button,
-[data-testid="stMarkdown"]:has(.hero-click-row) + [data-testid="stHorizontalBlock"] [data-testid="column"] [data-testid="stVerticalBlock"] > div:nth-child(2) button[kind="secondary"] {
+[data-testid="column"]:has(.hero-click-slot) [data-testid="stVerticalBlock"] > div:nth-child(2) button,
+[data-testid="column"]:has(.hero-click-slot) [data-testid="stVerticalBlock"] > div:nth-child(2) button[kind="secondary"] {
     width: 100% !important;
     height: 148px !important;
     min-height: 148px !important;
+    max-height: 148px !important;
     opacity: 0 !important;
     cursor: pointer !important;
     border: none !important;
@@ -218,8 +229,12 @@ h1 *, h2 *, h3 *, h4 *, h5 *, h6 *,
     padding: 0 !important;
     margin: 0 !important;
     box-shadow: none !important;
+    font-size: 0 !important;
+    color: transparent !important;
+    white-space: nowrap !important;
+    line-height: 0 !important;
 }
-[data-testid="stMarkdown"]:has(.hero-click-row) + [data-testid="stHorizontalBlock"] [data-testid="column"] [data-testid="stVerticalBlock"] > div:nth-child(2) button * {
+[data-testid="column"]:has(.hero-click-slot) [data-testid="stVerticalBlock"] > div:nth-child(2) button * {
     opacity: 0 !important;
     font-size: 0 !important;
     color: transparent !important;
@@ -314,8 +329,8 @@ h1 *, h2 *, h3 *, h4 *, h5 *, h6 *,
     height: 1.15rem;
 }
 
-/* ── Processing pipeline stage buttons ── */
-button[kind="secondary"] {
+/* ── Processing pipeline stage buttons (scoped — not hero overlay buttons) ── */
+[data-testid="stMarkdown"]:has(.pipeline-explorer-row) + [data-testid="stHorizontalBlock"] button[kind="secondary"] {
     min-height: 108px;
     white-space: pre-line !important;
     line-height: 1.35 !important;
@@ -326,7 +341,7 @@ button[kind="secondary"] {
     border-radius: 10px !important;
     font-weight: 650 !important;
 }
-button[kind="secondary"]:hover {
+[data-testid="stMarkdown"]:has(.pipeline-explorer-row) + [data-testid="stHorizontalBlock"] button[kind="secondary"]:hover {
     border-color: #00d4ff !important;
     background: #102338 !important;
     color: #ffffff !important;

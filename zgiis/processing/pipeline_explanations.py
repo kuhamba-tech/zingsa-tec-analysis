@@ -291,6 +291,7 @@ def render_pipeline_explorer(
     if state_key not in st.session_state:
         st.session_state[state_key] = stage_list[0][0] if stage_list else None
 
+    st.markdown("<div class='pipeline-explorer-row'></div>", unsafe_allow_html=True)
     cols = st.columns(len(stage_list))
 
     for idx, (stage, icon) in enumerate(stage_list):
