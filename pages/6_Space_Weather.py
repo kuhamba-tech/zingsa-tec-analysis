@@ -14,6 +14,9 @@ if str(root) not in sys.path:
     sys.path.insert(0, str(root))
 
 from zgiis.space_weather.fetch_indices import get_space_weather, get_warning_messages, _classify_kp, _risk_color
+from zgiis.space_weather.metric_explainer import render_sw_metric_cards
+from zgiis.space_weather.solar_activity import get_solar_activity
+from zgiis.space_weather.solar_monitor import render_solar_monitor
 from zgiis.theme import inject
 
 st.set_page_config(page_title="ZGIIS — Space Weather", page_icon="☀️", layout="wide")
@@ -24,7 +27,9 @@ with st.sidebar:
     auto_refresh = st.checkbox("Auto-refresh (15 min cache)", value=True)
     if st.button("🔄 Refresh Now"):
         from zgiis.space_weather import fetch_indices as _fi
+        from zgiis.space_weather import solar_activity as _sa
         _fi._CACHE.clear()
+        _sa._CACHE.clear()
     st.divider()
 
     st.markdown("**Kp Scale Reference**")
@@ -55,44 +60,12 @@ st.markdown("---")
 sw = get_space_weather()
 warnings = get_warning_messages(sw)
 
-# ── Primary metrics ───────────────────────────────────────────────────────────
-c1, c2, c3, c4 = st.columns(4)
-with c1:
-    st.markdown(
-        f"<div class='zgiis-card zgiis-card-accent'>"
-        f"<div class='metric-label'>Kp Index</div>"
-        f"<div class='big-metric'>{sw['kp']}</div>"
-        f"<div style='font-size:0.8rem;color:#6888aa'>Planetary geomagnetic</div>"
-        f"</div>",
-        unsafe_allow_html=True,
-    )
-with c2:
-    risk_color = sw["gnss_risk_color"]
-    st.markdown(
-        f"<div class='zgiis-card' style='border-left:3px solid {risk_color}'>"
-        f"<div class='metric-label'>Geomagnetic Condition</div>"
-        f"<div style='font-size:1.5rem;font-weight:700;color:{risk_color}'>{sw['kp_condition']}</div>"
-        f"</div>",
-        unsafe_allow_html=True,
-    )
-with c3:
-    st.markdown(
-        f"<div class='zgiis-card zgiis-card-warn'>"
-        f"<div class='metric-label'>F10.7 Solar Flux</div>"
-        f"<div class='big-metric'>{sw['f107']}</div>"
-        f"<div style='font-size:0.8rem;color:#6888aa'>sfu (solar flux units)</div>"
-        f"</div>",
-        unsafe_allow_html=True,
-    )
-with c4:
-    st.markdown(
-        f"<div class='zgiis-card' style='border-left:3px solid {risk_color}'>"
-        f"<div class='metric-label'>GNSS Risk Level</div>"
-        f"<div style='font-size:1.5rem;font-weight:700;color:{risk_color}'>{sw['gnss_risk']}</div>"
-        f"<div style='font-size:0.78rem;color:#6888aa'>Based on Kp + ionospheric model</div>"
-        f"</div>",
-        unsafe_allow_html=True,
-    )
+# ── Primary metrics (click for explanation) ───────────────────────────────────
+render_sw_metric_cards(st, sw)
+
+# ── Solar Activity Monitor (NOAA SWPC + NASA DONKI + ZINGSA CORS API) ─────────
+solar = get_solar_activity()
+render_solar_monitor(st, solar, kp=float(sw["kp"]), sw=sw)
 
 # ── Warning messages ──────────────────────────────────────────────────────────
 st.markdown("---")

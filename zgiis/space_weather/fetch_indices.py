@@ -134,10 +134,12 @@ def _fallback_data() -> Dict[str, Any]:
         "mode": "demo",
         "source": "ZINGSA CORS demo fallback",
         "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+        "africa_impacts": None,
         "stations_online": None,
         "stations_total": None,
         "stations_degraded": None,
         "stations_offline": None,
+        "station_health": None,
         "api_base": None,
     }
 
@@ -231,6 +233,8 @@ def get_space_weather() -> Dict[str, Any]:
             if stations_online is not None and stations_total:
                 source = f"{source} · CORS health API"
 
+        africa_impacts = africa.get("africa_impacts") if africa else None
+
         return {
             "kp": round(float(kp), 1),
             "kp_condition": condition,
@@ -241,10 +245,12 @@ def get_space_weather() -> Dict[str, Any]:
             "mode": mode,
             "source": source,
             "timestamp": timestamp,
+            "africa_impacts": africa_impacts,
             "stations_online": stations_online,
             "stations_total": stations_total,
             "stations_degraded": stations_degraded,
             "stations_offline": stations_offline,
+            "station_health": health,
             "api_base": api_base,
             "ionosphere_station": iono.get("station") if iono else None,
             "vtec_tecu": iono.get("vtec_tecu") if iono else None,

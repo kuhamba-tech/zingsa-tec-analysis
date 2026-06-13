@@ -398,7 +398,6 @@ div[data-testid="stMarkdownContainer"] .katex {
 .badge-online  { background: #003322; color: #00ff88; border: 1px solid #00ff88; }
 .badge-offline { background: #330011; color: #ff4444; border: 1px solid #ff4444; }
 .badge-degraded{ background: #332200; color: #ff8c00; border: 1px solid #ff8c00; }
-.badge-registered { background: #082f49; color: #38bdf8; border: 1px solid #38bdf8; }
 
 /* ── Warning box ── */
 .warn-box {

@@ -6,7 +6,7 @@ import math
 from typing import Iterable, Literal, TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
-from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS, CorsStation
+from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS, CorsStation, normalize_station_status
 
 if TYPE_CHECKING:
     import folium
@@ -15,10 +15,13 @@ STATUS_COLORS = {
     "online": "#1D9E75",
     "degraded": "#EF9F27",
     "offline": "#ef4444",
-    "registered": "#38bdf8",
-    "loaded": "#00d4ff",
-    "processed": "#00ff88",
 }
+
+
+def _status_color(status: str) -> str:
+    """Return one of the three legend colours — never blue/cyan."""
+    return STATUS_COLORS[normalize_station_status(status)]
+
 
 TILE_LAYERS: dict[str, dict] = {
     "hybrid": {
@@ -59,10 +62,6 @@ TILE_LAYERS: dict[str, dict] = {
 
 MAP_STYLE_OPTIONS = ["Hybrid", "Satellite", "Street", "TEC Heat Map"]
 MAP_STYLE_KEYS = ["hybrid", "satellite", "street", "tec_heatmap"]
-
-
-def _status_color(status: str) -> str:
-    return STATUS_COLORS.get(status, "#94a3b8")
 
 
 def _tec_color(tec: float) -> str:
@@ -134,7 +133,7 @@ def _station_popup_html(
         else ""
     )
     const_str = " · ".join(station.constellations) or "—"
-    status = station.status.upper()
+    status = normalize_station_status(station.status).upper()
     status_color = _status_color(station.status)
     height_str = f"{station.height_m:,.1f} m" if station.height_m else "—"
     data_details = ""
@@ -265,7 +264,7 @@ def build_cors_folium_map(
                     {% macro html(this, kwargs) %}
                     <div style="
                         position: fixed;
-                        top: 70px;
+                        top: 30px;
                         right: 18px;
                         z-index: 9999;
                         width: 118px;
@@ -310,7 +309,8 @@ def build_cors_folium_map(
     for station in station_list:
         tec_value, is_estimated = map_tec_values[station.code]
         use_tec_color = color_by == "tec" or map_style == "tec_heatmap"
-        color = _tec_color(tec_value) if use_tec_color else _status_color(station.status)
+        map_status = normalize_station_status(station.status)
+        color = _tec_color(tec_value) if use_tec_color else _status_color(map_status)
         estimate_suffix = " (estimated)" if is_estimated else ""
         CircleMarker(
             location=[station.lat, station.lon],
@@ -392,7 +392,7 @@ def render_cors_station_map(
         show_tec_legend=show_tec_legend,
     )
     station_signature = "-".join(
-        f"{station.code}-{station.current_tec:.1f}"
+        f"{station.code}-{normalize_station_status(station.status)}-{station.current_tec:.1f}"
         for station in station_list
     )
     st_folium(

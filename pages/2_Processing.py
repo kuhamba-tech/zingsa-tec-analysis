@@ -23,6 +23,7 @@ from zgiis.maps.station_map import (
     render_cors_station_map,
 )
 from zgiis.processing.pipeline_explanations import render_pipeline_explorer
+from zgiis.processing.vtec_summary_charts import render_vtec_summary_charts
 from zgiis.theme import inject
 
 st.set_page_config(page_title="ZGIIS — Processing", page_icon="⚙️", layout="wide")
@@ -61,7 +62,38 @@ DEFAULT_FOLDER = r"C:\Users\Tapiwa\Documents\Timothy\ZINGSA\Space Science\TEC AN
 
 # RINEX 2 obs extensions: plain .o and year-specific e.g. .24o
 OBS_PATTERNS = ("*.o", "*.O", "*.??o", "*.??O", "*.obs", "*.OBS", "*.rnx", "*.RNX")
-NAV_SUFFIXES  = {".n", ".g", ".nav", ".NAV", ".N", ".G"}
+NAV_N_PATTERNS = ("*.n", "*.N", "*.??n", "*.??N", "*.nav", "*.NAV")
+NAV_G_PATTERNS = ("*.g", "*.G", "*.??g", "*.??G")
+NAV_SUFFIXES = {".n", ".g", ".nav", ".NAV", ".N", ".G"}
+
+
+def nav_file_kind(path: Path) -> str | None:
+    """Return 'n' (GPS nav), 'g' (GLONASS nav), or None."""
+    suffix = path.suffix.lower()
+    if suffix in {".nav", ".n"}:
+        return "n"
+    if suffix == ".g":
+        return "g"
+    if len(suffix) == 4:
+        if suffix[-1] == "n":
+            return "n"
+        if suffix[-1] == "g":
+            return "g"
+    return None
+
+
+def is_obs_file(path: Path) -> bool:
+    name = path.name.lower()
+    if name.endswith(".cmn"):
+        return False
+    return nav_file_kind(path) is None
+
+
+def is_nav_file(path: Path, kinds: tuple[str, ...] | None = None) -> bool:
+    kind = nav_file_kind(path)
+    if kind is None:
+        return False
+    return kind in kinds if kinds else True
 
 
 def browse_folder_dialog(initial_dir: str | None = None) -> str | None:
@@ -78,20 +110,42 @@ def browse_folder_dialog(initial_dir: str | None = None) -> str | None:
         return None
 
 
-def browse_files_dialog(initial_dir: str | None = None) -> list[str]:
-    """Open native Windows multi-file picker for RINEX obs / CMN files."""
+def browse_files_dialog(
+    initial_dir: str | None = None,
+    *,
+    include_obs: bool = True,
+    nav_kinds: tuple[str, ...] = ("n", "g"),
+) -> list[str]:
+    """Open native Windows multi-file picker for RINEX obs and/or nav (.n / .g) files."""
     try:
         import tkinter as tk
         from tkinter import filedialog
         r = tk.Tk(); r.withdraw(); r.attributes("-topmost", True)
         start = initial_dir if initial_dir and Path(initial_dir).exists() else str(Path.home())
+        patterns: list[str] = []
+        labels: list[str] = []
+        if include_obs:
+            patterns += [
+                "*.24o", "*.24O", "*.23o", "*.23O", "*.22o", "*.21o", "*.20o",
+                "*.o", "*.O", "*.obs", "*.OBS", "*.rnx", "*.RNX",
+            ]
+            labels.append("obs")
+        if "n" in nav_kinds:
+            patterns += ["*.24n", "*.24N", "*.23n", "*.23N", "*.n", "*.N", "*.nav", "*.NAV"]
+            labels.append("GPS nav (.n)")
+        if "g" in nav_kinds:
+            patterns += ["*.24g", "*.24G", "*.23g", "*.23G", "*.g", "*.G"]
+            labels.append("GLONASS nav (.g)")
+        if not patterns:
+            st.warning("Select at least one file type: obs (.o), GPS nav (.n), or GLONASS nav (.g).")
+            r.destroy()
+            return []
+        title = "Select RINEX files — " + ", ".join(labels)
         selected = filedialog.askopenfilenames(
-            title="Select RINEX obs / CMN files",
+            title=title,
             initialdir=start,
             filetypes=[
-                ("RINEX obs / CMN",
-                 "*.24o *.24O *.23o *.23O *.22o *.21o *.20o "
-                 "*.o *.O *.obs *.OBS *.rnx *.RNX *.Cmn *.cmn"),
+                (title, " ".join(patterns)),
                 ("All files", "*.*"),
             ],
         )
@@ -113,6 +167,18 @@ def find_obs_files(folder: Path) -> list[Path]:
 
 def find_cmn_files(folder: Path) -> list[Path]:
     return sorted(set(list(folder.rglob("*.Cmn")) + list(folder.rglob("*.cmn"))))
+
+
+def find_nav_files(folder: Path, kinds: tuple[str, ...] = ("n", "g")) -> list[Path]:
+    """Find RINEX navigation files — year-specific .24n/.24g and plain .n/.g."""
+    seen: set[Path] = set()
+    if "n" in kinds:
+        for pat in NAV_N_PATTERNS:
+            seen.update(folder.rglob(pat))
+    if "g" in kinds:
+        for pat in NAV_G_PATTERNS:
+            seen.update(folder.rglob(pat))
+    return sorted(p for p in seen if nav_file_kind(p) in kinds)
 
 
 def parse_rinex_obs_date(path: Path) -> pd.Timestamp | None:
@@ -214,7 +280,13 @@ def processed_station_results(df: pd.DataFrame):
 
 
 # ── Session state ─────────────────────────────────────────────────────────────
-for _k, _v in [("proc_run", False), ("proc_folder", DEFAULT_FOLDER)]:
+for _k, _v in [
+    ("proc_run", False),
+    ("proc_folder", DEFAULT_FOLDER),
+    ("proc_browse_obs", True),
+    ("proc_browse_n", True),
+    ("proc_browse_g", True),
+]:
     if _k not in st.session_state:
         st.session_state[_k] = _v
 
@@ -233,16 +305,44 @@ with st.sidebar:
                 st.rerun()
     with bc2:
         if st.button("📄 Browse files…", use_container_width=True):
-            picked_files = browse_files_dialog(st.session_state.proc_folder)
+            nav_kinds = tuple(
+                k for k, enabled in (("n", st.session_state.proc_browse_n), ("g", st.session_state.proc_browse_g))
+                if enabled
+            )
+            picked_files = browse_files_dialog(
+                st.session_state.proc_folder,
+                include_obs=st.session_state.proc_browse_obs,
+                nav_kinds=nav_kinds,
+            )
             if picked_files:
-                st.session_state["proc_file_overrides"] = picked_files
+                existing = st.session_state.get("proc_file_overrides", [])
+                merged = list(dict.fromkeys(existing + picked_files))
+                st.session_state["proc_file_overrides"] = merged
                 st.session_state.proc_folder = str(Path(picked_files[0]).parent)
+                # Pre-select browsed obs and nav files in their respective lists
+                obs_picked = [Path(p).name for p in picked_files if is_obs_file(Path(p))]
+                nav_picked = [Path(p).name for p in picked_files if is_nav_file(Path(p))]
+                if obs_picked:
+                    prev_obs = st.session_state.get("proc_obs_sel", [])
+                    st.session_state["proc_obs_sel"] = list(dict.fromkeys(prev_obs + obs_picked))
+                if nav_picked:
+                    prev_nav = st.session_state.get("proc_nav_sel", [])
+                    st.session_state["proc_nav_sel"] = list(dict.fromkeys(prev_nav + nav_picked))
                 st.rerun()
+
+    st.caption("Browse file types (G/N/O triplets — e.g. karo1140.24o / .24n / .24g)")
+    bt1, bt2, bt3 = st.columns(3)
+    with bt1:
+        st.checkbox("Obs (.o)", key="proc_browse_obs")
+    with bt2:
+        st.checkbox("GPS nav (.n)", key="proc_browse_n")
+    with bt3:
+        st.checkbox("GLONASS nav (.g)", key="proc_browse_g")
 
     data_folder = st.text_input(
         "Folder path",
         value=st.session_state.proc_folder,
-        help="Browse folder = scan whole folder and pick from list  |  Browse files = pick specific files directly.",
+        help="Browse folder = scan whole folder  |  Browse files = pick obs (.o) and/or nav (.n / .g) files.",
     )
     st.session_state.proc_folder = data_folder
 
@@ -250,10 +350,16 @@ with st.sidebar:
     _fp = Path(data_folder)
     all_obs_in_folder: list[Path] = []
     all_cmn_in_folder: list[Path] = []
+    all_nav_in_folder: list[Path] = []
 
     if _fp.exists() and _fp.is_dir():
         all_obs_in_folder = find_obs_files(_fp)
         all_cmn_in_folder = find_cmn_files(_fp)
+        all_nav_in_folder = find_nav_files(_fp, kinds=("n", "g"))
+
+    _overrides = st.session_state.get("proc_file_overrides", [])
+    _override_obs = [Path(p) for p in _overrides if is_obs_file(Path(p))]
+    _override_nav = [Path(p) for p in _overrides if is_nav_file(Path(p))]
 
     st.divider()
 
@@ -296,11 +402,6 @@ with st.sidebar:
         obs_names = [p.name for p in filtered_obs]
 
         # Merge any files picked via "Browse files…"
-        _overrides = st.session_state.get("proc_file_overrides", [])
-        _override_obs = [
-            Path(p) for p in _overrides
-            if Path(p).suffix not in {".24n", ".24g", ".23n", ".23g", ".n", ".g", ".nav", ".Cmn", ".cmn"}
-        ]
         for _p in _override_obs:
             if _p.name not in obs_names:
                 obs_names.append(_p.name)
@@ -309,10 +410,6 @@ with st.sidebar:
 
         # GPS_TEC-style status block: Type / total found / selected count
         _override_names = [p.name for p in _override_obs]
-        # Default: only files explicitly browsed are pre-selected (never auto-select all)
-        default_sel = st.session_state.get("proc_obs_sel", _override_names)
-        default_sel = [n for n in default_sel if n in obs_names]
-
         default_sel = st.session_state.get("proc_obs_sel", _override_names)
         default_sel = [n for n in default_sel if n in obs_names]
         st.session_state["proc_obs_sel"] = default_sel
@@ -344,6 +441,77 @@ with st.sidebar:
     else:
         selected_obs_names = []
         filtered_obs = []
+
+    # ── RINEX nav file list (.n / .g) ─────────────────────────────────────────
+    load_nav = st.checkbox("Load RINEX nav files", value=True, key="load_nav")
+
+    if load_nav:
+        nav_kinds_show = tuple(
+            k for k, on in (("n", st.session_state.proc_browse_n), ("g", st.session_state.proc_browse_g)) if on
+        )
+        filtered_nav = [p for p in all_nav_in_folder if nav_file_kind(p) in nav_kinds_show]
+        nav_names = [p.name for p in filtered_nav]
+
+        for _p in _override_nav:
+            if _p.name not in nav_names:
+                nav_names.append(_p.name)
+                filtered_nav.append(_p)
+
+        default_nav = st.session_state.get("proc_nav_sel", [])
+        default_nav = [n for n in default_nav if n in nav_names]
+        st.session_state["proc_nav_sel"] = default_nav
+        n_nav = len(default_nav)
+        n_gps = sum(1 for n in nav_names if nav_file_kind(Path(n)) == "n")
+        n_glo = sum(1 for n in nav_names if nav_file_kind(Path(n)) == "g")
+
+        if nav_names:
+            kind_bits = []
+            if "n" in nav_kinds_show:
+                kind_bits.append(f".n: {n_gps}")
+            if "g" in nav_kinds_show:
+                kind_bits.append(f".g: {n_glo}")
+            kind_str = " · ".join(kind_bits)
+            st.markdown(
+                f"<div style='font-size:0.76rem;color:#dbeafe;margin-bottom:0.3rem;white-space:nowrap'>"
+                f"<span style='color:#00d4ff'>NAV</span>"
+                f" · <span style='color:#00ff88;font-weight:700'>Found: {len(nav_names)}</span>"
+                f" ({kind_str})"
+                f" · <span style='color:#f0c040'>Selected: {n_nav}</span>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+            na1, na2 = st.columns(2)
+            with na1:
+                if st.button("Select all", use_container_width=True, key="nav_sel_all"):
+                    st.session_state["proc_nav_sel"] = nav_names
+                    st.rerun()
+            with na2:
+                if st.button("Clear all", use_container_width=True, key="nav_sel_none"):
+                    st.session_state["proc_nav_sel"] = []
+                    st.rerun()
+            selected_nav_names = st.session_state.get("proc_nav_sel", [])
+            if selected_obs_names:
+                nav_sel_set = set(selected_nav_names)
+                triplet_ok = 0
+                for obs_name in selected_obs_names:
+                    stem = Path(obs_name).stem
+                    yr = Path(obs_name).suffix[1:3] if len(Path(obs_name).suffix) == 4 else ""
+                    n_name = f"{stem}.{yr}n" if yr else f"{stem}.n"
+                    g_name = f"{stem}.{yr}g" if yr else f"{stem}.g"
+                    has_n = n_name in nav_sel_set or (Path(data_folder) / n_name).exists()
+                    has_g = g_name in nav_sel_set or (Path(data_folder) / g_name).exists()
+                    if has_n or has_g:
+                        triplet_ok += 1
+                st.caption(
+                    f"G/N/O triplet check: {triplet_ok}/{len(selected_obs_names)} obs files "
+                    f"have a matching .n or .g nav file."
+                )
+        else:
+            st.caption("NAV · Found: 0 · Selected: 0 — no .n/.g files for this folder/filter.")
+            selected_nav_names = []
+    else:
+        selected_nav_names = []
+        filtered_nav = []
 
     st.divider()
 
@@ -496,10 +664,11 @@ if not run_btn:
     # Show GOP-style summary in main area
     _sel_obs = st.session_state.get("proc_obs_sel", [])
     _sel_cmn = st.session_state.get("proc_cmn_sel", [])
+    _sel_nav = st.session_state.get("proc_nav_sel", [])
 
-    if _sel_obs or _sel_cmn:
+    if _sel_obs or _sel_cmn or _sel_nav:
         st.success(
-            f"Ready: **{len(_sel_obs)}** RINEX obs file(s) + **{len(_sel_cmn)}** CMN file(s) selected. "
+            f"Ready: **{len(_sel_obs)}** RINEX obs + **{len(_sel_nav)}** nav (.n/.g) + **{len(_sel_cmn)}** CMN selected. "
             "Click **▶ Start Process** in the sidebar."
         )
     else:
@@ -614,9 +783,17 @@ cfg = TecConfig(
 # Map names back to full paths
 obs_name_to_path = {p.name: p for p in filtered_obs}
 cmn_name_to_path = {p.name: p for p in filtered_cmn}
+_nav_kinds = tuple(k for k, on in (("n", st.session_state.proc_browse_n), ("g", st.session_state.proc_browse_g)) if on)
+_override_nav_run = [Path(p) for p in st.session_state.get("proc_file_overrides", []) if is_nav_file(Path(p))]
+_all_nav = find_nav_files(folder, kinds=_nav_kinds or ("n", "g")) if folder.exists() else []
+for _p in _override_nav_run:
+    if _p.name not in {n.name for n in _all_nav}:
+        _all_nav.append(_p)
+nav_name_to_path = {p.name: p for p in _all_nav}
 
 rinex_paths: list[Path] = [obs_name_to_path[n] for n in st.session_state.get("proc_obs_sel", []) if n in obs_name_to_path]
 cmn_paths:   list[Path] = [cmn_name_to_path[n] for n in st.session_state.get("proc_cmn_sel", []) if n in cmn_name_to_path]
+nav_paths:   list[Path] = [nav_name_to_path[n] for n in st.session_state.get("proc_nav_sel", []) if n in nav_name_to_path]
 
 # ── Pipeline display ──────────────────────────────────────────────────────────
 st.subheader("Processing Pipeline")
@@ -656,6 +833,11 @@ st.markdown("---")
 # Stage 0 — file loading
 mark_stage(0)
 st.write(f"RINEX obs files to process: **{len(rinex_paths)}**")
+st.write(f"RINEX nav files selected: **{len(nav_paths)}** (.n GPS / .g GLONASS)")
+if nav_paths:
+    n_count = sum(1 for p in nav_paths if nav_file_kind(p) == "n")
+    g_count = sum(1 for p in nav_paths if nav_file_kind(p) == "g")
+    st.caption(f"Nav breakdown: {n_count} GPS (.n) · {g_count} GLONASS (.g)")
 st.write(f"CMN files to process: **{len(cmn_paths)}**")
 
 if not rinex_paths and not cmn_paths:
@@ -991,6 +1173,10 @@ yearly      = summarize_yearly(daily)
 daily_st    = summarize_daily_by_station(all_df)
 daily_st    = add_storm_intensity_index(daily_st)
 mark_stage(6, done=True)
+
+# ── GOP VTEC summary graphs (day=hours, month=days, year=months) ─────────────
+st.markdown("---")
+render_vtec_summary_charts(st, all_df, daily_st, processing_mode)
 
 # ── Key metrics ───────────────────────────────────────────────────────────────
 st.markdown("---")

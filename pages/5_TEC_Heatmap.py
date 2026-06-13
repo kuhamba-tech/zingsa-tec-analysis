@@ -13,7 +13,7 @@ root = Path(__file__).resolve().parents[1]
 if str(root) not in sys.path:
     sys.path.insert(0, str(root))
 
-from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
+from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS, normalize_station_status
 from zgiis.maps.interpolation import interpolate_tec, make_plotly_heatmap_trace
 from zgiis.theme import inject
 
@@ -86,17 +86,16 @@ with st.spinner("Interpolating TEC grid..."):
 # ── Station markers ───────────────────────────────────────────────────────────
 if show_stations:
     status_colors = {
-        "online": "#00ff88",
-        "degraded": "#ff8c00",
-        "offline": "#ff4444",
-        "registered": "#38bdf8",
+        "online": "#1D9E75",
+        "degraded": "#EF9F27",
+        "offline": "#ef4444",
     }
     traces.append(go.Scattermapbox(
         lat=sdf["lat"].tolist(), lon=sdf["lon"].tolist(),
         mode="markers+text" if show_labels else "markers",
         marker=dict(
             size=16,
-            color=[status_colors.get(r, "#888") for r in sdf["status"]],
+            color=[status_colors.get(normalize_station_status(r), "#94a3b8") for r in sdf["status"]],
             opacity=0.9,
         ),
         text=sdf["code"].str.upper().tolist() if show_labels else None,

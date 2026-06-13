@@ -13,7 +13,7 @@ if str(root) not in sys.path:
 
 logo_path = root / "static" / "zingsa_logo.png"
 
-from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
+from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS, stations_for_map
 from zgiis.maps.station_map import MAP_STYLE_KEYS, MAP_STYLE_OPTIONS, render_cors_station_map
 from zgiis.space_weather.fetch_indices import get_space_weather, get_warning_messages
 from zgiis.space_weather.kp_scale import build_synchronized_kp_scales_html
@@ -152,6 +152,7 @@ with map_risk:
 
 render_cors_station_map(
     st,
+    stations=stations_for_map(sw.get("station_health")),
     color_by="status",
     map_style=home_map_style,
     height=400,
@@ -196,6 +197,34 @@ else:
         "</div>",
         unsafe_allow_html=True,
     )
+# ── Scintillation Risk Assessment ────────────────────────────────────────────
+st.subheader("Scintillation Risk Assessment")
+
+_tec_vals = [s.current_tec for s in ZIMBABWE_CORS_STATIONS if s.current_tec > 0]
+_high_tec  = sum(1 for v in _tec_vals if v > 30)
+_nominal   = sum(1 for v in _tec_vals if 15 <= v <= 30)
+_low_tec   = sum(1 for v in _tec_vals if v < 15)
+
+_risk_c1, _risk_c2, _risk_c3 = st.columns(3)
+for _col, _title, _count, _range, _note, _title_color, _border_color in [
+    (_risk_c1, "High TEC Zones",  _high_tec, "STATIONS > 30 TECU",   "Possible scintillation risk · RTK degradation", "#ff4444", "#ff4444"),
+    (_risk_c2, "Nominal Zones",   _nominal,  "STATIONS 15–30 TECU",  "Normal ionospheric conditions",                 "#00ff88", "#00ff88"),
+    (_risk_c3, "Low TEC Zones",   _low_tec,  "STATIONS < 15 TECU",   "Post-storm depletion or nighttime conditions",  "#94a3b8", "#334155"),
+]:
+    with _col:
+        st.markdown(
+            f"<div style='background:#0d1b2a;border:1px solid #1e3a5f;"
+            f"border-left:4px solid {_border_color};border-radius:10px;"
+            f"padding:1.1rem 1.3rem;margin-bottom:0.7rem'>"
+            f"<div style='font-size:1rem;font-weight:800;color:{_title_color};margin-bottom:0.5rem'>{_title}</div>"
+            f"<div style='font-size:2.4rem;font-weight:700;color:#00d4ff;line-height:1.1'>{_count}</div>"
+            f"<div style='font-size:0.72rem;color:#6888aa;text-transform:uppercase;"
+            f"letter-spacing:0.08em;margin:0.4rem 0 0.5rem'>{_range}</div>"
+            f"<div style='font-size:0.8rem;color:{_title_color};opacity:0.85'>{_note}</div>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+
 st.markdown("---")
 
 # ── Module cards ─────────────────────────────────────────────────────────────

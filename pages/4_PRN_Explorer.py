@@ -14,6 +14,7 @@ root = Path(__file__).resolve().parents[1]
 if str(root) not in sys.path:
     sys.path.insert(0, str(root))
 
+from zgiis.prn.constellation_explainer import render_constellation_cards
 from zgiis.theme import inject
 
 st.set_page_config(page_title="ZGIIS — PRN Explorer", page_icon="🛸", layout="wide")
@@ -86,21 +87,8 @@ st.markdown("<div class='zgiis-title' style='font-size:1.7rem'>🛸 Satellite PR
 st.caption("GPS · Galileo · BeiDou · GLONASS — per-satellite TEC and geometry analysis")
 st.markdown("---")
 
-# ── Constellation summary cards ───────────────────────────────────────────────
-cols = st.columns(4)
-for i, (cname, ccfg) in enumerate(CONSTELLATIONS.items()):
-    with cols[i]:
-        prns_in_data = df[df["constellation"] == cname]["prn"].nunique()
-        st.markdown(
-            f"<div class='zgiis-card' style='border-left:3px solid {ccfg['color']}'>"
-            f"<div style='font-weight:700;color:{ccfg['color']}'>{cname}</div>"
-            f"<div class='big-metric' style='font-size:1.5rem'>{prns_in_data}</div>"
-            f"<div class='metric-label'>satellites in data</div>"
-            f"<div style='font-size:0.75rem;color:#446688;margin-top:3px'>"
-            f"{ccfg['prefix']}01–{ccfg['prefix']}{ccfg['max_prn']:02d}</div>"
-            f"</div>",
-            unsafe_allow_html=True,
-        )
+# ── Constellation summary cards (click for Chapter 4 explanation) ─────────────
+render_constellation_cards(st, df, CONSTELLATIONS)
 
 st.markdown("---")
 
