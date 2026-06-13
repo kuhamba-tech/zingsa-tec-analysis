@@ -1,7 +1,38 @@
+# Python
 .venv/
+venv/
+env/
 __pycache__/
 *.py[cod]
+*.pyo
+*.pyd
+
+# Streamlit / secrets
 .streamlit/
+secrets.toml
+
+# Cache / tools
 .pytest_cache/
 .ruff_cache/
+.idea/
+.vscode/
+pyrightconfig.json
 *.log
+*.tmp
+*.bak
+Thumbs.db
+.DS_Store
+
+# RINEX / processed output files (large, stored outside this repo)
+*.24o
+*.24n
+*.24g
+*.obs
+*.nav
+*.CMN
+*.Cmn
+*.cmn
+*.Std
+*.Bias
+*_page?.png
+*-wbias.png
