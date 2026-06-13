@@ -442,12 +442,19 @@ div[data-testid="stMarkdownContainer"] .katex {
     font-weight: 600 !important;
     font-size: 0.95rem !important;
 }
-button[kind="primary"],
-button[kind="primary"] p,
-button[kind="primary"] span,
-button[kind="primary"] * {
+button[kind="primary"] {
     background: linear-gradient(90deg, #004466, #006688) !important;
     border: 1px solid #00d4ff !important;
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+}
+button[kind="primary"] p,
+button[kind="primary"] span,
+button[kind="primary"] div,
+button[kind="primary"] * {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
     color: #ffffff !important;
     -webkit-text-fill-color: #ffffff !important;
 }

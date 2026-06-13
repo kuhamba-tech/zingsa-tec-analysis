@@ -223,15 +223,15 @@ def build_cors_folium_map(
                 radius=48,
                 blur=34,
                 gradient={
-                    0.15: "#000080",
-                    0.35: "#0080ff",
-                    0.55: "#00ff80",
-                    0.75: "#ffcc00",
+                    0.0: "#000080",
+                    0.25: "#0080ff",
+                    0.5: "#00ff80",
+                    0.75: "#ff8000",
                     1.0: "#ff0000",
                 },
             ).add_to(m)
 
-            if show_tec_legend:
+            if show_tec_legend or map_style == "tec_heatmap":
                 tec_values = [point[2] for point in heat_points]
                 tec_min = math.floor(min(tec_values) * 2) / 2
                 tec_max = math.ceil(max(tec_values) * 2) / 2
@@ -294,7 +294,7 @@ def build_cors_folium_map(
                                     #000080 0%,
                                     #0080ff 25%,
                                     #00ff80 50%,
-                                    #ffcc00 75%,
+                                    #ff8000 75%,
                                     #ff0000 100%
                                 );
                             "></div>

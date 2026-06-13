@@ -563,6 +563,7 @@ if not run_btn:
             color_by="status",
             map_style=processing_map_style,
             height=330,
+            show_tec_legend=processing_map_style == "tec_heatmap",
             key="processing_loaded_sites",
         )
     else:
@@ -572,6 +573,7 @@ if not run_btn:
             color_by="status",
             map_style=processing_map_style,
             height=330,
+            show_tec_legend=processing_map_style == "tec_heatmap",
             key="processing_empty_map",
         )
         if selected_file_names:

@@ -155,28 +155,47 @@ render_cors_station_map(
     color_by="status",
     map_style=home_map_style,
     height=400,
+    show_tec_legend=home_map_style == "tec_heatmap",
 )
-st.markdown(
-    (
-        "<div class='tec-map-legend'>"
-        "<span class='tec-map-legend-title'>TEC Intensity</span>"
-        "<span class='tec-gradient'></span>"
-        "<span><b>Low TEC</b></span><span><b>High TEC</b></span>"
-        "<span class='tec-map-legend-note'>Blue indicates lower ionospheric electron content; "
-        "yellow and red indicate higher TEC. Popups identify measured readings and spatial estimates.</span>"
+if home_map_style == "tec_heatmap":
+    st.markdown(
+        "<div style='display:flex;flex-wrap:wrap;align-items:center;gap:18px;"
+        "margin-top:0.4rem;margin-bottom:0.5rem;padding:0.75rem 1rem;"
+        "background:#0d1b2a;border:1px solid #1e3a5f;border-left:4px solid #00d4ff;"
+        "border-radius:10px'>"
+        # gradient bar
+        "<div style='display:flex;flex-direction:column;align-items:center;gap:4px;flex-shrink:0'>"
+        "<span style='font-size:0.62rem;color:#94a3b8;font-weight:700;text-transform:uppercase;"
+        "letter-spacing:0.05em'>Low TEC</span>"
+        "<div style='width:160px;height:14px;border-radius:6px;border:1px solid #334155;"
+        "background:linear-gradient(to right,#000080,#0080ff,#00ff80,#ffcc00,#ff0000)'></div>"
+        "<span style='font-size:0.62rem;color:#94a3b8;font-weight:700;text-transform:uppercase;"
+        "letter-spacing:0.05em'>High TEC</span>"
         "</div>"
-        if home_map_style == "tec_heatmap"
-        else
+        # explanation text
+        "<div style='font-size:0.80rem;color:#cbd5e1;line-height:1.55;flex:1'>"
+        "<b style='color:#ffffff'>TEC Heat Map</b> &mdash; "
+        "Colour represents Vertical Total Electron Content (VTEC) interpolated across Zimbabwe. "
+        "<span style='color:#5599ff'>Blue</span> = low ionospheric electron content; "
+        "<span style='color:#00ff88'>green</span> = moderate; "
+        "<span style='color:#ff4400'>red</span> = high TEC. "
+        "Station dots show measured (bright) and spatially estimated (dim) VTEC values. "
+        "Click any dot for details."
+        "</div>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+else:
+    st.markdown(
         "<div style='display:flex;flex-wrap:wrap;gap:14px;margin-top:-0.4rem;margin-bottom:0.6rem'>"
         "<span style='font-size:0.72rem;color:#94a3b8;font-weight:700;text-transform:uppercase;"
         "letter-spacing:0.05em'>Station Status</span>"
         "<span style='font-size:0.72rem;color:#cbd5e1'><span style='color:#1D9E75'>●</span> ONLINE</span>"
         "<span style='font-size:0.72rem;color:#cbd5e1'><span style='color:#EF9F27'>●</span> DEGRADED</span>"
         "<span style='font-size:0.72rem;color:#cbd5e1'><span style='color:#ff4444'>●</span> OFFLINE</span>"
-        "</div>"
-    ),
-    unsafe_allow_html=True,
-)
+        "</div>",
+        unsafe_allow_html=True,
+    )
 st.markdown("---")
 
 # ── Module cards ─────────────────────────────────────────────────────────────
