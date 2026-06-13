@@ -1,59 +1,11 @@
-"""Clickable Space Weather metric cards with value explanations."""
+"""Clickable Space Weather metric cards — Home hero design + explanations."""
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 import streamlit as st
 
-METRIC_CSS = """
-<style>
-.sw-metric-hint {
-    font-size: 0.72rem;
-    color: #8899bb;
-    margin: 0 0 0.45rem;
-}
-div[data-testid="column"] .sw-metric-active button[kind="secondary"] {
-    border-color: #00d4ff !important;
-    box-shadow: 0 0 0 1px rgba(0, 212, 255, 0.35);
-    background: rgba(0, 212, 255, 0.08) !important;
-}
-.sw-explain-panel {
-    background: linear-gradient(135deg, rgba(13, 27, 42, 0.95), rgba(6, 13, 26, 0.98));
-    border: 1px solid rgba(0, 212, 255, 0.28);
-    border-radius: 12px;
-    padding: 1.1rem 1.3rem;
-    margin: 0.6rem 0 1rem;
-}
-.sw-explain-title {
-    font-size: 1.05rem;
-    font-weight: 800;
-    color: #ffffff;
-    margin-bottom: 0.35rem;
-}
-.sw-explain-value {
-    font-size: 0.82rem;
-    color: #00d4ff;
-    font-weight: 700;
-    margin-bottom: 0.65rem;
-}
-.sw-explain-body {
-    font-size: 0.88rem;
-    color: #c8dcf0;
-    line-height: 1.55;
-    margin: 0 0 0.75rem;
-}
-.sw-explain-scale {
-    display: grid;
-    gap: 0.35rem;
-    margin-top: 0.5rem;
-}
-.sw-explain-scale span {
-    font-size: 0.78rem;
-    color: #8899bb;
-}
-.sw-explain-scale strong { color: #e2e8f0; }
-</style>
-"""
+HERO_CYAN = "#00d4ff"
 
 METRIC_KEYS = ("kp", "geomagnetic", "f107", "gnss_risk")
 
@@ -127,14 +79,36 @@ METRIC_EXPLANATIONS: Dict[str, Dict[str, Any]] = {
 }
 
 
-def _metric_button_label(metric_key: str, sw: Dict[str, Any]) -> str:
-    if metric_key == "kp":
-        return f"Kp Index\n{sw['kp']}\nPlanetary geomagnetic"
-    if metric_key == "geomagnetic":
-        return f"Geomagnetic Condition\n{sw['kp_condition']}"
-    if metric_key == "f107":
-        return f"F10.7 Solar Flux\n{sw['f107']}\nsfu (solar flux units)"
-    return f"GNSS Risk Level\n{sw['gnss_risk']}\nBased on Kp + ionospheric model"
+def _metric_card_specs(sw: Dict[str, Any]) -> list[Tuple[str, str, str, str, str, str]]:
+    """Icon, label, value, note, value_color — matches Home.py hero cards."""
+    risk_color = sw.get("gnss_risk_color", "#1D9E75")
+    kp_color = sw.get("kp_color", HERO_CYAN)
+    return [
+        ("kp", "🧭", "Kp Index", str(sw["kp"]), "Planetary activity", HERO_CYAN),
+        ("geomagnetic", "🌌", "Geomagnetic condition", str(sw["kp_condition"]), "Current state", kp_color),
+        ("f107", "☀️", "Solar Flux", str(sw["f107"]), "Solar flux units", HERO_CYAN),
+        ("gnss_risk", "🛰️", "GNSS Risk", str(sw["gnss_risk"]), "Navigation impact", risk_color),
+    ]
+
+
+def _hero_card_html(
+    icon: str,
+    label: str,
+    value: str,
+    note: str,
+    value_color: str,
+    *,
+    selected: bool = False,
+) -> str:
+    selected_cls = " hero-click-selected" if selected else ""
+    return (
+        f"<div class='zgiis-card zgiis-card-accent hero-status-card hero-click-card{selected_cls}'>"
+        f"<span class='hero-status-icon'>{icon}</span>"
+        f"<div class='hero-status-label'>{label}</div>"
+        f"<div class='hero-status-value' style='color:{value_color}'>{value}</div>"
+        f"<div class='hero-status-note'>{note}</div>"
+        f"</div>"
+    )
 
 
 def _current_value_line(metric_key: str, sw: Dict[str, Any]) -> str:
@@ -156,12 +130,15 @@ def _render_explanation(metric_key: str, sw: Dict[str, Any]) -> None:
         for label, desc in info.get("scale", [])
     )
     st.markdown(
-        f"<div class='sw-explain-panel'>"
-        f"<div class='sw-explain-title'>{info['title']}</div>"
-        f"<div class='sw-explain-value'>{_current_value_line(metric_key, sw)}</div>"
-        f"<p class='sw-explain-body'>{info['summary']}</p>"
-        f"<div class='sw-explain-scale'>{scale_html}</div>"
-        f"<p class='sw-explain-body' style='margin-top:0.75rem;font-size:0.76rem;color:#6888aa'>"
+        f"<div class='pipeline-explain-panel'>"
+        f"<div class='pipeline-explain-title'>{info['title']}</div>"
+        f"<div class='pipeline-explain-section' style='color:#00d4ff;font-weight:700'>"
+        f"{_current_value_line(metric_key, sw)}</div>"
+        f"<p class='pipeline-explain-body'>{info['summary']}</p>"
+        f"<div class='pipeline-explain-heading'>Reference scale</div>"
+        f"<div class='sw-explain-scale' style='display:grid;gap:0.35rem;margin:0.5rem 0'>"
+        f"{scale_html}</div>"
+        f"<p class='pipeline-explain-body' style='margin-top:0.75rem;font-size:0.76rem;color:#6888aa'>"
         f"Source: {info['source']}</p>"
         f"</div>",
         unsafe_allow_html=True,
@@ -169,30 +146,28 @@ def _render_explanation(metric_key: str, sw: Dict[str, Any]) -> None:
 
 
 def render_sw_metric_cards(st, sw: Dict[str, Any], *, session_key: str = "sw_metric_sel") -> None:
-    """Render four clickable metric cards; show explanation for the selected card."""
-    st.markdown(METRIC_CSS, unsafe_allow_html=True)
+    """Home hero cards (image 1) — click for explanation panel below."""
     st.markdown(
-        "<div class='sw-metric-hint'>Click a card below for an explanation of what the value means.</div>",
+        "<div class='sw-metric-hint' style='font-size:0.72rem;color:#8899bb;"
+        "margin:0 0 0.6rem'>Click a card for an explanation of what the value means.</div>"
+        "<div class='hero-click-row'></div>",
         unsafe_allow_html=True,
     )
 
     if session_key not in st.session_state:
         st.session_state[session_key] = None
 
+    specs = _metric_card_specs(sw)
     cols = st.columns(4)
-    labels = {
-        "kp": "Kp Index",
-        "geomagnetic": "Geomagnetic",
-        "f107": "F10.7",
-        "gnss_risk": "GNSS Risk",
-    }
-    for col, key in zip(cols, METRIC_KEYS):
+    for col, (key, icon, label, value, note, value_color) in zip(cols, specs):
+        active = st.session_state[session_key] == key
         with col:
-            active = st.session_state[session_key] == key
-            if active:
-                st.markdown('<div class="sw-metric-active">', unsafe_allow_html=True)
+            st.markdown(
+                _hero_card_html(icon, label, value, note, value_color, selected=active),
+                unsafe_allow_html=True,
+            )
             if st.button(
-                _metric_button_label(key, sw),
+                "\u200b",
                 key=f"sw_metric_btn_{key}",
                 use_container_width=True,
                 type="secondary",
@@ -201,8 +176,6 @@ def render_sw_metric_cards(st, sw: Dict[str, Any], *, session_key: str = "sw_met
                     None if st.session_state[session_key] == key else key
                 )
                 st.rerun()
-            if active:
-                st.markdown("</div>", unsafe_allow_html=True)
 
     selected: Optional[str] = st.session_state.get(session_key)
     if selected:

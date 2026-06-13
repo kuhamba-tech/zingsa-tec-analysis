@@ -169,6 +169,62 @@ h1 *, h2 *, h3 *, h4 *, h5 *, h6 *,
     opacity: 0.92;
 }
 
+/* ── Clickable hero cards (Space Weather, PRN Explorer) + invisible overlay ── */
+[data-testid="stMarkdown"]:has(.hero-click-row) + [data-testid="stHorizontalBlock"] {
+    gap: 0.75rem;
+    align-items: stretch;
+}
+.hero-click-card,
+.prn-hero-card {
+    margin-bottom: 0 !important;
+    background: rgba(10, 22, 40, 0.94);
+    border-radius: 10px;
+    pointer-events: none;
+    transition: box-shadow 0.15s, background 0.15s;
+}
+.hero-click-selected,
+.prn-hero-selected {
+    background: rgba(12, 28, 48, 0.98) !important;
+    box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.4);
+}
+[data-testid="stMarkdown"]:has(.hero-click-row) + [data-testid="stHorizontalBlock"] [data-testid="column"]:hover .hero-click-card,
+[data-testid="stMarkdown"]:has(.hero-click-row) + [data-testid="stHorizontalBlock"] [data-testid="column"]:hover .prn-hero-card {
+    background: rgba(12, 28, 48, 0.98);
+    box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.35);
+}
+[data-testid="stMarkdown"]:has(.hero-click-row) + [data-testid="stHorizontalBlock"] [data-testid="column"] [data-testid="stVerticalBlock"] > div:nth-child(1) {
+    margin-bottom: 0 !important;
+}
+[data-testid="stMarkdown"]:has(.hero-click-row) + [data-testid="stHorizontalBlock"] [data-testid="column"] [data-testid="stVerticalBlock"] > div:nth-child(2) {
+    margin-top: -148px !important;
+    height: 148px !important;
+    margin-bottom: 0 !important;
+    position: relative !important;
+    z-index: 6 !important;
+}
+[data-testid="stMarkdown"]:has(.hero-click-row) + [data-testid="stHorizontalBlock"] [data-testid="column"] [data-testid="stVerticalBlock"] > div:nth-child(2) [data-testid="stButton"] {
+    width: 100% !important;
+    height: 148px !important;
+}
+[data-testid="stMarkdown"]:has(.hero-click-row) + [data-testid="stHorizontalBlock"] [data-testid="column"] [data-testid="stVerticalBlock"] > div:nth-child(2) button,
+[data-testid="stMarkdown"]:has(.hero-click-row) + [data-testid="stHorizontalBlock"] [data-testid="column"] [data-testid="stVerticalBlock"] > div:nth-child(2) button[kind="secondary"] {
+    width: 100% !important;
+    height: 148px !important;
+    min-height: 148px !important;
+    opacity: 0 !important;
+    cursor: pointer !important;
+    border: none !important;
+    background: transparent !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+}
+[data-testid="stMarkdown"]:has(.hero-click-row) + [data-testid="stHorizontalBlock"] [data-testid="column"] [data-testid="stVerticalBlock"] > div:nth-child(2) button * {
+    opacity: 0 !important;
+    font-size: 0 !important;
+    color: transparent !important;
+}
+
 /* ── Horizontal Kp scale (Home dashboard) ── */
 .hero-scales-grid {
     display: grid;

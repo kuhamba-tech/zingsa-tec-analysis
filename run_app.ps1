@@ -21,9 +21,7 @@ Write-Host "Installing/updating requirements..."
 $env:STREAMLIT_BROWSER_GATHER_USAGE_STATS = "false"
 
 Write-Host "Clearing Python/Streamlit cache..."
-if (Test-Path (Join-Path $projectRoot "clear_cache.ps1")) {
-    & (Join-Path $projectRoot "clear_cache.ps1")
-}
+& (Join-Path $projectRoot "clear_cache.ps1") -Port $Port
 
 Write-Host "Verifying map module import..."
 & $venvPython -c "from zgiis.maps.station_map import render_cors_station_map; print('station_map OK')"

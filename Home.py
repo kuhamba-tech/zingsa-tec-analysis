@@ -188,12 +188,17 @@ if home_map_style == "tec_heatmap":
     )
 else:
     st.markdown(
-        "<div style='display:flex;flex-wrap:wrap;gap:14px;margin-top:-0.4rem;margin-bottom:0.6rem'>"
-        "<span style='font-size:0.72rem;color:#94a3b8;font-weight:700;text-transform:uppercase;"
-        "letter-spacing:0.05em'>Station Status</span>"
-        "<span style='font-size:0.72rem;color:#cbd5e1'><span style='color:#1D9E75'>●</span> ONLINE</span>"
-        "<span style='font-size:0.72rem;color:#cbd5e1'><span style='color:#EF9F27'>●</span> DEGRADED</span>"
-        "<span style='font-size:0.72rem;color:#cbd5e1'><span style='color:#ff4444'>●</span> OFFLINE</span>"
+        "<div style='display:flex;flex-wrap:wrap;align-items:center;gap:20px;"
+        "margin-top:-0.4rem;margin-bottom:0.6rem;padding:8px 14px;"
+        "background:#0d1b2a;border:1px solid #1e3a5f;border-radius:8px;width:fit-content'>"
+        "<span style='font-size:0.85rem;color:#94a3b8;font-weight:800;text-transform:uppercase;"
+        "letter-spacing:0.08em'>Station Status</span>"
+        "<span style='font-size:0.92rem;color:#ffffff;font-weight:600'>"
+        "<span style='color:#1D9E75;font-size:1.1rem'>●</span>&nbsp; ONLINE</span>"
+        "<span style='font-size:0.92rem;color:#ffffff;font-weight:600'>"
+        "<span style='color:#EF9F27;font-size:1.1rem'>●</span>&nbsp; DEGRADED</span>"
+        "<span style='font-size:0.92rem;color:#ffffff;font-weight:600'>"
+        "<span style='color:#ff4444;font-size:1.1rem'>●</span>&nbsp; OFFLINE</span>"
         "</div>",
         unsafe_allow_html=True,
     )

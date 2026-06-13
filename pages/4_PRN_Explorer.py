@@ -14,7 +14,7 @@ root = Path(__file__).resolve().parents[1]
 if str(root) not in sys.path:
     sys.path.insert(0, str(root))
 
-from zgiis.prn.constellation_explainer import render_constellation_cards
+from zgiis.gnss_prn.constellation_explainer import render_constellation_cards
 from zgiis.theme import inject
 
 st.set_page_config(page_title="ZGIIS — PRN Explorer", page_icon="🛸", layout="wide")
