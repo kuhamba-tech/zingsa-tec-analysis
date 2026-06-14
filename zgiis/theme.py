@@ -253,7 +253,7 @@ h1 *, h2 *, h3 *, h4 *, h5 *, h6 *,
 .ipp-geom-img {
     display: block;
     width: 100%;
-    max-width: 460px;
+    max-width: 520px;
     height: auto;
     margin: 0 auto;
 }
@@ -361,8 +361,13 @@ h1 *, h2 *, h3 *, h4 *, h5 *, h6 *,
     margin: 0 auto;
     object-fit: contain;
 }
-.vtec-pipeline-svg {
-    max-width: 520px;
+.vtec-pipeline-svg,
+.vtec-pipeline-img {
+    max-width: 100%;
+}
+.vtec-pipeline-card {
+    min-height: 9.5rem;
+    padding: 0.75rem 0.5rem 0.55rem;
 }
 .vtec-step9-card {
     min-height: 22rem;
@@ -379,8 +384,8 @@ h1 *, h2 *, h3 *, h4 *, h5 *, h6 *,
 }
 .vtec-overview-illus .vtec-illus-card {
     width: 100%;
-    max-width: 540px;
-    min-height: 22rem;
+    max-width: 100%;
+    min-height: 10rem;
 }
 
 /* ── Clickable hero cards (Space Weather, PRN Explorer) + invisible overlay ── */

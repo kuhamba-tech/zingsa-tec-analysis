@@ -578,39 +578,39 @@ st.markdown(
     <div style='background:#0d1b2a;border:1px solid #1e3a5f;border-radius:12px;
                 padding:1.5rem;font-family:monospace;font-size:0.82rem;color:#ffffff;
                 line-height:2.1'>
-      <span style='color:#ffffff'>RINEX obs file</span>
+      <span style='color:#ffffff;font-weight:700'>RINEX obs file</span>
       &nbsp;+&nbsp;
-      <span style='color:#ffffff'>Navigation file</span>
+      <span style='color:#ffffff;font-weight:700'>Navigation file</span>
       &nbsp;+&nbsp;
-      <span style='color:#ffffff'>Satellite DCB file (CODE)</span>
+      <span style='color:#ffffff;font-weight:700'>Satellite DCB file (CODE)</span>
       <br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│
       <br>
-      <span style='color:#ffffff'>① Read C₁,C₂,L₁,L₂</span>
+      <span style='color:#ffffff;font-weight:700'>① Read C₁,C₂,L₁,L₂</span>
       &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
       <em style='color:#ffffff'>← Eqs 4.10–4.12 (Steps 4, 4b)</em>
       <br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│
       <br>
-      <span style='color:#ffffff'>② Compute TEC_G and TEC_P</span>
+      <span style='color:#ffffff;font-weight:700'>② Compute TEC_G and TEC_P</span>
       &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
       <em style='color:#ffffff'>← code + phase TEC</em>
       <br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│
       <br>
-      <span style='color:#ffffff'>③ Detect &amp; correct cycle slips in TEC_P</span>
+      <span style='color:#ffffff;font-weight:700'>③ Detect &amp; correct cycle slips in TEC_P</span>
       &nbsp;&nbsp;
       <em style='color:#ffffff'>← Eq. 4.13 (Step 5)</em>
       <br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│
       <br>
-      <span style='color:#ffffff'>④ Level TEC_P to TEC_G → TEC_R</span>
+      <span style='color:#ffffff;font-weight:700'>④ Level TEC_P to TEC_G → TEC_R</span>
       &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
       <em style='color:#ffffff'>← Eqs. 4.14–4.15 (Step 6)</em>
       <br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│
       <br>
-      <span style='color:#ffffff'>⑤ Estimate receiver DCB_R</span>
+      <span style='color:#ffffff;font-weight:700'>⑤ Estimate receiver DCB_R</span>
       &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
       <em style='color:#ffffff'>← Eqs. 4.21–4.22 (Step 7)</em>
       <br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│
       <br>
-      <span style='color:#ffffff'>⑥ Compute mapping function S(E)</span>
+      <span style='color:#ffffff;font-weight:700'>⑥ Compute mapping function S(E)</span>
       &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
       <em style='color:#ffffff'>← Eq. 4.17 (Step 8)</em>
       <br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│

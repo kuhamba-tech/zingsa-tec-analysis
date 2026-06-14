@@ -35,6 +35,9 @@ def render_vtec_illustration(step_id: str) -> str:
     if step_id == "9":
         card_class += " vtec-step9-card"
         img_class += " vtec-step9-img"
+    elif step_id == "pipeline":
+        card_class += " vtec-pipeline-card"
+        img_class += " vtec-pipeline-img"
     return (
         f"<div class='{card_class}'>"
         f"<div class='vtec-illus-caption'>{caption}</div>"
@@ -444,6 +447,37 @@ def _pipeline_connector(x: float, y1: float, y2: float, marker_id: str) -> str:
     )
 
 
+def _pipeline_h_connector(x1: float, x2: float, y: float, marker_id: str) -> str:
+    return (
+        f'<line x1="{x1}" y1="{y}" x2="{x2}" y2="{y}" '
+        f'stroke="#00d4ff" stroke-width="3" marker-end="url(#{marker_id})"/>'
+    )
+
+
+def _pipeline_box(
+    x: float,
+    y: float,
+    w: float,
+    h: float,
+    label: str,
+    *,
+    stroke: str,
+    fill: str = "#0d1b2a",
+    text_color: str | None = None,
+    font_size: int = 12,
+    font_weight: str = "700",
+    stroke_width: float = 1.5,
+) -> str:
+    cx = x + w / 2
+    cy = y + h / 2 + 5
+    color = text_color or stroke
+    return f"""
+  <rect x="{x}" y="{y}" width="{w}" height="{h}" rx="10" fill="{fill}"
+        stroke="{stroke}" stroke-width="{stroke_width}"/>
+  <text x="{cx}" y="{cy}" text-anchor="middle" fill="{color}" font-size="{font_size}"
+        font-weight="{font_weight}" font-family="{_FONT}">{label}</text>"""
+
+
 def _label_bg(x: float, y: float, w: float, h: float) -> str:
     return (
         f'<rect x="{x:.1f}" y="{y:.1f}" width="{w:.1f}" height="{h:.1f}" '
@@ -614,57 +648,77 @@ _register(
 )
 
 def _pipeline_svg() -> str:
-    """Taller overview pipeline — larger boxes and clearer downward arrows."""
-    cx = 190.0
-    bw = 210.0
-    bh = 42.0
-    bx = cx - bw / 2
-    arrow_id = "pipe-arr-lg"
+    """Horizontal overview pipeline — left-to-right with clear arrows."""
+    w, h = 980, 200
+    cy = 100.0
+    bh = 44.0
+    arrow_id = "pipe-arr-h"
+    gap = 30.0
 
-    y1, y2, y3, y4 = 18.0, 88.0, 158.0, 228.0
-    y_dcb = 298.0
-    y_final = 358.0
-    dcb_h = 36.0
-    final_h = 46.0
+    stages = [
+        ("RINEX C1,C2,L1,L2", "#64748b", _WHITE, 128, 11),
+        ("TEC_G and TEC_P", "#f59e0b", "#f59e0b", 118, 12),
+        ("Slip fix + levelling", "#00d4ff", "#00d4ff", 132, 11),
+        ("TEC_R", "#00ff88", "#00ff88", 72, 12),
+    ]
+
+    x = 16.0
+    parts: list[str] = [_pipeline_arrow_defs(arrow_id)]
+
+    for i, (label, stroke, text_color, bw, font_size) in enumerate(stages):
+        y = cy - bh / 2
+        parts.append(
+            _pipeline_box(
+                x, y, bw, bh, label,
+                stroke=stroke, text_color=text_color, font_size=font_size,
+                font_weight="800" if label == "TEC_R" else "700",
+            )
+        )
+        x_right = x + bw
+        if i < len(stages) - 1:
+            parts.append(_pipeline_h_connector(x_right + 4, x_right + gap - 4, cy, arrow_id))
+            x = x_right + gap
+        else:
+            x = x_right
+
+    merge_x = x + gap
+    parts.append(_pipeline_h_connector(x + 4, merge_x - 4, cy, arrow_id))
+
+    dcb_w, dcb_h = 72.0, 34.0
+    dcb_x = merge_x
+    dcb_top_y = cy - 46.0
+    dcb_bot_y = cy + 12.0
+    parts.append(
+        _pipeline_box(dcb_x, dcb_top_y, dcb_w, dcb_h, "DCB", stroke="#ef4444", text_color="#ef4444")
+    )
+    parts.append(
+        _pipeline_box(dcb_x, dcb_bot_y, dcb_w, dcb_h, "S(E)", stroke="#f59e0b", text_color="#f59e0b")
+    )
+
+    final_x = merge_x + dcb_w + gap
+    parts.append(_pipeline_h_connector(merge_x + dcb_w + 4, final_x - 4, cy, arrow_id))
+
+    final_w, final_h = 168.0, 50.0
+    parts.append(
+        _pipeline_box(
+            final_x,
+            cy - final_h / 2,
+            final_w,
+            final_h,
+            "VTEC @ IPP -&gt; ZGIIS Maps",
+            stroke="#00ff88",
+            fill="rgba(0,255,136,0.12)",
+            text_color="#00ff88",
+            font_size=12,
+            font_weight="800",
+            stroke_width=2.0,
+        )
+    )
 
     return _canvas(
-        _pipeline_arrow_defs(arrow_id)
-        + f"""
-  <rect x="{bx}" y="{y1}" width="{bw}" height="{bh}" rx="10" fill="#0d1b2a" stroke="#64748b" stroke-width="1.5"/>
-  <text x="{cx}" y="{y1 + 26}" text-anchor="middle" fill="{_WHITE}" font-size="13" font-weight="700"
-        font-family="{_FONT}">RINEX C1,C2,L1,L2</text>
-  {_pipeline_connector(cx, y1 + bh, y2 - 6, arrow_id)}
-
-  <rect x="{bx}" y="{y2}" width="{bw}" height="{bh}" rx="10" fill="#0d1b2a" stroke="#f59e0b" stroke-width="1.5"/>
-  <text x="{cx}" y="{y2 + 26}" text-anchor="middle" fill="#f59e0b" font-size="13" font-weight="700"
-        font-family="{_FONT}">TEC_G and TEC_P</text>
-  {_pipeline_connector(cx, y2 + bh, y3 - 6, arrow_id)}
-
-  <rect x="{bx}" y="{y3}" width="{bw}" height="{bh}" rx="10" fill="#0d1b2a" stroke="#00d4ff" stroke-width="1.5"/>
-  <text x="{cx}" y="{y3 + 26}" text-anchor="middle" fill="#00d4ff" font-size="13" font-weight="700"
-        font-family="{_FONT}">Slip fix + levelling</text>
-  {_pipeline_connector(cx, y3 + bh, y4 - 6, arrow_id)}
-
-  <rect x="{bx}" y="{y4}" width="{bw}" height="{bh}" rx="10" fill="#0d1b2a" stroke="#00ff88" stroke-width="1.5"/>
-  <text x="{cx}" y="{y4 + 26}" text-anchor="middle" fill="#00ff88" font-size="13" font-weight="800"
-        font-family="{_FONT}">TEC_R</text>
-  {_pipeline_connector(cx, y4 + bh, y_dcb - 6, arrow_id)}
-
-  <rect x="58" y="{y_dcb}" width="96" height="{dcb_h}" rx="9" fill="#0d1b2a" stroke="#ef4444" stroke-width="1.5"/>
-  <text x="106" y="{y_dcb + 23}" text-anchor="middle" fill="#ef4444" font-size="12" font-weight="700"
-        font-family="{_FONT}">DCB</text>
-  <rect x="226" y="{y_dcb}" width="96" height="{dcb_h}" rx="9" fill="#0d1b2a" stroke="#f59e0b" stroke-width="1.5"/>
-  <text x="274" y="{y_dcb + 23}" text-anchor="middle" fill="#f59e0b" font-size="12" font-weight="700"
-        font-family="{_FONT}">S(E)</text>
-  {_pipeline_connector(cx, y_dcb + dcb_h, y_final - 6, arrow_id)}
-
-  <rect x="72" y="{y_final}" width="236" height="{final_h}" rx="10"
-        fill="rgba(0,255,136,0.12)" stroke="#00ff88" stroke-width="2"/>
-  <text x="{cx}" y="{y_final + 29}" text-anchor="middle" fill="#00ff88" font-size="14" font-weight="800"
-        font-family="{_FONT}">VTEC @ IPP -&gt; ZGIIS Maps</text>
-""",
-        width=380,
-        height=420,
+        "".join(parts),
+        width=w,
+        height=h,
         css_class="vtec-illus-svg vtec-pipeline-svg",
     )
 
