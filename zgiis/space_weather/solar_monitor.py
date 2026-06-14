@@ -13,7 +13,7 @@ from zgiis.space_weather.solar_activity import (
 )
 
 AR_POS = [(28, 38), (62, 44), (48, 62), (72, 28), (35, 55), (58, 72)]
-_INTENSITY = {"Strong": "#ef4444", "Moderate": "#eab308", "Weak": "#64748b"}
+_INTENSITY = {"Strong": "#ef4444", "Moderate": "#eab308", "Weak": "#ffffff"}
 _XRAY_BANDS = [
     ("#ef4444", 0.0, "0.1 – 0.8 nm"),
     ("#f97316", 0.8, "0.05 – 0.4 nm"),
@@ -28,7 +28,7 @@ SOLAR_CSS = """
 background:radial-gradient(circle at 14% 8%,rgba(249,115,22,.14),transparent 28%),linear-gradient(180deg,rgba(8,14,32,.96),rgba(4,8,20,.98))}
 .sw-solar-head{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;margin-bottom:14px;flex-wrap:wrap}
 .sw-solar-kicker,.sw-solar-card-title{color:#22d3ee;font-size:.68rem;font-weight:900;letter-spacing:.12em;text-transform:uppercase}
-.sw-solar-head h3{margin:8px 0 0;color:#f8fafc;font-size:clamp(1.1rem,1.7vw,1.5rem);line-height:1.15}
+.sw-solar-head h3{margin:8px 0 0;color:#ffffff;font-size:clamp(1.1rem,1.7vw,1.5rem);line-height:1.15}
 .sw-solar-meta{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px 14px;color:#ffffff;font-size:.62rem;font-weight:800}
 .sw-solar-live-dot{display:inline-block;width:7px;height:7px;margin-right:6px;border-radius:50%}
 .sw-solar-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
@@ -40,13 +40,13 @@ background:radial-gradient(circle at 35% 30%,#fff7ad 0 4%,transparent 5%),radial
 radial-gradient(circle,#facc15 0 28%,#f97316 58%,#7c2d12 100%);box-shadow:0 0 32px color-mix(in srgb,var(--solar) transparent 35%)}
 .sw-solar-summary-copy{display:grid;align-content:center;gap:4px}
 .sw-solar-summary-copy span,.sw-solar-metric span,.sw-solar-source{color:#ffffff;font-size:.64rem;font-weight:800}
-.sw-solar-summary-copy strong,.sw-solar-metric strong{color:#f8fafc;font-size:.95rem}
+.sw-solar-summary-copy strong,.sw-solar-metric strong{color:#ffffff;font-size:.95rem}
 .sw-solar-flare{margin:14px 0 6px;font-size:2rem;font-weight:950;line-height:1}
 .sw-solar-flare-count{margin:14px 0 6px;color:#22d3ee;font-size:2rem;font-weight:950;line-height:1}
 .sw-solar-card p{margin:8px 0 0;color:#ffffff;font-size:.72rem;line-height:1.55}
 .sw-solar-scale{display:grid;gap:4px;margin-top:10px}
 .sw-solar-scale span{color:#ffffff;font-size:.62rem;font-weight:800}
-.sw-solar-scale span.active{color:#f8fafc}
+.sw-solar-scale span.active{color:#ffffff}
 .sw-solar-metric{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.06)}
 .sw-solar-impact-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:12px}
 .sw-solar-impact{display:grid;gap:4px;padding:10px;border-radius:10px;background:rgba(255,255,255,.035)}
@@ -80,7 +80,7 @@ background:radial-gradient(circle at 38% 32%,rgba(255,255,210,.55) 0%,transparen
 box-shadow:0 0 36px rgba(249,115,22,.55)}
 .sw-enh-ar-marker{position:absolute;transform:translate(-50%,-50%)}
 .sw-enh-ar-circle{width:14px;height:14px;border-radius:50%;border:1.5px solid rgba(255,255,255,.88)}
-.sw-enh-ar-label{position:absolute;left:50%;top:-15px;transform:translateX(-50%);color:#f8fafc;font-size:.5rem;font-weight:900;white-space:nowrap}
+.sw-enh-ar-label{position:absolute;left:50%;top:-15px;transform:translateX(-50%);color:#ffffff;font-size:.5rem;font-weight:900;white-space:nowrap}
 .sw-enh-cycle-header{display:flex;gap:22px;align-items:flex-start;margin-bottom:6px}
 .sw-enh-sub-label{color:#ffffff;font-size:.58rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px}
 .sw-enh-cycle-num{color:#a855f7;font-size:2.2rem;font-weight:900;line-height:1}
@@ -329,6 +329,49 @@ def _footer(kp: float, africa_gnss: Optional[str] = None) -> str:
     )
 
 
+_S_AFRICA_KW = [
+    "africa", "southern africa", "southern hemisphere", "south africa",
+    "zimbabwe", "zambia", "mozambique", "botswana", "namibia",
+    "equatorial", "low latitude", "low-latitude", "mid latitude", "mid-latitude",
+]
+_AFRICA_KW = ["africa", "sub-saharan", "saharan"]
+# Alert product codes / keywords that affect mid/low latitudes (where Southern Africa sits)
+_AFRICA_RELEVANT_KW = [
+    "geomagnetic storm", "magnetic storm", "kp", "k-index",
+    "radio blackout", "ionospheric storm", "r-scale", "g-scale",
+    "g1", "g2", "g3", "g4", "g5", "r1", "r2", "r3",
+    "wark", "altk", "wata", "rswc",
+    "solar energetic", "proton event",
+]
+
+
+def _select_africa_alert(alerts: List[Dict]) -> tuple[str, str]:
+    """Pick the most Africa-relevant alert. Returns (message, geo_scope_label)."""
+    s_africa: list[Dict] = []
+    africa: list[Dict] = []
+    relevant: list[Dict] = []
+
+    for alert in alerts:
+        msg = (alert.get("message") or alert.get("product_id") or "").lower()
+        if any(kw in msg for kw in _S_AFRICA_KW):
+            s_africa.append(alert)
+        elif any(kw in msg for kw in _AFRICA_KW):
+            africa.append(alert)
+        elif any(kw in msg for kw in _AFRICA_RELEVANT_KW):
+            relevant.append(alert)
+
+    def _msg(a: Dict) -> str:
+        return a.get("message") or a.get("product_id") or ""
+
+    if s_africa:
+        return _msg(s_africa[0]), "Southern Africa"
+    if africa:
+        return _msg(africa[0]), "Africa"
+    if relevant:
+        return _msg(relevant[0]), "Global — affects Africa"
+    return "No NOAA SWPC alerts specific to Southern Africa or Africa at this time.", "Southern Africa"
+
+
 def build_solar_monitor_html(
     solar: Dict[str, Any],
     kp: float = 2.0,
@@ -342,7 +385,7 @@ def build_solar_monitor_html(
     flare = solar.get("flareClass", "A0.0")
     alerts = solar.get("alerts") or []
     updated = solar.get("updated")
-    alert_msg = (alerts[0].get("message") or alerts[0].get("product_id") if alerts else None) or "No current NOAA SWPC alert message available."
+    alert_msg, alert_geo = _select_africa_alert(alerts)
     flares, cmes, storms = donki.get("flares") or [], donki.get("cmes") or [], donki.get("storms") or []
     dr = donki.get("dateRange") or {}
     cme_rows = build_donki_cme_rows(cmes)
@@ -360,8 +403,8 @@ def build_solar_monitor_html(
     imp_html = "".join(f'<div class="sw-solar-impact"><span>{_e(a)}</span><strong>{_e(b)}</strong></div>' for a, b in impacts)
 
     def _cme_row(r: Dict) -> str:
-        halo_c = "#22c55e" if r["halo"] == "Yes" else "#eab308" if r["halo"] == "Partial" else "#94a3b8"
-        imp_c = "#22c55e" if r["impact"] == "Possible" else "#94a3b8"
+        halo_c = "#22c55e" if r["halo"] == "Yes" else "#eab308" if r["halo"] == "Partial" else "#ffffff"
+        imp_c = "#22c55e" if r["impact"] == "Possible" else "#ffffff"
         return (
             f"<tr><td>{_e(r['date'])}</td><td>{_e(r['speed'])}</td><td>{_e(r['width'])}</td>"
             f'<td style="color:{halo_c}">{_e(r["halo"])}</td>'
@@ -377,7 +420,7 @@ def build_solar_monitor_html(
     ) or '<tr><td colspan="4" class="sw-enh-empty">No DONKI flare regions in the last 7 days.</td></tr>'
     rb_body = "".join(
         f"<tr><td>{_e(b['time'])}</td><td>{_e(b['type'])}</td><td>{_e(b['freq'])}</td>"
-        f"<td style='color:{_INTENSITY.get(b['intensity'], '#64748b')};font-weight:900'>{_e(b['intensity'])}</td>"
+        f"<td style='color:{_INTENSITY.get(b['intensity'], '#ffffff')};font-weight:900'>{_e(b['intensity'])}</td>"
         f"<td>{_e(b['loc'])}</td></tr>"
         for b in bursts
     ) or '<tr><td colspan="5" class="sw-enh-empty">No flare-derived radio burst proxies in the last 7 days.</td></tr>'
@@ -388,9 +431,16 @@ def build_solar_monitor_html(
     flare_txt = f"{lf.get('classType', '?')} flare from {lf.get('sourceLocation', 'unknown')}" if lf else "No flare events in the selected 7-day window."
     cme_txt = f"{lc.get('activityID', 'CME')} detected {_cat_time(lc.get('startTime'))}" if lc else "No CME events in the selected 7-day window."
     storm_txt = f"{ls.get('gstID', 'GST')} recorded {_cat_time(ls.get('startTime'))}" if ls else "No geomagnetic storm events in the selected 7-day window."
-    note = "NASA DONKI + NOAA SWPC · last 7 days" if solar.get("mode") == "live" else "Illustrative demo panels — live solar fetch unavailable"
-    mode_lbl = "Live Data" if solar.get("mode") == "live" else "Demo fallback"
-    swpc_tag = "NOAA SWPC live" if solar.get("mode") == "live" else "Demo model"
+    if solar.get("mode") == "live":
+        note = "NOAA SWPC live"
+        if solar.get("donki_status") == "live":
+            note += " · NASA DONKI live · last 7 days"
+        else:
+            note += f" · {solar.get('donki_note', 'NASA DONKI unavailable')}"
+    else:
+        note = f"Live solar data unavailable: {solar.get('error', 'feed error')}"
+    mode_lbl = "Live Data" if solar.get("mode") == "live" else "Data Unavailable"
+    swpc_tag = "NOAA SWPC live" if solar.get("mode") == "live" else "Unavailable"
     africa_gnss = None
     if sw:
         africa = sw.get("africa_impacts") or {}
@@ -421,6 +471,7 @@ def build_solar_monitor_html(
 <div class="sw-solar-metric"><span>IMF Bz</span><strong style="color:{bz_c}">{bz:.1f} nT</strong></div>
 <div class="sw-solar-metric"><span>IMF Bt</span><strong>{float(wind.get('bt') or 0):.1f} nT</strong></div></article>
 <article class="sw-solar-card"><div class="sw-solar-card-title">Alerts / Watches / Warnings</div>
+<div style="font-size:.62rem;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#22d3ee;margin-bottom:.4rem">&#127757; {_e(alert_geo)}</div>
 <p>{_e(alert_msg)}</p><div class="sw-solar-source">Source: NOAA SWPC alerts.json</div></article>
 <article class="sw-solar-card"><div class="sw-solar-card-title">Solar Flares</div>
 <div class="sw-solar-flare-count">{len(flares)}</div><p>{_e(flare_txt)}</p>
@@ -449,7 +500,7 @@ def build_solar_monitor_html(
 <span class="sw-enh-panel-title">GOES soft X-ray flux (0.1–0.8 nm)</span>
 <span class="sw-enh-select">{_e(swpc_tag)}</span></div>
 <div style="color:#ffffff;font-size:.56rem;font-weight:700;margin-bottom:4px">W/m² (scaled display) · irradiance proxy, not SDO/EVE</div>
-{_euv_chart(xray, solar.get("mode", "demo"), updated)}</article>
+{_euv_chart(xray, solar.get("mode", "unavailable"), updated)}</article>
 <article class="sw-enh-panel"><div class="sw-enh-panel-title">Solar Radio Bursts (Last 24H)</div>
 <table class="sw-enh-table"><thead><tr><th>Time (UTC)</th><th>Type</th><th>Frequency</th><th>Intensity</th><th>Location</th></tr></thead>
 <tbody>{rb_body}</tbody></table>
@@ -460,8 +511,8 @@ def build_solar_monitor_html(
 <div class="sw-enh-cycle-bar"><div class="sw-enh-cycle-fill" style="width:65%"></div></div></div></div>
 <div class="sw-enh-sub-label" style="margin:8px 0 2px">Estimated Peak</div>
 <div style="color:#ffffff;font-size:.7rem;font-weight:700;margin-bottom:8px">2024 – 2026 (Cycle 25 maximum window)</div>
-<div style="color:#ffffff;font-size:.58rem;font-weight:700;margin-bottom:6px">Illustrative sunspot index model — not live NOAA data</div>
-{_solar_cycle_chart()}</article></div>
+<div style="color:#ffffff;font-size:.58rem;font-weight:700;margin-bottom:6px">Reference cycle window; no synthetic observation values are displayed.</div>
+</article></div>
 {_footer(kp, africa_gnss)}</section>"""
 
 
@@ -472,5 +523,13 @@ def render_solar_monitor(
     *,
     sw: Optional[Dict[str, Any]] = None,
 ) -> None:
-    st.markdown(SOLAR_CSS, unsafe_allow_html=True)
-    st.markdown(build_solar_monitor_html(solar, kp, sw=sw), unsafe_allow_html=True)
+    if solar.get("mode") != "live":
+        st.error(
+            "Live NOAA/NASA solar activity data is unavailable. "
+            f"{solar.get('error', 'No synthetic fallback is permitted.')}"
+        )
+        return
+    st.markdown(
+        SOLAR_CSS + build_solar_monitor_html(solar, kp, sw=sw),
+        unsafe_allow_html=True,
+    )

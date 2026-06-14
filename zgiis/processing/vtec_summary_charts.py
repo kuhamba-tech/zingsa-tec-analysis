@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 _DARK = dict(
     paper_bgcolor="#060d1a",
     plot_bgcolor="#0d1b2a",
-    font_color="#b0c8e8",
+    font_color="#ffffff",
     yaxis=dict(title="VTEC (TECU)", gridcolor="#1e3a5f"),
     xaxis=dict(gridcolor="#1e3a5f"),
     height=300,
@@ -177,7 +177,7 @@ def _make_chart(
         fig.add_annotation(
             text="No VTEC data for this selection",
             xref="paper", yref="paper", x=0.5, y=0.5,
-            showarrow=False, font=dict(color="#8899bb", size=13),
+            showarrow=False, font=dict(color="#ffffff", size=13),
         )
         fig.update_layout(**_DARK, title=title)
         return fig

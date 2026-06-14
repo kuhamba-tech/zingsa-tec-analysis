@@ -115,7 +115,7 @@ with tab1:
         title="VTEC Time Series by Satellite PRN",
     )
     fig.update_layout(paper_bgcolor="#060d1a", plot_bgcolor="#0d1b2a",
-                      font_color="#b0c8e8", yaxis=dict(gridcolor="#1e3a5f"),
+                      font_color="#ffffff", yaxis=dict(gridcolor="#1e3a5f"),
                       xaxis=dict(gridcolor="#1e3a5f"), height=380,
                       legend=dict(bgcolor="#0d1b2a", bordercolor="#1e3a5f"))
     st.plotly_chart(fig, use_container_width=True)
@@ -130,7 +130,12 @@ with tab1:
         .round(2)
         .sort_values(["constellation","prn"])
     )
-    st.dataframe(prn_summary, use_container_width=True)
+    st.dataframe(
+        prn_summary.style.set_properties(**{"color": "#ffffff"}).set_table_styles(
+            [{"selector": "th", "props": [("color", "#ffffff")]}]
+        ),
+        use_container_width=True,
+    )
 
 # ── Tab 2: Sky plot (polar) ───────────────────────────────────────────────────
 with tab2:
@@ -153,14 +158,14 @@ with tab2:
             bgcolor="#0d1b2a",
             radialaxis=dict(range=[0, 90], tickvals=[0,30,60,90],
                             ticktext=["90°","60°","30°","0°"],
-                            gridcolor="#1e3a5f", color="#6888aa"),
+                            gridcolor="#1e3a5f", color="#ffffff"),
             angularaxis=dict(direction="clockwise", rotation=90,
-                             gridcolor="#1e3a5f", color="#6888aa",
+                             gridcolor="#1e3a5f", color="#ffffff",
                              tickvals=[0,45,90,135,180,225,270,315],
                              ticktext=["N","NE","E","SE","S","SW","W","NW"]),
         ),
         paper_bgcolor="#060d1a",
-        font_color="#b0c8e8",
+        font_color="#ffffff",
         showlegend=True,
         legend=dict(bgcolor="#0d1b2a", bordercolor="#1e3a5f"),
         height=480,
@@ -176,7 +181,7 @@ with tab3:
         title="Slant TEC vs Elevation — mapping function visible as hyperbolic trend",
     )
     fig_elev.update_layout(paper_bgcolor="#060d1a", plot_bgcolor="#0d1b2a",
-                           font_color="#b0c8e8", yaxis=dict(gridcolor="#1e3a5f"),
+                           font_color="#ffffff", yaxis=dict(gridcolor="#1e3a5f"),
                            xaxis=dict(gridcolor="#1e3a5f"), height=380,
                            legend=dict(bgcolor="#0d1b2a", bordercolor="#1e3a5f"))
     st.plotly_chart(fig_elev, use_container_width=True)
@@ -188,7 +193,7 @@ with tab3:
         color_discrete_map={c: CONSTELLATIONS[c]["color"] for c in CONSTELLATIONS},
     )
     fig_vtec_el.update_layout(paper_bgcolor="#060d1a", plot_bgcolor="#0d1b2a",
-                              font_color="#b0c8e8", yaxis=dict(gridcolor="#1e3a5f"),
+                              font_color="#ffffff", yaxis=dict(gridcolor="#1e3a5f"),
                               xaxis=dict(gridcolor="#1e3a5f"), height=320,
                               legend=dict(bgcolor="#0d1b2a", bordercolor="#1e3a5f"))
     st.plotly_chart(fig_vtec_el, use_container_width=True)
@@ -209,7 +214,7 @@ with tab4:
         title="TEC Arc Quality by Satellite",
     )
     fig_q.update_layout(paper_bgcolor="#060d1a", plot_bgcolor="#0d1b2a",
-                        font_color="#b0c8e8", yaxis=dict(gridcolor="#1e3a5f"),
+                        font_color="#ffffff", yaxis=dict(gridcolor="#1e3a5f"),
                         xaxis=dict(gridcolor="#1e3a5f", range=[0, 100]),
                         height=max(300, 20 * len(qual_summary)),
                         coloraxis_showscale=False)

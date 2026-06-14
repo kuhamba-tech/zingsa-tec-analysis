@@ -14,9 +14,13 @@ if str(root) not in sys.path:
 logo_path = root / "static" / "zingsa_logo.png"
 
 from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS, stations_for_map
-from zgiis.maps.station_map import MAP_STYLE_KEYS, MAP_STYLE_OPTIONS, render_cors_station_map
-from zgiis.space_weather.fetch_indices import get_space_weather, get_warning_messages
-from zgiis.space_weather.kp_scale import build_synchronized_kp_scales_html
+from zgiis.maps.station_map import (
+    MAP_STYLE_KEYS,
+    MAP_STYLE_OPTIONS,
+    map_style_from_label,
+    render_cors_station_map,
+)
+from zgiis.space_weather.fetch_indices import get_space_weather
 from zgiis.theme import inject
 
 st.set_page_config(
@@ -42,25 +46,24 @@ with st.sidebar:
     st.divider()
     st.markdown("**Navigation**")
     st.page_link("Home.py",                      label="🏠 Home",                 )
+    st.page_link("pages/1_Dashboard.py",         label="📊 Dashboard",            )
     st.page_link("pages/2_Processing.py",        label="⚙️ RINEX/CMN Processing", )
     st.page_link("pages/3_Time_Series.py",       label="📈 TEC Time Series",      )
     st.page_link("pages/4_PRN_Explorer.py",      label="🛸 PRN Explorer",         )
     st.page_link("pages/5_TEC_Heatmap.py",       label="🗺️ TEC Heat Map",        )
     st.page_link("pages/6_Space_Weather.py",     label="☀️ Space Weather",       )
     st.page_link("pages/7_TEC_Anomaly_Detection.py", label="🔬 TEC Anomaly Detection", )
-    st.page_link("pages/8_AI_Assistant.py",      label="🤖 AI Assistant",         )
+    st.page_link("pages/11_AI_Assistant.py",      label="🤖 AI Assistant",         )
+    st.page_link("pages/9_CORS_Hardware.py",     label="📡 CORS Hardware",         )
+    st.page_link("pages/10_VTEC_Theory.py",     label="📐 Calculating VTEC",      )
     st.divider()
     st.caption("v1.0.0 · ZINGSA © 2026")
 
 # ── Space weather data ────────────────────────────────────────────────────────
 sw = get_space_weather()
-warnings = get_warning_messages(sw)
 risk_color = sw.get("gnss_risk_color", "#1D9E75")
 online = sw.get("stations_online")
-total = sw.get("stations_total") or len(ZIMBABWE_CORS_STATIONS)
-if online is None:
-    online = sum(1 for s in ZIMBABWE_CORS_STATIONS if s.status == "online")
-stations_label = f"{online}/{total}"
+total = sw.get("stations_total")
 
 # ── Hero header with integrated space-weather metrics ─────────────────────────
 title_col, logo_col = st.columns([5.2, 0.8], vertical_alignment="top")
@@ -79,53 +82,22 @@ with logo_col:
         st.markdown("</div>", unsafe_allow_html=True)
     else:
         st.markdown(
-            "<div class='hero-logo-wrap' style='text-align:center;color:#446688;font-size:0.7rem'>"
+            "<div class='hero-logo-wrap' style='text-align:center;color:#ffffff;font-size:0.7rem'>"
             "Place <code>zingsa_logo.png</code> in <code>static/</code></div>",
             unsafe_allow_html=True,
         )
-
-metric_cards = [
-    ("🧭", "Kp Index", sw["kp"], "Planetary activity", "#00d4ff"),
-    ("🌌", "Geomagnetic condition", sw["kp_condition"], "Current state", sw.get("kp_color", "#00ff88")),
-    ("☀️", "Solar Flux", sw["f107"], "Solar flux units", "#00d4ff"),
-    ("🛰️", "GNSS Risk", sw["gnss_risk"], "Navigation impact", risk_color),
-    ("📡", "Stations Online", stations_label, "Zimbabwe CORS", "#00d4ff"),
-]
-metrics_html = "".join(
-    "<div class='zgiis-card zgiis-card-accent hero-status-card'>"
-    f"<span class='hero-status-icon'>{icon}</span>"
-    f"<div class='hero-status-label'>{label}</div>"
-    f"<div class='hero-status-value' style='color:{value_color}'>{value}</div>"
-    f"<div class='hero-status-note'>{note}</div>"
-    "</div>"
-    for icon, label, value, note, value_color in metric_cards
-)
-
-st.markdown(
-    "<div class='hero-dashboard-panel'>"
-    "<div class='hero-panel-eyebrow'>Live space weather · Zimbabwe CORS network</div>"
-    f"<div class='hero-metrics-grid'>{metrics_html}</div>"
-    f"{build_synchronized_kp_scales_html(sw['kp'])}"
-    "</div>",
-    unsafe_allow_html=True,
-)
-
-# ── Warning messages ──────────────────────────────────────────────────────────
-for msg in warnings:
-    box_cls = "alert-box" if sw["gnss_risk"] in ("High", "Critical") else ("warn-box" if sw["gnss_risk"] == "Moderate" else "ok-box")
-    st.markdown(f"<div class='{box_cls}'>ℹ️ {msg}</div>", unsafe_allow_html=True)
 
 # ── CORS network map ──────────────────────────────────────────────────────────
 map_hdr, map_style_col, map_risk = st.columns([3, 4, 1])
 with map_hdr:
     st.subheader("Zimbabwe CORS Network")
     st.caption(
-        f"Zimbabwe CORS network · {total} stations · "
-        f"{online} online · {sw['gnss_risk']} risk"
+        f"Zimbabwe CORS network · {total if total is not None else 'N/A'} stations · "
+        f"{online if online is not None else 'N/A'} live online · {sw['gnss_risk']} risk"
     )
 with map_style_col:
     st.markdown(
-        "<div style='font-size:0.62rem;color:#94a3b8;text-transform:uppercase;"
+        "<div style='font-size:0.62rem;color:#ffffff;text-transform:uppercase;"
         "letter-spacing:0.06em;margin-top:0.5rem'>Map Layer</div>",
         unsafe_allow_html=True,
     )
@@ -137,13 +109,11 @@ with map_style_col:
         label_visibility="collapsed",
         key="home_cors_map_style",
     )
-    if selected_layer is None:
-        selected_layer = "Hybrid"
-    home_map_style = MAP_STYLE_KEYS[MAP_STYLE_OPTIONS.index(selected_layer)]
+    home_map_style = map_style_from_label(selected_layer)
 with map_risk:
     st.markdown(
         f"<div style='text-align:right;margin-top:0.4rem'>"
-        f"<div style='font-size:0.62rem;color:#94a3b8;text-transform:uppercase;"
+        f"<div style='font-size:0.62rem;color:#ffffff;text-transform:uppercase;"
         f"letter-spacing:0.06em'>Risk Level</div>"
         f"<div style='font-size:1rem;font-weight:800;color:{risk_color}'>{sw['gnss_risk'].upper()}</div>"
         f"</div>",
@@ -157,6 +127,7 @@ render_cors_station_map(
     map_style=home_map_style,
     height=400,
     show_tec_legend=home_map_style == "tec_heatmap",
+    key="home_cors_map",
 )
 if home_map_style == "tec_heatmap":
     st.markdown(
@@ -166,15 +137,15 @@ if home_map_style == "tec_heatmap":
         "border-radius:10px'>"
         # gradient bar
         "<div style='display:flex;flex-direction:column;align-items:center;gap:4px;flex-shrink:0'>"
-        "<span style='font-size:0.62rem;color:#94a3b8;font-weight:700;text-transform:uppercase;"
+        "<span style='font-size:0.62rem;color:#ffffff;font-weight:700;text-transform:uppercase;"
         "letter-spacing:0.05em'>Low TEC</span>"
         "<div style='width:160px;height:14px;border-radius:6px;border:1px solid #334155;"
         "background:linear-gradient(to right,#000080,#0080ff,#00ff80,#ffcc00,#ff0000)'></div>"
-        "<span style='font-size:0.62rem;color:#94a3b8;font-weight:700;text-transform:uppercase;"
+        "<span style='font-size:0.62rem;color:#ffffff;font-weight:700;text-transform:uppercase;"
         "letter-spacing:0.05em'>High TEC</span>"
         "</div>"
         # explanation text
-        "<div style='font-size:0.80rem;color:#cbd5e1;line-height:1.55;flex:1'>"
+        "<div style='font-size:0.80rem;color:#ffffff;line-height:1.55;flex:1'>"
         "<b style='color:#ffffff'>TEC Heat Map</b> &mdash; "
         "Colour represents Vertical Total Electron Content (VTEC) interpolated across Zimbabwe. "
         "<span style='color:#5599ff'>Blue</span> = low ionospheric electron content; "
@@ -186,52 +157,6 @@ if home_map_style == "tec_heatmap":
         "</div>",
         unsafe_allow_html=True,
     )
-else:
-    st.markdown(
-        "<div style='display:flex;flex-wrap:wrap;align-items:center;gap:20px;"
-        "margin-top:-0.4rem;margin-bottom:0.6rem;padding:8px 14px;"
-        "background:#0d1b2a;border:1px solid #1e3a5f;border-radius:8px;width:fit-content'>"
-        "<span style='font-size:0.85rem;color:#94a3b8;font-weight:800;text-transform:uppercase;"
-        "letter-spacing:0.08em'>Station Status</span>"
-        "<span style='font-size:0.92rem;color:#ffffff;font-weight:600'>"
-        "<span style='color:#1D9E75;font-size:1.1rem'>●</span>&nbsp; ONLINE</span>"
-        "<span style='font-size:0.92rem;color:#ffffff;font-weight:600'>"
-        "<span style='color:#EF9F27;font-size:1.1rem'>●</span>&nbsp; DEGRADED</span>"
-        "<span style='font-size:0.92rem;color:#ffffff;font-weight:600'>"
-        "<span style='color:#ff4444;font-size:1.1rem'>●</span>&nbsp; OFFLINE</span>"
-        "</div>",
-        unsafe_allow_html=True,
-    )
-# ── Scintillation Risk Assessment ────────────────────────────────────────────
-st.subheader("Scintillation Risk Assessment")
-
-_tec_vals = [s.current_tec for s in ZIMBABWE_CORS_STATIONS if s.current_tec > 0]
-_high_tec  = sum(1 for v in _tec_vals if v > 30)
-_nominal   = sum(1 for v in _tec_vals if 15 <= v <= 30)
-_low_tec   = sum(1 for v in _tec_vals if v < 15)
-
-_risk_c1, _risk_c2, _risk_c3 = st.columns(3)
-for _col, _title, _count, _range, _note, _title_color, _border_color in [
-    (_risk_c1, "High TEC Zones",  _high_tec, "STATIONS > 30 TECU",   "Possible scintillation risk · RTK degradation", "#ff4444", "#ff4444"),
-    (_risk_c2, "Nominal Zones",   _nominal,  "STATIONS 15–30 TECU",  "Normal ionospheric conditions",                 "#00ff88", "#00ff88"),
-    (_risk_c3, "Low TEC Zones",   _low_tec,  "STATIONS < 15 TECU",   "Post-storm depletion or nighttime conditions",  "#94a3b8", "#334155"),
-]:
-    with _col:
-        st.markdown(
-            f"<div style='background:#0d1b2a;border:1px solid #1e3a5f;"
-            f"border-left:4px solid {_border_color};border-radius:10px;"
-            f"padding:1.1rem 1.3rem;margin-bottom:0.7rem'>"
-            f"<div style='font-size:1rem;font-weight:800;color:{_title_color};margin-bottom:0.5rem'>{_title}</div>"
-            f"<div style='font-size:2.4rem;font-weight:700;color:#00d4ff;line-height:1.1'>{_count}</div>"
-            f"<div style='font-size:0.72rem;color:#6888aa;text-transform:uppercase;"
-            f"letter-spacing:0.08em;margin:0.4rem 0 0.5rem'>{_range}</div>"
-            f"<div style='font-size:0.8rem;color:{_title_color};opacity:0.85'>{_note}</div>"
-            f"</div>",
-            unsafe_allow_html=True,
-        )
-
-st.markdown("---")
-
 # ── Module cards ─────────────────────────────────────────────────────────────
 st.subheader("Platform Modules")
 
@@ -242,8 +167,8 @@ def nav_card(col, icon, title, desc, page, accent="zgiis-card-accent"):
         st.markdown(
             f"<div class='zgiis-card {accent}'>"
             f"<span style='font-size:1.7rem'>{icon}</span>"
-            f"<div style='font-weight:700;color:#e0f0ff;margin:0.3rem 0 0.1rem'>{title}</div>"
-            f"<div style='font-size:0.8rem;color:#6888aa'>{desc}</div>"
+            f"<div style='font-weight:700;color:#ffffff;margin:0.3rem 0 0.1rem'>{title}</div>"
+            f"<div style='font-size:0.8rem;color:#ffffff'>{desc}</div>"
             f"</div>",
             unsafe_allow_html=True,
         )
@@ -257,7 +182,7 @@ nav_card(col4, "🗺️", "TEC Heat Map",      "Interpolated TEC grid over Zimba
 col5, col6, col7 = st.columns(3)
 nav_card(col5, "☀️", "Space Weather",     "Kp · F10.7 · storm alerts",                 "pages/6_Space_Weather.py", "zgiis-card-warn")
 nav_card(col6, "🔬", "TEC Anomaly Detection", "Anomaly · seasonal · solar cycle tools", "pages/7_TEC_Anomaly_Detection.py", "zgiis-card-accent")
-nav_card(col7, "🤖", "AI Assistant",      "Ask TEC AI — ionosphere Q&A",               "pages/8_AI_Assistant.py",  "zgiis-card-ok")
+nav_card(col7, "🤖", "AI Assistant",      "Ask TEC AI — ionosphere Q&A",               "pages/11_AI_Assistant.py",  "zgiis-card-ok")
 
 st.markdown("---")
 
@@ -316,6 +241,36 @@ constellation_chart.update_layout(
 chart_left, chart_center, chart_right = st.columns([1, 3, 1])
 with chart_center:
     st.plotly_chart(constellation_chart, width="stretch")
+
+st.markdown("---")
+
+# ── Scintillation Risk Assessment ────────────────────────────────────────────
+st.subheader("Scintillation Risk Assessment")
+
+_tec_vals = [s.current_tec for s in ZIMBABWE_CORS_STATIONS if s.current_tec > 0]
+_high_tec = sum(1 for v in _tec_vals if v > 30)
+_nominal = sum(1 for v in _tec_vals if 15 <= v <= 30)
+_low_tec = sum(1 for v in _tec_vals if v < 15)
+
+_risk_c1, _risk_c2, _risk_c3 = st.columns(3)
+for _col, _title, _count, _range, _note, _title_color, _border_color in [
+    (_risk_c1, "High TEC Zones", _high_tec, "STATIONS > 30 TECU", "Possible scintillation risk · RTK degradation", "#ff4444", "#ff4444"),
+    (_risk_c2, "Nominal Zones", _nominal, "STATIONS 15–30 TECU", "Normal ionospheric conditions", "#00ff88", "#00ff88"),
+    (_risk_c3, "Low TEC Zones", _low_tec, "STATIONS < 15 TECU", "Post-storm depletion or nighttime conditions", "#ffffff", "#334155"),
+]:
+    with _col:
+        st.markdown(
+            f"<div style='background:#0d1b2a;border:1px solid #1e3a5f;"
+            f"border-left:4px solid {_border_color};border-radius:10px;"
+            f"padding:1.1rem 1.3rem;margin-bottom:0.7rem'>"
+            f"<div style='font-size:1rem;font-weight:800;color:#ffffff;margin-bottom:0.5rem'>{_title}</div>"
+            f"<div style='font-size:2.4rem;font-weight:700;color:#ffffff;line-height:1.1'>{_count}</div>"
+            f"<div style='font-size:0.72rem;color:#ffffff;text-transform:uppercase;"
+            f"letter-spacing:0.08em;margin:0.4rem 0 0.5rem'>{_range}</div>"
+            f"<div style='font-size:0.8rem;color:#ffffff;opacity:0.85'>{_note}</div>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
 
 st.markdown("---")
 

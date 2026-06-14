@@ -41,6 +41,8 @@ def normalize_station_status(status: str) -> str:
     s = (status or "").lower()
     if s in ("online", "offline", "degraded"):
         return s
+    if s == "unknown":
+        return s
     if s in ("warning", "critical"):
         return "degraded" if s == "warning" else "offline"
     # Legacy pipeline / catalog labels (registered, loaded, etc.)
@@ -69,10 +71,11 @@ def stations_for_map(health: dict | None = None) -> List[CorsStation]:
         except Exception:
             health = None
 
+    summary = (health or {}).get("health_summary") or {}
     rows = (health or {}).get("stations") or []
-    if not rows:
+    if not rows or int(summary.get("telemetry_live") or 0) <= 0:
         return [
-            replace(s, status=normalize_station_status(s.status))
+            replace(s, status="unknown", current_tec=0.0)
             for s in ZIMBABWE_CORS_STATIONS
         ]
 
@@ -94,20 +97,20 @@ ZIMBABWE_CORS_STATIONS: List[CorsStation] = [
     # Coordinates imported from CORS_FILES/corszingsa.xlsx on 2026-06-13.
     CorsStation("muto", "Mutoko",       -17.40452552, 32.21956895, "online",     ["GPS"], height_m=1265.3981),
     CorsStation("mata", "Mataga",       -20.84527778, 30.19333333, "degraded",   ["GPS"], height_m=1000.0000),
-    CorsStation("muta", "Mutare",       -18.97829762, 32.67722325, "online",     ["GPS", "GLONASS"], current_tec=23.1, height_m=1113.0200),
-    CorsStation("bula", "Bulawayo",     -20.16531328, 28.64114319, "online",     ["GPS", "GLONASS"], current_tec=20.1, height_m=1392.4000),
-    CorsStation("gwer", "Gweru",        -19.51195226, 29.84053989, "online",     ["GPS", "GLONASS"], current_tec=21.3, height_m=1438.8300),
+    CorsStation("muta", "Mutare",       -18.97829762, 32.67722325, "online",     ["GPS", "GLONASS"], height_m=1113.0200),
+    CorsStation("bula", "Bulawayo",     -20.16531328, 28.64114319, "online",     ["GPS", "GLONASS"], height_m=1392.4000),
+    CorsStation("gwer", "Gweru",        -19.51195226, 29.84053989, "online",     ["GPS", "GLONASS"], height_m=1438.8300),
     CorsStation("hacy", "Harare City",  -17.82516600, 31.03351100, "degraded",   ["GPS", "GLONASS"]),
     CorsStation("masv", "Masvingo",     -20.08775776, 30.83149252, "online",     ["GPS", "GLONASS"], height_m=1096.5400),
-    CorsStation("hara", "Harare",       -17.78140871, 31.04856188, "online",     ["GPS", "GLONASS"], current_tec=22.4, height_m=1525.7100),
-    CorsStation("zinh", "ZINGSA HQ",    -17.78483089, 31.05063364, "online",     ["GPS", "GLONASS", "Galileo", "BeiDou"], current_tec=22.7, height_m=1514.9404),
+    CorsStation("hara", "Harare",       -17.78140871, 31.04856188, "online",     ["GPS", "GLONASS"], height_m=1525.7100),
+    CorsStation("zinh", "ZINGSA HQ",    -17.78483089, 31.05063364, "online",     ["GPS", "GLONASS", "Galileo", "BeiDou"], height_m=1514.9404),
     CorsStation("lupa", "Lupane",       -18.94696921, 27.76074133, "online",     ["GPS", "GLONASS", "Galileo", "BeiDou"], height_m=986.2676),
-    CorsStation("cent", "Centenary",    -16.73144103, 31.11882966, "online",     ["GPS", "GLONASS", "Galileo", "BeiDou"], current_tec=24.2, height_m=1222.0549),
-    CorsStation("karo", "Karoi",        -16.81896637, 29.68364577, "online",     ["GPS", "GLONASS", "Galileo", "BeiDou"], current_tec=23.8, height_m=1286.5621),
-    CorsStation("kwek", "Kwekwe",       -18.93450249, 29.80392498, "online",     ["GPS", "GLONASS", "Galileo", "BeiDou"], current_tec=21.8, height_m=1231.4777),
-    CorsStation("gokw", "Gokwe",        -18.21248449, 28.93207200, "online",     ["GPS", "GLONASS", "Galileo", "BeiDou"], current_tec=21.0, height_m=1292.7306),
-    CorsStation("gsu",  "GSU",          -20.43602472, 29.27481487, "online",     ["GPS", "GLONASS", "Galileo", "BeiDou"], current_tec=19.2, height_m=1212.7989),
-    CorsStation("chir", "Chiredzi",     -21.04512914, 31.66864490, "online",     ["GPS", "GLONASS", "Galileo", "BeiDou"], current_tec=19.6, height_m=434.6533),
+    CorsStation("cent", "Centenary",    -16.73144103, 31.11882966, "online",     ["GPS", "GLONASS", "Galileo", "BeiDou"], height_m=1222.0549),
+    CorsStation("karo", "Karoi",        -16.81896637, 29.68364577, "online",     ["GPS", "GLONASS", "Galileo", "BeiDou"], height_m=1286.5621),
+    CorsStation("kwek", "Kwekwe",       -18.93450249, 29.80392498, "online",     ["GPS", "GLONASS", "Galileo", "BeiDou"], height_m=1231.4777),
+    CorsStation("gokw", "Gokwe",        -18.21248449, 28.93207200, "online",     ["GPS", "GLONASS", "Galileo", "BeiDou"], height_m=1292.7306),
+    CorsStation("gsu",  "GSU",          -20.43602472, 29.27481487, "online",     ["GPS", "GLONASS", "Galileo", "BeiDou"], height_m=1212.7989),
+    CorsStation("chir", "Chiredzi",     -21.04512914, 31.66864490, "online",     ["GPS", "GLONASS", "Galileo", "BeiDou"], height_m=434.6533),
     CorsStation("chim", "Chimanimani",  -19.80266433, 32.87045111, "online",     ["GPS", "GLONASS", "Galileo", "BeiDou"], height_m=1539.1271),
     CorsStation("chiv", "Chivhu",       -19.01795928, 30.89528957, "online",     ["GPS", "GLONASS", "Galileo", "BeiDou"], height_m=1466.4191),
     CorsStation("kari", "Kariba",       -16.51946232, 28.79036193, "online",     ["GPS", "GLONASS", "Galileo", "BeiDou"], height_m=753.4219),

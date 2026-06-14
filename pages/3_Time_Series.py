@@ -4,7 +4,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -14,38 +13,33 @@ root = Path(__file__).resolve().parents[1]
 if str(root) not in sys.path:
     sys.path.insert(0, str(root))
 
+from zgiis.data.tec_archive import load_historical_tec
 from zgiis.theme import inject
 
 st.set_page_config(page_title="ZGIIS — TEC Time Series", page_icon="📈", layout="wide")
 inject(st)
 
-
-def _demo_df() -> pd.DataFrame:
-    """Generate demo TEC data when no real data is loaded."""
-    rng = np.random.default_rng(42)
-    dates = pd.date_range("2024-01-01", periods=365, freq="D")
-    stations = ["hara", "bula", "gwer", "kwek", "muta"]
-    rows = []
-    for station in stations:
-        base = 20 + rng.uniform(-3, 3)
-        for d in dates:
-            doy   = d.day_of_year
-            solar = 3 * np.sin(2 * np.pi * doy / 365)
-            diurn = 2 * np.sin(2 * np.pi * d.hour / 24) if hasattr(d, "hour") else 0
-            vtec  = max(5, base + solar + rng.normal(0, 1.2))
-            rows.append({"date": d, "station": station, "vtec": vtec,
-                         "stec": vtec * 1.4, "prn": f"G{rng.integers(1,33):02d}",
-                         "constellation": "GPS"})
-    return pd.DataFrame(rows)
+# ── Load real processed data from session ────────────────────────────────────
+@st.cache_data(show_spinner=False)
+def _load_archive():
+    return load_historical_tec()
 
 
-# ── Load data from session or demo ───────────────────────────────────────────
 df: pd.DataFrame = st.session_state.get("zgiis_df", pd.DataFrame())
-using_demo = df.empty
-if using_demo:
-    df = _demo_df()
-    st.info("No processed data found — showing demo data. Run **⚙️ Processing** first to load your files.")
+data_origin = "Current Processing session"
+archive_metadata: dict = {}
+if df.empty:
+    df, archive_metadata = _load_archive()
+    data_origin = "Historical processed CMN archive"
+if df.empty:
+    st.warning(
+        "No processed TEC observations are loaded. Run **⚙️ Processing** and select "
+        "real RINEX or CMN files. This page does not generate demo data."
+    )
+    st.page_link("pages/2_Processing.py", label="Open Processing")
+    st.stop()
 
+df = df.copy()
 df["date"] = pd.to_datetime(df["date"])
 if "constellation" not in df.columns:
     df["constellation"] = "GPS"
@@ -56,7 +50,7 @@ if "prn" not in df.columns:
 with st.sidebar:
     st.markdown("### 📈 Time Series Filters")
     stations = sorted(df["station"].dropna().unique())
-    sel_stations = st.multiselect("Stations", stations, default=stations[:3])
+    sel_stations = st.multiselect("Stations", stations, default=stations)
     constellations = sorted(df["constellation"].dropna().unique())
     sel_const = st.multiselect("Constellation", constellations, default=constellations)
     prns = sorted(df["prn"].dropna().unique())
@@ -72,6 +66,38 @@ with st.sidebar:
 st.markdown("<div class='zgiis-title' style='font-size:1.7rem'>📈 TEC Time Series Viewer</div>", unsafe_allow_html=True)
 st.caption("Daily, monthly, and seasonal TEC variation across the Zimbabwe CORS network")
 st.markdown("---")
+
+available_years = sorted(df["date"].dt.year.dropna().astype(int).unique().tolist())
+station_coverage = (
+    df.groupby("station")
+    .agg(
+        observations=("vtec", "count"),
+        first_date=("date", "min"),
+        last_date=("date", "max"),
+    )
+    .reset_index()
+    .sort_values("station")
+)
+year_text = ", ".join(str(year) for year in available_years) or "None"
+observation_count = (
+    int(pd.to_numeric(df["observations"], errors="coerce").fillna(0).sum())
+    if "observations" in df.columns
+    else len(df)
+)
+st.info(
+    f"{data_origin}: {observation_count:,} source observations represented by "
+    f"{len(df):,} chart records | {len(stations)} station(s) | "
+    f"available year(s): {year_text}."
+)
+if archive_metadata:
+    st.caption(
+        "Historical data, not live telemetry. "
+        f"Coverage: {archive_metadata['first_date']:%Y-%m-%d} to "
+        f"{archive_metadata['last_date']:%Y-%m-%d}. "
+        f"Derived from {archive_metadata['source_files']} real processed CMN files."
+    )
+with st.expander("View station and date coverage", expanded=False):
+    st.dataframe(station_coverage, width="stretch", hide_index=True)
 
 # ── Apply filters ─────────────────────────────────────────────────────────────
 fdf = df.copy()
@@ -114,7 +140,7 @@ with tab1:
                       annotation_text=f"95th pct: {p95:.1f} TECU",
                       annotation_font_color="#ff4444")
     fig.update_layout(paper_bgcolor="#060d1a", plot_bgcolor="#0d1b2a",
-                      font_color="#b0c8e8", yaxis=dict(gridcolor="#1e3a5f"),
+                      font_color="#ffffff", yaxis=dict(gridcolor="#1e3a5f"),
                       xaxis=dict(gridcolor="#1e3a5f"), height=380,
                       legend=dict(bgcolor="#0d1b2a", bordercolor="#1e3a5f"))
     st.plotly_chart(fig, use_container_width=True)
@@ -132,7 +158,7 @@ with tab2:
         title="Monthly Mean VTEC by Station",
     )
     fig_m.update_layout(paper_bgcolor="#060d1a", plot_bgcolor="#0d1b2a",
-                        font_color="#b0c8e8", yaxis=dict(gridcolor="#1e3a5f"),
+                        font_color="#ffffff", yaxis=dict(gridcolor="#1e3a5f"),
                         xaxis=dict(gridcolor="#1e3a5f"), height=380,
                         legend=dict(bgcolor="#0d1b2a", bordercolor="#1e3a5f"))
     st.plotly_chart(fig_m, use_container_width=True)
@@ -153,7 +179,7 @@ with tab2:
     fig_range.update_layout(
         title="Monthly VTEC Range (min/mean/max)",
         paper_bgcolor="#060d1a", plot_bgcolor="#0d1b2a",
-        font_color="#b0c8e8", yaxis=dict(title="VTEC (TECU)", gridcolor="#1e3a5f"),
+        font_color="#ffffff", yaxis=dict(title="VTEC (TECU)", gridcolor="#1e3a5f"),
         xaxis=dict(gridcolor="#1e3a5f"), height=360,
         legend=dict(bgcolor="#0d1b2a", bordercolor="#1e3a5f"),
     )
@@ -175,7 +201,7 @@ with tab3:
                      labels={"vtec": "Mean VTEC (TECU)", "year": "Year"},
                      title="Yearly Mean VTEC Trend")
     fig_yr.update_layout(paper_bgcolor="#060d1a", plot_bgcolor="#0d1b2a",
-                         font_color="#b0c8e8", yaxis=dict(gridcolor="#1e3a5f"),
+                         font_color="#ffffff", yaxis=dict(gridcolor="#1e3a5f"),
                          xaxis=dict(gridcolor="#1e3a5f"), height=320,
                          legend=dict(bgcolor="#0d1b2a", bordercolor="#1e3a5f"))
     st.plotly_chart(fig_yr, use_container_width=True)
@@ -185,7 +211,7 @@ with tab3:
                      labels={"vtec": "Mean VTEC (TECU)", "season": "Season"},
                      title="Seasonal VTEC Variation")
     fig_sea.update_layout(paper_bgcolor="#060d1a", plot_bgcolor="#0d1b2a",
-                          font_color="#b0c8e8", yaxis=dict(gridcolor="#1e3a5f"),
+                          font_color="#ffffff", yaxis=dict(gridcolor="#1e3a5f"),
                           xaxis=dict(gridcolor="#1e3a5f"), height=320,
                           legend=dict(bgcolor="#0d1b2a", bordercolor="#1e3a5f"))
     st.plotly_chart(fig_sea, use_container_width=True)
@@ -201,7 +227,7 @@ with tab3:
             labels={"x": "Day of Year", "y": "Station", "color": "VTEC"},
             title="VTEC Heatmap: Station × Day of Year",
         )
-        fig_heat.update_layout(paper_bgcolor="#060d1a", font_color="#b0c8e8", height=280)
+        fig_heat.update_layout(paper_bgcolor="#060d1a", font_color="#ffffff", height=280)
         st.plotly_chart(fig_heat, use_container_width=True)
 
 # ── Tab 4: Diurnal ───────────────────────────────────────────────────────────
@@ -219,7 +245,7 @@ with tab4:
         title="Diurnal VTEC Variation (24-hour pattern)",
     )
     fig_d.update_layout(paper_bgcolor="#060d1a", plot_bgcolor="#0d1b2a",
-                        font_color="#b0c8e8", yaxis=dict(gridcolor="#1e3a5f"),
+                        font_color="#ffffff", yaxis=dict(gridcolor="#1e3a5f"),
                         xaxis=dict(gridcolor="#1e3a5f", dtick=2), height=360,
                         legend=dict(bgcolor="#0d1b2a", bordercolor="#1e3a5f"))
     st.plotly_chart(fig_d, use_container_width=True)

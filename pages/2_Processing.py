@@ -20,6 +20,7 @@ from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
 from zgiis.maps.station_map import (
     MAP_STYLE_KEYS,
     MAP_STYLE_OPTIONS,
+    map_style_from_label,
     render_cors_station_map,
 )
 from zgiis.processing.pipeline_explanations import render_pipeline_explorer
@@ -417,7 +418,7 @@ with st.sidebar:
 
         if obs_names:
             st.markdown(
-                f"<div style='font-size:0.76rem;color:#dbeafe;margin-bottom:0.3rem;white-space:nowrap'>"
+                f"<div style='font-size:0.76rem;color:#ffffff;margin-bottom:0.3rem;white-space:nowrap'>"
                 f"<span style='color:#00d4ff'>RINEX</span>"
                 f" · <span style='color:#00ff88;font-weight:700'>Found: {total_found}</span>"
                 f" · <span style='color:#f0c040'>Selected: {n_sel}</span>"
@@ -472,7 +473,7 @@ with st.sidebar:
                 kind_bits.append(f".g: {n_glo}")
             kind_str = " · ".join(kind_bits)
             st.markdown(
-                f"<div style='font-size:0.76rem;color:#dbeafe;margin-bottom:0.3rem;white-space:nowrap'>"
+                f"<div style='font-size:0.76rem;color:#ffffff;margin-bottom:0.3rem;white-space:nowrap'>"
                 f"<span style='color:#00d4ff'>NAV</span>"
                 f" · <span style='color:#00ff88;font-weight:700'>Found: {len(nav_names)}</span>"
                 f" ({kind_str})"
@@ -526,7 +527,7 @@ with st.sidebar:
 
         if cmn_names:
             st.markdown(
-                f"<div style='font-size:0.76rem;color:#dbeafe;margin-bottom:0.3rem;white-space:nowrap'>"
+                f"<div style='font-size:0.76rem;color:#ffffff;margin-bottom:0.3rem;white-space:nowrap'>"
                 f"<span style='color:#00d4ff'>CMN</span>"
                 f" · <span style='color:#00ff88;font-weight:700'>Found: {len(cmn_names)}</span>"
                 f" · <span style='color:#f0c040'>Selected: {len(default_cmn)}</span>"
@@ -611,7 +612,7 @@ with st.sidebar:
 
     # ── Output file options — GPS_TEC style ───────────────────────────────────
     st.markdown(
-        "<div style='color:#c8dcf0;font-weight:700;font-size:0.85rem;"
+        "<div style='color:#ffffff;font-weight:700;font-size:0.85rem;"
         "margin-bottom:6px'>Output files</div>",
         unsafe_allow_html=True,
     )
@@ -719,11 +720,7 @@ if not run_btn:
             label_visibility="collapsed",
             key="processing_map_layer",
         )
-    if processing_map_layer is None:
-        processing_map_layer = "Hybrid"
-    processing_map_style = MAP_STYLE_KEYS[
-        MAP_STYLE_OPTIONS.index(processing_map_layer)
-    ]
+    processing_map_style = map_style_from_label(processing_map_layer)
 
     if loaded_sites:
         render_cors_station_map(
@@ -911,14 +908,12 @@ if processed_sites:
     result_map_layer = st.segmented_control(
         "Processed map layer",
         MAP_STYLE_OPTIONS,
-        default=st.session_state.get("processing_map_layer", "TEC Heat Map"),
+        default="TEC Heat Map",
         selection_mode="single",
         label_visibility="collapsed",
         key="processing_result_map_layer",
     )
-    if result_map_layer is None:
-        result_map_layer = "TEC Heat Map"
-    result_map_style = MAP_STYLE_KEYS[MAP_STYLE_OPTIONS.index(result_map_layer)]
+    result_map_style = map_style_from_label(result_map_layer, default="tec_heatmap")
     render_cors_station_map(
         st,
         processed_sites,
@@ -946,7 +941,7 @@ _has_prn  = "prn" in all_df.columns
 _mode_cfg = {
     "This Day only": ("date",         "UT (hrs)",    "24-hr TEC Image"),
     "This Month":    ("month_period", "Day of month","Monthly TEC Image"),
-    "This Year":     ("year",         "Day of Year", "Yearly TEC Image"),
+    "This Year":     ("year",         "Month",       "Yearly TEC Image"),
     "Directory":     ("date",         "UT (hrs)",    "TEC Image"),
 }
 _grp_col, _xlabel, _img_mode_label = _mode_cfg.get(processing_mode, ("date", "UT (hrs)", "TEC Image"))
@@ -972,10 +967,11 @@ elif processing_mode == "This Month":
     _plot_df["_x"] = _plot_df["timestamp"].dt.day.astype(float)
     _x_range = [1, 31]
     _x_ticks = list(range(1, 32, 2))
-else:  # This Year
-    _plot_df["_x"] = _plot_df["timestamp"].dt.day_of_year.astype(float)
-    _x_range = [1, 366]
-    _x_ticks = list(range(1, 367, 30))
+else:  # This Year — use real dates so x-axis shows months
+    _plot_df["_x"] = pd.to_datetime(_plot_df["timestamp"])
+    _yr = int(_plot_df["timestamp"].dt.year.mode().iloc[0])
+    _x_range = [pd.Timestamp(f"{_yr}-01-01"), pd.Timestamp(f"{_yr}-12-31")]
+    _x_ticks = pd.date_range(f"{_yr}-01-01", periods=12, freq="MS").tolist()
 
 
 def _make_goptec_plot_xy(df: pd.DataFrame, col: str, title: str,
@@ -993,7 +989,12 @@ def _make_goptec_plot_xy(df: pd.DataFrame, col: str, title: str,
     fig.add_shape(type="line", x0=x_range[0], x1=x_range[1], y0=0, y1=0,
                   line=dict(color="#ff00ff", width=1.5))
 
-    _gap_thresh = 0.25 if xlabel == "UT (hrs)" else 1.0
+    import pandas as _pd
+    _gap_thresh = (
+        _pd.Timedelta("15min") if xlabel == "UT (hrs)"
+        else _pd.Timedelta("1D") if xlabel == "Month"
+        else 1.0
+    )
     _min_arc    = 10   # minimum observations per arc (GPS_TEC skips short arcs)
     _trim_n     = 3    # trim first/last N obs of each arc (boundary multipath)
 
@@ -1056,7 +1057,11 @@ def _make_goptec_plot_xy(df: pd.DataFrame, col: str, title: str,
             x=x_prn, y=y_prn, mode="lines",
             line=dict(color="#00cc00", width=0.9),
             showlegend=False, connectgaps=False,
-            hovertemplate=f"PRN {prn}<br>{xlabel}: %{{x:.2f}}<br>TEC: %{{y:.1f}} TECU<extra></extra>",
+            hovertemplate=(
+                f"PRN {prn}<br>%{{x|%d %B}}<br>TEC: %{{y:.1f}} TECU<extra></extra>"
+                if xlabel == "Month"
+                else f"PRN {prn}<br>{xlabel}: %{{x:.2f}}<br>TEC: %{{y:.1f}} TECU<extra></extra>"
+            ),
         ))
 
     # ── Mean TEC red line — from cleaned data only ───────────────────────────
@@ -1069,7 +1074,11 @@ def _make_goptec_plot_xy(df: pd.DataFrame, col: str, title: str,
             x=_mean_ser.index.tolist(), y=_mean_ser.values.tolist(),
             mode="lines", line=dict(color="#ff0000", width=2.5),
             showlegend=False, connectgaps=False,
-            hovertemplate="Mean: %{y:.1f} TECU<extra></extra>",
+            hovertemplate=(
+                "Mean: %{y:.1f} TECU<br>%{x|%d %B}<extra>Mean TEC</extra>"
+                if xlabel == "Month"
+                else "Mean: %{y:.1f} TECU<extra></extra>"
+            ),
         ))
 
     fig.update_layout(
@@ -1077,6 +1086,7 @@ def _make_goptec_plot_xy(df: pd.DataFrame, col: str, title: str,
         xaxis=dict(
             title=dict(text=xlabel, font=dict(color="#ff0000", size=16)),
             range=x_range, tickvals=x_ticks,
+            tickformat="%b" if xlabel == "Month" else None,
             tickfont=dict(color="#ff0000", size=14),
             gridcolor="#ffffff", gridwidth=0, showgrid=False, zeroline=False,
             linecolor="#000000", linewidth=2, showline=True, mirror=True,
@@ -1178,6 +1188,105 @@ mark_stage(6, done=True)
 st.markdown("---")
 render_vtec_summary_charts(st, all_df, daily_st, processing_mode)
 
+# ── Daily Max / Mean / Min / VTEC charts (MATLAB-style, month x-axis) ────────
+st.markdown("---")
+st.subheader("Daily VTEC Summary Charts")
+
+def _daily_vtec_chart(data: pd.DataFrame, col: str, ylabel: str) -> go.Figure:
+    """White-background MATLAB-style daily VTEC chart with month x-axis."""
+    _d = data.dropna(subset=[col]).copy()
+    _d["date"] = pd.to_datetime(_d["date"])
+    fig = go.Figure()
+    fig.add_scatter(
+        x=_d["date"], y=_d[col],
+        mode="lines+markers",
+        line=dict(color="#1565c0", width=1.5),
+        marker=dict(size=5, color="#1565c0"),
+        name=ylabel,
+        hovertemplate=(
+            "<b>%{x|%d %B %Y}</b><br>"
+            + ylabel + ": %{y:.2f} TECU<extra></extra>"
+        ),
+    )
+    fig.update_layout(
+        xaxis=dict(
+            title=dict(text="Month", font=dict(color="#cc0000", size=12, family="Arial")),
+            tickformat="%b",
+            dtick="M1",
+            tickfont=dict(color="#cc0000", size=11, family="Arial"),
+            gridcolor="#cccccc", showgrid=True, zeroline=False,
+            linecolor="#000000", linewidth=1.5, showline=True, mirror=True,
+        ),
+        yaxis=dict(
+            title=dict(text=ylabel, font=dict(color="#cc0000", size=12, family="Arial")),
+            rangemode="tozero",
+            tickfont=dict(color="#cc0000", size=11, family="Arial"),
+            gridcolor="#cccccc", showgrid=True, zeroline=True, zerolinecolor="#cccccc",
+            linecolor="#000000", linewidth=1.5, showline=True, mirror=True,
+        ),
+        plot_bgcolor="#ffffff", paper_bgcolor="#ffffff",
+        font=dict(color="#000000", family="Arial"),
+        showlegend=False,
+        height=280, margin=dict(t=20, b=55, l=70, r=15),
+    )
+    return fig
+
+if not daily.empty and "max_vtec" in daily.columns:
+    _dc1, _dc2, _dc3 = st.columns(3)
+    with _dc1:
+        st.plotly_chart(
+            _daily_vtec_chart(daily, "max_vtec", "MaximumVtec"),
+            use_container_width=True, key="sum_max_vtec",
+        )
+    with _dc2:
+        st.plotly_chart(
+            _daily_vtec_chart(daily, "mean_vtec", "MeanVtec"),
+            use_container_width=True, key="sum_mean_vtec",
+        )
+    with _dc3:
+        st.plotly_chart(
+            _daily_vtec_chart(daily, "min_vtec", "MinimumVtec"),
+            use_container_width=True, key="sum_min_vtec",
+        )
+
+    # Full-width VTEC chart (chart 4 — cleaner labelled version)
+    _dv = daily.dropna(subset=["mean_vtec"]).copy()
+    _dv["date"] = pd.to_datetime(_dv["date"])
+    fig_vtec_full = go.Figure()
+    fig_vtec_full.add_scatter(
+        x=_dv["date"], y=_dv["mean_vtec"],
+        mode="lines+markers",
+        line=dict(color="#1565c0", width=2),
+        marker=dict(size=6, color="#1565c0"),
+        name="VTEC",
+        hovertemplate="<b>%{x|%d %B %Y}</b><br>VTEC: %{y:.2f} TECU<extra>VTEC</extra>",
+    )
+    fig_vtec_full.update_layout(
+        xaxis=dict(
+            title=dict(text="Month", font=dict(color="#cc0000", size=14, family="Arial")),
+            tickformat="%b",
+            dtick="M1",
+            tickfont=dict(color="#cc0000", size=13, family="Arial"),
+            gridcolor="#cccccc", showgrid=True, zeroline=False,
+            linecolor="#000000", linewidth=2, showline=True, mirror=True,
+        ),
+        yaxis=dict(
+            title=dict(text="VTEC (TECU)", font=dict(color="#cc0000", size=14, family="Arial")),
+            rangemode="tozero",
+            tickfont=dict(color="#cc0000", size=13, family="Arial"),
+            gridcolor="#cccccc", showgrid=True, zeroline=True, zerolinecolor="#cccccc",
+            linecolor="#000000", linewidth=2, showline=True, mirror=True,
+        ),
+        legend=dict(
+            bgcolor="#ffffff", bordercolor="#cccccc", borderwidth=1,
+            font=dict(color="#000000", size=13),
+        ),
+        plot_bgcolor="#ffffff", paper_bgcolor="#ffffff",
+        font=dict(color="#000000", family="Arial"),
+        height=400, margin=dict(t=20, b=65, l=80, r=20),
+    )
+    st.plotly_chart(fig_vtec_full, use_container_width=True, key="sum_vtec_full")
+
 # ── Key metrics ───────────────────────────────────────────────────────────────
 st.markdown("---")
 st.subheader("Key Metrics")
@@ -1211,7 +1320,7 @@ if not storm_pts.empty:
                           mode="markers", marker=dict(size=10, color="#ff4444"),
                           name="Storm-like day")
 fig_daily.update_layout(
-    paper_bgcolor="#060d1a", plot_bgcolor="#0d1b2a", font_color="#b0c8e8",
+    paper_bgcolor="#060d1a", plot_bgcolor="#0d1b2a", font_color="#ffffff",
     yaxis=dict(gridcolor="#1e3a5f"), xaxis=dict(gridcolor="#1e3a5f"),
     height=320, margin=dict(t=20, b=10),
 )
@@ -1224,7 +1333,7 @@ elif gran == "Month":
     fig_m = px.bar(monthly, x="month", y="mean_vtec", labels={"mean_vtec": "VTEC (TECU)"})
     fig_m.update_traces(marker_color="#00d4ff")
     fig_m.update_layout(paper_bgcolor="#060d1a", plot_bgcolor="#0d1b2a",
-                        font_color="#b0c8e8", yaxis=dict(gridcolor="#1e3a5f"),
+                        font_color="#ffffff", yaxis=dict(gridcolor="#1e3a5f"),
                         xaxis=dict(gridcolor="#1e3a5f"), height=300)
     st.plotly_chart(fig_m, use_container_width=True)
     st.dataframe(monthly, use_container_width=True)
@@ -1232,7 +1341,7 @@ else:
     fig_y = px.bar(yearly, x="year", y="mean_vtec", labels={"mean_vtec": "VTEC (TECU)"})
     fig_y.update_traces(marker_color="#00ff88")
     fig_y.update_layout(paper_bgcolor="#060d1a", plot_bgcolor="#0d1b2a",
-                        font_color="#b0c8e8", yaxis=dict(gridcolor="#1e3a5f"),
+                        font_color="#ffffff", yaxis=dict(gridcolor="#1e3a5f"),
                         xaxis=dict(gridcolor="#1e3a5f"), height=300)
     st.plotly_chart(fig_y, use_container_width=True)
     st.dataframe(yearly, use_container_width=True)
@@ -1243,7 +1352,7 @@ if daily_storm["kp_index"].notna().any():
     fig_kp = px.scatter(daily_storm.dropna(subset=["kp_index"]),
                         x="kp_index", y="mean_vtec", trendline="ols")
     fig_kp.update_layout(paper_bgcolor="#060d1a", plot_bgcolor="#0d1b2a",
-                         font_color="#b0c8e8", height=300)
+                         font_color="#ffffff", height=300)
     st.plotly_chart(fig_kp, use_container_width=True)
 
 # ── Exports — controlled by sidebar output checkboxes ────────────────────────

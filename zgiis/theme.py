@@ -5,14 +5,14 @@ DARK_CSS = """
 /* ── Base ── */
 html, body, [data-testid="stAppViewContainer"] {
     background-color: #060d1a !important;
-    color: #d0dff0 !important;
+    color: #ffffff !important;
 }
 [data-testid="stSidebar"] {
     background-color: #0d1b2a !important;
     border-right: 1px solid #1e3a5f;
 }
-/* sidebar base text — specific overrides below handle inputs/buttons */
-[data-testid="stSidebar"] { color: #b0c8e8; }
+/* sidebar base text */
+[data-testid="stSidebar"] { color: #ffffff; }
 [data-testid="stHeader"] { background: transparent !important; }
 
 /* ── Cards ── */
@@ -37,7 +37,7 @@ html, body, [data-testid="stAppViewContainer"] {
 }
 .metric-label {
     font-size: 0.78rem;
-    color: #6888aa;
+    color: #ffffff;
     text-transform: uppercase;
     letter-spacing: 0.08em;
 }
@@ -116,9 +116,24 @@ h1 *, h2 *, h3 *, h4 *, h5 *, h6 *,
 }
 .hero-metrics-grid {
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 0.75rem;
+    gap: 0.85rem;
     align-items: stretch;
+    margin-top: 0.65rem;
+}
+.hero-metrics-grid-4x2 {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    grid-template-rows: repeat(2, auto) !important;
+}
+@media (max-width: 900px) {
+    .hero-metrics-grid-4x2 {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-rows: auto;
+    }
+}
+@media (max-width: 520px) {
+    .hero-metrics-grid-4x2 {
+        grid-template-columns: 1fr;
+    }
 }
 .hero-metrics-grid .hero-status-card {
     margin-bottom: 0;
@@ -145,7 +160,7 @@ h1 *, h2 *, h3 *, h4 *, h5 *, h6 *,
     margin-bottom: 0.35rem;
 }
 .hero-status-label {
-    color: #dbeafe;
+    color: #ffffff;
     font-size: 0.7rem;
     font-weight: 750;
     line-height: 1.3;
@@ -167,6 +182,196 @@ h1 *, h2 *, h3 *, h4 *, h5 *, h6 *,
     font-size: 0.63rem;
     line-height: 1.2;
     opacity: 0.92;
+}
+
+/* PRN Explorer — constellation name (GPS, Galileo, etc.) */
+.prn-const-label {
+    font-size: clamp(1.1rem, 1.6vw, 1.45rem) !important;
+    font-weight: 800 !important;
+    color: #ffffff !important;
+    min-height: auto !important;
+    letter-spacing: 0.02em;
+    margin-bottom: 0.15rem;
+}
+
+/* ── CORS hardware (station requirements grid; diagram CSS lives in iframe) ── */
+[data-testid="stMainBlockContainer"] [data-testid="stHtml"] iframe {
+    width: 100% !important;
+    max-width: 100% !important;
+    border: none;
+}
+.cors-req-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.85rem;
+}
+@media (max-width: 900px) {
+    .cors-req-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+@media (max-width: 520px) {
+    .cors-req-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ── VTEC Theory page callouts ── */
+.vtec-why-box {
+    background: #071829;
+    border-left: 3px solid #f59e0b;
+    border-radius: 6px;
+    padding: 0.7rem 1rem;
+    margin: 0.4rem 0 0.8rem;
+    font-size: 0.82rem;
+    line-height: 1.6;
+}
+.vtec-why-label {
+    color: #f59e0b !important;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    font-size: 0.72rem;
+}
+.vtec-why-box,
+.vtec-why-box p,
+.vtec-why-box em,
+.vtec-why-box span.vtec-why-text,
+.vtec-why-box strong {
+    color: #ffffff !important;
+}
+
+/* ── VTEC Theory IPP geometry diagram ── */
+.ipp-geom-card {
+    background: #060d1a;
+    border: 1px solid #1e3a5f;
+    border-radius: 12px;
+    padding: 0.65rem 0.5rem 0.45rem;
+    max-width: 100%;
+    overflow: hidden;
+}
+.ipp-geom-img {
+    display: block;
+    width: 100%;
+    max-width: 460px;
+    height: auto;
+    margin: 0 auto;
+}
+.ipp-geom-card-iframe {
+    padding: 0.35rem 0.25rem 0.2rem;
+    overflow: hidden;
+}
+.ipp-geom-card-iframe iframe {
+    border: none !important;
+    background: #060d1a !important;
+}
+.ipp-geom-svg {
+    display: block;
+    width: 100%;
+    max-width: 380px;
+    height: auto;
+    margin: 0 auto;
+}
+.ipp-geom-legend {
+    background: rgba(10, 22, 40, 0.94);
+    border: 1px solid #1e3a5f;
+    border-left: 3px solid #00d4ff;
+    border-radius: 10px;
+    padding: 0.85rem 0.9rem;
+    font-size: 0.82rem;
+    color: #ffffff;
+    line-height: 1.45;
+    max-width: 100%;
+}
+.ipp-geom-legend-title {
+    color: #00d4ff;
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 0.55rem;
+}
+.ipp-geom-legend table {
+    width: 100%;
+    border-collapse: collapse;
+}
+.ipp-geom-legend td {
+    padding: 0.28rem 0;
+    vertical-align: top;
+}
+.ipp-geom-legend td.sym {
+    width: 5.5rem;
+    font-style: italic;
+    font-weight: 700;
+    color: #ffffff;
+    white-space: nowrap;
+    vertical-align: middle;
+}
+.ipp-geom-legend td.sym .line,
+.ipp-geom-legend td.sym .dot {
+    display: inline-block;
+    vertical-align: middle;
+    margin-right: 0.4rem;
+}
+.ipp-geom-legend .dot {
+    width: 0.55rem;
+    height: 0.55rem;
+    border-radius: 50%;
+}
+.ipp-geom-legend .line {
+    width: 1.1rem;
+    height: 2px;
+}
+.ipp-geom-legend td.sym .sym-text {
+    display: inline-block;
+    vertical-align: middle;
+}
+@media (max-width: 720px) {
+    .ipp-geom-svg {
+        max-width: 100%;
+    }
+}
+
+/* ── VTEC Theory step illustrations ── */
+.vtec-illus-card {
+    background: #060d1a;
+    border: 1px solid #1e3a5f;
+    border-radius: 12px;
+    padding: 0.75rem 0.7rem 0.6rem;
+    max-width: 100%;
+    overflow: hidden;
+    min-height: 15.5rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+}
+.vtec-illus-caption {
+    color: #ffffff;
+    font-size: 0.78rem;
+    line-height: 1.45;
+    margin-bottom: 0.5rem;
+    padding: 0 0.15rem;
+}
+.vtec-illus-svg,
+.vtec-illus-img {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    height: auto;
+    margin: 0 auto;
+    object-fit: contain;
+}
+.vtec-pipeline-svg {
+    max-width: 380px;
+}
+.vtec-overview-illus {
+    margin: 0.5rem 0 1.2rem;
+    display: flex;
+    justify-content: center;
+}
+.vtec-overview-illus .vtec-illus-card {
+    width: 100%;
+    max-width: 400px;
 }
 
 /* ── Clickable hero cards (Space Weather, PRN Explorer) + invisible overlay ── */
@@ -239,16 +444,82 @@ h1 *, h2 *, h3 *, h4 *, h5 *, h6 *,
     font-size: 0 !important;
     color: transparent !important;
 }
+.dashboard-panel-marker {
+    display: none;
+}
+[data-testid="stVerticalBlockBorderWrapper"]:has(.dashboard-panel-marker) {
+    background: linear-gradient(155deg, rgba(13, 27, 42, 0.98), rgba(8, 18, 32, 0.94));
+    border-color: #1e3a5f !important;
+    border-radius: 14px !important;
+    box-shadow: 0 10px 32px rgba(0, 0, 0, 0.28);
+}
+.dashboard-explanation-panel {
+    margin-top: 0.9rem;
+    margin-bottom: 0.2rem;
+}
+.dashboard-condition-banner {
+    line-height: 1.5;
+}
+.dashboard-condition-banner strong {
+    color: #ffffff;
+    font-size: 0.95rem;
+}
+.dashboard-condition-banner span {
+    color: inherit;
+    font-size: 0.82rem;
+}
+.dashboard-clickable-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    grid-template-rows: repeat(2, minmax(148px, auto)) !important;
+    gap: 0.85rem;
+    align-items: stretch;
+}
+.dashboard-card-link {
+    display: block;
+    color: inherit !important;
+    text-decoration: none !important;
+    min-width: 0;
+}
+.dashboard-card-link .hero-click-card {
+    min-height: 148px;
+    pointer-events: auto;
+    cursor: pointer;
+}
+.dashboard-card-link:hover .hero-click-card {
+    background: rgba(12, 28, 48, 0.98);
+    box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.35);
+}
+@media (max-width: 700px) {
+    .dashboard-clickable-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        grid-template-rows: auto !important;
+    }
+}
+@media (max-width: 430px) {
+    .dashboard-clickable-grid {
+        grid-template-columns: 1fr !important;
+    }
+}
 
 /* ── Horizontal Kp scale (Home dashboard) ── */
 .hero-scales-grid {
     display: grid;
-    grid-template-columns: 10.5rem repeat(8, minmax(0, 1fr));
+    grid-template-columns: 10.5rem minmax(0, 1fr);
     gap: 0.5rem 0.4rem;
     align-items: center;
     margin-top: 1rem;
     padding-top: 1rem;
     border-top: 1px solid rgba(30, 58, 95, 0.65);
+}
+.hero-scale-band-row {
+    display: grid;
+    grid-template-columns: repeat(var(--scale-columns), minmax(0, 1fr));
+    gap: 0.4rem;
+    min-width: 0;
+}
+.hero-scales-grid-single {
+    grid-template-columns: 10.5rem repeat(8, minmax(0, 1fr));
 }
 .kp-scale-row-label {
     color: #ffffff;
@@ -313,6 +584,15 @@ h1 *, h2 *, h3 *, h4 *, h5 *, h6 *,
     opacity: 1;
     box-shadow: 0 0 8px rgba(0, 212, 255, 0.35);
 }
+@media (max-width: 900px) {
+    .hero-scales-grid {
+        grid-template-columns: 8rem minmax(0, 1fr);
+        overflow-x: auto;
+    }
+    .hero-scale-band-row {
+        min-width: 43rem;
+    }
+}
 
 /* ── Processing page prompt / start button spacing ── */
 .proc-prompt-banner {
@@ -331,7 +611,9 @@ h1 *, h2 *, h3 *, h4 *, h5 *, h6 *,
 
 /* ── Processing pipeline stage buttons (scoped — not hero overlay buttons) ── */
 [data-testid="stMarkdown"]:has(.pipeline-explorer-row) + [data-testid="stHorizontalBlock"] button[kind="secondary"] {
-    min-height: 108px;
+    height: 108px !important;
+    min-height: 108px !important;
+    max-height: 108px !important;
     white-space: pre-line !important;
     line-height: 1.35 !important;
     font-size: 0.78rem !important;
@@ -340,6 +622,9 @@ h1 *, h2 *, h3 *, h4 *, h5 *, h6 *,
     border: 1px solid #1e3a5f !important;
     border-radius: 10px !important;
     font-weight: 650 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
 }
 [data-testid="stMarkdown"]:has(.pipeline-explorer-row) + [data-testid="stHorizontalBlock"] button[kind="secondary"]:hover {
     border-color: #00d4ff !important;
@@ -363,13 +648,13 @@ h1 *, h2 *, h3 *, h4 *, h5 *, h6 *,
     margin-bottom: 0.25rem;
 }
 .pipeline-explain-section {
-    color: #00d4ff;
+    color: #ffffff;
     font-size: 0.78rem;
     font-weight: 700;
     margin-bottom: 0.55rem;
 }
 .pipeline-explain-heading {
-    color: #94a3b8;
+    color: #ffffff;
     font-size: 0.72rem;
     font-weight: 800;
     text-transform: uppercase;
@@ -377,13 +662,13 @@ h1 *, h2 *, h3 *, h4 *, h5 *, h6 *,
     margin: 0.65rem 0 0.25rem;
 }
 .pipeline-explain-body {
-    color: #dbeafe;
+    color: #ffffff;
     font-size: 0.86rem;
     line-height: 1.55;
     margin: 0;
 }
 .pipeline-explain-cite {
-    color: #6888aa;
+    color: #ffffff;
     font-size: 0.68rem;
     line-height: 1.45;
     margin-top: 0.75rem;
@@ -411,7 +696,7 @@ div[data-testid="stMarkdownContainer"] div.katex-display {
     overflow-x: auto !important;
 }
 div[data-testid="stMarkdownContainer"] .katex {
-    color: #f8fbff !important;
+    color: #ffffff !important;
     font-size: 1.05em !important;
 }
 
@@ -425,7 +710,7 @@ div[data-testid="stMarkdownContainer"] .katex {
     padding: 0.85rem 1rem;
     width: fit-content;
     max-width: 100%;
-    color: #cbd5e1;
+    color: #ffffff;
     font-size: 0.86rem;
     background: #0d1b2a;
     border: 1px solid #1e4e78;
@@ -452,7 +737,7 @@ div[data-testid="stMarkdownContainer"] .katex {
 .tec-map-legend-note {
     flex-basis: 100%;
     margin-left: 0;
-    color: #8aa6c2;
+    color: #ffffff;
     font-size: 0.78rem;
     line-height: 1.35;
 }
@@ -538,7 +823,7 @@ button[kind="primary"] * {
 [data-testid="stSidebar"] .stSelectbox label,
 [data-testid="stSidebar"] .stRadio label,
 [data-testid="stSidebar"] .stCheckbox label p {
-    color: #c8dcf0 !important;
+    color: #ffffff !important;
     font-weight: 600 !important;
 }
 
@@ -555,7 +840,7 @@ button[kind="primary"] * {
 /* Placeholder text in inputs */
 [data-testid="stSidebar"] input::placeholder,
 [data-testid="stSidebar"] textarea::placeholder {
-    color: #5577aa !important;
+    color: #ffffff !important;
 }
 
 /* Select all / Clear all buttons — reset pipeline overrides, keep compact */
@@ -566,7 +851,7 @@ button[kind="primary"] * {
     white-space: nowrap !important;
     background-color: #0a2040 !important;
     border: 1px solid #2a5080 !important;
-    color: #e0f0ff !important;
+    color: #ffffff !important;
     font-weight: 600 !important;
     font-size: 0.78rem !important;
     padding: 0.3rem 0.6rem !important;
@@ -591,7 +876,7 @@ button[kind="primary"] * {
 /* Multiselect placeholder */
 [data-testid="stSidebar"] [data-baseweb="select"] [data-testid="stMultiSelectPlaceholder"],
 [data-testid="stSidebar"] [data-baseweb="select"] span {
-    color: #7799bb !important;
+    color: #ffffff !important;
 }
 /* Selected tags (pills) inside multiselect */
 [data-testid="stSidebar"] [data-baseweb="tag"] {
@@ -599,7 +884,7 @@ button[kind="primary"] * {
     border: 1px solid #00d4ff !important;
 }
 [data-testid="stSidebar"] [data-baseweb="tag"] span {
-    color: #e0f8ff !important;
+    color: #ffffff !important;
     font-weight: 600 !important;
 }
 /* Tag × close button */
@@ -617,14 +902,14 @@ button[kind="primary"] * {
 /* Checkbox and radio text */
 [data-testid="stSidebar"] .stCheckbox span,
 [data-testid="stSidebar"] .stRadio span {
-    color: #c8dcf0 !important;
+    color: #ffffff !important;
 }
 
 /* Caption / small helper text */
 [data-testid="stSidebar"] small,
 [data-testid="stSidebar"] .stCaption,
 [data-testid="stSidebar"] [data-testid="stCaptionContainer"] {
-    color: #5588aa !important;
+    color: #ffffff !important;
 }
 
 /* Output file checkboxes — hide the generated label, keep tick box visible */
@@ -659,6 +944,46 @@ button[kind="primary"] * {
 /* push page content up so footer doesn't overlap last element */
 [data-testid="stAppViewContainer"] > section:first-child {
     padding-bottom: 2.5rem;
+}
+/* ── Dataframe / table white text ── */
+[data-testid="stDataFrame"] * { color: #ffffff !important; }
+[data-testid="stDataFrame"] canvas { color: #ffffff !important; }
+
+/* ── Site-wide: eliminate grey/muted body text ── */
+[data-testid="stMain"] {
+    color: #ffffff !important;
+}
+[data-testid="stMain"] [data-testid="stMarkdownContainer"],
+[data-testid="stMain"] [data-testid="stMarkdownContainer"] p,
+[data-testid="stMain"] [data-testid="stMarkdownContainer"] li,
+[data-testid="stMain"] [data-testid="stMarkdownContainer"] span,
+[data-testid="stMain"] [data-testid="stMarkdownContainer"] em,
+[data-testid="stMain"] [data-testid="stMarkdownContainer"] td,
+[data-testid="stMain"] [data-testid="stMarkdownContainer"] th,
+[data-testid="stSidebar"] label,
+[data-testid="stSidebar"] span,
+[data-testid="stSidebar"] p,
+[data-testid="stSidebar"] small,
+[data-testid="stSidebar"] .stCaption,
+[data-testid="stSidebar"] [data-testid="stCaptionContainer"],
+[data-testid="stExpander"] label p,
+[data-testid="stExpander"] [data-testid="stMarkdownContainer"] p {
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+}
+[data-testid="stSidebar"] input::placeholder,
+[data-testid="stSidebar"] textarea::placeholder {
+    color: #ffffff !important;
+    opacity: 0.72;
+}
+
+/* ── Plotly chart text ── */
+.js-plotly-plot .plotly .main-svg text,
+.js-plotly-plot .plotly .main-svg tspan {
+    fill: #ffffff !important;
+}
+.js-plotly-plot .plotly .legend text {
+    fill: #ffffff !important;
 }
 </style>
 """

@@ -15,12 +15,36 @@ STATUS_COLORS = {
     "online": "#1D9E75",
     "degraded": "#EF9F27",
     "offline": "#ef4444",
+    "unknown": "#94a3b8",
 }
+
+STATUS_LABELS = {
+    "online": "ONLINE",
+    "degraded": "DEGRADED",
+    "offline": "OFFLINE",
+    "unknown": "TELEMETRY UNAVAILABLE",
+}
+
+LEGEND_STATUSES = ("online", "degraded", "offline", "unknown")
 
 
 def _status_color(status: str) -> str:
-    """Return one of the three legend colours — never blue/cyan."""
+    """Return a status colour, including neutral grey for unavailable telemetry."""
     return STATUS_COLORS[normalize_station_status(status)]
+
+
+def _status_label(status: str) -> str:
+    """Return the user-facing label for a normalized station status."""
+    return STATUS_LABELS[normalize_station_status(status)]
+
+
+def _status_legend_items_html() -> str:
+    """HTML rows for the map station-status legend."""
+    return "".join(
+        f"<span><span style='color:{STATUS_COLORS[key]};font-size:14px'>●</span> "
+        f"{STATUS_LABELS[key]}</span>"
+        for key in LEGEND_STATUSES
+    )
 
 
 TILE_LAYERS: dict[str, dict] = {
@@ -62,6 +86,20 @@ TILE_LAYERS: dict[str, dict] = {
 
 MAP_STYLE_OPTIONS = ["Hybrid", "Satellite", "Street", "TEC Heat Map"]
 MAP_STYLE_KEYS = ["hybrid", "satellite", "street", "tec_heatmap"]
+
+
+def map_style_from_label(label: str | None, *, default: str = "hybrid") -> str:
+    """Convert segmented-control label to internal map-style key."""
+    if label is None or label not in MAP_STYLE_OPTIONS:
+        return default
+    return MAP_STYLE_KEYS[MAP_STYLE_OPTIONS.index(label)]
+
+
+def map_style_label_from_key(style_key: str) -> str:
+    """Convert internal map-style key to segmented-control label."""
+    if style_key not in MAP_STYLE_KEYS:
+        return MAP_STYLE_OPTIONS[0]
+    return MAP_STYLE_OPTIONS[MAP_STYLE_KEYS.index(style_key)]
 
 
 def _tec_color(tec: float) -> str:
@@ -127,13 +165,13 @@ def _station_popup_html(
     tec_label = "Estimated VTEC" if is_estimated else "VTEC"
     tec_str = f"{tec_value:.1f} TECU" if tec_value > 0 else "No TEC data"
     tec_note = (
-        "<br><span style='font-size:11px;color:#64748b'>"
+        "<br><span style='font-size:11px;color:#ffffff'>"
         "Spatial estimate from nearby stations</span>"
         if is_estimated
         else ""
     )
     const_str = " · ".join(station.constellations) or "—"
-    status = normalize_station_status(station.status).upper()
+    status = _status_label(station.status)
     status_color = _status_color(station.status)
     height_str = f"{station.height_m:,.1f} m" if station.height_m else "—"
     data_details = ""
@@ -157,7 +195,7 @@ def _station_popup_html(
         f"Constellations: {const_str}"
         f"{data_details}<br>"
         f"<div style='margin-top:7px;padding-top:6px;border-top:1px solid #dbe3ec;"
-        f"font-size:11px;color:#64748b'>Last updated: {updated_at}</div>"
+        f"font-size:11px;color:#ffffff'>Last updated: {updated_at}</div>"
         f"</div>"
     )
 
@@ -230,7 +268,8 @@ def build_cors_folium_map(
                 },
             ).add_to(m)
 
-            if show_tec_legend or map_style == "tec_heatmap":
+        if show_tec_legend or map_style == "tec_heatmap":
+            if heat_points:
                 tec_values = [point[2] for point in heat_points]
                 tec_min = math.floor(min(tec_values) * 2) / 2
                 tec_max = math.ceil(max(tec_values) * 2) / 2
@@ -322,6 +361,7 @@ def build_cors_folium_map(
             weight=2.5,
             tooltip=(
                 f"{station.code.upper()} — {station.name} · "
+                f"{_status_label(map_status)} · "
                 f"{tec_value:.1f} TECU{estimate_suffix}"
             ),
             popup=Popup(
@@ -344,6 +384,39 @@ def build_cors_folium_map(
             padding=(24, 24),
         )
 
+    if color_by == "status" and map_style != "tec_heatmap":
+        status_legend = MacroElement()
+        status_legend._template = Template(
+            """
+            {% macro html(this, kwargs) %}
+            <div style="
+                position: fixed;
+                bottom: 28px;
+                left: 18px;
+                z-index: 9999;
+                min-width: 188px;
+                padding: 10px 12px;
+                background: rgba(6, 13, 26, 0.92);
+                border: 1px solid #334155;
+                border-radius: 8px;
+                box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+                font-family: sans-serif;
+            ">
+                <div style="color:#fff;font-size:11px;font-weight:800;
+                            letter-spacing:0.08em;margin-bottom:8px">
+                    STATION STATUS
+                </div>
+                <div style="display:grid;gap:5px;font-size:11px;font-weight:700;color:#fff">
+                    """
+            + _status_legend_items_html()
+            + """
+                </div>
+            </div>
+            {% endmacro %}
+            """
+        )
+        m.get_root().add_child(status_legend)
+
     return m
 
 
@@ -360,6 +433,119 @@ def map_style_selector(st_module, key: str = "cors_map_style", default: str = "h
     return MAP_STYLE_KEYS[MAP_STYLE_OPTIONS.index(selected_label)]
 
 
+def _render_plotly_map(
+    st_module,
+    station_list: list[CorsStation],
+    *,
+    color_by: str,
+    map_style: str,
+    height: int,
+    key: str,
+) -> None:
+    """Plotly Scattermap fallback — requires only plotly (already installed)."""
+    import plotly.graph_objects as go
+
+    _plotly_styles: dict[str, str] = {
+        "hybrid":      "carto-darkmatter",
+        "satellite":   "carto-darkmatter",
+        "street":      "open-street-map",
+        "tec_heatmap": "carto-darkmatter",
+    }
+    base_style = _plotly_styles.get(map_style, "carto-darkmatter")
+    tec_values = _map_tec_values(station_list)
+    now_str = datetime.now(ZoneInfo("Africa/Harare")).strftime("%H:%M CAT")
+
+    lats: list[float] = []
+    lons: list[float] = []
+    colors: list[str] = []
+    labels: list[str] = []
+    hovers: list[str] = []
+
+    for stn in station_list:
+        tec_val, is_estimated = tec_values.get(stn.code, (0.0, False))
+        color = (
+            _tec_color(tec_val)
+            if (color_by == "tec" or map_style == "tec_heatmap")
+            else _status_color(stn.status)
+        )
+        tec_str = f"{tec_val:.1f} TECU" if tec_val > 0 else "N/A"
+        est_note = " (est.)" if is_estimated else ""
+        const_str = " · ".join(stn.constellations) or "—"
+        elev_str = f"{stn.height_m:,.1f} m" if stn.height_m else "—"
+        lats.append(stn.lat)
+        lons.append(stn.lon)
+        colors.append(color)
+        labels.append(stn.code)
+        hovers.append(
+            f"<b>{stn.name} ({stn.code})</b><br>"
+            f"Status: <b>{_status_label(stn.status)}</b><br>"
+            f"VTEC: {tec_str}{est_note}<br>"
+            f"Lat: {stn.lat:.4f}° · Lon: {stn.lon:.4f}°<br>"
+            f"Elevation: {elev_str}<br>"
+            f"Constellations: {const_str}<br>"
+            f"Updated: {now_str}"
+        )
+
+    fig = go.Figure(
+        go.Scattermap(
+            lat=lats, lon=lons,
+            mode="markers+text",
+            marker=dict(size=13, color=colors, opacity=0.92),
+            text=labels,
+            textposition="top center",
+            textfont=dict(color="#ffffff", size=9, family="Arial"),
+            hovertemplate="%{customdata}<extra></extra>",
+            customdata=hovers,
+            name="",
+        )
+    )
+    fig.update_layout(
+        map=dict(style=base_style, center=dict(lat=-19.5, lon=29.8), zoom=5.5),
+        margin=dict(l=0, r=0, t=0, b=0),
+        paper_bgcolor="#060d1a",
+        plot_bgcolor="#060d1a",
+        height=height,
+        showlegend=False,
+        hoverlabel=dict(bgcolor="#0d1b2a", bordercolor="#1e3a5f",
+                        font=dict(color="#ffffff", size=12)),
+    )
+    st_module.plotly_chart(fig, use_container_width=True,
+                           key=f"{key}_plotly_{map_style}")
+
+
+def _render_folium_iframe(
+    st_module,
+    folium_map: "folium.Map",
+    *,
+    height: int,
+) -> None:
+    """Render the selected Folium map in a Streamlit HTML iframe."""
+    import streamlit.components.v1 as components
+
+    map_html = folium_map.get_root().render()
+    components.html(
+        f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<style>
+  html, body {{
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    background: #060d1a;
+    overflow: hidden;
+  }}
+  .folium-map {{
+    width: 100% !important;
+    height: {height}px !important;
+  }}
+</style></head>
+<body>{map_html}</body></html>""",
+        height=height,
+        scrolling=False,
+    )
+
+
 def render_cors_station_map(
     st_module,
     stations: Iterable[CorsStation] | None = None,
@@ -371,34 +557,34 @@ def render_cors_station_map(
     show_tec_legend: bool = False,
     key: str = "cors_map_style",
 ) -> None:
-    """Render the Folium map in Streamlit with Hybrid / Satellite / Street layers."""
-    try:
-        from streamlit_folium import st_folium
-    except ImportError as exc:
-        raise ImportError(
-            "streamlit-folium is required for the CORS map. Run: pip install streamlit-folium"
-        ) from exc
-
+    """Render the Folium/Esri satellite map (Leaflet) used on Home and Processing."""
     if show_style_selector:
         map_style = map_style_selector(st_module, key=key)
     elif map_style is None:
         map_style = "hybrid"
 
     station_list = list(stations if stations is not None else ZIMBABWE_CORS_STATIONS)
-    folium_map = build_cors_folium_map(
-        station_list,
-        color_by=color_by,
-        map_style=map_style,
-        show_tec_legend=show_tec_legend,
-    )
-    station_signature = "-".join(
-        f"{station.code}-{normalize_station_status(station.status)}-{station.current_tec:.1f}"
-        for station in station_list
-    )
-    st_folium(
+
+    try:
+        folium_map = build_cors_folium_map(
+            station_list,
+            color_by=color_by,
+            map_style=map_style,
+            show_tec_legend=show_tec_legend,
+        )
+    except ImportError:
+        _render_plotly_map(
+            st_module,
+            station_list,
+            color_by=color_by,
+            map_style=map_style,
+            height=height,
+            key=key,
+        )
+        return
+
+    _render_folium_iframe(
+        st_module,
         folium_map,
-        width=None,
         height=height,
-        returned_objects=[],
-        key=f"{key}_map_{map_style}_{station_signature}",
     )

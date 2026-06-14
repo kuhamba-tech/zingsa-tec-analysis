@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import datetime
-import math
 from typing import Any, Dict, Optional
 
 from zgiis.api.cors_client import (
@@ -24,8 +23,8 @@ _CACHE_TTL_SECONDS = 300  # 5 minutes — matches CORS_Program refresh cadence
 
 # Aligned with ZINGSA CORS_Program/api/_space-weather/africa.js
 _KP_LEVELS = [
-    (0, 2, "Quiet", "#1D9E75"),
-    (2, 4, "Unsettled", "#22d3ee"),
+    (0, 3, "Quiet", "#1D9E75"),
+    (3, 4, "Unsettled", "#22d3ee"),
     (4, 5, "Active", "#EF9F27"),
     (5, 6, "G1 Storm", "#ef4444"),
     (6, 7, "G2 Storm", "#dc2626"),
@@ -45,6 +44,8 @@ _GNSS_RISK_COLORS = {
 
 NOAA_KP_URL = "https://services.swpc.noaa.gov/json/planetary_k_index_1m.json"
 NOAA_F107_URL = "https://services.swpc.noaa.gov/json/f107_cm_flux.json"
+NOAA_DST_URL = "https://services.swpc.noaa.gov/products/kyoto-dst.json"
+NOAA_PLASMA_URL = "https://services.swpc.noaa.gov/products/solar-wind/plasma-1-day.json"
 
 
 def _cached(key: str, fetch_fn) -> Any:
@@ -76,11 +77,6 @@ def _gnss_impact_label(kp: float, s4: float = 0.0, delta_tec: float = 0.0) -> st
     return "Low"
 
 
-def _demo_kp() -> float:
-    seed = int(datetime.datetime.utcnow().strftime("%Y%m%d%H"))
-    return round(abs(math.sin(seed * 0.017)) * 4 + 1.2, 1)
-
-
 def _parse_kp_value(record: Optional[dict]) -> Optional[float]:
     """Prefer kp_index; fall back to estimated_kp when index is zero (NOAA 1-min feed)."""
     if not record:
@@ -95,52 +91,243 @@ def _parse_kp_value(record: Optional[dict]) -> Optional[float]:
 
 
 def _fetch_noaa_kp() -> Optional[float]:
-    if not _REQUESTS_AVAILABLE:
+    history = _fetch_noaa_kp_history()
+    if not history:
         return None
+    for row in reversed(history):
+        value = _parse_kp_value(row)
+        if value is not None:
+            return value
+    return None
+
+
+def _fetch_noaa_kp_history() -> list[dict]:
+    """Return the full NOAA SWPC 1-minute planetary K-index feed."""
+    if not _REQUESTS_AVAILABLE:
+        return []
     try:
         response = requests.get(NOAA_KP_URL, timeout=8)
+        response.raise_for_status()
         rows = response.json()
-        if rows:
-            return _parse_kp_value(rows[-1])
+        if not isinstance(rows, list):
+            return []
+        history: list[dict] = []
+        for row in rows:
+            if not isinstance(row, dict) or not row.get("time_tag"):
+                continue
+            history.append(
+                {
+                    "time_tag": row.get("time_tag"),
+                    "kp_index": row.get("kp_index"),
+                    "estimated_kp": row.get("estimated_kp"),
+                }
+            )
+        return history
     except Exception:
-        pass
-    return None
+        return []
 
 
 def _fetch_noaa_f107() -> Optional[float]:
-    if not _REQUESTS_AVAILABLE:
+    history = _fetch_noaa_f107_history()
+    if not history:
         return None
-    try:
-        response = requests.get(NOAA_F107_URL, timeout=8)
-        rows = response.json()
-        if rows:
-            return float(rows[-1].get("flux") or 0)
-    except Exception:
-        pass
+    for row in reversed(history):
+        flux = row.get("flux")
+        if flux is not None:
+            return float(flux)
     return None
 
 
-def _fallback_data() -> Dict[str, Any]:
-    kp = _demo_kp()
-    condition, condition_color = _resolve_kp_level(kp)
-    risk = _gnss_impact_label(kp)
+def _fetch_noaa_f107_history() -> list[dict]:
+    if not _REQUESTS_AVAILABLE:
+        return []
+    try:
+        response = requests.get(NOAA_F107_URL, timeout=8)
+        response.raise_for_status()
+        rows = response.json()
+        if not isinstance(rows, list):
+            return []
+        history: list[dict] = []
+        for row in rows:
+            if not isinstance(row, dict) or not row.get("time_tag"):
+                continue
+            if row.get("flux") is None:
+                continue
+            history.append(
+                {"time_tag": row.get("time_tag"), "flux": float(row["flux"])}
+            )
+        return sorted(history, key=lambda item: str(item["time_tag"]))
+    except Exception:
+        return []
+
+
+def _fetch_noaa_dst() -> Optional[float]:
+    """Fetch latest Kyoto Dst index (nT) from NOAA SWPC."""
+    history = _fetch_noaa_dst_history()
+    if not history:
+        return None
+    for row in reversed(history):
+        if row.get("dst") is not None:
+            return float(row["dst"])
+    return None
+
+
+def _fetch_noaa_dst_history() -> list[dict]:
+    if not _REQUESTS_AVAILABLE:
+        return []
+    try:
+        response = requests.get(NOAA_DST_URL, timeout=8)
+        response.raise_for_status()
+        rows = response.json()
+        if not isinstance(rows, list):
+            return []
+
+        history: list[dict] = []
+        for row in rows:
+            if isinstance(row, dict) and row.get("time_tag") and row.get("dst") is not None:
+                history.append(
+                    {"time_tag": row["time_tag"], "dst": float(row["dst"])}
+                )
+                continue
+            if (
+                isinstance(row, list)
+                and len(row) >= 2
+                and row[0] != "time_tag"
+                and row[1] is not None
+            ):
+                history.append({"time_tag": row[0], "dst": float(row[1])})
+        return sorted(history, key=lambda item: str(item["time_tag"]))
+    except Exception:
+        return []
+
+
+def _fetch_noaa_solar_wind() -> tuple[Optional[float], Optional[float]]:
+    """Fetch latest solar wind speed (km/s) and density (p/cm³) from NOAA SWPC."""
+    history = _fetch_noaa_solar_wind_history()
+    if not history:
+        return None, None
+    latest = history[-1]
+    return latest.get("speed"), latest.get("density")
+
+
+def _fetch_noaa_solar_wind_history() -> list[dict]:
+    if not _REQUESTS_AVAILABLE:
+        return []
+    try:
+        response = requests.get(NOAA_PLASMA_URL, timeout=8)
+        response.raise_for_status()
+        rows = response.json()
+        if not rows or len(rows) < 2:
+            return []
+        header = rows[0]
+        speed_idx = next((i for i, h in enumerate(header) if "speed" in str(h).lower()), None)
+        density_idx = next((i for i, h in enumerate(header) if "density" in str(h).lower()), None)
+        history: list[dict] = []
+        for row in rows[1:]:
+            if not isinstance(row, list) or not row:
+                continue
+            try:
+                speed = (
+                    float(row[speed_idx])
+                    if speed_idx is not None and row[speed_idx] not in (None, "")
+                    else None
+                )
+                density = (
+                    float(row[density_idx])
+                    if density_idx is not None and row[density_idx] not in (None, "")
+                    else None
+                )
+            except (TypeError, ValueError, IndexError):
+                continue
+            if speed is None and density is None:
+                continue
+            history.append(
+                {
+                    "time_tag": row[0],
+                    "speed": speed,
+                    "density": density,
+                }
+            )
+        return history
+    except Exception:
+        return []
+
+
+_RISK_SCORES = {"Low": 0.0, "Moderate": 1.0, "High": 2.0, "Critical": 3.0}
+
+
+def _build_gnss_risk_history(
+    kp_history: list[dict],
+    *,
+    s4: Optional[float] = None,
+) -> list[dict]:
+    rows: list[dict] = []
+    for record in kp_history:
+        if not isinstance(record, dict) or not record.get("time_tag"):
+            continue
+        kp = _parse_kp_value(record)
+        if kp is None:
+            continue
+        risk = _gnss_impact_label(float(kp), s4 or 0.0)
+        rows.append(
+            {
+                "time_tag": record["time_tag"],
+                "risk_score": _RISK_SCORES.get(risk, 0.0),
+            }
+        )
+    return rows
+
+
+def _build_snapshot_history(
+    kp_history: list[dict],
+    value: Optional[float],
+    *,
+    field: str,
+) -> list[dict]:
+    if value is None:
+        return []
+    rows: list[dict] = []
+    for record in kp_history:
+        if not isinstance(record, dict) or not record.get("time_tag"):
+            continue
+        rows.append({"time_tag": record["time_tag"], field: float(value)})
+    return rows
+
+
+def _unavailable_data() -> Dict[str, Any]:
+    """Return explicit unavailable values; never synthesize observations."""
     return {
-        "kp": kp,
-        "kp_condition": condition,
-        "kp_color": condition_color,
-        "f107": 155.0,
-        "gnss_risk": risk,
-        "gnss_risk_color": _GNSS_RISK_COLORS.get(risk, "#1D9E75"),
-        "mode": "demo",
-        "source": "ZINGSA CORS demo fallback",
+        "kp": None,
+        "kp_condition": "Unavailable",
+        "kp_color": "#ffffff",
+        "f107": None,
+        "gnss_risk": "Unavailable",
+        "gnss_risk_color": "#ffffff",
+        "mode": "unavailable",
+        "source": "Live data unavailable",
         "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
         "africa_impacts": None,
+        "kp_history": [],
+        "dst_history": [],
+        "f107_history": [],
+        "solar_wind_history": [],
+        "gnss_risk_history": [],
+        "s4_history": [],
+        "stations_online_history": [],
         "stations_online": None,
         "stations_total": None,
         "stations_degraded": None,
         "stations_offline": None,
         "station_health": None,
         "api_base": None,
+        "s4": None,
+        "dst": None,
+        "solar_wind_speed": None,
+        "solar_wind_density": None,
+        "station_data_status": "unavailable",
+        "station_data_note": "No live CORS telemetry available.",
+        "ionosphere_data_status": "unavailable",
+        "ionosphere_data_note": "No observed ionosphere record available.",
     }
 
 
@@ -171,17 +358,22 @@ def get_space_weather() -> Dict[str, Any]:
         kp: Optional[float] = None
         condition = "Quiet"
         condition_color = "#1D9E75"
-        mode = "demo"
+        mode = "live"
         source = "ZINGSA CORS_Program APIs"
         timestamp = datetime.datetime.utcnow().isoformat() + "Z"
         api_base = None
 
         if africa:
             history = africa.get("history") or []
-            latest_hist = history[-1] if history else None
-            kp = _parse_kp_value(latest_hist) or _parse_kp_value(
-                {"kp_index": africa.get("kp_index"), "estimated_kp": africa.get("estimated_kp")}
+            kp = _parse_kp_value(
+                {
+                    "kp_index": africa.get("kp_index"),
+                    "estimated_kp": africa.get("estimated_kp"),
+                }
             )
+            if kp is None:
+                latest_hist = history[-1] if history else None
+                kp = _parse_kp_value(latest_hist)
             if kp is not None:
                 kp = float(kp)
             condition = africa.get("kp_level") or (_resolve_kp_level(kp)[0] if kp is not None else "Quiet")
@@ -195,7 +387,8 @@ def get_space_weather() -> Dict[str, Any]:
             kp = float(iono.get("kp_index", 0) or 0)
             if kp <= 0:
                 kp = _fetch_noaa_kp()
-            condition, condition_color = _resolve_kp_level(kp)
+            if kp is not None:
+                condition, condition_color = _resolve_kp_level(kp)
             mode = iono.get("mode", "live")
             source = iono.get("provider", source)
             timestamp = iono.get("updated_utc", timestamp)
@@ -205,7 +398,13 @@ def get_space_weather() -> Dict[str, Any]:
             kp = _fetch_noaa_kp()
 
         if kp is None:
-            return _fallback_data()
+            result = _unavailable_data()
+            result["f107"] = _fetch_noaa_f107()
+            result["dst"] = _fetch_noaa_dst()
+            sw_speed, sw_density = _fetch_noaa_solar_wind()
+            result["solar_wind_speed"] = sw_speed
+            result["solar_wind_density"] = sw_density
+            return result
 
         kp = float(kp)
         condition, condition_color = _resolve_kp_level(kp)
@@ -214,38 +413,98 @@ def get_space_weather() -> Dict[str, Any]:
             mode = "live"
             source = "NOAA SWPC Planetary K-index (direct)"
 
-        f107 = _fetch_noaa_f107() or 155.0
+        f107 = _fetch_noaa_f107()
+        dst = _fetch_noaa_dst()
+        sw_speed, sw_density = _fetch_noaa_solar_wind()
 
-        s4 = float(iono.get("s4_index", 0)) if iono else 0.0
-        delta_tec = float(iono.get("tec_daily_change", 0)) if iono else 0.0
+        s4 = None
+        delta_tec = 0.0
+        ionosphere_status = "unavailable"
+        ionosphere_note = "No observed ionosphere record available."
+        if iono:
+            selected_station = next(
+                (
+                    row
+                    for row in (iono.get("stations") or [])
+                    if str(row.get("id", "")).upper()
+                    == str(iono.get("station", "")).upper()
+                ),
+                None,
+            )
+            if selected_station and selected_station.get("archive_backed"):
+                s4 = float(iono.get("s4_index")) if iono.get("s4_index") is not None else None
+                delta_tec = float(iono.get("tec_daily_change", 0) or 0)
+                ionosphere_status = "observed_archive"
+                archive_date = selected_station.get("archive_date") or "unknown date"
+                ionosphere_note = f"Observed RINEX archive record dated {archive_date}; not live telemetry."
+            else:
+                ionosphere_note = "CORS API response is modelled or not backed by an observed RINEX record."
         gnss_raw = iono.get("gnss_impact") if iono else None
-        gnss_risk = _normalize_gnss_risk(gnss_raw) if gnss_raw else _gnss_impact_label(kp, s4, delta_tec)
+        gnss_risk = (
+            _normalize_gnss_risk(gnss_raw)
+            if gnss_raw and ionosphere_status == "observed_archive"
+            else _gnss_impact_label(kp, s4 or 0.0, delta_tec)
+        )
 
         stations_online = stations_total = stations_degraded = stations_offline = None
+        station_data_status = "unavailable"
+        station_data_note = "No live CORS telemetry available."
         if health:
             summary = health.get("health_summary") or {}
-            stations_online = summary.get("online")
-            stations_degraded = summary.get("degraded")
-            stations_offline = summary.get("offline")
             stations = health.get("stations") or []
             stations_total = len(stations) if stations else None
             api_base = api_base or health.get("_api_base")
-            if stations_online is not None and stations_total:
-                source = f"{source} · CORS health API"
+            telemetry_live = int(summary.get("telemetry_live") or 0)
+            if telemetry_live > 0:
+                stations_online = summary.get("online")
+                stations_degraded = summary.get("degraded")
+                stations_offline = summary.get("offline")
+                station_data_status = "live"
+                station_data_note = f"{telemetry_live} stations have live telemetry."
+                source = f"{source} · CORS live telemetry"
+            else:
+                station_data_note = (
+                    "Production CORS API reports zero live telemetry; archive/catalog "
+                    "statuses are not presented as live station availability."
+                )
 
         africa_impacts = africa.get("africa_impacts") if africa else None
+        kp_history = africa.get("history") if africa else []
+        if not isinstance(kp_history, list):
+            kp_history = []
+        noaa_history = _fetch_noaa_kp_history()
+        if len(noaa_history) > len(kp_history):
+            kp_history = noaa_history
+
+        dst_history = _fetch_noaa_dst_history()
+        f107_history = _fetch_noaa_f107_history()
+        solar_wind_history = _fetch_noaa_solar_wind_history()
+        gnss_risk_history = _build_gnss_risk_history(kp_history, s4=s4)
+        s4_history = _build_snapshot_history(kp_history, s4, field="s4")
+        stations_online_history = _build_snapshot_history(
+            kp_history,
+            float(stations_online) if stations_online is not None else None,
+            field="online",
+        )
 
         return {
             "kp": round(float(kp), 1),
             "kp_condition": condition,
             "kp_color": condition_color,
-            "f107": round(float(f107), 1),
+            "f107": round(float(f107), 1) if f107 is not None else None,
             "gnss_risk": gnss_risk,
             "gnss_risk_color": _GNSS_RISK_COLORS.get(gnss_risk, "#1D9E75"),
             "mode": mode,
             "source": source,
             "timestamp": timestamp,
             "africa_impacts": africa_impacts,
+            "kp_history": kp_history,
+            "dst_history": dst_history,
+            "f107_history": f107_history,
+            "solar_wind_history": solar_wind_history,
+            "gnss_risk_history": gnss_risk_history,
+            "s4_history": s4_history,
+            "stations_online_history": stations_online_history,
             "stations_online": stations_online,
             "stations_total": stations_total,
             "stations_degraded": stations_degraded,
@@ -254,6 +513,14 @@ def get_space_weather() -> Dict[str, Any]:
             "api_base": api_base,
             "ionosphere_station": iono.get("station") if iono else None,
             "vtec_tecu": iono.get("vtec_tecu") if iono else None,
+            "s4": round(s4, 2) if s4 is not None else None,
+            "dst": round(dst, 1) if dst is not None else None,
+            "solar_wind_speed": round(sw_speed) if sw_speed is not None else None,
+            "solar_wind_density": round(sw_density, 1) if sw_density is not None else None,
+            "station_data_status": station_data_status,
+            "station_data_note": station_data_note,
+            "ionosphere_data_status": ionosphere_status,
+            "ionosphere_data_note": ionosphere_note,
         }
 
     return _cached("space_weather", _fetch)

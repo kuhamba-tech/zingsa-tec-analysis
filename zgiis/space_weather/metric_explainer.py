@@ -7,7 +7,16 @@ import streamlit as st
 
 HERO_CYAN = "#00d4ff"
 
-METRIC_KEYS = ("kp", "geomagnetic", "f107", "gnss_risk")
+METRIC_KEYS = (
+    "kp",
+    "geomagnetic",
+    "dst",
+    "f107",
+    "solar_wind",
+    "s4",
+    "gnss_risk",
+    "stations",
+)
 
 METRIC_EXPLANATIONS: Dict[str, Dict[str, Any]] = {
     "kp": {
@@ -32,8 +41,7 @@ METRIC_EXPLANATIONS: Dict[str, Dict[str, Any]] = {
         "summary": (
             "A plain-language label mapped from the current Kp index. It describes how "
             "disturbed Earth's magnetic field is and what that means for ionospheric "
-            "propagation over Africa. Quiet conditions favour sub-centimetre CORS RTK; "
-            "storm conditions can cause cycle slips and loss of GNSS fix."
+            "propagation over Africa."
         ),
         "scale": [
             ("Quiet", "Kp < 3 — stable ionosphere"),
@@ -44,13 +52,27 @@ METRIC_EXPLANATIONS: Dict[str, Dict[str, Any]] = {
         ],
         "source": "Derived from Kp · Africa impact model (ZINGSA CORS_Program)",
     },
+    "dst": {
+        "title": "Dst Index",
+        "summary": (
+            "The Disturbance Storm Time index measures ring-current strength around Earth's "
+            "equator in nanotesla (nT). More negative values indicate stronger geomagnetic "
+            "storms and greater GNSS disturbance risk."
+        ),
+        "scale": [
+            ("> -20 nT", "Quiet ring current"),
+            ("-20 to -50 nT", "Unsettled to active"),
+            ("-50 to -100 nT", "Moderate storm"),
+            ("< -100 nT", "Intense storm"),
+        ],
+        "source": "NOAA SWPC Kyoto Dst index",
+    },
     "f107": {
         "title": "F10.7 Solar Flux",
         "summary": (
             "F10.7 is the solar radio flux at 10.7 cm wavelength, measured in solar flux "
             "units (sfu). It tracks solar ultraviolet output that ionizes the upper "
-            "atmosphere and controls baseline TEC. Higher F10.7 generally means higher "
-            "daytime TEC over Zimbabwe, especially near the geomagnetic equator."
+            "atmosphere and controls baseline TEC."
         ),
         "scale": [
             ("< 100 sfu", "Solar minimum — low TEC"),
@@ -60,13 +82,41 @@ METRIC_EXPLANATIONS: Dict[str, Dict[str, Any]] = {
         ],
         "source": "NOAA SWPC F10.7 cm flux JSON",
     },
+    "solar_wind": {
+        "title": "Solar Wind",
+        "summary": (
+            "The solar wind is the stream of charged particles from the Sun. Speed above "
+            "~500 km/s and elevated density can compress Earth's magnetosphere and amplify "
+            "geomagnetic effects over Zimbabwe."
+        ),
+        "scale": [
+            ("< 400 km/s", "Slow wind — quiet conditions"),
+            ("400 – 600 km/s", "Moderate to fast stream"),
+            ("> 600 km/s", "High-speed stream — storm watch"),
+        ],
+        "source": "NOAA SWPC solar-wind plasma 1-day feed",
+    },
+    "s4": {
+        "title": "Scintillation S4",
+        "summary": (
+            "The S4 index measures GNSS signal amplitude fluctuation caused by ionospheric "
+            "irregularities. Values above 0.5 indicate severe scintillation and possible "
+            "loss of satellite lock near the equatorial region."
+        ),
+        "scale": [
+            ("< 0.1", "Negligible scintillation"),
+            ("0.1 – 0.3", "Weak fluctuation"),
+            ("0.3 – 0.5", "Moderate scintillation"),
+            ("> 0.5", "Severe scintillation risk"),
+        ],
+        "source": "ZINGSA CORS ionosphere archive (HARA)",
+    },
     "gnss_risk": {
         "title": "GNSS Risk Level",
         "summary": (
             "A composite risk rating for Zimbabwe CORS and GNSS users. It combines "
             "planetary Kp with ionospheric indicators (VTEC, S4 scintillation, ΔTEC) "
-            "from the ZINGSA CORS ionosphere API. Use it to decide whether standard RTK, "
-            "dual-frequency PPP, or post-processing is appropriate."
+            "from the ZINGSA CORS ionosphere API."
         ),
         "scale": [
             ("Low", "Nominal accuracy — routine CORS operations"),
@@ -76,18 +126,88 @@ METRIC_EXPLANATIONS: Dict[str, Dict[str, Any]] = {
         ],
         "source": "ZINGSA CORS /api/ionosphere/status + Kp thresholds",
     },
+    "stations": {
+        "title": "Stations Online",
+        "summary": (
+            "Shows how many Zimbabwe CORS stations are currently reporting live telemetry "
+            "compared with the total registered network. Reduced availability weakens "
+            "regional correction coverage."
+        ),
+        "scale": [
+            ("> 90%", "Excellent network availability"),
+            ("70 – 90%", "Good with minor gaps"),
+            ("50 – 70%", "Reduced regional coverage"),
+            ("< 50%", "Critical coverage loss"),
+        ],
+        "source": "ZINGSA CORS /api/gnss/station-health",
+    },
 }
 
 
 def _metric_card_specs(sw: Dict[str, Any]) -> list[Tuple[str, str, str, str, str, str]]:
-    """Icon, label, value, note, value_color — matches Home.py hero cards."""
     risk_color = sw.get("gnss_risk_color", "#1D9E75")
     kp_color = sw.get("kp_color", HERO_CYAN)
+    online = sw.get("stations_online")
+    total = sw.get("stations_total")
+    stations_label = f"{online}/{total}" if online is not None and total else "N/A"
+
+    dst = sw.get("dst")
+    dst_value = f"{dst:+.0f} nT" if dst is not None else "N/A"
+    dst_color = (
+        "#ef4444"
+        if dst is not None and dst < -100
+        else "#f97316"
+        if dst is not None and dst < -50
+        else "#eab308"
+        if dst is not None and dst < -20
+        else "#00ff88"
+        if dst is not None
+        else "#ffffff"
+    )
+
+    s4 = sw.get("s4")
+    s4_value = f"{s4:.2f}" if s4 is not None else "N/A"
+    s4_color = (
+        "#ef4444"
+        if s4 is not None and s4 >= 0.5
+        else "#f97316"
+        if s4 is not None and s4 >= 0.3
+        else "#eab308"
+        if s4 is not None and s4 >= 0.1
+        else "#00ff88"
+        if s4 is not None
+        else "#ffffff"
+    )
+
+    solar_wind_speed = sw.get("solar_wind_speed")
+    solar_wind_density = sw.get("solar_wind_density")
+    solar_wind_value = (
+        f"{solar_wind_speed} km/s" if solar_wind_speed is not None else "N/A"
+    )
+    solar_wind_note = (
+        f"{solar_wind_density} p/cm³"
+        if solar_wind_density is not None
+        else "Solar wind speed"
+    )
+    solar_wind_color = (
+        "#ef4444"
+        if solar_wind_speed is not None and solar_wind_speed > 600
+        else "#eab308"
+        if solar_wind_speed is not None and solar_wind_speed > 400
+        else "#00ff88"
+        if solar_wind_speed is not None
+        else "#ffffff"
+    )
+
     return [
         ("kp", "🧭", "Kp Index", str(sw["kp"]), "Planetary activity", HERO_CYAN),
-        ("geomagnetic", "🌌", "Geomagnetic condition", str(sw["kp_condition"]), "Current state", kp_color),
+        ("geomagnetic", "🌌", "Geomagnetic", str(sw["kp_condition"]), "Current state", kp_color),
+        ("dst", "🌡️", "Dst Index", dst_value, "Storm index", dst_color),
         ("f107", "☀️", "Solar Flux", str(sw["f107"]), "Solar flux units", HERO_CYAN),
+        ("solar_wind", "🌬️", "Solar Wind", solar_wind_value, solar_wind_note, solar_wind_color),
+        ("s4", "📶", "Scintillation S4", s4_value, "Observed archive" if s4 is not None else "Observed data unavailable", s4_color),
         ("gnss_risk", "🛰️", "GNSS Risk", str(sw["gnss_risk"]), "Navigation impact", risk_color),
+        ("stations", "📡", "Stations Online", stations_label, "Live telemetry unavailable" if online is None else "Zimbabwe CORS", HERO_CYAN),
     ]
 
 
@@ -116,8 +236,21 @@ def _current_value_line(metric_key: str, sw: Dict[str, Any]) -> str:
         return f"Current value: Kp = {sw['kp']}"
     if metric_key == "geomagnetic":
         return f"Current condition: {sw['kp_condition']} (Kp = {sw['kp']})"
+    if metric_key == "dst":
+        return f"Current Dst: {sw.get('dst', 'N/A')} nT"
     if metric_key == "f107":
         return f"Current flux: {sw['f107']} sfu"
+    if metric_key == "solar_wind":
+        return (
+            f"Current solar wind: {sw.get('solar_wind_speed', 'N/A')} km/s · "
+            f"{sw.get('solar_wind_density', 'N/A')} p/cm³"
+        )
+    if metric_key == "s4":
+        return f"Current S4: {sw.get('s4', 'N/A')}"
+    if metric_key == "stations":
+        online = sw.get("stations_online")
+        total = sw.get("stations_total")
+        return f"Stations online: {online}/{total}" if online is not None and total else "Stations online: N/A"
     return f"Current risk: {sw['gnss_risk']}"
 
 
@@ -138,7 +271,7 @@ def _render_explanation(metric_key: str, sw: Dict[str, Any]) -> None:
         f"<div class='pipeline-explain-heading'>Reference scale</div>"
         f"<div class='sw-explain-scale' style='display:grid;gap:0.35rem;margin:0.5rem 0'>"
         f"{scale_html}</div>"
-        f"<p class='pipeline-explain-body' style='margin-top:0.75rem;font-size:0.76rem;color:#6888aa'>"
+        f"<p class='pipeline-explain-body' style='margin-top:0.75rem;font-size:0.76rem;color:#ffffff'>"
         f"Source: {info['source']}</p>"
         f"</div>",
         unsafe_allow_html=True,
@@ -146,9 +279,9 @@ def _render_explanation(metric_key: str, sw: Dict[str, Any]) -> None:
 
 
 def render_sw_metric_cards(st, sw: Dict[str, Any], *, session_key: str = "sw_metric_sel") -> None:
-    """Home hero cards (image 1) — click for explanation panel below."""
+    """Home hero cards (2×4 grid) — click for explanation panel below."""
     st.markdown(
-        "<div class='sw-metric-hint' style='font-size:0.72rem;color:#8899bb;"
+        "<div class='sw-metric-hint' style='font-size:0.72rem;color:#ffffff;"
         "margin:0 0 0.6rem'>Click a card for an explanation of what the value means.</div>",
         unsafe_allow_html=True,
     )
@@ -157,25 +290,28 @@ def render_sw_metric_cards(st, sw: Dict[str, Any], *, session_key: str = "sw_met
         st.session_state[session_key] = None
 
     specs = _metric_card_specs(sw)
-    cols = st.columns(4)
-    for col, (key, icon, label, value, note, value_color) in zip(cols, specs):
-        active = st.session_state[session_key] == key
-        with col:
-            st.markdown(
-                "<div class='hero-click-slot'></div>"
-                + _hero_card_html(icon, label, value, note, value_color, selected=active),
-                unsafe_allow_html=True,
-            )
-            if st.button(
-                "\u200b",
-                key=f"sw_metric_btn_{key}",
-                use_container_width=True,
-                type="secondary",
-            ):
-                st.session_state[session_key] = (
-                    None if st.session_state[session_key] == key else key
+    row1 = specs[:4]
+    row2 = specs[4:]
+    for row_specs in (row1, row2):
+        cols = st.columns(4)
+        for col, (key, icon, label, value, note, value_color) in zip(cols, row_specs):
+            active = st.session_state[session_key] == key
+            with col:
+                st.markdown(
+                    "<div class='hero-click-slot'></div>"
+                    + _hero_card_html(icon, label, value, note, value_color, selected=active),
+                    unsafe_allow_html=True,
                 )
-                st.rerun()
+                if st.button(
+                    "\u200b",
+                    key=f"sw_metric_btn_{key}",
+                    use_container_width=True,
+                    type="secondary",
+                ):
+                    st.session_state[session_key] = (
+                        None if st.session_state[session_key] == key else key
+                    )
+                    st.rerun()
 
     selected: Optional[str] = st.session_state.get(session_key)
     if selected:

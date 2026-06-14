@@ -134,7 +134,7 @@ def _hero_card_html(
     label = CONSTELLATION_LABELS.get(name, name)
     prefix = cfg["prefix"]
     max_prn = cfg["max_prn"]
-    value = f"{n_prns} SVs"
+    value = f"{n_prns} Satellites"
     value_color = HERO_WARN_COLOR if mean_qual < 70 else HERO_VALUE_COLOR
     note = f"VTEC: {mean_vtec:.1f} TECU · Quality: {mean_qual:.0f}%"
     subnote = f"PRN {prefix}01–{prefix}{max_prn:02d}"
@@ -142,7 +142,7 @@ def _hero_card_html(
     return (
         f"<div class='zgiis-card zgiis-card-accent hero-status-card hero-click-card{selected_cls}'>"
         f"<span class='hero-status-icon'>{icon}</span>"
-        f"<div class='hero-status-label'>{label}</div>"
+        f"<div class='hero-status-label prn-const-label'>{label}</div>"
         f"<div class='hero-status-value' style='color:{value_color}'>{value}</div>"
         f"<div class='hero-status-note'>{note}</div>"
         f"<div class='hero-status-note' style='font-size:0.58rem;opacity:0.78;"
@@ -174,7 +174,7 @@ def _render_explanation(
         f"<div class='pipeline-explain-title'>{CONSTELLATION_LABELS.get(constellation, constellation)}</div>"
         f"<div class='pipeline-explain-section'>{info['section']}</div>"
         f"<p class='pipeline-explain-body' style='color:#00d4ff;font-weight:700'>"
-        f"Current: {n_prns} SVs · mean VTEC {mean_vtec:.1f} TECU · "
+        f"Current: {n_prns} Satellites · mean VTEC {mean_vtec:.1f} TECU · "
         f"quality {mean_qual:.0f}% · PRN {prefix}01–{prefix}{max_prn:02d}</p>"
         f"<p class='pipeline-explain-body'>{info['summary']}</p>"
         f"<p class='pipeline-explain-body'><strong>Frequencies:</strong> {info['frequencies']}</p>"
@@ -208,8 +208,8 @@ def render_constellation_cards(
 ) -> None:
     """Home hero cards (image 1 style) — click card for Chapter 4 explanation."""
     st_module.markdown(
-        "<div class='prn-const-hint' style='font-size:0.72rem;color:#8899bb;"
-        "margin:0 0 0.6rem'>Click a card for Chapter 4 explanation of SVs, "
+        "<div class='prn-const-hint' style='font-size:0.72rem;color:#ffffff;"
+        "margin:0 0 0.6rem'>Click a card for Chapter 4 explanation of Satellites, "
         "VTEC, quality, and PRN range.</div>",
         unsafe_allow_html=True,
     )

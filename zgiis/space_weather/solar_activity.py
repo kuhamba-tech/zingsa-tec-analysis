@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import datetime
-import math
 import os
 from typing import Any, Dict, List, Optional
 
@@ -18,7 +17,7 @@ NOAA_PLASMA_1D_URL = "https://services.swpc.noaa.gov/products/solar-wind/plasma-
 NOAA_MAG_1D_URL = "https://services.swpc.noaa.gov/products/solar-wind/mag-1-day.json"
 NOAA_ALERTS_URL = "https://services.swpc.noaa.gov/products/alerts.json"
 NASA_DONKI_BASE_URL = "https://api.nasa.gov/DONKI"
-NASA_API_KEY = os.environ.get("NASA_API_KEY", "DEMO_KEY")
+NASA_API_KEY = os.environ.get("NASA_API_KEY", "").strip()
 TIMEOUT_SECONDS = 15
 
 _CACHE: Dict[str, Any] = {}
@@ -50,6 +49,8 @@ def _iso_date(days_ago: int = 0) -> str:
 
 
 def _donki_url(product: str) -> str:
+    if not NASA_API_KEY:
+        raise RuntimeError("NASA_API_KEY is not configured")
     params = {
         "startDate": _iso_date(6),
         "endDate": _iso_date(0),
@@ -165,31 +166,35 @@ def build_donki_radio_bursts(flares: List[Dict]) -> List[Dict]:
     return rows
 
 
-def get_demo_solar_activity() -> Dict[str, Any]:
-    hour = datetime.datetime.utcnow().hour
-    base = 1.2e-6 + abs(math.sin(hour * 0.7)) * 2.8e-6
-    xray_series = [
-        base * (0.75 + abs(math.sin((hour + i) * 0.34)) * 0.55)
-        for i in range(36)
-    ]
-    flare_class = xray_class(max(xray_series))
-    level = activity_level(flare_class, 1)
+def get_unavailable_solar_activity(error: str) -> Dict[str, Any]:
+    """Return explicit unavailable fields; never generate solar observations."""
     return {
-        "mode": "demo",
+        "mode": "unavailable",
         "updated": datetime.datetime.utcnow().isoformat() + "Z",
-        "flareClass": flare_class,
-        "flux": max(xray_series),
-        "xraySeries": xray_series,
-        "solarWind": {"speed": 486, "density": 7.4, "temperature": 112000, "bt": 8.2, "bz": -2.4},
-        "alerts": [{"product_id": "DEMO", "message": "No severe NOAA SWPC alert active. Solar activity under routine watch."}],
+        "flareClass": "N/A",
+        "flux": None,
+        "xraySeries": [],
+        "solarWind": {
+            "speed": None,
+            "density": None,
+            "temperature": None,
+            "bt": None,
+            "bz": None,
+        },
+        "alerts": [],
         "donki": {
-            "flares": [{"flrID": "DEMO-FLR", "classType": flare_class, "beginTime": datetime.datetime.utcnow().isoformat() + "Z", "sourceLocation": "N12W30"}],
-            "cmes": [{"activityID": "DEMO-CME", "startTime": datetime.datetime.utcnow().isoformat() + "Z", "note": "No Earth-directed CME in demo model."}],
+            "flares": [],
+            "cmes": [],
             "storms": [],
             "dateRange": {"start": _iso_date(6), "end": _iso_date(0)},
         },
-        "level": level,
-        "api_routes": ["Demo model (NOAA/DONKI unavailable)"],
+        "level": {
+            "label": "Unavailable",
+            "color": "#ffffff",
+            "gnss": "Live solar data unavailable",
+        },
+        "api_routes": ["Live NOAA/NASA feeds unavailable"],
+        "error": error,
     }
 
 
@@ -202,18 +207,20 @@ def fetch_solar_activity() -> Dict[str, Any]:
         mag_rows = _fetch_json(NOAA_MAG_1D_URL)
         alerts = _fetch_json(NOAA_ALERTS_URL)
 
-        try:
-            flares = _fetch_json(_donki_url("FLR"))
-        except Exception:
-            flares = []
-        try:
-            cmes = _fetch_json(_donki_url("CME"))
-        except Exception:
-            cmes = []
-        try:
-            storms = _fetch_json(_donki_url("GST"))
-        except Exception:
-            storms = []
+        donki_status = "unavailable"
+        donki_note = "NASA_API_KEY is not configured."
+        flares: list[dict] = []
+        cmes: list[dict] = []
+        storms: list[dict] = []
+        if NASA_API_KEY:
+            try:
+                flares = _fetch_json(_donki_url("FLR"))
+                cmes = _fetch_json(_donki_url("CME"))
+                storms = _fetch_json(_donki_url("GST"))
+                donki_status = "live"
+                donki_note = "NASA DONKI live feed."
+            except Exception as exc:
+                donki_note = f"NASA DONKI unavailable: {exc}"
 
         xray_latest = xrays[-1] if isinstance(xrays, list) and xrays else {}
         flux = float(xray_latest.get("flux") or 0)
@@ -252,19 +259,21 @@ def fetch_solar_activity() -> Dict[str, Any]:
                 "storms": storms if isinstance(storms, list) else [],
                 "dateRange": {"start": _iso_date(6), "end": _iso_date(0)},
             },
+            "donki_status": donki_status,
+            "donki_note": donki_note,
             "level": level,
             "api_routes": [
                 "NOAA SWPC goes/primary/xrays-1-day",
                 "NOAA SWPC solar-wind/plasma + mag",
                 "NOAA SWPC alerts.json",
-                "NASA DONKI FLR / CME / GST",
-            ],
+            ]
+            + (["NASA DONKI FLR / CME / GST"] if donki_status == "live" else []),
         }
 
     try:
         return _cached("solar_activity", _load)
-    except Exception:
-        return get_demo_solar_activity()
+    except Exception as exc:
+        return get_unavailable_solar_activity(str(exc))
 
 
 def get_solar_activity(force_refresh: bool = False) -> Dict[str, Any]:

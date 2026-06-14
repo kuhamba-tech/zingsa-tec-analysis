@@ -102,7 +102,7 @@ with tab1:
                   annotation_text=f"{anomaly_pct}th pct: {threshold:.2f} TECU",
                   annotation_font_color="#ff8c00")
     fig.update_layout(paper_bgcolor="#060d1a", plot_bgcolor="#0d1b2a",
-                      font_color="#b0c8e8", yaxis=dict(gridcolor="#1e3a5f"),
+                      font_color="#ffffff", yaxis=dict(gridcolor="#1e3a5f"),
                       xaxis=dict(gridcolor="#1e3a5f"), height=360,
                       legend=dict(bgcolor="#0d1b2a", bordercolor="#1e3a5f"))
     st.plotly_chart(fig, use_container_width=True)
@@ -126,17 +126,38 @@ with tab2:
     storm_days_df = df[storm_mask].groupby("doy")["vtec"].mean().reset_index()
     quiet_days_df = df[quiet_mask].groupby("doy")["vtec"].mean().reset_index()
 
+    # Convert DOY → calendar date anchored to ref_year so x-axis shows months
+    _base = pd.Timestamp(year=int(ref_year), month=1, day=1)
+    storm_days_df["date"] = storm_days_df["doy"].apply(
+        lambda d: _base + pd.Timedelta(days=int(d) - 1)
+    )
+    quiet_days_df["date"] = quiet_days_df["doy"].apply(
+        lambda d: _base + pd.Timedelta(days=int(d) - 1)
+    )
+
     fig_sc = go.Figure()
-    fig_sc.add_scatter(x=quiet_days_df["doy"], y=quiet_days_df["vtec"],
-                       mode="lines", name="Quiet (Kp<3)", line=dict(color="#00ff88"))
-    fig_sc.add_scatter(x=storm_days_df["doy"], y=storm_days_df["vtec"],
-                       mode="lines", name=f"Storm (Kp≥{storm_kp})", line=dict(color="#ff4444"))
+    fig_sc.add_scatter(
+        x=quiet_days_df["date"], y=quiet_days_df["vtec"],
+        mode="lines", name="Quiet (Kp<3)", line=dict(color="#00ff88"),
+        hovertemplate="<b>%{x|%d %B}</b><br>VTEC: %{y:.2f} TECU<extra>Quiet (Kp<3)</extra>",
+    )
+    fig_sc.add_scatter(
+        x=storm_days_df["date"], y=storm_days_df["vtec"],
+        mode="lines", name=f"Storm (Kp≥{storm_kp})", line=dict(color="#ff4444"),
+        hovertemplate="<b>%{x|%d %B}</b><br>VTEC: %{y:.2f} TECU<extra>Storm (Kp≥" + str(storm_kp) + ")</extra>",
+    )
     fig_sc.update_layout(
-        title="Storm vs Quiet Day VTEC by DOY",
+        title=f"Storm vs Quiet Day VTEC by Month ({ref_year})",
         paper_bgcolor="#060d1a", plot_bgcolor="#0d1b2a",
-        font_color="#b0c8e8",
+        font_color="#ffffff",
         yaxis=dict(title="VTEC (TECU)", gridcolor="#1e3a5f"),
-        xaxis=dict(title="Day of Year", gridcolor="#1e3a5f"),
+        xaxis=dict(
+            title="Month",
+            gridcolor="#1e3a5f",
+            tickformat="%b",
+            dtick="M1",
+            ticklabelmode="period",
+        ),
         height=360, legend=dict(bgcolor="#0d1b2a", bordercolor="#1e3a5f"),
     )
     st.plotly_chart(fig_sc, use_container_width=True)
@@ -170,7 +191,7 @@ with tab3:
     fig_d.update_layout(
         title="24-hour VTEC Variation (UTC)",
         paper_bgcolor="#060d1a", plot_bgcolor="#0d1b2a",
-        font_color="#b0c8e8",
+        font_color="#ffffff",
         yaxis=dict(title="VTEC (TECU)", gridcolor="#1e3a5f"),
         xaxis=dict(title="Hour (UTC)", dtick=2, gridcolor="#1e3a5f"),
         height=360, legend=dict(bgcolor="#0d1b2a", bordercolor="#1e3a5f"),
@@ -195,7 +216,7 @@ with tab4:
     fig_sea.update_layout(
         title="Seasonal Mean VTEC (southern hemisphere seasons)",
         paper_bgcolor="#060d1a", plot_bgcolor="#0d1b2a",
-        font_color="#b0c8e8", yaxis=dict(title="VTEC (TECU)", gridcolor="#1e3a5f"),
+        font_color="#ffffff", yaxis=dict(title="VTEC (TECU)", gridcolor="#1e3a5f"),
         xaxis=dict(gridcolor="#1e3a5f"), height=340,
     )
     st.plotly_chart(fig_sea, use_container_width=True)
@@ -217,7 +238,7 @@ with tab5:
     fig_yr.update_layout(
         title="Annual TEC Trend — Solar Cycle Influence",
         paper_bgcolor="#060d1a", plot_bgcolor="#0d1b2a",
-        font_color="#b0c8e8", yaxis=dict(title="VTEC (TECU)", gridcolor="#1e3a5f"),
+        font_color="#ffffff", yaxis=dict(title="VTEC (TECU)", gridcolor="#1e3a5f"),
         xaxis=dict(title="Year", dtick=1, gridcolor="#1e3a5f"),
         height=360, legend=dict(bgcolor="#0d1b2a", bordercolor="#1e3a5f"),
     )
@@ -227,7 +248,7 @@ with tab5:
     st.markdown(
         f"<div class='zgiis-card zgiis-card-accent'>"
         f"<b>Current F10.7: {f107} sfu</b><br>"
-        f"<div style='font-size:0.82rem;color:#6888aa;margin-top:4px'>"
+        f"<div style='font-size:0.82rem;color:#ffffff;margin-top:4px'>"
         f"We are in Solar Cycle 25 (began Dec 2019). "
         f"Predicted peak: 2025–2026. Elevated F10.7 correlates with higher TEC, "
         f"increased equatorial fountain effect, and stronger EIA over Zimbabwe.</div></div>",
@@ -240,7 +261,7 @@ with tab6:
     st.markdown(
         "<div class='zgiis-card zgiis-card-accent'>"
         "<b>About the EIA over Zimbabwe</b><br>"
-        "<div style='font-size:0.84rem;color:#8899bb;margin-top:5px'>"
+        "<div style='font-size:0.84rem;color:#ffffff;margin-top:5px'>"
         "Zimbabwe (~15°–23°S, 26°–33°E) lies in the southern EIA trough-to-crest transition zone. "
         "The EIA is driven by the equatorial fountain effect: daytime E×B plasma drift lifts plasma "
         "at the magnetic equator, which then diffuses along field lines to ±15–20° magnetic latitude — "
@@ -269,7 +290,7 @@ with tab6:
                       annotation_font_color="#00ff88")
     fig_eia.update_layout(
         title="Typical EIA VTEC Latitudinal Profile (Africa sector, daytime)",
-        paper_bgcolor="#060d1a", plot_bgcolor="#0d1b2a", font_color="#b0c8e8",
+        paper_bgcolor="#060d1a", plot_bgcolor="#0d1b2a", font_color="#ffffff",
         yaxis=dict(title="VTEC (TECU)", gridcolor="#1e3a5f"),
         xaxis=dict(title="Geographic Latitude (°)", gridcolor="#1e3a5f"),
         height=340,
