@@ -124,15 +124,42 @@ h1 *, h2 *, h3 *, h4 *, h5 *, h6 *,
     grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
     grid-template-rows: repeat(2, auto) !important;
 }
+.hero-metrics-grid-5 {
+    display: grid !important;
+    grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+    width: 100% !important;
+}
+/* Home hero metrics iframe */
+[data-testid="stMain"] [data-testid="stHtml"] iframe {
+    border: none !important;
+    background: #060d1a !important;
+}
+.hero-dashboard-panel-inline {
+    margin: 0.4rem 0 0.7rem 0;
+    padding: 0.9rem 1rem 0.85rem;
+}
+.hero-status-card-compact {
+    min-height: 108px;
+    padding: 0.62rem 0.45rem 0.52rem;
+}
+.hero-status-card-compact .hero-status-value {
+    font-weight: 900 !important;
+}
 @media (max-width: 900px) {
     .hero-metrics-grid-4x2 {
         grid-template-columns: repeat(2, minmax(0, 1fr));
         grid-template-rows: auto;
     }
+    .hero-metrics-grid-5 {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
 }
 @media (max-width: 520px) {
     .hero-metrics-grid-4x2 {
         grid-template-columns: 1fr;
+    }
+    .hero-metrics-grid-5 {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
 .hero-metrics-grid .hero-status-card {

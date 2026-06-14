@@ -219,16 +219,203 @@ def _hero_card_html(
     value_color: str,
     *,
     selected: bool = False,
+    compact: bool = False,
 ) -> str:
     selected_cls = " hero-click-selected" if selected else ""
+    compact_cls = " hero-status-card-compact" if compact else ""
     return (
-        f"<div class='zgiis-card zgiis-card-accent hero-status-card hero-click-card{selected_cls}'>"
+        f"<div class='zgiis-card zgiis-card-accent hero-status-card{compact_cls}"
+        f" hero-click-card{selected_cls}'>"
         f"<span class='hero-status-icon'>{icon}</span>"
         f"<div class='hero-status-label'>{label}</div>"
         f"<div class='hero-status-value' style='color:{value_color}'>{value}</div>"
         f"<div class='hero-status-note'>{note}</div>"
         f"</div>"
     )
+
+
+def _home_hero_metric_specs(sw: Dict[str, Any]) -> list[Tuple[str, str, str, str, str, str]]:
+    """Four headline metrics for the Home page hero strip."""
+    risk_color = sw.get("gnss_risk_color", "#1D9E75")
+    kp_color = sw.get("kp_color", HERO_CYAN)
+    online = sw.get("stations_online")
+    total = sw.get("stations_total")
+    stations_label = f"{online}/{total}" if online is not None and total else "N/A"
+    kp_val = sw.get("kp")
+
+    return [
+        (
+            "kp",
+            "🧭",
+            "Kp Index",
+            f"{kp_val}" if kp_val is not None else "N/A",
+            "Planetary activity",
+            HERO_CYAN if kp_val is not None else "#ffffff",
+        ),
+        (
+            "geomagnetic",
+            "🌌",
+            "Geomagnetic condition",
+            str(sw.get("kp_condition", "N/A")),
+            "Current state",
+            kp_color,
+        ),
+        (
+            "gnss_risk",
+            "🛰️",
+            "GNSS Risk",
+            str(sw.get("gnss_risk", "N/A")),
+            "Navigation impact",
+            risk_color,
+        ),
+        (
+            "stations",
+            "📡",
+            "Stations Online",
+            stations_label,
+            "Live telemetry unavailable" if online is None else "Zimbabwe CORS",
+            HERO_CYAN,
+        ),
+    ]
+
+
+def _home_hero_metric_card_iframe(
+    icon: str,
+    label: str,
+    value: str,
+    note: str,
+    value_color: str,
+) -> str:
+    return (
+        "<div class='col'>"
+        "<div class='card'>"
+        f"<span class='icon'>{icon}</span>"
+        f"<div class='label'>{label}</div>"
+        f"<div class='value' style='color:{value_color}'>{value}</div>"
+        f"<div class='note'>{note}</div>"
+        "</div></div>"
+    )
+
+
+def _home_hero_metrics_iframe_html(sw: Dict[str, Any]) -> str:
+    """Self-contained horizontal metrics row — immune to Streamlit markdown layout."""
+    cards = "".join(
+        _home_hero_metric_card_iframe(icon, label, value, note, value_color)
+        for _, icon, label, value, note, value_color in _home_hero_metric_specs(sw)
+    )
+    return f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"/>
+<style>
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  html, body {{
+    background: #060d1a;
+    font-family: Arial, Helvetica, sans-serif;
+    overflow: hidden;
+  }}
+  .panel {{
+    background: linear-gradient(155deg, rgba(13, 27, 42, 0.98), rgba(8, 18, 32, 0.94));
+    border: 1px solid #1e3a5f;
+    border-radius: 14px;
+    padding: 14px 16px 12px;
+    box-shadow: 0 10px 32px rgba(0, 0, 0, 0.28);
+  }}
+  .eyebrow {{
+    color: #00d4ff;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgba(30, 58, 95, 0.55);
+  }}
+  .row {{
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    gap: 10px;
+    width: 100%;
+  }}
+  .col {{
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+  }}
+  .card {{
+    flex: 1 1 auto;
+    width: 100%;
+    background: rgba(10, 22, 40, 0.94);
+    border: 1px solid #1e3a5f;
+    border-left: 3px solid #00d4ff;
+    border-radius: 10px;
+    padding: 12px 8px 10px;
+    text-align: center;
+    min-height: 108px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }}
+  .icon {{ font-size: 20px; line-height: 1.2; margin-bottom: 6px; }}
+  .label {{
+    color: #ffffff;
+    font-size: 11px;
+    font-weight: 750;
+    line-height: 1.3;
+    min-height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }}
+  .value {{
+    font-size: clamp(18px, 1.6vw, 24px);
+    font-weight: 900;
+    line-height: 1.1;
+    margin-top: 4px;
+  }}
+  .note {{
+    color: #ffffff;
+    font-size: 10px;
+    line-height: 1.2;
+    opacity: 0.92;
+    margin-top: auto;
+    padding-top: 8px;
+  }}
+</style></head>
+<body>
+  <div class="panel">
+    <div class="eyebrow">Live space weather · Zimbabwe CORS network</div>
+    <div class="row">{cards}</div>
+  </div>
+</body></html>"""
+
+
+def render_home_hero_metrics(st, sw: Dict[str, Any]) -> None:
+    """Render four headline metrics with native Streamlit elements."""
+    with st.container(border=True):
+        st.markdown(
+            "<div style='color:#00d4ff;font-size:0.72rem;font-weight:800;"
+            "letter-spacing:0.1em;text-transform:uppercase;margin-bottom:0.7rem'>"
+            "Live space weather &middot; Zimbabwe CORS network</div>",
+            unsafe_allow_html=True,
+        )
+        columns = st.columns(4)
+        for column, (_, icon, label, value, note, value_color) in zip(
+            columns,
+            _home_hero_metric_specs(sw),
+        ):
+            with column:
+                st.markdown(
+                    _hero_card_html(
+                        icon,
+                        label,
+                        value,
+                        note,
+                        value_color,
+                        compact=True,
+                    ),
+                    unsafe_allow_html=True,
+                )
 
 
 def _current_value_line(metric_key: str, sw: Dict[str, Any]) -> str:

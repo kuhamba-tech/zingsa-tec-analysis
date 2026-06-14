@@ -21,6 +21,7 @@ from zgiis.maps.station_map import (
     render_cors_station_map,
 )
 from zgiis.space_weather.fetch_indices import get_space_weather
+from zgiis.space_weather import metric_explainer
 from zgiis.theme import inject
 
 st.set_page_config(
@@ -66,6 +67,11 @@ online = sw.get("stations_online")
 total = sw.get("stations_total")
 
 # ── Hero header with integrated space-weather metrics ─────────────────────────
+home_metric_renderer = getattr(
+    metric_explainer,
+    "render_home_hero_metrics",
+    metric_explainer.render_sw_metric_cards,
+)
 title_col, logo_col = st.columns([5.2, 0.8], vertical_alignment="top")
 
 with title_col:
@@ -74,6 +80,7 @@ with title_col:
         "<div class='zgiis-tagline'>Dual-frequency GPS/GNSS Total Electron Content (TEC) computation from Zimbabwe CORS RINEX observations</div>",
         unsafe_allow_html=True,
     )
+    home_metric_renderer(st, sw)
 
 with logo_col:
     if logo_path.exists():
