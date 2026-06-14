@@ -415,7 +415,24 @@ h1 *, h2 *, h3 *, h4 *, h5 *, h6 *,
     min-height: 10rem;
 }
 
-/* ── Clickable hero cards (Space Weather, PRN Explorer) + invisible overlay ── */
+/* ── PRN Explorer — linked hero cards (no overlay / no extra row) ── */
+.prn-const-card-link {
+    display: block;
+    color: inherit !important;
+    text-decoration: none !important;
+    min-width: 0;
+}
+.prn-const-card-link .hero-click-card {
+    min-height: 158px;
+    pointer-events: auto;
+    cursor: pointer;
+}
+.prn-const-card-link:hover .hero-click-card {
+    background: rgba(12, 28, 48, 0.98);
+    box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.35);
+}
+
+/* ── Clickable hero cards (Space Weather) + invisible overlay ── */
 .hero-click-slot { display: none; }
 [data-testid="stHorizontalBlock"]:has([data-testid="column"] .hero-click-slot) {
     gap: 0.75rem;
@@ -674,38 +691,6 @@ h1 *, h2 *, h3 *, h4 *, h5 *, h6 *,
 }
 [data-testid="stMarkdown"]:has(.pipeline-explorer-row) + [data-testid="stHorizontalBlock"] button[kind="primary"] {
     background: #102338 !important;
-    border-color: #00d4ff !important;
-    box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.4) !important;
-    color: #ffffff !important;
-}
-
-/* ── PRN Explorer constellation cards (clickable buttons, no overlay) ── */
-[data-testid="stMarkdown"]:has(.prn-const-explorer-row) + [data-testid="stHorizontalBlock"] button {
-    min-height: 148px !important;
-    height: auto !important;
-    white-space: pre-line !important;
-    line-height: 1.35 !important;
-    font-size: 0.78rem !important;
-    color: #ffffff !important;
-    background: rgba(10, 22, 40, 0.94) !important;
-    border: 1px solid #1e3a5f !important;
-    border-left: 3px solid #00d4ff !important;
-    border-radius: 10px !important;
-    font-weight: 650 !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    text-align: center !important;
-    padding: 0.85rem 0.5rem !important;
-}
-[data-testid="stMarkdown"]:has(.prn-const-explorer-row) + [data-testid="stHorizontalBlock"] button:hover {
-    border-color: #00d4ff !important;
-    background: rgba(12, 28, 48, 0.98) !important;
-    color: #ffffff !important;
-    box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.35) !important;
-}
-[data-testid="stMarkdown"]:has(.prn-const-explorer-row) + [data-testid="stHorizontalBlock"] button[kind="primary"] {
-    background: rgba(12, 28, 48, 0.98) !important;
     border-color: #00d4ff !important;
     box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.4) !important;
     color: #ffffff !important;

@@ -1,7 +1,7 @@
 """Clickable GNSS constellation cards — Home hero card design + Chapter 4 explanations."""
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 import pandas as pd
 import streamlit as st
@@ -129,7 +129,7 @@ def _hero_card_html(
     *,
     selected: bool = False,
 ) -> str:
-    """Exact Home.py hero-status-card layout and colours (image 1)."""
+    """Hero metric card layout — matches Home live space weather cards."""
     icon = CONSTELLATION_ICONS.get(name, "🛰️")
     label = CONSTELLATION_LABELS.get(name, name)
     prefix = cfg["prefix"]
@@ -199,21 +199,21 @@ def _render_explanation(
     )
 
 
-def _constellation_button_label(
+def _constellation_card_link_html(
     name: str,
     cfg: dict[str, Any],
     n_prns: int,
     mean_vtec: float,
     mean_qual: float,
+    *,
+    selected: bool,
 ) -> str:
-    icon = CONSTELLATION_ICONS.get(name, "🛰️")
-    label = CONSTELLATION_LABELS.get(name, name)
-    prefix = cfg["prefix"]
-    max_prn = cfg["max_prn"]
+    """Wrap hero card in a link — clickable with no extra button row."""
+    target = "?" if selected else f"?prn_const={name}"
     return (
-        f"{icon}\n{label}\n{n_prns} Satellites\n"
-        f"VTEC: {mean_vtec:.1f} TECU · Quality: {mean_qual:.0f}%\n"
-        f"PRN {prefix}01–{prefix}{max_prn:02d}"
+        f"<a class='prn-const-card-link' href='{target}' target='_self'>"
+        f"{_hero_card_html(name, cfg, n_prns, mean_vtec, mean_qual, selected=selected)}"
+        f"</a>"
     )
 
 
@@ -221,39 +221,36 @@ def render_constellation_cards(
     st_module,
     df: pd.DataFrame,
     constellations: dict[str, dict[str, Any]],
-    *,
-    session_key: str = "prn_const_sel",
 ) -> None:
-    """Constellation cards as clickable buttons — same pattern as Processing Pipeline."""
+    """Hero-style cards — click card for Chapter 4 explanation (link, no overlay)."""
     st_module.markdown(
         "<div class='prn-const-hint' style='font-size:0.72rem;color:#ffffff;"
         "margin:0 0 0.6rem'>Click a card for Chapter 4 explanation of Satellites, "
-        "VTEC, quality, and PRN range.</div>"
-        "<div class='prn-const-explorer-row'></div>",
+        "VTEC, quality, and PRN range.</div>",
         unsafe_allow_html=True,
     )
 
-    if session_key not in st_module.session_state:
-        st_module.session_state[session_key] = None
+    selected = st_module.query_params.get("prn_const")
+    if selected not in CONSTELLATION_KEYS:
+        selected = None
 
     cols = st_module.columns(4)
     for col, name in zip(cols, CONSTELLATION_KEYS):
         cfg = constellations[name]
         n_prns, mean_vtec, mean_qual = _constellation_stats(df, name)
-        active = st_module.session_state[session_key] == name
         with col:
-            if st_module.button(
-                _constellation_button_label(name, cfg, n_prns, mean_vtec, mean_qual),
-                key=f"prn_const_btn_{name}",
-                use_container_width=True,
-                type="primary" if active else "secondary",
-            ):
-                st_module.session_state[session_key] = (
-                    None if st_module.session_state[session_key] == name else name
-                )
-                st_module.rerun()
+            st_module.markdown(
+                _constellation_card_link_html(
+                    name,
+                    cfg,
+                    n_prns,
+                    mean_vtec,
+                    mean_qual,
+                    selected=selected == name,
+                ),
+                unsafe_allow_html=True,
+            )
 
-    selected: Optional[str] = st_module.session_state.get(session_key)
     if selected and selected in constellations:
         n_prns, mean_vtec, mean_qual = _constellation_stats(df, selected)
         _render_explanation(selected, constellations[selected], n_prns, mean_vtec, mean_qual)
