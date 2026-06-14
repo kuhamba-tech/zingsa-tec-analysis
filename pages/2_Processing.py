@@ -28,9 +28,14 @@ from zgiis.processing.vtec_summary_charts import render_vtec_summary_charts
 from zgiis.theme import inject
 
 st.set_page_config(page_title="ZGIIS — Processing", page_icon="⚙️", layout="wide")
-inject(st)
-
-
+inject(
+    st,
+    page_id="processing",
+    clear_keys_on_enter=(
+        "proc_pipeline_preview_selected",
+        "proc_pipeline_run_selected",
+    ),
+)
 
 try:
     from tec_core import (

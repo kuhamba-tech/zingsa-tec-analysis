@@ -18,7 +18,7 @@ st.set_page_config(
     page_icon="📡",
     layout="wide",
 )
-inject(st)
+inject(st, page_id="cors_hardware")
 
 # ── Hero banner ───────────────────────────────────────────────────────────────
 st.markdown(

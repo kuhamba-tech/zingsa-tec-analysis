@@ -23,7 +23,7 @@ st.set_page_config(
     page_icon="MAP",
     layout="wide",
 )
-inject(st)
+inject(st, page_id="tec_heatmap")
 
 with st.sidebar:
     st.markdown("### Heat Map Controls")

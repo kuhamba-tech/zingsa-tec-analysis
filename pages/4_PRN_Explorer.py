@@ -18,7 +18,7 @@ from zgiis.gnss_prn.constellation_explainer import render_constellation_cards
 from zgiis.theme import inject
 
 st.set_page_config(page_title="ZGIIS — PRN Explorer", page_icon="🛸", layout="wide")
-inject(st)
+inject(st, page_id="prn_explorer")
 
 # ── Constellation definitions ─────────────────────────────────────────────────
 CONSTELLATIONS = {

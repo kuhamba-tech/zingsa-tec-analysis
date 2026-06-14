@@ -23,7 +23,7 @@ from zgiis.space_weather.solar_monitor import render_solar_monitor
 from zgiis.theme import inject
 
 st.set_page_config(page_title="ZGIIS — Space Weather", page_icon="☀️", layout="wide")
-inject(st)
+inject(st, page_id="space_weather")
 
 with st.sidebar:
     st.markdown("### ☀️ Space Weather")

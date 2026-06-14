@@ -19,7 +19,7 @@ from zgiis.space_weather.fetch_indices import get_space_weather
 from zgiis.theme import inject
 
 st.set_page_config(page_title="ZGIIS — TEC Anomaly Detection", page_icon="🔬", layout="wide")
-inject(st)
+inject(st, page_id="tec_anomaly")
 
 
 def _demo_df() -> pd.DataFrame:

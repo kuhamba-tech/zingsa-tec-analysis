@@ -199,6 +199,24 @@ def _render_explanation(
     )
 
 
+def _constellation_button_label(
+    name: str,
+    cfg: dict[str, Any],
+    n_prns: int,
+    mean_vtec: float,
+    mean_qual: float,
+) -> str:
+    icon = CONSTELLATION_ICONS.get(name, "🛰️")
+    label = CONSTELLATION_LABELS.get(name, name)
+    prefix = cfg["prefix"]
+    max_prn = cfg["max_prn"]
+    return (
+        f"{icon}\n{label}\n{n_prns} Satellites\n"
+        f"VTEC: {mean_vtec:.1f} TECU · Quality: {mean_qual:.0f}%\n"
+        f"PRN {prefix}01–{prefix}{max_prn:02d}"
+    )
+
+
 def render_constellation_cards(
     st_module,
     df: pd.DataFrame,
@@ -206,11 +224,12 @@ def render_constellation_cards(
     *,
     session_key: str = "prn_const_sel",
 ) -> None:
-    """Home hero cards (image 1 style) — click card for Chapter 4 explanation."""
+    """Constellation cards as clickable buttons — same pattern as Processing Pipeline."""
     st_module.markdown(
         "<div class='prn-const-hint' style='font-size:0.72rem;color:#ffffff;"
         "margin:0 0 0.6rem'>Click a card for Chapter 4 explanation of Satellites, "
-        "VTEC, quality, and PRN range.</div>",
+        "VTEC, quality, and PRN range.</div>"
+        "<div class='prn-const-explorer-row'></div>",
         unsafe_allow_html=True,
     )
 
@@ -223,18 +242,11 @@ def render_constellation_cards(
         n_prns, mean_vtec, mean_qual = _constellation_stats(df, name)
         active = st_module.session_state[session_key] == name
         with col:
-            st_module.markdown(
-                "<div class='hero-click-slot'></div>"
-                + _hero_card_html(
-                    name, cfg, n_prns, mean_vtec, mean_qual, selected=active
-                ),
-                unsafe_allow_html=True,
-            )
             if st_module.button(
-                "\u200b",
+                _constellation_button_label(name, cfg, n_prns, mean_vtec, mean_qual),
                 key=f"prn_const_btn_{name}",
                 use_container_width=True,
-                type="secondary",
+                type="primary" if active else "secondary",
             ):
                 st_module.session_state[session_key] = (
                     None if st_module.session_state[session_key] == name else name

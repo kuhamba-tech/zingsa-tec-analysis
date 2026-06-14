@@ -289,24 +289,37 @@ def render_pipeline_explorer(
     stage_list = list(stages)
     state_key = f"{key_prefix}_selected"
     if state_key not in st.session_state:
-        st.session_state[state_key] = stage_list[0][0] if stage_list else None
+        st.session_state[state_key] = None
 
-    st.markdown("<div class='pipeline-explorer-row'></div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='pipeline-explorer-hint' style='color:#ffffff;font-size:0.75rem;"
+        "font-weight:500;margin-bottom:0.6rem;opacity:0.85'>"
+        "Click a card for an explanation of what the value means."
+        "</div>"
+        "<div class='pipeline-explorer-row'></div>",
+        unsafe_allow_html=True,
+    )
     cols = st.columns(len(stage_list))
 
     for idx, (stage, icon) in enumerate(stage_list):
+        active = st.session_state.get(state_key) == stage
         with cols[idx]:
             if st.button(
                 f"{icon}\n{stage}",
                 key=f"{key_prefix}_btn_{idx}",
                 use_container_width=True,
-                type="secondary",
+                type="primary" if active else "secondary",
             ):
-                st.session_state[state_key] = stage
+                st.session_state[state_key] = (
+                    None if st.session_state[state_key] == stage else stage
+                )
                 st.rerun()
 
     selected_stage = st.session_state.get(state_key)
-    explanation = PIPELINE_EXPLANATIONS.get(selected_stage or "")
+    if not selected_stage:
+        return
+
+    explanation = PIPELINE_EXPLANATIONS.get(selected_stage)
     if not explanation:
         return
 

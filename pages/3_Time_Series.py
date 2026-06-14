@@ -17,7 +17,7 @@ from zgiis.data.tec_archive import load_historical_tec
 from zgiis.theme import inject
 
 st.set_page_config(page_title="ZGIIS — TEC Time Series", page_icon="📈", layout="wide")
-inject(st)
+inject(st, page_id="time_series")
 
 # ── Load real processed data from session ────────────────────────────────────
 @st.cache_data(show_spinner=False)

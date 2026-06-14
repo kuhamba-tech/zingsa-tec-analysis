@@ -22,7 +22,7 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
-inject(st)
+inject(st, page_id="dashboard")
 
 st.markdown(
     "<div class='zgiis-title'>Space Weather Operations Dashboard</div>"

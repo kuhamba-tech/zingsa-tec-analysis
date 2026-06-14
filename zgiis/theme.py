@@ -672,6 +672,44 @@ h1 *, h2 *, h3 *, h4 *, h5 *, h6 *,
     background: #102338 !important;
     color: #ffffff !important;
 }
+[data-testid="stMarkdown"]:has(.pipeline-explorer-row) + [data-testid="stHorizontalBlock"] button[kind="primary"] {
+    background: #102338 !important;
+    border-color: #00d4ff !important;
+    box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.4) !important;
+    color: #ffffff !important;
+}
+
+/* ── PRN Explorer constellation cards (clickable buttons, no overlay) ── */
+[data-testid="stMarkdown"]:has(.prn-const-explorer-row) + [data-testid="stHorizontalBlock"] button {
+    min-height: 148px !important;
+    height: auto !important;
+    white-space: pre-line !important;
+    line-height: 1.35 !important;
+    font-size: 0.78rem !important;
+    color: #ffffff !important;
+    background: rgba(10, 22, 40, 0.94) !important;
+    border: 1px solid #1e3a5f !important;
+    border-left: 3px solid #00d4ff !important;
+    border-radius: 10px !important;
+    font-weight: 650 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    text-align: center !important;
+    padding: 0.85rem 0.5rem !important;
+}
+[data-testid="stMarkdown"]:has(.prn-const-explorer-row) + [data-testid="stHorizontalBlock"] button:hover {
+    border-color: #00d4ff !important;
+    background: rgba(12, 28, 48, 0.98) !important;
+    color: #ffffff !important;
+    box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.35) !important;
+}
+[data-testid="stMarkdown"]:has(.prn-const-explorer-row) + [data-testid="stHorizontalBlock"] button[kind="primary"] {
+    background: rgba(12, 28, 48, 0.98) !important;
+    border-color: #00d4ff !important;
+    box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.4) !important;
+    color: #ffffff !important;
+}
 
 /* ── Processing pipeline explanation panel ── */
 .pipeline-explain-panel {
@@ -1037,7 +1075,18 @@ _FOOTER_HTML = """
 """
 
 
-def inject(st_instance) -> None:
+def inject(
+    st_instance,
+    *,
+    page_id: str | None = None,
+    clear_keys_on_enter: tuple[str, ...] = (),
+) -> None:
     """Call this once per page after set_page_config."""
+    if page_id:
+        prev = st_instance.session_state.get("zgiis_page_script")
+        if prev != page_id:
+            for key in clear_keys_on_enter:
+                st_instance.session_state.pop(key, None)
+        st_instance.session_state["zgiis_page_script"] = page_id
     st_instance.markdown(DARK_CSS, unsafe_allow_html=True)
     st_instance.markdown(_FOOTER_HTML, unsafe_allow_html=True)

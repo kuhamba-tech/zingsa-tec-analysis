@@ -18,7 +18,7 @@ st.set_page_config(
     page_icon="📐",
     layout="wide",
 )
-inject(st)
+inject(st, page_id="vtec_theory")
 
 
 # ─── helpers ──────────────────────────────────────────────────────────────────

@@ -17,7 +17,7 @@ from zgiis.space_weather.fetch_indices import get_space_weather
 from zgiis.theme import inject
 
 st.set_page_config(page_title="ZGIIS — AI Assistant", page_icon="🤖", layout="wide")
-inject(st)
+inject(st, page_id="ai_assistant")
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:

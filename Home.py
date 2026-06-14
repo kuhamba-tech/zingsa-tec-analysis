@@ -30,7 +30,7 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
-inject(st)
+inject(st, page_id="home")
 
 # ── Sidebar ──────────────────────────────────────────────────────────────────
 with st.sidebar:
