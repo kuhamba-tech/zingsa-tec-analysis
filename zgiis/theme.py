@@ -362,7 +362,15 @@ h1 *, h2 *, h3 *, h4 *, h5 *, h6 *,
     object-fit: contain;
 }
 .vtec-pipeline-svg {
-    max-width: 380px;
+    max-width: 520px;
+}
+.vtec-step9-card {
+    min-height: 22rem;
+    padding: 0.85rem 0.75rem 0.7rem;
+}
+.vtec-step9-card .vtec-step9-img,
+.vtec-step9-svg {
+    max-width: 420px;
 }
 .vtec-overview-illus {
     margin: 0.5rem 0 1.2rem;
@@ -371,7 +379,8 @@ h1 *, h2 *, h3 *, h4 *, h5 *, h6 *,
 }
 .vtec-overview-illus .vtec-illus-card {
     width: 100%;
-    max-width: 400px;
+    max-width: 540px;
+    min-height: 22rem;
 }
 
 /* ── Clickable hero cards (Space Weather, PRN Explorer) + invisible overlay ── */

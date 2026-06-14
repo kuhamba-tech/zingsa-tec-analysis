@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import logging
 import math
 from typing import Iterable, Literal, TYPE_CHECKING
 from zoneinfo import ZoneInfo
@@ -10,6 +11,8 @@ from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS, CorsStation, normalize_s
 
 if TYPE_CHECKING:
     import folium
+
+LOGGER = logging.getLogger(__name__)
 
 STATUS_COLORS = {
     "online": "#1D9E75",
@@ -509,40 +512,31 @@ def _render_plotly_map(
         hoverlabel=dict(bgcolor="#0d1b2a", bordercolor="#1e3a5f",
                         font=dict(color="#ffffff", size=12)),
     )
-    st_module.plotly_chart(fig, use_container_width=True,
-                           key=f"{key}_plotly_{map_style}")
+    st_module.plotly_chart(
+        fig,
+        width="stretch",
+        key=f"{key}_plotly_{map_style}",
+    )
 
 
-def _render_folium_iframe(
+def _render_folium_map(
     st_module,
     folium_map: "folium.Map",
     *,
     height: int,
+    key: str,
+    map_style: str,
 ) -> None:
-    """Render the selected Folium map in a Streamlit HTML iframe."""
-    import streamlit.components.v1 as components
+    """Render Folium through its maintained Streamlit component."""
+    from streamlit_folium import st_folium
 
-    map_html = folium_map.get_root().render()
-    components.html(
-        f"""<!DOCTYPE html>
-<html><head><meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1"/>
-<style>
-  html, body {{
-    margin: 0;
-    padding: 0;
-    width: 100%;
-    background: #060d1a;
-    overflow: hidden;
-  }}
-  .folium-map {{
-    width: 100% !important;
-    height: {height}px !important;
-  }}
-</style></head>
-<body>{map_html}</body></html>""",
+    st_folium(
+        folium_map,
+        key=f"{key}_folium_{map_style}",
         height=height,
-        scrolling=False,
+        width=None,
+        use_container_width=True,
+        returned_objects=[],
     )
 
 
@@ -572,7 +566,21 @@ def render_cors_station_map(
             map_style=map_style,
             show_tec_legend=show_tec_legend,
         )
-    except ImportError:
+        _render_folium_map(
+            st_module,
+            folium_map,
+            height=height,
+            key=key,
+            map_style=map_style,
+        )
+        return
+    except Exception:
+        LOGGER.warning(
+            "Folium map rendering failed; using Plotly fallback.",
+            exc_info=True,
+        )
+
+    try:
         _render_plotly_map(
             st_module,
             station_list,
@@ -581,10 +589,9 @@ def render_cors_station_map(
             height=height,
             key=key,
         )
-        return
-
-    _render_folium_iframe(
-        st_module,
-        folium_map,
-        height=height,
-    )
+    except Exception:
+        LOGGER.exception("Both station-map renderers failed.")
+        st_module.error(
+            "The map could not be rendered. The station data is still available "
+            "elsewhere on this page; rerun to retry the visual."
+        )

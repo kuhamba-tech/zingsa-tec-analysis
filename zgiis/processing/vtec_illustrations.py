@@ -30,10 +30,15 @@ def _embed_svg(svg: str, css_class: str = "vtec-illus-img") -> str:
 
 def render_vtec_illustration(step_id: str) -> str:
     caption, svg = _ILLUSTRATIONS[step_id]
+    card_class = "vtec-illus-card"
+    img_class = "vtec-illus-img"
+    if step_id == "9":
+        card_class += " vtec-step9-card"
+        img_class += " vtec-step9-img"
     return (
-        f"<div class='vtec-illus-card'>"
+        f"<div class='{card_class}'>"
         f"<div class='vtec-illus-caption'>{caption}</div>"
-        f"{_embed_svg(svg)}"
+        f"{_embed_svg(svg, css_class=img_class)}"
         f"</div>"
     )
 
@@ -145,10 +150,35 @@ def _legend_row(y: float, color: str, label: str, *, x: float = 54) -> str:
   <text x="{x + 32}" y="{y + 4}" fill="{_WHITE}" font-size="10" font-family="{_FONT}">{label}</text>"""
 
 
-def _footer(text: str, y: float = 268) -> str:
+def _footer(text: str, y: float = 268, cx: float | None = None) -> str:
+    x = cx if cx is not None else _W / 2
     return f"""
-  <text x="{_W / 2:.0f}" y="{y}" text-anchor="middle" fill="{_WHITE}" font-size="10"
+  <text x="{x:.0f}" y="{y}" text-anchor="middle" fill="{_WHITE}" font-size="10"
         font-family="{_FONT}">{text}</text>"""
+
+
+def _flow_arrow(
+    cx: float,
+    y1: float,
+    y2: float,
+    marker_id: str,
+    *,
+    label: str = "",
+    label_y: float | None = None,
+) -> str:
+    """Vertical connector with optional operation label beside the arrow."""
+    line = _pipeline_connector(cx, y1, y2, marker_id)
+    if not label:
+        return line
+    ly = label_y if label_y is not None else (y1 + y2) / 2
+    return (
+        line
+        + f"""
+  <rect x="{cx + 14}" y="{ly - 11}" width="28" height="22" rx="6"
+        fill="#0d1b2a" stroke="#00d4ff" stroke-width="1.2"/>
+  <text x="{cx + 28}" y="{ly + 5}" text-anchor="middle" fill="#00d4ff" font-size="14"
+        font-weight="800" font-family="{_FONT}">{label}</text>"""
+    )
 
 
 # ── Step 1 ────────────────────────────────────────────────────────────────────
@@ -397,129 +427,251 @@ _register(
     ),
 )
 
-# ── Step 8 ────────────────────────────────────────────────────────────────────
-_g8 = _earth_scene(ox=108, oy=198, re=58, shell_r=92, station_angle=228, sat_angle=318, sat_dist=1.46)
-_register(
-    "8",
-    "The mapping function S(E) converts oblique slant TEC to equivalent vertical TEC.",
-    _canvas(
+def _pipeline_arrow_defs(marker_id: str, color: str = "#00d4ff") -> str:
+    """Larger arrowheads for formula / pipeline flowcharts."""
+    return f"""
+  <defs>
+    <marker id="{marker_id}" markerWidth="12" markerHeight="12" refX="9" refY="6" orient="auto">
+      <path d="M0,0 L12,6 L0,12 Z" fill="{color}"/>
+    </marker>
+  </defs>"""
+
+
+def _pipeline_connector(x: float, y1: float, y2: float, marker_id: str) -> str:
+    return (
+        f'<line x1="{x}" y1="{y1}" x2="{x}" y2="{y2}" '
+        f'stroke="#00d4ff" stroke-width="3" marker-end="url(#{marker_id})"/>'
+    )
+
+
+def _label_bg(x: float, y: float, w: float, h: float) -> str:
+    return (
+        f'<rect x="{x:.1f}" y="{y:.1f}" width="{w:.1f}" height="{h:.1f}" '
+        f'rx="4" fill="{_BG}" opacity="0.92"/>'
+    )
+
+
+def _step8_svg() -> str:
+    """SLM / mapping function — geometry left, formula panel right, no overlapping labels."""
+    g = _earth_scene(
+        ox=92,
+        oy=228,
+        re=50,
+        shell_r=78,
+        station_angle=232,
+        sat_angle=308,
+        sat_dist=1.55,
+    )
+    vert_top = g["oy"] - g["shell_r"] * 0.74
+    mid_slant_x = (g["sx"] + g["sat_x"]) / 2
+    mid_slant_y = (g["sy"] + g["sat_y"]) / 2
+
+    return _canvas(
         _arrow_defs("s8-arr", "#f59e0b")
-        + _earth_disk(_g8, label="")
-        + _iono_arc(_g8)
-        + _station_marker(_g8, "CORS")
-        + _satellite_marker(_g8, "Sat")
+        + _earth_disk(g, label="")
+        + _iono_arc(g)
+        + _station_marker(g, "CORS")
+        + _satellite_marker(g, "Sat")
         + f"""
-  <line x1="{_g8['sat_x']:.1f}" y1="{_g8['sat_y']:.1f}"
-        x2="{_g8['sx']:.1f}" y2="{_g8['sy']:.1f}"
-        stroke="#f59e0b" stroke-width="2.4" marker-end="url(#s8-arr)"/>
-  <line x1="{_g8['sx']:.1f}" y1="{_g8['sy']:.1f}"
-        x2="{_g8['sx']:.1f}" y2="{_g8['oy'] - _g8['shell_r'] * 0.76:.1f}"
-        stroke="#00ff88" stroke-width="2.2" stroke-dasharray="5,4"/>
-  <path d="M {_g8['sx']:.1f} {_g8['sy'] - 24:.1f}
-           A 24 24 0 0 1 {_g8['sx'] + 20:.1f} {_g8['sy'] - 14:.1f}"
-        fill="none" stroke="#fbbf24" stroke-width="1.6"/>
-  <text x="{_g8['sx'] + 22:.1f}" y="{_g8['sy'] - 20:.1f}"
-        fill="#fbbf24" font-size="12" font-style="italic" font-family="{_FONT}">E</text>
-  <text x="{_g8['shell_x'] - 48:.1f}" y="{_g8['shell_y'] - 8:.1f}"
-        fill="#00d4ff" font-size="9" font-family="{_FONT}">H_IPP ~ 350 km</text>
-  <text x="{(_g8['sx'] + _g8['sat_x']) / 2 - 36:.1f}"
-        y="{(_g8['sy'] + _g8['sat_y']) / 2 - 12:.1f}"
-        fill="#f59e0b" font-size="9.5" font-weight="700" font-family="{_FONT}">Slant (STEC)</text>
-  <text x="{_g8['sx'] + 8:.1f}" y="{_g8['sy'] - 58:.1f}"
-        fill="#00ff88" font-size="9.5" font-weight="700" font-family="{_FONT}">Vertical (VTEC)</text>
-  <rect x="196" y="148" width="138" height="108" rx="9" fill="#0a1628" stroke="#f59e0b" stroke-width="1.2"/>
-  <text x="208" y="168" fill="{_WHITE}" font-size="9.5" font-weight="700" font-family="{_FONT}">
+  <!-- Slant path -->
+  <line x1="{g['sat_x']:.1f}" y1="{g['sat_y']:.1f}"
+        x2="{g['sx']:.1f}" y2="{g['sy']:.1f}"
+        stroke="#f59e0b" stroke-width="2.8" marker-end="url(#s8-arr)"/>
+  <!-- Vertical path -->
+  <line x1="{g['sx']:.1f}" y1="{g['sy']:.1f}"
+        x2="{g['sx']:.1f}" y2="{vert_top:.1f}"
+        stroke="#00ff88" stroke-width="2.4" stroke-dasharray="6,4"/>
+  <!-- Elevation arc -->
+  <path d="M {g['sx']:.1f} {g['sy'] - 20:.1f}
+           A 20 20 0 0 1 {g['sx'] + 17:.1f} {g['sy'] - 11:.1f}"
+        fill="none" stroke="#fbbf24" stroke-width="1.8"/>
+  {_label_bg(g['sx'] + 18, g['sy'] - 28, 14, 18)}
+  <text x="{g['sx'] + 25:.1f}" y="{g['sy'] - 14:.1f}"
+        fill="#fbbf24" font-size="13" font-style="italic" font-weight="700"
+        font-family="{_FONT}">E</text>
+
+  {_label_bg(g['ox'] - 42, g['oy'] - g['shell_r'] * 0.92 - 18, 108, 16)}
+  <text x="{g['ox'] + 12:.1f}" y="{g['oy'] - g['shell_r'] * 0.92 - 6:.1f}"
+        text-anchor="middle" fill="#00d4ff" font-size="10" font-weight="700"
+        font-family="{_FONT}">H_IPP ~ 350 km</text>
+
+  {_label_bg(mid_slant_x - 38, mid_slant_y - 22, 76, 16)}
+  <text x="{mid_slant_x:.1f}" y="{mid_slant_y - 10:.1f}" text-anchor="middle"
+        fill="#f59e0b" font-size="10" font-weight="700" font-family="{_FONT}">Slant (STEC)</text>
+
+  {_label_bg(g['sx'] - 78, vert_top + 18, 72, 16)}
+  <text x="{g['sx'] - 42:.1f}" y="{vert_top + 30:.1f}" text-anchor="middle"
+        fill="#00ff88" font-size="10" font-weight="700" font-family="{_FONT}">Vertical (VTEC)</text>
+
+  <!-- Formula panel — right column, clear of geometry -->
+  <rect x="228" y="18" width="168" height="148" rx="10" fill="#0a1628" stroke="#f59e0b" stroke-width="1.4"/>
+  <text x="240" y="40" fill="{_WHITE}" font-size="10" font-weight="700" font-family="{_FONT}">
     Low E -&gt; longer slant path
   </text>
-  <line x1="208" y1="174" x2="326" y2="174" stroke="#334155" stroke-width="0.8"/>
-  <text x="208" y="192" fill="{_WHITE}" font-size="9" font-family="{_FONT}">S(E) &gt;= 1 ;  S(90 deg) = 1</text>
-  <text x="208" y="210" fill="{_WHITE}" font-size="9" font-family="{_FONT}">E = 20 deg -&gt; S ~ 2.8</text>
-  <text x="208" y="228" fill="{_WHITE}" font-size="9" font-family="{_FONT}">E = 90 deg -&gt; S = 1</text>
-  <text x="208" y="248" fill="#00ff88" font-size="9.5" font-weight="700" font-family="{_FONT}">
+  <line x1="240" y1="46" x2="384" y2="46" stroke="#334155" stroke-width="0.8"/>
+  <text x="240" y="66" fill="{_WHITE}" font-size="9.5" font-family="{_FONT}">S(E) &gt;= 1 ;  S(90 deg) = 1</text>
+  <text x="240" y="86" fill="{_WHITE}" font-size="9.5" font-family="{_FONT}">E = 20 deg -&gt; S ~ 2.8</text>
+  <text x="240" y="106" fill="{_WHITE}" font-size="9.5" font-family="{_FONT}">E = 90 deg -&gt; S = 1</text>
+  <text x="240" y="132" fill="#00ff88" font-size="11" font-weight="800" font-family="{_FONT}">
     VTEC = STEC / S(E)
   </text>
 """,
-        width=340,
-        height=280,
-    ),
+        width=400,
+        height=300,
+    )
+
+
+# ── Step 8 ────────────────────────────────────────────────────────────────────
+_register(
+    "8",
+    "The mapping function S(E) converts oblique slant TEC to equivalent vertical TEC.",
+    _step8_svg(),
 )
+
+def _step9_svg() -> str:
+    """VTEC formula — fraction-style flow with large arrows (matches Eq. 4.16)."""
+    w, h = 420, 400
+    cx = w / 2
+    bw = 292.0
+    bx = cx - bw / 2
+    arrow_id = "s9-flow-arr"
+
+    y_num = 18.0
+    num_h = 102.0
+    y_div = y_num + num_h + 10.0
+    y_se = 188.0
+    se_h = 50.0
+    y_vtec = 292.0
+    vtec_h = 72.0
+
+    tec_y = y_num + 10.0
+    tec_h = 40.0
+    dcb_y = y_num + 58.0
+    dcb_w = 108.0
+    dcb_h = 34.0
+    dcb_lx = bx + 28.0
+    dcb_rx = bx + bw - dcb_w - 28.0
+
+    return _canvas(
+        _pipeline_arrow_defs(arrow_id)
+        + f"""
+  <rect x="{bx}" y="{y_num}" width="{bw}" height="{num_h}" rx="12" fill="#0d1b2a"
+        stroke="#475569" stroke-width="1.4" stroke-dasharray="6 4"/>
+  <text x="{cx}" y="{y_num + 8}" text-anchor="middle" fill="{_WHITE}" font-size="9"
+        font-weight="700" font-family="{_FONT}">NUMERATOR — bias-corrected slant TEC</text>
+
+  <rect x="{bx + 14}" y="{tec_y}" width="{bw - 28}" height="{tec_h}" rx="10" fill="#1e3a5f"
+        stroke="#f59e0b" stroke-width="2"/>
+  <text x="{cx}" y="{tec_y + 26}" text-anchor="middle" fill="#f59e0b" font-size="16"
+        font-weight="800" font-family="{_FONT}">TEC_R</text>
+
+  <text x="{cx}" y="{dcb_y - 6}" text-anchor="middle" fill="{_WHITE}" font-size="15"
+        font-weight="700" font-family="{_FONT}">−</text>
+  <rect x="{dcb_lx}" y="{dcb_y}" width="{dcb_w}" height="{dcb_h}" rx="8" fill="#1e3a5f"
+        stroke="#ef4444" stroke-width="1.8"/>
+  <text x="{dcb_lx + dcb_w / 2}" y="{dcb_y + 22}" text-anchor="middle" fill="#ef4444"
+        font-size="13" font-weight="800" font-family="{_FONT}">DCB_R</text>
+  <text x="{cx}" y="{dcb_y + 22}" text-anchor="middle" fill="{_WHITE}" font-size="14"
+        font-weight="700" font-family="{_FONT}">−</text>
+  <rect x="{dcb_rx}" y="{dcb_y}" width="{dcb_w}" height="{dcb_h}" rx="8" fill="#1e3a5f"
+        stroke="#ef4444" stroke-width="1.8"/>
+  <text x="{dcb_rx + dcb_w / 2}" y="{dcb_y + 22}" text-anchor="middle" fill="#ef4444"
+        font-size="13" font-weight="800" font-family="{_FONT}">DCB_S</text>
+
+  <line x1="{bx + 20}" y1="{y_div}" x2="{bx + bw - 20}" y2="{y_div}"
+        stroke="#00d4ff" stroke-width="2.5"/>
+  {_flow_arrow(cx, y_num + num_h + 16, y_se - 8, arrow_id, label="÷")}
+
+  <rect x="{bx + 56}" y="{y_se}" width="{bw - 112}" height="{se_h}" rx="11" fill="#1e3a5f"
+        stroke="#00d4ff" stroke-width="2"/>
+  <text x="{cx}" y="{y_se + 22}" text-anchor="middle" fill="#00d4ff" font-size="16"
+        font-weight="800" font-family="{_FONT}">S(E)</text>
+  <text x="{cx}" y="{y_se + 38}" text-anchor="middle" fill="{_WHITE}" font-size="9"
+        font-family="{_FONT}">slant-to-vertical mapping</text>
+  {_flow_arrow(cx, y_se + se_h + 6, y_vtec - 8, arrow_id)}
+
+  <rect x="{bx + 10}" y="{y_vtec}" width="{bw - 20}" height="{vtec_h}" rx="12"
+        fill="rgba(0,255,136,0.14)" stroke="#00ff88" stroke-width="2.4"/>
+  <text x="{cx}" y="{y_vtec + 30}" text-anchor="middle" fill="#00ff88" font-size="20"
+        font-weight="800" font-family="{_FONT}">VTEC</text>
+  <circle cx="{cx - 58}" cy="{y_vtec + 52}" r="5" fill="#ff8c00"/>
+  <text x="{cx}" y="{y_vtec + 56}" text-anchor="middle" fill="#ff8c00" font-size="11"
+        font-weight="700" font-family="{_FONT}">at Ionospheric Pierce Point (IPP)</text>
+
+  {_footer("Eq. 4.16 — central ZGIIS ionospheric product", y=388, cx=cx)}
+""",
+        width=w,
+        height=h,
+        css_class="vtec-illus-svg vtec-step9-svg",
+    )
+
 
 # ── Step 9 ────────────────────────────────────────────────────────────────────
 _register(
     "9",
     "VTEC is bias-corrected slant TEC, scaled to the vertical at the pierce point.",
-    _canvas(
-        f"""
-  <rect x="118" y="28" width="104" height="36" rx="8" fill="#1e3a5f" stroke="#f59e0b" stroke-width="1.4"/>
-  <text x="170" y="52" text-anchor="middle" fill="#f59e0b" font-size="12" font-weight="700"
-        font-family="{_FONT}">TEC_R</text>
-
-  <text x="170" y="82" text-anchor="middle" fill="{_WHITE}" font-size="20" font-family="{_FONT}">-</text>
-
-  <rect x="128" y="90" width="84" height="36" rx="8" fill="#1e3a5f" stroke="#ef4444" stroke-width="1.4"/>
-  <text x="170" y="114" text-anchor="middle" fill="#ef4444" font-size="12" font-weight="700"
-        font-family="{_FONT}">DCB</text>
-
-  <text x="170" y="144" text-anchor="middle" fill="{_WHITE}" font-size="20" font-family="{_FONT}">/</text>
-
-  <rect x="128" y="152" width="84" height="36" rx="8" fill="#1e3a5f" stroke="#00d4ff" stroke-width="1.4"/>
-  <text x="170" y="176" text-anchor="middle" fill="#00d4ff" font-size="12" font-weight="700"
-        font-family="{_FONT}">S(E)</text>
-
-  <line x1="108" y1="196" x2="232" y2="196" stroke="#64748b" stroke-width="1.2"/>
-
-  <rect x="118" y="206" width="104" height="44" rx="9" fill="rgba(0,255,136,0.12)"
-        stroke="#00ff88" stroke-width="1.6"/>
-  <text x="170" y="234" text-anchor="middle" fill="#00ff88" font-size="15" font-weight="700"
-        font-family="{_FONT}">VTEC</text>
-
-  <circle cx="268" cy="230" r="6" fill="#ff8c00"/>
-  <text x="282" y="234" fill="#ff8c00" font-size="10" font-family="{_FONT}">at IPP</text>
-  {_footer("Eq. 4.16 — central ZGIIS ionospheric product")}
-"""
-    ),
+    _step9_svg(),
 )
 
-# ── Pipeline overview ─────────────────────────────────────────────────────────
+def _pipeline_svg() -> str:
+    """Taller overview pipeline — larger boxes and clearer downward arrows."""
+    cx = 190.0
+    bw = 210.0
+    bh = 42.0
+    bx = cx - bw / 2
+    arrow_id = "pipe-arr-lg"
+
+    y1, y2, y3, y4 = 18.0, 88.0, 158.0, 228.0
+    y_dcb = 298.0
+    y_final = 358.0
+    dcb_h = 36.0
+    final_h = 46.0
+
+    return _canvas(
+        _pipeline_arrow_defs(arrow_id)
+        + f"""
+  <rect x="{bx}" y="{y1}" width="{bw}" height="{bh}" rx="10" fill="#0d1b2a" stroke="#64748b" stroke-width="1.5"/>
+  <text x="{cx}" y="{y1 + 26}" text-anchor="middle" fill="{_WHITE}" font-size="13" font-weight="700"
+        font-family="{_FONT}">RINEX C1,C2,L1,L2</text>
+  {_pipeline_connector(cx, y1 + bh, y2 - 6, arrow_id)}
+
+  <rect x="{bx}" y="{y2}" width="{bw}" height="{bh}" rx="10" fill="#0d1b2a" stroke="#f59e0b" stroke-width="1.5"/>
+  <text x="{cx}" y="{y2 + 26}" text-anchor="middle" fill="#f59e0b" font-size="13" font-weight="700"
+        font-family="{_FONT}">TEC_G and TEC_P</text>
+  {_pipeline_connector(cx, y2 + bh, y3 - 6, arrow_id)}
+
+  <rect x="{bx}" y="{y3}" width="{bw}" height="{bh}" rx="10" fill="#0d1b2a" stroke="#00d4ff" stroke-width="1.5"/>
+  <text x="{cx}" y="{y3 + 26}" text-anchor="middle" fill="#00d4ff" font-size="13" font-weight="700"
+        font-family="{_FONT}">Slip fix + levelling</text>
+  {_pipeline_connector(cx, y3 + bh, y4 - 6, arrow_id)}
+
+  <rect x="{bx}" y="{y4}" width="{bw}" height="{bh}" rx="10" fill="#0d1b2a" stroke="#00ff88" stroke-width="1.5"/>
+  <text x="{cx}" y="{y4 + 26}" text-anchor="middle" fill="#00ff88" font-size="13" font-weight="800"
+        font-family="{_FONT}">TEC_R</text>
+  {_pipeline_connector(cx, y4 + bh, y_dcb - 6, arrow_id)}
+
+  <rect x="58" y="{y_dcb}" width="96" height="{dcb_h}" rx="9" fill="#0d1b2a" stroke="#ef4444" stroke-width="1.5"/>
+  <text x="106" y="{y_dcb + 23}" text-anchor="middle" fill="#ef4444" font-size="12" font-weight="700"
+        font-family="{_FONT}">DCB</text>
+  <rect x="226" y="{y_dcb}" width="96" height="{dcb_h}" rx="9" fill="#0d1b2a" stroke="#f59e0b" stroke-width="1.5"/>
+  <text x="274" y="{y_dcb + 23}" text-anchor="middle" fill="#f59e0b" font-size="12" font-weight="700"
+        font-family="{_FONT}">S(E)</text>
+  {_pipeline_connector(cx, y_dcb + dcb_h, y_final - 6, arrow_id)}
+
+  <rect x="72" y="{y_final}" width="236" height="{final_h}" rx="10"
+        fill="rgba(0,255,136,0.12)" stroke="#00ff88" stroke-width="2"/>
+  <text x="{cx}" y="{y_final + 29}" text-anchor="middle" fill="#00ff88" font-size="14" font-weight="800"
+        font-family="{_FONT}">VTEC @ IPP -&gt; ZGIIS Maps</text>
+""",
+        width=380,
+        height=420,
+        css_class="vtec-illus-svg vtec-pipeline-svg",
+    )
+
+
 _register(
     "pipeline",
     "Full GPS_TEC v3.5 pipeline: RINEX in, geo-located VTEC maps out.",
-    _canvas(
-        _arrow_defs("pipe-arr", "#64748b")
-        + f"""
-  <rect x="96" y="10" width="148" height="30" rx="8" fill="#0d1b2a" stroke="#64748b"/>
-  <text x="170" y="30" text-anchor="middle" fill="{_WHITE}" font-size="11" font-family="{_FONT}">
-    RINEX C1,C2,L1,L2
-  </text>
-  <line x1="170" y1="40" x2="170" y2="50" stroke="#64748b" stroke-width="1.5" marker-end="url(#pipe-arr)"/>
-
-  <rect x="96" y="50" width="148" height="30" rx="8" fill="#0d1b2a" stroke="#f59e0b"/>
-  <text x="170" y="70" text-anchor="middle" fill="#f59e0b" font-size="11" font-family="{_FONT}">
-    TEC_G and TEC_P
-  </text>
-  <line x1="170" y1="80" x2="170" y2="90" stroke="#64748b" stroke-width="1.5" marker-end="url(#pipe-arr)"/>
-
-  <rect x="96" y="90" width="148" height="30" rx="8" fill="#0d1b2a" stroke="#00d4ff"/>
-  <text x="170" y="110" text-anchor="middle" fill="#00d4ff" font-size="11" font-family="{_FONT}">
-    Slip fix + levelling
-  </text>
-  <line x1="170" y1="120" x2="170" y2="130" stroke="#64748b" stroke-width="1.5" marker-end="url(#pipe-arr)"/>
-
-  <rect x="96" y="130" width="148" height="30" rx="8" fill="#0d1b2a" stroke="#00ff88"/>
-  <text x="170" y="150" text-anchor="middle" fill="#00ff88" font-size="11" font-weight="700"
-        font-family="{_FONT}">TEC_R</text>
-  <line x1="170" y1="160" x2="170" y2="170" stroke="#64748b" stroke-width="1.5" marker-end="url(#pipe-arr)"/>
-
-  <rect x="78" y="170" width="72" height="28" rx="8" fill="#0d1b2a" stroke="#ef4444"/>
-  <text x="114" y="189" text-anchor="middle" fill="#ef4444" font-size="10" font-family="{_FONT}">DCB</text>
-  <rect x="190" y="170" width="72" height="28" rx="8" fill="#0d1b2a" stroke="#f59e0b"/>
-  <text x="226" y="189" text-anchor="middle" fill="#f59e0b" font-size="10" font-family="{_FONT}">S(E)</text>
-  <line x1="170" y1="198" x2="170" y2="208" stroke="#64748b" stroke-width="1.5" marker-end="url(#pipe-arr)"/>
-
-  <rect x="82" y="208" width="176" height="38" rx="9" fill="rgba(0,255,136,0.1)" stroke="#00ff88" stroke-width="1.5"/>
-  <text x="170" y="232" text-anchor="middle" fill="#00ff88" font-size="12" font-weight="700"
-        font-family="{_FONT}">VTEC @ IPP -&gt; ZGIIS Maps</text>
-""",
-        css_class="vtec-illus-svg vtec-pipeline-svg",
-    ),
+    _pipeline_svg(),
 )
+
