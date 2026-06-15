@@ -21,15 +21,24 @@ NASA_API_KEY = os.environ.get("NASA_API_KEY", "").strip()
 TIMEOUT_SECONDS = 15
 
 _CACHE: Dict[str, Any] = {}
-_CACHE_TTL_SECONDS = 600  # 10 minutes — matches CORS_Program refresh cadence
+_CACHE_TTL_SECONDS = 600        # 10 minutes for live data
+_UNAVAILABLE_CACHE_TTL_SECONDS = 10  # retry unavailable results after 10 seconds
+_NOAA_HEADERS = {"Accept": "application/json", "User-Agent": "ZGIIS/1.0 (Zimbabwe space-weather dashboard)"}
 
 
 def _cached(key: str, fetch_fn) -> Dict[str, Any]:
     import time
 
     entry = _CACHE.get(key)
-    if entry and time.time() - entry["ts"] < _CACHE_TTL_SECONDS:
-        return entry["data"]
+    if entry:
+        cached_data = entry["data"]
+        ttl = (
+            _UNAVAILABLE_CACHE_TTL_SECONDS
+            if isinstance(cached_data, dict) and cached_data.get("mode") == "unavailable"
+            else _CACHE_TTL_SECONDS
+        )
+        if time.time() - entry["ts"] < ttl:
+            return cached_data
     data = fetch_fn()
     _CACHE[key] = {"ts": time.time(), "data": data}
     return data
@@ -38,9 +47,16 @@ def _cached(key: str, fetch_fn) -> Dict[str, Any]:
 def _fetch_json(url: str) -> Any:
     if not _REQUESTS_AVAILABLE:
         raise RuntimeError("requests not installed")
-    res = requests.get(url, timeout=TIMEOUT_SECONDS, headers={"Accept": "application/json"})
-    res.raise_for_status()
-    return res.json()
+    import time
+    for attempt in range(2):
+        try:
+            res = requests.get(url, timeout=TIMEOUT_SECONDS, headers=_NOAA_HEADERS)
+            res.raise_for_status()
+            return res.json()
+        except Exception:
+            if attempt == 0:
+                time.sleep(0.25)
+    raise RuntimeError(f"Failed to fetch {url} after 2 attempts")
 
 
 def _iso_date(days_ago: int = 0) -> str:
