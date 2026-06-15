@@ -25,6 +25,15 @@ class PipelineOverviewTests(unittest.TestCase):
         self.assertIn("render_pipeline_overview_cards()", source)
         self.assertNotIn('render_vtec_illustration("pipeline")', source)
 
+    def test_overview_has_tablet_and_mobile_layouts(self):
+        css = Path("zgiis/theme.py").read_text(encoding="utf-8")
+
+        self.assertIn("@media (max-width: 1100px)", css)
+        self.assertIn("grid-template-columns: repeat(2, minmax(0, 1fr));", css)
+        self.assertIn("@media (max-width: 560px)", css)
+        self.assertIn("grid-template-columns: 1fr;", css)
+        self.assertIn("white-space: normal;", css)
+
 
 if __name__ == "__main__":
     unittest.main()

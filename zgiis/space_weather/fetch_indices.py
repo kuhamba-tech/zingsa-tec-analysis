@@ -19,6 +19,8 @@ except ImportError:
     _REQUESTS_AVAILABLE = False
 
 _CACHE: Dict[str, Any] = {}
+_UNAVAILABLE_CACHE_TTL_SECONDS = 10
+_NOAA_HEADERS = {"User-Agent": "ZGIIS/1.0 (Zimbabwe space-weather dashboard)"}
 _CACHE_TTL_SECONDS = 300  # 5 minutes — matches CORS_Program refresh cadence
 
 
@@ -43,11 +45,45 @@ def _cached(key: str, fetch_fn) -> Any:
     import time
 
     entry = _CACHE.get(key)
-    if entry and time.time() - entry["ts"] < _CACHE_TTL_SECONDS:
-        return entry["data"]
+    if entry:
+        cached_data = entry["data"]
+        ttl = (
+            _UNAVAILABLE_CACHE_TTL_SECONDS
+            if isinstance(cached_data, dict)
+            and cached_data.get("mode") == "unavailable"
+            else _CACHE_TTL_SECONDS
+        )
+        if time.time() - entry["ts"] < ttl:
+            return cached_data
     data = fetch_fn()
     _CACHE[key] = {"ts": time.time(), "data": data}
     return data
+
+
+def clear_space_weather_cache() -> None:
+    """Discard cached metrics so the next call fetches every live API again."""
+    _CACHE.pop("space_weather", None)
+
+
+def _request_noaa_json(url: str) -> Any:
+    """Fetch a NOAA JSON product with one retry for transient failures."""
+    if not _REQUESTS_AVAILABLE:
+        return None
+    import time
+
+    for attempt in range(2):
+        try:
+            response = requests.get(
+                url,
+                timeout=10,
+                headers=_NOAA_HEADERS,
+            )
+            response.raise_for_status()
+            return response.json()
+        except Exception:
+            if attempt == 0:
+                time.sleep(0.25)
+    return None
 
 
 def _resolve_kp_level(kp: float) -> tuple[str, str]:
@@ -92,28 +128,21 @@ def _fetch_noaa_kp() -> Optional[float]:
 
 def _fetch_noaa_kp_history() -> list[dict]:
     """Return the full NOAA SWPC 1-minute planetary K-index feed."""
-    if not _REQUESTS_AVAILABLE:
+    rows = _request_noaa_json(NOAA_KP_URL)
+    if not isinstance(rows, list):
         return []
-    try:
-        response = requests.get(NOAA_KP_URL, timeout=8)
-        response.raise_for_status()
-        rows = response.json()
-        if not isinstance(rows, list):
-            return []
-        history: list[dict] = []
-        for row in rows:
-            if not isinstance(row, dict) or not row.get("time_tag"):
-                continue
-            history.append(
-                {
-                    "time_tag": row.get("time_tag"),
-                    "kp_index": row.get("kp_index"),
-                    "estimated_kp": row.get("estimated_kp"),
-                }
-            )
-        return history
-    except Exception:
-        return []
+    history: list[dict] = []
+    for row in rows:
+        if not isinstance(row, dict) or not row.get("time_tag"):
+            continue
+        history.append(
+            {
+                "time_tag": row.get("time_tag"),
+                "kp_index": row.get("kp_index"),
+                "estimated_kp": row.get("estimated_kp"),
+            }
+        )
+    return history
 
 
 def _fetch_noaa_f107() -> Optional[float]:
@@ -128,26 +157,19 @@ def _fetch_noaa_f107() -> Optional[float]:
 
 
 def _fetch_noaa_f107_history() -> list[dict]:
-    if not _REQUESTS_AVAILABLE:
+    rows = _request_noaa_json(NOAA_F107_URL)
+    if not isinstance(rows, list):
         return []
-    try:
-        response = requests.get(NOAA_F107_URL, timeout=8)
-        response.raise_for_status()
-        rows = response.json()
-        if not isinstance(rows, list):
-            return []
-        history: list[dict] = []
-        for row in rows:
-            if not isinstance(row, dict) or not row.get("time_tag"):
-                continue
-            if row.get("flux") is None:
-                continue
-            history.append(
-                {"time_tag": row.get("time_tag"), "flux": float(row["flux"])}
-            )
-        return sorted(history, key=lambda item: str(item["time_tag"]))
-    except Exception:
-        return []
+    history: list[dict] = []
+    for row in rows:
+        if not isinstance(row, dict) or not row.get("time_tag"):
+            continue
+        if row.get("flux") is None:
+            continue
+        history.append(
+            {"time_tag": row.get("time_tag"), "flux": float(row["flux"])}
+        )
+    return sorted(history, key=lambda item: str(item["time_tag"]))
 
 
 def _fetch_noaa_dst() -> Optional[float]:
@@ -162,32 +184,24 @@ def _fetch_noaa_dst() -> Optional[float]:
 
 
 def _fetch_noaa_dst_history() -> list[dict]:
-    if not _REQUESTS_AVAILABLE:
+    rows = _request_noaa_json(NOAA_DST_URL)
+    if not isinstance(rows, list):
         return []
-    try:
-        response = requests.get(NOAA_DST_URL, timeout=8)
-        response.raise_for_status()
-        rows = response.json()
-        if not isinstance(rows, list):
-            return []
-
-        history: list[dict] = []
-        for row in rows:
-            if isinstance(row, dict) and row.get("time_tag") and row.get("dst") is not None:
-                history.append(
-                    {"time_tag": row["time_tag"], "dst": float(row["dst"])}
-                )
-                continue
-            if (
-                isinstance(row, list)
-                and len(row) >= 2
-                and row[0] != "time_tag"
-                and row[1] is not None
-            ):
-                history.append({"time_tag": row[0], "dst": float(row[1])})
-        return sorted(history, key=lambda item: str(item["time_tag"]))
-    except Exception:
-        return []
+    history: list[dict] = []
+    for row in rows:
+        if isinstance(row, dict) and row.get("time_tag") and row.get("dst") is not None:
+            history.append(
+                {"time_tag": row["time_tag"], "dst": float(row["dst"])}
+            )
+            continue
+        if (
+            isinstance(row, list)
+            and len(row) >= 2
+            and row[0] != "time_tag"
+            and row[1] is not None
+        ):
+            history.append({"time_tag": row[0], "dst": float(row[1])})
+    return sorted(history, key=lambda item: str(item["time_tag"]))
 
 
 def _fetch_noaa_solar_wind() -> tuple[Optional[float], Optional[float]]:
@@ -200,46 +214,39 @@ def _fetch_noaa_solar_wind() -> tuple[Optional[float], Optional[float]]:
 
 
 def _fetch_noaa_solar_wind_history() -> list[dict]:
-    if not _REQUESTS_AVAILABLE:
+    rows = _request_noaa_json(NOAA_PLASMA_URL)
+    if not isinstance(rows, list) or len(rows) < 2:
         return []
-    try:
-        response = requests.get(NOAA_PLASMA_URL, timeout=8)
-        response.raise_for_status()
-        rows = response.json()
-        if not rows or len(rows) < 2:
-            return []
-        header = rows[0]
-        speed_idx = next((i for i, h in enumerate(header) if "speed" in str(h).lower()), None)
-        density_idx = next((i for i, h in enumerate(header) if "density" in str(h).lower()), None)
-        history: list[dict] = []
-        for row in rows[1:]:
-            if not isinstance(row, list) or not row:
-                continue
-            try:
-                speed = (
-                    float(row[speed_idx])
-                    if speed_idx is not None and row[speed_idx] not in (None, "")
-                    else None
-                )
-                density = (
-                    float(row[density_idx])
-                    if density_idx is not None and row[density_idx] not in (None, "")
-                    else None
-                )
-            except (TypeError, ValueError, IndexError):
-                continue
-            if speed is None and density is None:
-                continue
-            history.append(
-                {
-                    "time_tag": row[0],
-                    "speed": speed,
-                    "density": density,
-                }
+    header = rows[0]
+    speed_idx = next((i for i, h in enumerate(header) if "speed" in str(h).lower()), None)
+    density_idx = next((i for i, h in enumerate(header) if "density" in str(h).lower()), None)
+    history: list[dict] = []
+    for row in rows[1:]:
+        if not isinstance(row, list) or not row:
+            continue
+        try:
+            speed = (
+                float(row[speed_idx])
+                if speed_idx is not None and row[speed_idx] not in (None, "")
+                else None
             )
-        return history
-    except Exception:
-        return []
+            density = (
+                float(row[density_idx])
+                if density_idx is not None and row[density_idx] not in (None, "")
+                else None
+            )
+        except (TypeError, ValueError, IndexError):
+            continue
+        if speed is None and density is None:
+            continue
+        history.append(
+            {
+                "time_tag": row[0],
+                "speed": speed,
+                "density": density,
+            }
+        )
+    return history
 
 
 _RISK_SCORES = {"Low": 0.0, "Moderate": 1.0, "High": 2.0, "Critical": 3.0}

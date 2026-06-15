@@ -673,7 +673,6 @@ h1 *, h2 *, h3 *, h4 *, h5 *, h6 *,
     grid-template-columns: repeat(7, minmax(175px, 1fr));
     gap: 0.85rem;
     margin: 0.8rem 0 1.55rem;
-    overflow-x: auto;
     padding: 0.15rem 0 0.35rem;
 }
 .pipeline-overview-card {
@@ -691,11 +690,41 @@ h1 *, h2 *, h3 *, h4 *, h5 *, h6 *,
     font-weight: 750;
     line-height: 1.25;
     text-align: center;
-    white-space: nowrap;
+    white-space: normal;
+    overflow-wrap: anywhere;
 }
 .pipeline-overview-icon {
     flex: 0 0 auto;
     font-size: 1.15rem;
+}
+@media (max-width: 1100px) {
+    .pipeline-overview-cards {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.7rem;
+    }
+    .pipeline-overview-card {
+        min-height: 68px;
+        font-size: 0.92rem;
+    }
+}
+@media (max-width: 560px) {
+    .pipeline-overview-cards {
+        grid-template-columns: 1fr;
+        gap: 0.65rem;
+        margin-bottom: 1.2rem;
+    }
+    .pipeline-overview-card {
+        min-height: 64px;
+        justify-content: flex-start;
+        padding: 0.8rem 1rem;
+        text-align: left;
+        font-size: 0.95rem;
+    }
+    .pipeline-overview-icon {
+        width: 1.5rem;
+        font-size: 1.2rem;
+        text-align: center;
+    }
 }
 
 /* ── Processing pipeline stage buttons (scoped — not hero overlay buttons) ── */

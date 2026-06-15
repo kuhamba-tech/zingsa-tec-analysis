@@ -11,7 +11,7 @@ if str(root) not in sys.path:
     sys.path.insert(0, str(root))
 
 from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
-from zgiis.space_weather.fetch_indices import get_space_weather
+from zgiis.space_weather.fetch_indices import clear_space_weather_cache, get_space_weather
 from zgiis.space_weather.kp_scale import build_synchronized_kp_scales_html
 from zgiis.space_weather.live_timelines import render_all_live_metric_timelines
 from zgiis.theme import inject
@@ -30,6 +30,12 @@ st.markdown(
     "ionospheric, and Zimbabwe CORS network conditions.</div>",
     unsafe_allow_html=True,
 )
+
+_col_title, _col_refresh = st.columns([10, 1])
+with _col_refresh:
+    if st.button("↺ Refresh", key="dashboard_refresh", help="Fetch latest space weather data now"):
+        clear_space_weather_cache()
+        st.rerun()
 
 sw = get_space_weather()
 risk_color = sw.get("gnss_risk_color", "#1D9E75")
@@ -480,15 +486,26 @@ valid_metric_keys = {card[0] for card in metric_cards}
 if selected_metric not in valid_metric_keys:
     selected_metric = None
 
+_sw_ts = sw.get("timestamp", "")
+_ts_note = f" · Updated {_sw_ts[:16].replace('T', ' ')} UTC" if _sw_ts else ""
+_data_mode = sw.get("mode", "")
+_mode_badge = (
+    "<span style='color:#ef4444;font-weight:700'> · Unavailable</span>"
+    if _data_mode == "unavailable"
+    else "<span style='color:#00ff88'> · Live</span>"
+    if _data_mode in ("live", "archive-blend", "blended")
+    else ""
+)
+
 with st.container(border=True):
     st.markdown(
         "<div class='dashboard-panel-marker'></div>"
         "<div class='hero-panel-eyebrow'>"
-        "Live space weather · Zimbabwe CORS network"
+        f"Live space weather · Zimbabwe CORS network{_mode_badge}"
         "</div>"
         "<div style='color:#ffffff;font-size:0.75rem;font-weight:500;"
         "margin-bottom:0.6rem;opacity:0.85'>"
-        "Click a card for an explanation of what the value means."
+        f"Click a card for an explanation of what the value means.{_ts_note}"
         "</div>",
         unsafe_allow_html=True,
     )

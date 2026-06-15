@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import time
 from typing import Any, Dict, Optional
 
 try:
@@ -30,7 +31,7 @@ _TIMEOUT_SECONDS = 12
 
 
 def _api_bases() -> list[str]:
-    bases = [b for b in _DEFAULT_API_BASES if b]
+    bases = list(dict.fromkeys(b for b in _DEFAULT_API_BASES if b))
     return bases or ["https://zingsa-national-cors.vercel.app/api"]
 
 
@@ -39,15 +40,25 @@ def _get_json(path: str, *, params: Optional[dict] = None) -> Optional[Dict[str,
         return None
     for base in _api_bases():
         url = f"{base}/{path.lstrip('/')}"
-        try:
-            response = requests.get(url, params=params, timeout=_TIMEOUT_SECONDS)
-            if response.ok:
-                payload = response.json()
-                if isinstance(payload, dict):
-                    payload["_api_base"] = base
-                    return payload
-        except Exception:
-            continue
+        for attempt in range(2):
+            try:
+                response = requests.get(
+                    url,
+                    params=params,
+                    timeout=_TIMEOUT_SECONDS,
+                    headers={"User-Agent": "ZGIIS/1.0"},
+                )
+                if response.ok:
+                    payload = response.json()
+                    if isinstance(payload, dict):
+                        payload["_api_base"] = base
+                        return payload
+                if response.status_code < 500:
+                    break
+            except Exception:
+                pass
+            if attempt == 0:
+                time.sleep(0.25)
     return None
 
 
