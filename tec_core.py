@@ -1048,32 +1048,25 @@ def mark_storm_days(
         out = out.merge(kp[["date", "kp_index"]], on="date", how="left", suffixes=("", "_src"))
         out["kp_index"] = out["kp_index_src"].combine_first(out["kp_index"])
         out = out.drop(columns=["kp_index_src"])
-        conditions = out["kp_index"].apply(
-            lambda value: classify_kp(value) if pd.notna(value) else None
-        )
-        out["kp_condition"] = conditions.apply(
-            lambda condition: condition.condition if condition else None
-        )
-        out["kp_g_scale"] = conditions.apply(
-            lambda condition: condition.g_scale if condition else None
-        )
-        out["kp_severity"] = conditions.apply(
-            lambda condition: condition.severity if condition else None
-        )
-        out["kp_summary"] = conditions.apply(
-            lambda condition: condition.summary if condition else None
-        )
-        out["kp_storm_flag"] = conditions.apply(
-            lambda condition: condition.is_storm if condition else False
-        )
+        conditions = [
+            classify_kp(v) if pd.notna(v) else None
+            for v in out["kp_index"]
+        ]
+        out["kp_condition"] = [c.condition if c else None for c in conditions]
+        out["kp_g_scale"] = [c.g_scale if c else None for c in conditions]
+        out["kp_severity"] = [c.severity if c else None for c in conditions]
+        out["kp_summary"] = [c.summary if c else None for c in conditions]
+        out["kp_storm_flag"] = [c.is_storm if c else False for c in conditions]
 
     # NOAA defines geomagnetic storms by Kp/G-scale, not by an absolute TECU
     # threshold. TEC is therefore a response diagnostic and cannot set storm_flag.
     out["storm_flag"] = out["kp_storm_flag"]
 
     mean_vtec = pd.to_numeric(out["mean_vtec"], errors="coerce")
-    for row_index, row in out.iterrows():
-        if pd.isna(row["date"]) or pd.isna(mean_vtec.loc[row_index]):
+    mean_vtec_values = mean_vtec.to_numpy(dtype=np.float64, na_value=np.nan)
+    for row_position, (row_index, row) in enumerate(out.iterrows()):
+        current_mean_vtec = float(mean_vtec_values[row_position])
+        if pd.isna(row["date"]) or np.isnan(current_mean_vtec):
             continue
 
         window_start = row["date"] - pd.Timedelta(days=quiet_baseline_days)
@@ -1089,7 +1082,7 @@ def mark_storm_days(
             continue
 
         baseline = float(quiet_values.median())
-        deviation = float(mean_vtec.loc[row_index] - baseline)
+        deviation = current_mean_vtec - baseline
         deviation_pct = (100.0 * deviation / baseline) if baseline != 0 else np.nan
         mad = float((quiet_values - baseline).abs().median())
         if mad > 0:
