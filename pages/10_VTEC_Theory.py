@@ -10,6 +10,7 @@ if str(root) not in sys.path:
     sys.path.insert(0, str(root))
 
 from zgiis.processing.ipp_diagram import IPP_LEGEND_HTML, render_ipp_diagram_streamlit
+from zgiis.processing.pipeline_explanations import render_pipeline_overview_cards
 from zgiis.processing.vtec_illustrations import render_vtec_illustration
 from zgiis.theme import inject
 
@@ -120,12 +121,7 @@ st.markdown(
     "</div>",
     unsafe_allow_html=True,
 )
-st.markdown(
-    "<div class='vtec-overview-illus'>"
-    + render_vtec_illustration("pipeline")
-    + "</div>",
-    unsafe_allow_html=True,
-)
+render_pipeline_overview_cards()
 
 
 # ══════════════════════════════════════════════════════════════════════════════

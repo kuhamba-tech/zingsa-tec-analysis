@@ -11,6 +11,35 @@ BOOK_CITATION = (
     "*Atmospheric Remote Sensing: Principles and Applications*, Elsevier, 2022."
 )
 
+PROCESSING_STAGE_OVERVIEW = [
+    ("RINEX/CMN loading", "&#128194;"),
+    ("Cycle slip detection", "&#128269;"),
+    ("Satellite bias correction", "&#128752;"),
+    ("Receiver bias correction", "&#128225;"),
+    ("Slant TEC calculation", "&#128208;"),
+    ("Vertical TEC calculation", "&#128202;"),
+    ("Map/table generation", "&#128506;"),
+]
+
+
+def render_pipeline_overview_cards(
+    stages: Iterable[tuple[str, str]] = PROCESSING_STAGE_OVERVIEW,
+) -> None:
+    """Render the compact seven-stage processing overview."""
+    cards = "".join(
+        (
+            "<div class='pipeline-overview-card'>"
+            f"<span class='pipeline-overview-icon'>{icon}</span>"
+            f"<span>{stage}</span>"
+            "</div>"
+        )
+        for stage, icon in stages
+    )
+    st.markdown(
+        f"<div class='pipeline-overview-cards'>{cards}</div>",
+        unsafe_allow_html=True,
+    )
+
 
 class KeyRelation(TypedDict, total=False):
     type: str

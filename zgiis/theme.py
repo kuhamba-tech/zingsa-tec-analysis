@@ -667,6 +667,37 @@ h1 *, h2 *, h3 *, h4 *, h5 *, h6 *,
     height: 1.15rem;
 }
 
+/* Compact processing overview used on the VTEC theory page. */
+.pipeline-overview-cards {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(175px, 1fr));
+    gap: 0.85rem;
+    margin: 0.8rem 0 1.55rem;
+    overflow-x: auto;
+    padding: 0.15rem 0 0.35rem;
+}
+.pipeline-overview-card {
+    min-height: 62px;
+    padding: 0.8rem 0.9rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    color: #ffffff;
+    background: #0d1b2a;
+    border: 1px solid #334a68;
+    border-radius: 11px;
+    font-size: 0.9rem;
+    font-weight: 750;
+    line-height: 1.25;
+    text-align: center;
+    white-space: nowrap;
+}
+.pipeline-overview-icon {
+    flex: 0 0 auto;
+    font-size: 1.15rem;
+}
+
 /* ── Processing pipeline stage buttons (scoped — not hero overlay buttons) ── */
 [data-testid="stMarkdown"]:has(.pipeline-explorer-row) + [data-testid="stHorizontalBlock"] button[kind="secondary"] {
     height: 108px !important;
