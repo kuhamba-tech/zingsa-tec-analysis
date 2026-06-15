@@ -24,6 +24,8 @@ from zgiis.maps.station_map import (
     render_cors_station_map,
 )
 from zgiis.processing.pipeline_explanations import render_pipeline_explorer
+from zgiis.processing.daily_summary_charts import build_daily_vtec_chart
+from zgiis.processing.plot_gaps import gap_break_indices
 from zgiis.processing.vtec_summary_charts import render_vtec_summary_charts
 from zgiis.theme import inject
 
@@ -867,7 +869,7 @@ with st.spinner("Computing TEC…"):
     rinex_df = pd.DataFrame()
     if rinex_paths:
         try:
-            rinex_df = read_rinex_files(rinex_paths, cfg)
+            rinex_df = read_rinex_files(rinex_paths, cfg, nav_files=nav_paths)
         except Exception as exc:
             st.warning(f"RINEX parsing skipped: {exc}")
 
@@ -877,7 +879,18 @@ mark_stage(4, done=True)
 # Stage 5 — VTEC filtering
 mark_stage(5)
 if all_df.empty:
-    st.warning("No valid TEC rows found. Check files and elevation filter.")
+    if rinex_paths and not nav_paths:
+        st.warning(
+            "No valid TEC rows were produced. Select the navigation file that "
+            "matches the observation file (for example `.24n` for GPS). "
+            "Navigation ephemeris is required to calculate satellite elevation "
+            "before applying the elevation filter."
+        )
+    else:
+        st.warning(
+            "No valid TEC rows found. Confirm that the observation and navigation "
+            "files cover the same station/date and check the elevation filter."
+        )
     mark_stage(5, done=True)
     st.stop()
 
@@ -990,16 +1003,19 @@ def _make_goptec_plot_xy(df: pd.DataFrame, col: str, title: str,
     """
     fig = go.Figure()
 
-    # Pink zero reference line
-    fig.add_shape(type="line", x0=x_range[0], x1=x_range[1], y0=0, y1=0,
-                  line=dict(color="#ff00ff", width=1.5))
-
-    import pandas as _pd
-    _gap_thresh = (
-        _pd.Timedelta("15min") if xlabel == "UT (hrs)"
-        else _pd.Timedelta("1D") if xlabel == "Month"
-        else 1.0
+    # Add the zero reference as a trace so it appears in the legend.
+    fig.add_trace(
+        go.Scatter(
+            x=[x_range[0], x_range[1]],
+            y=[0, 0],
+            mode="lines",
+            line=dict(color="#ff00ff", width=2),
+            name="Zero TEC reference",
+            hoverinfo="skip",
+            legendrank=3,
+        )
     )
+
     _min_arc    = 10   # minimum observations per arc (GPS_TEC skips short arcs)
     _trim_n     = 3    # trim first/last N obs of each arc (boundary multipath)
 
@@ -1012,7 +1028,7 @@ def _make_goptec_plot_xy(df: pd.DataFrame, col: str, title: str,
         y_arr = grp[col].values.astype(float)
 
         # Detect arc boundaries within this PRN (gaps > threshold)
-        gaps = np.where(np.diff(x_arr) > _gap_thresh)[0] + 1
+        gaps = gap_break_indices(x_arr, xlabel=xlabel)
         arc_s = np.concatenate([[0], gaps])
         arc_e = np.concatenate([gaps, [len(x_arr)]])
 
@@ -1061,7 +1077,13 @@ def _make_goptec_plot_xy(df: pd.DataFrame, col: str, title: str,
         fig.add_trace(go.Scatter(
             x=x_prn, y=y_prn, mode="lines",
             line=dict(color="#00cc00", width=0.9),
-            showlegend=False, connectgaps=False,
+            name="Satellite PRN arcs",
+            legendgroup="prn_arcs",
+            showlegend=not any(
+                trace.legendgroup == "prn_arcs" for trace in fig.data
+            ),
+            legendrank=1,
+            connectgaps=False,
             hovertemplate=(
                 f"PRN {prn}<br>%{{x|%d %B}}<br>TEC: %{{y:.1f}} TECU<extra></extra>"
                 if xlabel == "Month"
@@ -1078,7 +1100,10 @@ def _make_goptec_plot_xy(df: pd.DataFrame, col: str, title: str,
         fig.add_trace(go.Scatter(
             x=_mean_ser.index.tolist(), y=_mean_ser.values.tolist(),
             mode="lines", line=dict(color="#ff0000", width=2.5),
-            showlegend=False, connectgaps=False,
+            name="Mean TEC",
+            showlegend=True,
+            legendrank=2,
+            connectgaps=False,
             hovertemplate=(
                 "Mean: %{y:.1f} TECU<br>%{x|%d %B}<extra>Mean TEC</extra>"
                 if xlabel == "Month"
@@ -1097,16 +1122,29 @@ def _make_goptec_plot_xy(df: pd.DataFrame, col: str, title: str,
             linecolor="#000000", linewidth=2, showline=True, mirror=True,
         ),
         yaxis=dict(
-            title=dict(text="TEC units", font=dict(color="#ff0000", size=16)),
+            title=dict(text="TEC (TECU)", font=dict(color="#ff0000", size=16)),
             range=[-25, 75],
             tickvals=[-25, 0, 25, 50, 75],
             tickfont=dict(color="#ff0000", size=14),
             gridcolor="#ffffff", gridwidth=0, showgrid=False, zeroline=False,
             linecolor="#000000", linewidth=2, showline=True, mirror=True,
         ),
+        legend=dict(
+            orientation="h",
+            x=0.5,
+            y=1.02,
+            xanchor="center",
+            yanchor="bottom",
+            bgcolor="rgba(255,255,255,0.92)",
+            bordercolor="#777777",
+            borderwidth=1,
+            font=dict(color="#111111", size=11),
+            traceorder="normal",
+        ),
         plot_bgcolor="#ffffff", paper_bgcolor="#ffffff",
         font=dict(color="#000000", family="Arial"),
-        height=420, margin=dict(t=55, b=60, l=70, r=20),
+        showlegend=True,
+        height=450, margin=dict(t=95, b=65, l=78, r=20),
     )
     return fig
 
@@ -1139,7 +1177,8 @@ for _grp_key, _grp_df in _plot_df.groupby("_grp"):
     _has_stec_raw = "stec_raw" in _grp_df.columns and not _grp_df["stec_raw"].isna().all()
     _has_vtec_grp = "vtec" in _grp_df.columns and not _grp_df["vtec"].isna().all()
     _raw_col = "vtec_raw" if _has_vtec_raw else ("vtec" if _has_vtec_grp else ("stec_raw" if _has_stec_raw else None))
-    _raw_title = f"Calculated TEC - Elevation Mask {int(cfg.elevation_min_deg)} deg"
+    _elevation_label = f"{cfg.elevation_min_deg:g}°"
+    _raw_title = f"Calculated TEC - Elevation Mask {_elevation_label}"
 
     with _pc1:
         if _raw_col:
@@ -1197,100 +1236,38 @@ render_vtec_summary_charts(st, all_df, daily_st, processing_mode)
 st.markdown("---")
 st.subheader("Daily VTEC Summary Charts")
 
-def _daily_vtec_chart(data: pd.DataFrame, col: str, ylabel: str) -> go.Figure:
-    """White-background MATLAB-style daily VTEC chart with month x-axis."""
-    _d = data.dropna(subset=[col]).copy()
-    _d["date"] = pd.to_datetime(_d["date"])
-    fig = go.Figure()
-    fig.add_scatter(
-        x=_d["date"], y=_d[col],
-        mode="lines+markers",
-        line=dict(color="#1565c0", width=1.5),
-        marker=dict(size=5, color="#1565c0"),
-        name=ylabel,
-        hovertemplate=(
-            "<b>%{x|%d %B %Y}</b><br>"
-            + ylabel + ": %{y:.2f} TECU<extra></extra>"
-        ),
-    )
-    fig.update_layout(
-        xaxis=dict(
-            title=dict(text="Month", font=dict(color="#cc0000", size=12, family="Arial")),
-            tickformat="%b",
-            dtick="M1",
-            tickfont=dict(color="#cc0000", size=11, family="Arial"),
-            gridcolor="#cccccc", showgrid=True, zeroline=False,
-            linecolor="#000000", linewidth=1.5, showline=True, mirror=True,
-        ),
-        yaxis=dict(
-            title=dict(text=ylabel, font=dict(color="#cc0000", size=12, family="Arial")),
-            rangemode="tozero",
-            tickfont=dict(color="#cc0000", size=11, family="Arial"),
-            gridcolor="#cccccc", showgrid=True, zeroline=True, zerolinecolor="#cccccc",
-            linecolor="#000000", linewidth=1.5, showline=True, mirror=True,
-        ),
-        plot_bgcolor="#ffffff", paper_bgcolor="#ffffff",
-        font=dict(color="#000000", family="Arial"),
-        showlegend=False,
-        height=280, margin=dict(t=20, b=55, l=70, r=15),
-    )
-    return fig
-
 if not daily.empty and "max_vtec" in daily.columns:
     _dc1, _dc2, _dc3 = st.columns(3)
     with _dc1:
         st.plotly_chart(
-            _daily_vtec_chart(daily, "max_vtec", "MaximumVtec"),
-            use_container_width=True, key="sum_max_vtec",
+            build_daily_vtec_chart(
+                daily_storm, "max_vtec", "Maximum VTEC", "#ff4444"
+            ),
+            width="stretch", key="sum_max_vtec",
         )
     with _dc2:
         st.plotly_chart(
-            _daily_vtec_chart(daily, "mean_vtec", "MeanVtec"),
-            use_container_width=True, key="sum_mean_vtec",
+            build_daily_vtec_chart(
+                daily_storm, "mean_vtec", "Mean VTEC", "#00d4ff"
+            ),
+            width="stretch", key="sum_mean_vtec",
         )
     with _dc3:
         st.plotly_chart(
-            _daily_vtec_chart(daily, "min_vtec", "MinimumVtec"),
-            use_container_width=True, key="sum_min_vtec",
+            build_daily_vtec_chart(
+                daily_storm, "min_vtec", "Minimum VTEC", "#00ff88"
+            ),
+            width="stretch", key="sum_min_vtec",
         )
 
-    # Full-width VTEC chart (chart 4 — cleaner labelled version)
-    _dv = daily.dropna(subset=["mean_vtec"]).copy()
-    _dv["date"] = pd.to_datetime(_dv["date"])
-    fig_vtec_full = go.Figure()
-    fig_vtec_full.add_scatter(
-        x=_dv["date"], y=_dv["mean_vtec"],
-        mode="lines+markers",
-        line=dict(color="#1565c0", width=2),
-        marker=dict(size=6, color="#1565c0"),
-        name="VTEC",
-        hovertemplate="<b>%{x|%d %B %Y}</b><br>VTEC: %{y:.2f} TECU<extra>VTEC</extra>",
+    fig_vtec_full = build_daily_vtec_chart(
+        daily_storm,
+        "mean_vtec",
+        "Daily Mean VTEC",
+        "#a855f7",
+        height=420,
     )
-    fig_vtec_full.update_layout(
-        xaxis=dict(
-            title=dict(text="Month", font=dict(color="#cc0000", size=14, family="Arial")),
-            tickformat="%b",
-            dtick="M1",
-            tickfont=dict(color="#cc0000", size=13, family="Arial"),
-            gridcolor="#cccccc", showgrid=True, zeroline=False,
-            linecolor="#000000", linewidth=2, showline=True, mirror=True,
-        ),
-        yaxis=dict(
-            title=dict(text="VTEC (TECU)", font=dict(color="#cc0000", size=14, family="Arial")),
-            rangemode="tozero",
-            tickfont=dict(color="#cc0000", size=13, family="Arial"),
-            gridcolor="#cccccc", showgrid=True, zeroline=True, zerolinecolor="#cccccc",
-            linecolor="#000000", linewidth=2, showline=True, mirror=True,
-        ),
-        legend=dict(
-            bgcolor="#ffffff", bordercolor="#cccccc", borderwidth=1,
-            font=dict(color="#000000", size=13),
-        ),
-        plot_bgcolor="#ffffff", paper_bgcolor="#ffffff",
-        font=dict(color="#000000", family="Arial"),
-        height=400, margin=dict(t=20, b=65, l=80, r=20),
-    )
-    st.plotly_chart(fig_vtec_full, use_container_width=True, key="sum_vtec_full")
+    st.plotly_chart(fig_vtec_full, width="stretch", key="sum_vtec_full")
 
 # ── Key metrics ───────────────────────────────────────────────────────────────
 st.markdown("---")
@@ -1316,6 +1293,22 @@ if stn_sel and not all_stations:
 # ── Daily TEC chart ───────────────────────────────────────────────────────────
 st.markdown("---")
 st.subheader("Daily TEC and Storm Signatures")
+st.caption(
+    "Official storm decision: NOAA Kp ≥ 5 (G1–G5). There is no official "
+    "universal TECU storm threshold. TEC response is measured against the "
+    "previous 27 days of Kp-confirmed quiet observations (Kp < 4), requiring "
+    "at least 10 quiet days."
+)
+if len(daily) < 10:
+    kp_note = (
+        " Kp-based detection remains active for dates with supplied Kp data."
+        if kp_df is not None and not kp_df.empty
+        else " No Kp data is loaded, so no storm classification is made."
+    )
+    st.info(
+        f"TEC anomaly detection requires at least 10 valid daily observations; "
+        f"{len(daily)} loaded.{kp_note}"
+    )
 fig_daily = px.line(daily_storm, x="date", y="mean_vtec",
                     labels={"mean_vtec": "VTEC (TECU)", "date": "Date"})
 fig_daily.update_traces(line_color="#00d4ff")
@@ -1323,7 +1316,7 @@ storm_pts = daily_storm[daily_storm["storm_flag"]]
 if not storm_pts.empty:
     fig_daily.add_scatter(x=storm_pts["date"], y=storm_pts["mean_vtec"],
                           mode="markers", marker=dict(size=10, color="#ff4444"),
-                          name="Storm-like day")
+                          name="Potential storm/anomaly day")
 fig_daily.update_layout(
     paper_bgcolor="#060d1a", plot_bgcolor="#0d1b2a", font_color="#ffffff",
     yaxis=dict(gridcolor="#1e3a5f"), xaxis=dict(gridcolor="#1e3a5f"),
@@ -1353,6 +1346,43 @@ else:
 
 # ── KP relationship ───────────────────────────────────────────────────────────
 if daily_storm["kp_index"].notna().any():
+    st.subheader("NOAA Geomagnetic Storm Assessment")
+    kp_assessment = daily_storm[
+        [
+            "date",
+            "kp_index",
+            "kp_condition",
+            "kp_g_scale",
+                "kp_severity",
+                "kp_storm_flag",
+                "tec_baseline",
+                "tec_deviation_tecu",
+                "tec_deviation_pct",
+                "tec_response_z",
+                "tec_response",
+                "kp_summary",
+            ]
+    ].dropna(subset=["kp_index"])
+    st.dataframe(
+        kp_assessment.rename(
+            columns={
+                "date": "Date",
+                "kp_index": "Daily maximum Kp",
+                "kp_condition": "Condition",
+                "kp_g_scale": "NOAA G-scale",
+                "kp_severity": "Severity",
+                "kp_storm_flag": "Storm",
+                "tec_baseline": "Quiet baseline VTEC",
+                "tec_deviation_tecu": "TEC change (TECU)",
+                "tec_deviation_pct": "TEC change (%)",
+                "tec_response_z": "TEC response score",
+                "tec_response": "TEC response",
+                "kp_summary": "Expected conditions",
+            }
+        ),
+        use_container_width=True,
+        hide_index=True,
+    )
     st.subheader("VTEC vs Kp Index")
     fig_kp = px.scatter(daily_storm.dropna(subset=["kp_index"]),
                         x="kp_index", y="mean_vtec", trendline="ols")

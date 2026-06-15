@@ -76,13 +76,8 @@ TILE_LAYERS: dict[str, dict] = {
     },
     "tec_heatmap": {
         "label": "TEC Heat Map",
-        "tiles": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-        "attr": "Esri World Imagery",
-        "overlay_tiles": (
-            "https://services.arcgisonline.com/ArcGIS/rest/services/Reference/"
-            "World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"
-        ),
-        "overlay_attr": "Esri Reference",
+        "tiles": "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+        "attr": "&copy; OpenStreetMap contributors",
         "max_zoom": 19,
     },
 }
@@ -227,10 +222,16 @@ def build_cors_folium_map(
         "%d %b %Y, %H:%M CAT"
     )
     layer = TILE_LAYERS.get(map_style, TILE_LAYERS["hybrid"])
+    if len(station_list) == 1:
+        map_center = [station_list[0].lat, station_list[0].lon]
+        initial_zoom = 7
+    else:
+        map_center = [-18.85, 29.75]
+        initial_zoom = 6
 
     m = folium.Map(
-        location=[-18.85, 29.75],
-        zoom_start=6,
+        location=map_center,
+        zoom_start=initial_zoom,
         tiles=layer["tiles"],
         attr=layer["attr"],
         subdomains=layer.get("subdomains", ""),
@@ -378,13 +379,14 @@ def build_cors_folium_map(
             ),
         ).add_to(m)
 
-    if station_list:
+    if len(station_list) > 1:
         m.fit_bounds(
             [
                 [min(station.lat for station in station_list), min(station.lon for station in station_list)],
                 [max(station.lat for station in station_list), max(station.lon for station in station_list)],
             ],
             padding=(24, 24),
+            max_zoom=9,
         )
 
     if color_by == "status" and map_style != "tec_heatmap":

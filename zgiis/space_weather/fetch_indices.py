@@ -9,6 +9,7 @@ from zgiis.api.cors_client import (
     fetch_space_weather_africa,
     fetch_station_health,
 )
+from zgiis.space_weather.geomagnetic_scale import classify_kp
 
 try:
     import requests
@@ -20,16 +21,6 @@ except ImportError:
 _CACHE: Dict[str, Any] = {}
 _CACHE_TTL_SECONDS = 300  # 5 minutes — matches CORS_Program refresh cadence
 
-
-# Aligned with ZINGSA CORS_Program/api/_space-weather/africa.js
-_KP_LEVELS = [
-    (0, 3, "Quiet", "#1D9E75"),
-    (3, 4, "Unsettled", "#22d3ee"),
-    (4, 5, "Active", "#EF9F27"),
-    (5, 6, "G1 Storm", "#ef4444"),
-    (6, 7, "G2 Storm", "#dc2626"),
-    (7, 10, "G3+ Storm", "#7f1d1d"),
-]
 
 _GNSS_RISK_COLORS = {
     "Low": "#1D9E75",
@@ -60,10 +51,8 @@ def _cached(key: str, fetch_fn) -> Any:
 
 
 def _resolve_kp_level(kp: float) -> tuple[str, str]:
-    for lo, hi, name, color in _KP_LEVELS:
-        if lo <= kp < hi:
-            return name, color
-    return "Quiet", "#1D9E75"
+    condition = classify_kp(kp)
+    return condition.condition, condition.color
 
 
 def _gnss_impact_label(kp: float, s4: float = 0.0, delta_tec: float = 0.0) -> str:

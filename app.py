@@ -495,6 +495,22 @@ m3.metric("Max VTEC", f"{all_df['vtec'].max():.2f}")
 m4.metric("Storm days", int(daily_storm["storm_flag"].sum()))
 
 st.subheader("Daily TEC and storm signatures")
+st.caption(
+    "Official storm decision: NOAA Kp ≥ 5 (G1–G5). There is no official "
+    "universal TECU storm threshold. TEC response is measured against the "
+    "previous 27 days of Kp-confirmed quiet observations (Kp < 4), requiring "
+    "at least 10 quiet days."
+)
+if len(daily) < 10:
+    kp_note = (
+        " Kp-based detection remains active for dates with supplied Kp data."
+        if kp_df is not None and not kp_df.empty
+        else " No Kp data is loaded, so no storm classification is made."
+    )
+    st.info(
+        f"TEC anomaly detection requires at least 10 valid daily observations; "
+        f"{len(daily)} loaded.{kp_note}"
+    )
 fig_daily = px.line(daily_storm, x="date", y="mean_vtec", title="Daily mean VTEC")
 storm_pts = daily_storm[daily_storm["storm_flag"]]
 if not storm_pts.empty:
@@ -503,7 +519,7 @@ if not storm_pts.empty:
         y=storm_pts["mean_vtec"],
         mode="markers",
         marker={"size": 10, "color": "red"},
-        name="Storm-like day",
+        name="Potential storm/anomaly day",
     )
 st.plotly_chart(fig_daily, use_container_width=True)
 

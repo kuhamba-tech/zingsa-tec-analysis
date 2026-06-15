@@ -101,6 +101,7 @@ def check_connection() -> dict:
     port = int(cfg.get("port", 2101))
     username = cfg.get("username", "")
     password = cfg.get("password", "")
+    mountpoint = cfg.get("mountpoint", "")
 
     if not host:
         return {"connected": False, "message": "NTRIP host not set in secrets.toml"}
@@ -115,6 +116,58 @@ def check_connection() -> dict:
             "message": f"TCP connection to {host}:{port} succeeded",
             "host": host,
             "port": port,
+            "mountpoint": mountpoint or "not set",
         }
     except OSError as exc:
         return {"connected": False, "message": f"Cannot reach {host}:{port} — {exc}"}
+
+
+def stream_mountpoint(timeout: int = 10) -> Optional[str]:
+    """
+    Connect to the configured mountpoint and return the first RTCM data chunk.
+    Returns raw bytes as hex string, or None if unavailable.
+    """
+    cfg = _ntrip_cfg()
+    if not cfg:
+        return None
+
+    host = cfg.get("host", "")
+    port = int(cfg.get("port", 2101))
+    username = cfg.get("username", "")
+    password = cfg.get("password", "")
+    mountpoint = cfg.get("mountpoint", "").lstrip("/")
+    use_tls = str(cfg.get("connection", "TCP")).upper() == "TLS"
+    auth_method = cfg.get("auth_method", "Basic")
+    ntrip_ver = int(cfg.get("ntrip_version", 2))
+
+    if not host or not mountpoint or username.startswith("REPLACE_") or password.startswith("REPLACE_"):
+        return None
+
+    try:
+        raw = socket.create_connection((host, port), timeout=timeout)
+        sock = ssl.wrap_socket(raw) if use_tls else raw
+
+        if ntrip_ver >= 2:
+            request = (
+                f"GET /{mountpoint} HTTP/1.1\r\n"
+                f"Host: {host}:{port}\r\n"
+                f"Ntrip-Version: Ntrip/2.0\r\n"
+                f"User-Agent: ZGIIS/1.0\r\n"
+                + _auth_header(username, password, auth_method)
+                + "\r\n"
+            )
+        else:
+            request = (
+                f"GET /{mountpoint} HTTP/1.0\r\n"
+                f"User-Agent: ZGIIS/1.0\r\n"
+                + _auth_header(username, password, auth_method)
+                + "\r\n"
+            )
+
+        sock.sendall(request.encode())
+        sock.settimeout(timeout)
+        response = sock.recv(4096)
+        sock.close()
+        return response.decode(errors="replace")
+    except Exception:
+        return None

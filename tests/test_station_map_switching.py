@@ -41,6 +41,27 @@ class StationMapSwitchingTests(unittest.TestCase):
         self.assertNotIn("illustrative", html.lower())
         self.assertNotIn("VTEC intensity", html)
 
+    def test_single_station_heatmap_uses_reliable_tiles_and_regional_zoom(self):
+        station = CorsStation(
+            code="karo",
+            name="Karoi",
+            lat=-16.81896637,
+            lon=29.68364577,
+            status="online",
+            current_tec=12.5,
+        )
+
+        html = build_cors_folium_map(
+            [station],
+            map_style="tec_heatmap",
+            show_tec_legend=True,
+        ).get_root().render()
+
+        self.assertIn("tile.openstreetmap.org", html)
+        self.assertIn('"zoom": 7', html)
+        self.assertNotIn("fitBounds(", html)
+        self.assertIn("12.5 TECU", html)
+
     def test_folium_component_has_stable_key_and_no_return_payload(self):
         folium_map = build_cors_folium_map(self.stations, map_style="hybrid")
 

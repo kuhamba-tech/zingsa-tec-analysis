@@ -1044,10 +1044,7 @@ button[kind="primary"] * {
 /* ── Plotly chart text ── */
 .js-plotly-plot .plotly .main-svg text,
 .js-plotly-plot .plotly .main-svg tspan {
-    fill: #ffffff !important;
-}
-.js-plotly-plot .plotly .legend text {
-    fill: #ffffff !important;
+    opacity: 1;
 }
 </style>
 """

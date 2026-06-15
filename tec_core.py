@@ -1,11 +1,35 @@
 from __future__ import annotations
 
+import sys
+import contextlib
+import io
+
+# Windows default encoding (cp1252) can't handle → and other Unicode chars
+# that georinex emits in warning messages. Force UTF-8 on stdout/stderr.
+for _stream in ("stdout", "stderr"):
+    _s = getattr(sys, _stream, None)
+    if _s is not None and hasattr(_s, "reconfigure"):
+        try:
+            _s.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
 from dataclasses import dataclass
+import logging
 from pathlib import Path
 from typing import Iterable, Optional
 
 import numpy as np
 import pandas as pd
+
+from zgiis.space_weather.geomagnetic_scale import classify_kp
+
+LOGGER = logging.getLogger(__name__)
+
+
+def _ascii_diagnostic(value: object) -> str:
+    """Return logging text that cannot fail on a legacy Windows code page."""
+    return str(value).encode("ascii", errors="backslashreplace").decode("ascii")
 
 # ── WGS-84 / GPS physical constants ───────────────────────────────────────────
 _MU       = 3.986004418e14        # Earth gravitational parameter, m³/s²
@@ -24,13 +48,33 @@ _K  = (_F1**2 * _F2**2) / (40.3 * (_F1**2 - _F2**2))
 _NS_TO_TECU = _C_LIGHT * 1e-9 * _K / 1e16
 
 
-def _find_nav_file(obs_path: Path) -> Optional[Path]:
-    """Return companion GPS nav file (.24n / .n) for a RINEX obs file, or None."""
+def _find_nav_file(
+    obs_path: Path,
+    provided: list[Path] | None = None,
+) -> Optional[Path]:
+    """Return companion GPS nav file for a RINEX obs file.
+
+    Checks `provided` list first (user-selected files), then auto-discovers
+    by stem name in the same folder as the obs file.
+    """
     stem = obs_path.stem
+    ext = obs_path.suffix.lower()
+
+    # 1. Check explicitly provided nav files — match on stem (case-insensitive)
+    if provided:
+        for p in provided:
+            if p.stem.lower() == stem.lower() and p.suffix.lower() not in {".o", ".g"}:
+                return p
+        # Fallback: any .n/.nav file from the provided list
+        for p in provided:
+            s = p.suffix.lower()
+            if s in {".n", ".nav"} or (len(s) == 4 and s.endswith("n")):
+                return p
+
+    # 2. Auto-discover beside the obs file
     folder = obs_path.parent
-    ext = obs_path.suffix.lower()           # e.g. '.24o'
-    candidates = []
-    if len(ext) == 4 and ext.endswith('o'): # year-specific e.g. .24n
+    candidates: list[Path] = []
+    if len(ext) == 4 and ext.endswith("o"):
         yr = ext[1:3]
         candidates += [folder / f"{stem}.{yr}n", folder / f"{stem}.{yr}N"]
     candidates += [folder / f"{stem}.n", folder / f"{stem}.N",
@@ -536,7 +580,11 @@ def read_rinex_folder(folder: Path, config: TecConfig) -> pd.DataFrame:
     return _read_rinex_files_impl(sorted(seen), config)
 
 
-def _read_rinex_files_impl(rinex_files: Iterable[Path], config: TecConfig) -> pd.DataFrame:
+def _read_rinex_files_impl(
+    rinex_files: Iterable[Path],
+    config: TecConfig,
+    nav_files: list[Path] | None = None,
+) -> pd.DataFrame:
     try:
         import georinex as gr
     except Exception as exc:
@@ -554,13 +602,18 @@ def _read_rinex_files_impl(rinex_files: Iterable[Path], config: TecConfig) -> pd
 
     for path in rinex_files:
         try:
-            ds = gr.load(str(path))
+            _buf = io.StringIO()
+            with contextlib.redirect_stderr(_buf), contextlib.redirect_stdout(_buf):
+                ds = gr.load(str(path))
             if isinstance(ds, dict):
                 import xarray as xr
                 ds = xr.merge(ds.values())
         except Exception as exc:
-            import warnings
-            warnings.warn(f"Could not load {path.name}: {exc}")
+            LOGGER.warning(
+                "Could not load %s: %s",
+                _ascii_diagnostic(path.name),
+                _ascii_diagnostic(exc),
+            )
             continue
 
         dfx, used_c1 = _rnx_to_frame(ds)
@@ -570,7 +623,7 @@ def _read_rinex_files_impl(rinex_files: Iterable[Path], config: TecConfig) -> pd
         # ── Elevation: compute from nav file if not already present ───────────
         need_elev = dfx["elevation"].isna().all()
         if need_elev:
-            nav_path = _find_nav_file(path)
+            nav_path = _find_nav_file(path, provided=nav_files)
             rx_ecef  = None
             try:
                 # georinex stores APPROX POSITION XYZ as ds.position (direct
@@ -586,15 +639,26 @@ def _read_rinex_files_impl(rinex_files: Iterable[Path], config: TecConfig) -> pd
                 pass
 
             if nav_path is not None and rx_ecef is not None:
-                print(f"[tec_core] {path.name}: rx_ecef={rx_ecef}, nav={nav_path.name} → computing elevations")
+                LOGGER.info(
+                    "%s: receiver ECEF=%s, navigation=%s; computing elevations",
+                    path.name,
+                    rx_ecef,
+                    nav_path.name,
+                )
                 dfx["elevation"] = _compute_elevations_from_nav(dfx, nav_path, rx_ecef)
-                print(f"[tec_core] {path.name}: elevation range {dfx['elevation'].min():.1f}°–{dfx['elevation'].max():.1f}°")
+                LOGGER.info(
+                    "%s: elevation range %.1f to %.1f degrees",
+                    path.name,
+                    dfx["elevation"].min(),
+                    dfx["elevation"].max(),
+                )
             else:
-                import warnings
-                warnings.warn(
-                    f"{path.name}: nav={nav_path is not None}, "
-                    f"ecef={'found' if rx_ecef is not None else 'missing'} — "
-                    "elevation set to NaN; rows below mask will be dropped."
+                LOGGER.warning(
+                    "%s: nav=%s, ecef=%s; elevation set to NaN; rows below "
+                    "the mask will be dropped.",
+                    _ascii_diagnostic(path.name),
+                    nav_path is not None,
+                    "found" if rx_ecef is not None else "missing",
                 )
                 # NaN → all rows dropped by elevation mask below
                 dfx["elevation"] = np.nan
@@ -685,8 +749,12 @@ def _read_rinex_files_impl(rinex_files: Iterable[Path], config: TecConfig) -> pd
     return pd.concat(frames, ignore_index=True)
 
 
-def read_rinex_files(rinex_files: Iterable[Path], config: TecConfig) -> pd.DataFrame:
-    return _read_rinex_files_impl(rinex_files, config)
+def read_rinex_files(
+    rinex_files: Iterable[Path],
+    config: TecConfig,
+    nav_files: Iterable[Path] | None = None,
+) -> pd.DataFrame:
+    return _read_rinex_files_impl(rinex_files, config, nav_files=list(nav_files) if nav_files else None)
 
 
 __all__ = [
@@ -926,24 +994,125 @@ def mark_storm_days(
     daily_df: pd.DataFrame,
     kp_df: Optional[pd.DataFrame] = None,
     vtec_percentile: float = 0.9,
-    kp_threshold: float = 5.0,
+    min_vtec_days: int = 10,
+    quiet_baseline_days: int = 27,
+    tec_response_z_threshold: float = 2.0,
 ) -> pd.DataFrame:
     if daily_df.empty:
-        return daily_df.assign(storm_flag=False, kp_index=np.nan)
+        return daily_df.assign(
+            storm_flag=False,
+            tec_anomaly_flag=False,
+            kp_storm_flag=False,
+            kp_index=np.nan,
+            kp_condition=None,
+            kp_g_scale=None,
+            kp_severity=None,
+            kp_summary=None,
+            vtec_threshold=np.nan,
+            tec_baseline=np.nan,
+            tec_deviation_tecu=np.nan,
+            tec_deviation_pct=np.nan,
+            tec_response_z=np.nan,
+            tec_response="Insufficient quiet baseline",
+        )
 
     out = daily_df.copy()
-    threshold = out["max_vtec"].quantile(vtec_percentile)
-    out["storm_flag"] = out["max_vtec"] >= threshold
+    out["date"] = pd.to_datetime(out["date"], errors="coerce").dt.floor("D")
+    max_vtec = pd.to_numeric(out["max_vtec"], errors="coerce")
+    valid_vtec = max_vtec.dropna()
+    out["tec_anomaly_flag"] = False
+    out["vtec_threshold"] = np.nan
     out["kp_index"] = np.nan
+    out["kp_storm_flag"] = False
+    out["kp_condition"] = None
+    out["kp_g_scale"] = None
+    out["kp_severity"] = None
+    out["kp_summary"] = None
+    out["tec_baseline"] = np.nan
+    out["tec_deviation_tecu"] = np.nan
+    out["tec_deviation_pct"] = np.nan
+    out["tec_response_z"] = np.nan
+    out["tec_response"] = "Insufficient quiet baseline"
+
+    if len(valid_vtec) >= min_vtec_days:
+        threshold = float(valid_vtec.quantile(vtec_percentile))
+        out["vtec_threshold"] = threshold
+        out["tec_anomaly_flag"] = max_vtec >= threshold
 
     if kp_df is not None and not kp_df.empty:
         kp = kp_df.copy()
         kp["date"] = pd.to_datetime(kp["date"]).dt.floor("D")
-        out["date"] = pd.to_datetime(out["date"]).dt.floor("D")
+        kp["kp_index"] = pd.to_numeric(kp["kp_index"], errors="coerce")
+        kp = kp.dropna(subset=["date", "kp_index"])
+        kp = kp.groupby("date", as_index=False)["kp_index"].max()
         out = out.merge(kp[["date", "kp_index"]], on="date", how="left", suffixes=("", "_src"))
         out["kp_index"] = out["kp_index_src"].combine_first(out["kp_index"])
         out = out.drop(columns=["kp_index_src"])
-        out["storm_flag"] = out["storm_flag"] | (out["kp_index"] >= kp_threshold)
+        conditions = out["kp_index"].apply(
+            lambda value: classify_kp(value) if pd.notna(value) else None
+        )
+        out["kp_condition"] = conditions.apply(
+            lambda condition: condition.condition if condition else None
+        )
+        out["kp_g_scale"] = conditions.apply(
+            lambda condition: condition.g_scale if condition else None
+        )
+        out["kp_severity"] = conditions.apply(
+            lambda condition: condition.severity if condition else None
+        )
+        out["kp_summary"] = conditions.apply(
+            lambda condition: condition.summary if condition else None
+        )
+        out["kp_storm_flag"] = conditions.apply(
+            lambda condition: condition.is_storm if condition else False
+        )
+
+    # NOAA defines geomagnetic storms by Kp/G-scale, not by an absolute TECU
+    # threshold. TEC is therefore a response diagnostic and cannot set storm_flag.
+    out["storm_flag"] = out["kp_storm_flag"]
+
+    mean_vtec = pd.to_numeric(out["mean_vtec"], errors="coerce")
+    for row_index, row in out.iterrows():
+        if pd.isna(row["date"]) or pd.isna(mean_vtec.loc[row_index]):
+            continue
+
+        window_start = row["date"] - pd.Timedelta(days=quiet_baseline_days)
+        quiet_mask = (
+            (out["date"] < row["date"])
+            & (out["date"] >= window_start)
+            & out["kp_index"].notna()
+            & (out["kp_index"] < 4.0)
+            & mean_vtec.notna()
+        )
+        quiet_values = mean_vtec.loc[quiet_mask]
+        if len(quiet_values) < min_vtec_days:
+            continue
+
+        baseline = float(quiet_values.median())
+        deviation = float(mean_vtec.loc[row_index] - baseline)
+        deviation_pct = (100.0 * deviation / baseline) if baseline != 0 else np.nan
+        mad = float((quiet_values - baseline).abs().median())
+        if mad > 0:
+            response_z = 0.6745 * deviation / mad
+        else:
+            standard_deviation = float(quiet_values.std(ddof=1))
+            response_z = (
+                deviation / standard_deviation
+                if standard_deviation > 0
+                else 0.0
+            )
+
+        out.at[row_index, "tec_baseline"] = baseline
+        out.at[row_index, "tec_deviation_tecu"] = deviation
+        out.at[row_index, "tec_deviation_pct"] = deviation_pct
+        out.at[row_index, "tec_response_z"] = response_z
+        if response_z >= tec_response_z_threshold:
+            out.at[row_index, "tec_response"] = "Positive ionospheric response"
+        elif response_z <= -tec_response_z_threshold:
+            out.at[row_index, "tec_response"] = "Negative ionospheric response"
+        else:
+            out.at[row_index, "tec_response"] = "Within quiet baseline"
+
     return out
 
 
