@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, Optional
 
 from zgiis.api.cors_client import (
@@ -249,6 +250,37 @@ def _fetch_noaa_solar_wind_history() -> list[dict]:
     return history
 
 
+def _latest_kp_from_history(history: list[dict]) -> Optional[float]:
+    for row in reversed(history):
+        value = _parse_kp_value(row)
+        if value is not None:
+            return float(value)
+    return None
+
+
+def _latest_f107_from_history(history: list[dict]) -> Optional[float]:
+    for row in reversed(history):
+        if row.get("flux") is not None:
+            return float(row["flux"])
+    return None
+
+
+def _latest_dst_from_history(history: list[dict]) -> Optional[float]:
+    for row in reversed(history):
+        if row.get("dst") is not None:
+            return float(row["dst"])
+    return None
+
+
+def _latest_solar_wind_from_history(
+    history: list[dict],
+) -> tuple[Optional[float], Optional[float]]:
+    if not history:
+        return None, None
+    latest = history[-1]
+    return latest.get("speed"), latest.get("density")
+
+
 _RISK_SCORES = {"Low": 0.0, "Moderate": 1.0, "High": 2.0, "Critical": 3.0}
 
 
@@ -347,9 +379,33 @@ def get_space_weather() -> Dict[str, Any]:
     """Return consolidated dashboard space-weather metrics."""
 
     def _fetch() -> Dict[str, Any]:
-        africa = fetch_space_weather_africa()
-        iono = fetch_ionosphere_status(station="HARA")
-        health = fetch_station_health(country="Zimbabwe")
+        with ThreadPoolExecutor(max_workers=7) as executor:
+            futures = {
+                "africa": executor.submit(fetch_space_weather_africa),
+                "iono": executor.submit(fetch_ionosphere_status, station="HARA"),
+                "health": executor.submit(fetch_station_health, country="Zimbabwe"),
+                "kp_history": executor.submit(_fetch_noaa_kp_history),
+                "f107_history": executor.submit(_fetch_noaa_f107_history),
+                "dst_history": executor.submit(_fetch_noaa_dst_history),
+                "solar_wind_history": executor.submit(
+                    _fetch_noaa_solar_wind_history
+                ),
+            }
+            fetched = {name: future.result() for name, future in futures.items()}
+
+        africa = fetched["africa"]
+        iono = fetched["iono"]
+        health = fetched["health"]
+        noaa_history = fetched["kp_history"] or []
+        f107_history = fetched["f107_history"] or []
+        dst_history = fetched["dst_history"] or []
+        solar_wind_history = fetched["solar_wind_history"] or []
+        noaa_kp = _latest_kp_from_history(noaa_history)
+        f107 = _latest_f107_from_history(f107_history)
+        dst = _latest_dst_from_history(dst_history)
+        sw_speed, sw_density = _latest_solar_wind_from_history(
+            solar_wind_history
+        )
 
         kp: Optional[float] = None
         condition = "Quiet"
@@ -382,7 +438,7 @@ def get_space_weather() -> Dict[str, Any]:
         if kp is None and iono:
             kp = float(iono.get("kp_index", 0) or 0)
             if kp <= 0:
-                kp = _fetch_noaa_kp()
+                kp = noaa_kp
             if kp is not None:
                 condition, condition_color = _resolve_kp_level(kp)
             mode = iono.get("mode", "live")
@@ -391,13 +447,12 @@ def get_space_weather() -> Dict[str, Any]:
             api_base = api_base or iono.get("_api_base")
 
         if kp is None:
-            kp = _fetch_noaa_kp()
+            kp = noaa_kp
 
         if kp is None:
             result = _unavailable_data()
-            result["f107"] = _fetch_noaa_f107()
-            result["dst"] = _fetch_noaa_dst()
-            sw_speed, sw_density = _fetch_noaa_solar_wind()
+            result["f107"] = f107
+            result["dst"] = dst
             result["solar_wind_speed"] = sw_speed
             result["solar_wind_density"] = sw_density
             return result
@@ -408,10 +463,6 @@ def get_space_weather() -> Dict[str, Any]:
         if not africa and not iono:
             mode = "live"
             source = "NOAA SWPC Planetary K-index (direct)"
-
-        f107 = _fetch_noaa_f107()
-        dst = _fetch_noaa_dst()
-        sw_speed, sw_density = _fetch_noaa_solar_wind()
 
         s4 = None
         delta_tec = 0.0
@@ -468,13 +519,9 @@ def get_space_weather() -> Dict[str, Any]:
         kp_history = africa.get("history") if africa else []
         if not isinstance(kp_history, list):
             kp_history = []
-        noaa_history = _fetch_noaa_kp_history()
         if len(noaa_history) > len(kp_history):
             kp_history = noaa_history
 
-        dst_history = _fetch_noaa_dst_history()
-        f107_history = _fetch_noaa_f107_history()
-        solar_wind_history = _fetch_noaa_solar_wind_history()
         gnss_risk_history = _build_gnss_risk_history(kp_history, s4=s4)
         s4_history = _build_snapshot_history(kp_history, s4, field="s4")
         stations_online_history = _build_snapshot_history(
