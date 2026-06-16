@@ -1206,6 +1206,40 @@ button[kind="primary"] * {
     opacity: 1;
 }
 
+/* Streamlit Cloud can render segmented controls with light inactive fills.
+   Force the app controls back to the ZGIIS dark theme so labels stay readable. */
+[data-testid="stSegmentedControl"] [role="radiogroup"],
+[data-testid="stSegmentedControl"] [data-baseweb="button-group"] {
+    background: #000000 !important;
+    border: 1px solid #244d73 !important;
+    border-radius: 9px !important;
+    overflow: hidden !important;
+}
+[data-testid="stSegmentedControl"] [role="radio"],
+[data-testid="stSegmentedControl"] button,
+[data-testid="stSegmentedControl"] label {
+    background: #000000 !important;
+    border-color: #244d73 !important;
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+}
+[data-testid="stSegmentedControl"] [role="radio"] *,
+[data-testid="stSegmentedControl"] button *,
+[data-testid="stSegmentedControl"] label * {
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+}
+[data-testid="stSegmentedControl"] [aria-checked="true"],
+[data-testid="stSegmentedControl"] button[aria-pressed="true"] {
+    background: #17367a !important;
+    border-color: #168bd2 !important;
+}
+[data-testid="stSegmentedControl"] [role="radio"]:hover,
+[data-testid="stSegmentedControl"] button:hover,
+[data-testid="stSegmentedControl"] label:hover {
+    background: rgba(22, 139, 210, 0.18) !important;
+}
+
 /* Mobile layout shared by every Streamlit page. */
 @media (max-width: 700px) {
     [data-testid="stMainBlockContainer"] {
