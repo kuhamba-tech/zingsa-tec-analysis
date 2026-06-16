@@ -1037,6 +1037,26 @@ button[kind="primary"] * {
     -webkit-text-fill-color: #ffffff !important;
 }
 
+[data-testid="stMain"] button[kind="secondary"],
+[data-testid="stMain"] button:not([kind="primary"]) {
+    background: #000000 !important;
+    border: 1px solid #244d73 !important;
+    border-radius: 9px !important;
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+}
+[data-testid="stMain"] button[kind="secondary"] *,
+[data-testid="stMain"] button:not([kind="primary"]) * {
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+    opacity: 1 !important;
+}
+[data-testid="stMain"] button[kind="secondary"]:hover,
+[data-testid="stMain"] button:not([kind="primary"]):hover {
+    background: rgba(22, 139, 210, 0.18) !important;
+    border-color: #168bd2 !important;
+}
+
 /* ── Sidebar input text & labels ── */
 /* Labels above inputs */
 [data-testid="stSidebar"] label,

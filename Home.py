@@ -121,14 +121,18 @@ with map_style_col:
         "letter-spacing:0.06em;margin-top:0.5rem'>Map Layer</div>",
         unsafe_allow_html=True,
     )
-    selected_layer = st.segmented_control(
-        "Map layer",
-        MAP_STYLE_OPTIONS,
-        default="Hybrid",
-        selection_mode="single",
-        label_visibility="collapsed",
-        key="home_cors_map_style",
-    )
+    selected_layer = st.session_state.setdefault("home_cors_map_style", "Hybrid")
+    layer_cols = st.columns(len(MAP_STYLE_OPTIONS), gap="small")
+    for option, layer_col in zip(MAP_STYLE_OPTIONS, layer_cols):
+        with layer_col:
+            if st.button(
+                option,
+                key=f"home_cors_map_style_{option}",
+                type="primary" if selected_layer == option else "secondary",
+                use_container_width=True,
+            ):
+                st.session_state["home_cors_map_style"] = option
+                selected_layer = option
     home_map_style = map_style_from_label(selected_layer)
 with map_risk:
     st.markdown(
