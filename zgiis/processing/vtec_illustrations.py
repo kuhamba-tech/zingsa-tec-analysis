@@ -6,7 +6,7 @@ import base64
 import math
 
 _FONT = "Arial,Helvetica,sans-serif"
-_BG = "#060d1a"
+_BG = "#000000"
 _WHITE = "#ffffff"
 
 # Standard step-card canvas (fits sidebar column without clipping)
@@ -109,7 +109,7 @@ def _iono_arc(g: dict[str, float]) -> str:
     ox, oy, rs = g["ox"], g["oy"], g["shell_r"]
     return f"""
   <path d="M {ox - rs:.1f} {oy - rs * 0.86:.1f} A {rs} {rs} 0 0 1 {ox + rs * 0.52:.1f} {oy - rs * 0.9:.1f}"
-        fill="none" stroke="#00d4ff" stroke-width="1.4" stroke-dasharray="6,4"/>"""
+        fill="none" stroke="#168bd2" stroke-width="1.4" stroke-dasharray="6,4"/>"""
 
 
 def _station_marker(g: dict[str, float], label: str = "Receiver") -> str:
@@ -124,9 +124,9 @@ def _station_marker(g: dict[str, float], label: str = "Receiver") -> str:
 def _satellite_marker(g: dict[str, float], label: str = "Satellite") -> str:
     sx, sy = g["sat_x"], g["sat_y"]
     return f"""
-  <circle cx="{sx}" cy="{sy}" r="7" fill="#1e3a5f" stroke="#00d4ff" stroke-width="1.4"/>
-  <line x1="{sx - 16}" y1="{sy}" x2="{sx - 26}" y2="{sy}" stroke="#00d4ff" stroke-width="1.6"/>
-  <line x1="{sx + 16}" y1="{sy}" x2="{sx + 26}" y2="{sy}" stroke="#00d4ff" stroke-width="1.6"/>
+  <circle cx="{sx}" cy="{sy}" r="7" fill="#244d73" stroke="#168bd2" stroke-width="1.4"/>
+  <line x1="{sx - 16}" y1="{sy}" x2="{sx - 26}" y2="{sy}" stroke="#168bd2" stroke-width="1.6"/>
+  <line x1="{sx + 16}" y1="{sy}" x2="{sx + 26}" y2="{sy}" stroke="#168bd2" stroke-width="1.6"/>
   <text x="{sx + 32}" y="{sy + 4}" fill="{_WHITE}" font-size="10" font-family="{_FONT}">{label}</text>"""
 
 
@@ -134,7 +134,7 @@ def _chart_grid(x0: float = 54, y0: float = 34, w: float = 268, h: float = 128) 
     x1, y1 = x0 + w, y0 + h
     return f"""
   <rect x="{x0 - 4}" y="{y0 - 4}" width="{w + 8}" height="{h + 8}" rx="6"
-        fill="#0a1628" stroke="#1e3a5f" stroke-width="1"/>
+        fill="#000000" stroke="#244d73" stroke-width="1"/>
   <line x1="{x0}" y1="{y1}" x2="{x1}" y2="{y1}" stroke="#475569" stroke-width="1.2"/>
   <line x1="{x0}" y1="{y0}" x2="{x0}" y2="{y1}" stroke="#475569" stroke-width="1.2"/>"""
 
@@ -178,8 +178,8 @@ def _flow_arrow(
         line
         + f"""
   <rect x="{cx + 14}" y="{ly - 11}" width="28" height="22" rx="6"
-        fill="#0d1b2a" stroke="#00d4ff" stroke-width="1.2"/>
-  <text x="{cx + 28}" y="{ly + 5}" text-anchor="middle" fill="#00d4ff" font-size="14"
+        fill="#000000" stroke="#168bd2" stroke-width="1.2"/>
+  <text x="{cx + 28}" y="{ly + 5}" text-anchor="middle" fill="#168bd2" font-size="14"
         font-weight="800" font-family="{_FONT}">{label}</text>"""
     )
 
@@ -190,7 +190,7 @@ def _step1_svg() -> str:
     return _canvas(
         f"""
   {_iono_arc(g)}
-  <text x="248" y="36" fill="#00d4ff" font-size="11" font-weight="700"
+  <text x="248" y="36" fill="#168bd2" font-size="11" font-weight="700"
         font-family="{_FONT}">Ionosphere</text>
   {_earth_disk(g)}
   {_station_marker(g, "Receiver")}
@@ -226,7 +226,7 @@ _register(
     "Carrier phase advances (shorter range); pseudorange/code is delayed (longer range).",
     _canvas(
         f"""
-  <rect x="16" y="18" width="308" height="96" rx="10" fill="#0a1628" stroke="#00ff88" stroke-width="1.2"/>
+  <rect x="16" y="18" width="308" height="96" rx="10" fill="#000000" stroke="#00ff88" stroke-width="1.2"/>
   <text x="28" y="40" fill="#00ff88" font-size="11" font-weight="700" font-family="{_FONT}">
     Phase (carrier L)
   </text>
@@ -236,7 +236,7 @@ _register(
     Shorter apparent range (phase advance)
   </text>
 
-  <rect x="16" y="126" width="308" height="96" rx="10" fill="#0a1628" stroke="#f472b6" stroke-width="1.2"/>
+  <rect x="16" y="126" width="308" height="96" rx="10" fill="#000000" stroke="#f472b6" stroke-width="1.2"/>
   <text x="28" y="148" fill="#f472b6" font-size="11" font-weight="700" font-family="{_FONT}">
     Group (code C)
   </text>
@@ -267,7 +267,7 @@ def _step3_svg() -> str:
         stroke="#e2e8f0" stroke-width="2.2"/>
   <line x1="{g['sat_x'] - 10:.1f}" y1="{g['sat_y'] + 8:.1f}" x2="{g['sx'] - 10:.1f}" y2="{g['sy'] + 8:.1f}"
         stroke="#a78bfa" stroke-width="10" stroke-linecap="round" opacity="0.35"/>
-  <rect x="138" y="48" width="162" height="24" rx="5" fill="rgba(10,22,40,0.95)" stroke="#1e3a5f"/>
+  <rect x="138" y="48" width="162" height="24" rx="5" fill="rgba(0,0,0,0.95)" stroke="#244d73"/>
   <text x="219" y="64" text-anchor="middle" fill="{_WHITE}" font-size="11" font-weight="700"
         font-family="{_FONT}">STEC = integral Ne dl</text>
   <rect x="248" y="138" width="48" height="48" fill="none" stroke="#a78bfa"
@@ -295,16 +295,16 @@ _register(
     L1 pseudorange C1
   </text>
   <rect x="20" y="40" width="240" height="24" rx="5" fill="#334155"/>
-  <rect x="20" y="40" width="168" height="24" rx="5" fill="#1e3a5f"/>
+  <rect x="20" y="40" width="168" height="24" rx="5" fill="#244d73"/>
   <rect x="188" y="40" width="72" height="24" rx="5" fill="#f472b6" opacity="0.9"/>
   <text x="268" y="56" fill="{_WHITE}" font-size="10" font-family="{_FONT}">C1</text>
 
-  <text x="20" y="88" fill="#00d4ff" font-size="11" font-weight="700" font-family="{_FONT}">
+  <text x="20" y="88" fill="#168bd2" font-size="11" font-weight="700" font-family="{_FONT}">
     L2 pseudorange C2
   </text>
   <rect x="20" y="96" width="240" height="24" rx="5" fill="#334155"/>
-  <rect x="20" y="96" width="168" height="24" rx="5" fill="#1e3a5f"/>
-  <rect x="188" y="96" width="92" height="24" rx="5" fill="#00d4ff" opacity="0.9"/>
+  <rect x="20" y="96" width="168" height="24" rx="5" fill="#244d73"/>
+  <rect x="188" y="96" width="92" height="24" rx="5" fill="#168bd2" opacity="0.9"/>
   <text x="268" y="112" fill="{_WHITE}" font-size="10" font-family="{_FONT}">C2</text>
 
   <text x="20" y="142" fill="{_WHITE}" font-size="10" font-family="{_FONT}">
@@ -314,7 +314,7 @@ _register(
     Colour = dispersive ionospheric delay (different on L1 vs L2)
   </text>
 
-  <rect x="20" y="178" width="300" height="62" rx="10" fill="#0a1628" stroke="#00ff88" stroke-width="1.3"/>
+  <rect x="20" y="178" width="300" height="62" rx="10" fill="#000000" stroke="#00ff88" stroke-width="1.3"/>
   <text x="170" y="206" text-anchor="middle" fill="#00ff88" font-size="14" font-weight="700"
         font-family="{_FONT}">C2 - C1  -&gt;  TEC_G</text>
   <text x="170" y="228" text-anchor="middle" fill="{_WHITE}" font-size="10" font-family="{_FONT}">
@@ -338,9 +338,9 @@ _register(
   <path d="M 64 118 Q 124 124 184 132 T 308 142" fill="none" stroke="#f472b6"
         stroke-width="2" stroke-dasharray="5,4"/>
   <text x="314" y="144" fill="#f472b6" font-size="10" font-weight="700" font-family="{_FONT}">G</text>
-  <line x1="64" y1="118" x2="64" y2="148" stroke="#00d4ff" stroke-width="2" stroke-dasharray="4,3"/>
-  <rect x="10" y="124" width="46" height="20" rx="4" fill="rgba(10,22,40,0.95)" stroke="#00d4ff"/>
-  <text x="33" y="138" text-anchor="middle" fill="#00d4ff" font-size="9" font-weight="700"
+  <line x1="64" y1="118" x2="64" y2="148" stroke="#168bd2" stroke-width="2" stroke-dasharray="4,3"/>
+  <rect x="10" y="124" width="46" height="20" rx="4" fill="rgba(0,0,0,0.95)" stroke="#168bd2"/>
+  <text x="33" y="138" text-anchor="middle" fill="#168bd2" font-size="9" font-weight="700"
         font-family="{_FONT}">offset</text>
   {_legend_row(188, "#f59e0b", "TEC_P — precise (~0.003 TECU)")}
   {_legend_row(206, "#f472b6", "TEC_G — absolute but noisy")}
@@ -357,8 +357,8 @@ _register(
         f"""
   {_chart_grid()}
   {_chart_axes("TEC_P", "Epoch")}
-  <path d="M 64 138 L 124 130 L 184 124 L 204 124" fill="none" stroke="#00d4ff" stroke-width="2.6"/>
-  <path d="M 204 94 L 224 94 L 284 88 L 308 88" fill="none" stroke="#00d4ff" stroke-width="2.6"/>
+  <path d="M 64 138 L 124 130 L 184 124 L 204 124" fill="none" stroke="#168bd2" stroke-width="2.6"/>
+  <path d="M 204 94 L 224 94 L 284 88 L 308 88" fill="none" stroke="#168bd2" stroke-width="2.6"/>
   <line x1="204" y1="94" x2="204" y2="124" stroke="#ef4444" stroke-width="2.6"/>
   <circle cx="204" cy="109" r="8" fill="none" stroke="#ef4444" stroke-width="2"/>
   <text x="216" y="106" fill="#ef4444" font-size="11" font-weight="700" font-family="{_FONT}">slip</text>
@@ -383,9 +383,9 @@ _register(
         stroke-width="2" opacity="0.9"/>
   <path d="M 64 128 Q 124 122 184 116 T 308 110" fill="none" stroke="#f59e0b" stroke-width="2.6"/>
   <path d="M 64 108 Q 124 102 184 96 T 308 90" fill="none" stroke="#00ff88" stroke-width="3"/>
-  <line x1="88" y1="128" x2="88" y2="108" stroke="#00d4ff" stroke-width="2"/>
-  <rect x="92" y="112" width="44" height="18" rx="4" fill="rgba(10,22,40,0.95)" stroke="#00d4ff"/>
-  <text x="114" y="124" text-anchor="middle" fill="#00d4ff" font-size="9" font-weight="700"
+  <line x1="88" y1="128" x2="88" y2="108" stroke="#168bd2" stroke-width="2"/>
+  <rect x="92" y="112" width="44" height="18" rx="4" fill="rgba(0,0,0,0.95)" stroke="#168bd2"/>
+  <text x="114" y="124" text-anchor="middle" fill="#168bd2" font-size="9" font-weight="700"
         font-family="{_FONT}">offset</text>
   {_legend_row(188, "#f472b6", "TEC_G (noisy)")}
   {_legend_row(206, "#f59e0b", "TEC_P (precise)")}
@@ -406,14 +406,14 @@ _register(
   <text x="170" y="152" text-anchor="middle" fill="{_WHITE}" font-size="9"
         font-family="{_FONT}">Signal path</text>
 
-  <rect x="214" y="22" width="104" height="52" rx="9" fill="#1e3a5f" stroke="#00d4ff" stroke-width="1.4"/>
+  <rect x="214" y="22" width="104" height="52" rx="9" fill="#244d73" stroke="#168bd2" stroke-width="1.4"/>
   <text x="266" y="44" text-anchor="middle" fill="{_WHITE}" font-size="11" font-weight="700"
         font-family="{_FONT}">Satellite</text>
   <text x="266" y="62" text-anchor="middle" fill="#ef4444" font-size="10" font-family="{_FONT}">
     DCB_S (from CODE)
   </text>
 
-  <rect x="22" y="196" width="104" height="52" rx="9" fill="#1e3a5f" stroke="#00ff88" stroke-width="1.4"/>
+  <rect x="22" y="196" width="104" height="52" rx="9" fill="#244d73" stroke="#00ff88" stroke-width="1.4"/>
   <text x="74" y="218" text-anchor="middle" fill="{_WHITE}" font-size="11" font-weight="700"
         font-family="{_FONT}">Receiver</text>
   <text x="74" y="236" text-anchor="middle" fill="#ef4444" font-size="10" font-family="{_FONT}">
@@ -430,7 +430,7 @@ _register(
     ),
 )
 
-def _pipeline_arrow_defs(marker_id: str, color: str = "#00d4ff") -> str:
+def _pipeline_arrow_defs(marker_id: str, color: str = "#168bd2") -> str:
     """Larger arrowheads for formula / pipeline flowcharts."""
     return f"""
   <defs>
@@ -443,14 +443,14 @@ def _pipeline_arrow_defs(marker_id: str, color: str = "#00d4ff") -> str:
 def _pipeline_connector(x: float, y1: float, y2: float, marker_id: str) -> str:
     return (
         f'<line x1="{x}" y1="{y1}" x2="{x}" y2="{y2}" '
-        f'stroke="#00d4ff" stroke-width="3" marker-end="url(#{marker_id})"/>'
+        f'stroke="#168bd2" stroke-width="3" marker-end="url(#{marker_id})"/>'
     )
 
 
 def _pipeline_h_connector(x1: float, x2: float, y: float, marker_id: str) -> str:
     return (
         f'<line x1="{x1}" y1="{y}" x2="{x2}" y2="{y}" '
-        f'stroke="#00d4ff" stroke-width="3" marker-end="url(#{marker_id})"/>'
+        f'stroke="#168bd2" stroke-width="3" marker-end="url(#{marker_id})"/>'
     )
 
 
@@ -462,7 +462,7 @@ def _pipeline_box(
     label: str,
     *,
     stroke: str,
-    fill: str = "#0d1b2a",
+    fill: str = "#000000",
     text_color: str | None = None,
     font_size: int = 12,
     font_weight: str = "700",
@@ -526,7 +526,7 @@ def _step8_svg() -> str:
 
   {_label_bg(g['ox'] - 42, g['oy'] - g['shell_r'] * 0.92 - 18, 108, 16)}
   <text x="{g['ox'] + 12:.1f}" y="{g['oy'] - g['shell_r'] * 0.92 - 6:.1f}"
-        text-anchor="middle" fill="#00d4ff" font-size="10" font-weight="700"
+        text-anchor="middle" fill="#168bd2" font-size="10" font-weight="700"
         font-family="{_FONT}">H_IPP ~ 350 km</text>
 
   {_label_bg(mid_slant_x - 38, mid_slant_y - 22, 76, 16)}
@@ -538,7 +538,7 @@ def _step8_svg() -> str:
         fill="#00ff88" font-size="10" font-weight="700" font-family="{_FONT}">Vertical (VTEC)</text>
 
   <!-- Formula panel — right column, clear of geometry -->
-  <rect x="228" y="18" width="168" height="148" rx="10" fill="#0a1628" stroke="#f59e0b" stroke-width="1.4"/>
+  <rect x="228" y="18" width="168" height="148" rx="10" fill="#000000" stroke="#f59e0b" stroke-width="1.4"/>
   <text x="240" y="40" fill="{_WHITE}" font-size="10" font-weight="700" font-family="{_FONT}">
     Low E -&gt; longer slant path
   </text>
@@ -589,36 +589,36 @@ def _step9_svg() -> str:
     return _canvas(
         _pipeline_arrow_defs(arrow_id)
         + f"""
-  <rect x="{bx}" y="{y_num}" width="{bw}" height="{num_h}" rx="12" fill="#0d1b2a"
+  <rect x="{bx}" y="{y_num}" width="{bw}" height="{num_h}" rx="12" fill="#000000"
         stroke="#475569" stroke-width="1.4" stroke-dasharray="6 4"/>
   <text x="{cx}" y="{y_num + 8}" text-anchor="middle" fill="{_WHITE}" font-size="9"
         font-weight="700" font-family="{_FONT}">NUMERATOR — bias-corrected slant TEC</text>
 
-  <rect x="{bx + 14}" y="{tec_y}" width="{bw - 28}" height="{tec_h}" rx="10" fill="#1e3a5f"
+  <rect x="{bx + 14}" y="{tec_y}" width="{bw - 28}" height="{tec_h}" rx="10" fill="#244d73"
         stroke="#f59e0b" stroke-width="2"/>
   <text x="{cx}" y="{tec_y + 26}" text-anchor="middle" fill="#f59e0b" font-size="16"
         font-weight="800" font-family="{_FONT}">TEC_R</text>
 
   <text x="{cx}" y="{dcb_y - 6}" text-anchor="middle" fill="{_WHITE}" font-size="15"
         font-weight="700" font-family="{_FONT}">−</text>
-  <rect x="{dcb_lx}" y="{dcb_y}" width="{dcb_w}" height="{dcb_h}" rx="8" fill="#1e3a5f"
+  <rect x="{dcb_lx}" y="{dcb_y}" width="{dcb_w}" height="{dcb_h}" rx="8" fill="#244d73"
         stroke="#ef4444" stroke-width="1.8"/>
   <text x="{dcb_lx + dcb_w / 2}" y="{dcb_y + 22}" text-anchor="middle" fill="#ef4444"
         font-size="13" font-weight="800" font-family="{_FONT}">DCB_R</text>
   <text x="{cx}" y="{dcb_y + 22}" text-anchor="middle" fill="{_WHITE}" font-size="14"
         font-weight="700" font-family="{_FONT}">−</text>
-  <rect x="{dcb_rx}" y="{dcb_y}" width="{dcb_w}" height="{dcb_h}" rx="8" fill="#1e3a5f"
+  <rect x="{dcb_rx}" y="{dcb_y}" width="{dcb_w}" height="{dcb_h}" rx="8" fill="#244d73"
         stroke="#ef4444" stroke-width="1.8"/>
   <text x="{dcb_rx + dcb_w / 2}" y="{dcb_y + 22}" text-anchor="middle" fill="#ef4444"
         font-size="13" font-weight="800" font-family="{_FONT}">DCB_S</text>
 
   <line x1="{bx + 20}" y1="{y_div}" x2="{bx + bw - 20}" y2="{y_div}"
-        stroke="#00d4ff" stroke-width="2.5"/>
+        stroke="#168bd2" stroke-width="2.5"/>
   {_flow_arrow(cx, y_num + num_h + 16, y_se - 8, arrow_id, label="÷")}
 
-  <rect x="{bx + 56}" y="{y_se}" width="{bw - 112}" height="{se_h}" rx="11" fill="#1e3a5f"
-        stroke="#00d4ff" stroke-width="2"/>
-  <text x="{cx}" y="{y_se + 22}" text-anchor="middle" fill="#00d4ff" font-size="16"
+  <rect x="{bx + 56}" y="{y_se}" width="{bw - 112}" height="{se_h}" rx="11" fill="#244d73"
+        stroke="#168bd2" stroke-width="2"/>
+  <text x="{cx}" y="{y_se + 22}" text-anchor="middle" fill="#168bd2" font-size="16"
         font-weight="800" font-family="{_FONT}">S(E)</text>
   <text x="{cx}" y="{y_se + 38}" text-anchor="middle" fill="{_WHITE}" font-size="9"
         font-family="{_FONT}">slant-to-vertical mapping</text>
@@ -658,7 +658,7 @@ def _pipeline_svg() -> str:
     stages = [
         ("RINEX C1,C2,L1,L2", "#64748b", _WHITE, 128, 11),
         ("TEC_G and TEC_P", "#f59e0b", "#f59e0b", 118, 12),
-        ("Slip fix + levelling", "#00d4ff", "#00d4ff", 132, 11),
+        ("Slip fix + levelling", "#168bd2", "#168bd2", 132, 11),
         ("TEC_R", "#00ff88", "#00ff88", 72, 12),
     ]
 

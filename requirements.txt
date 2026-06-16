@@ -9,3 +9,11 @@ fpdf2>=2.7.9
 anthropic>=0.25.0
 folium>=0.16.0
 streamlit-folium>=0.18.0
+# ── Live pipeline ────────────────────────────────────────────────────────────
+pyrtcm>=1.0.0            # RTCM MSM4/MSM7 decode from NTRIP stream
+psycopg2-binary>=2.9.0   # TimescaleDB/PostgreSQL driver (optional, SQLite fallback)
+# ── CNN-GRU forecast ─────────────────────────────────────────────────────────
+# CPU-only PyTorch (lightweight):
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+# GPU (CUDA 12.x):
+#   pip install torch --index-url https://download.pytorch.org/whl/cu121

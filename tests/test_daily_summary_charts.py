@@ -18,7 +18,7 @@ class DailySummaryChartTests(unittest.TestCase):
             data,
             "mean_vtec",
             "Mean VTEC",
-            "#00d4ff",
+            "#168bd2",
         )
 
         self.assertEqual(fig.layout.title.text, "Mean VTEC")
@@ -26,7 +26,7 @@ class DailySummaryChartTests(unittest.TestCase):
         self.assertEqual(fig.layout.yaxis.title.text, "VTEC (TECU)")
         self.assertTrue(fig.layout.showlegend)
         self.assertEqual(fig.data[0].name, "Mean VTEC")
-        self.assertEqual(fig.layout.plot_bgcolor, "#0d1b2a")
+        self.assertEqual(fig.layout.plot_bgcolor, "#000000")
         self.assertEqual(fig.layout.xaxis.tickfont.color, "#ffffff")
         self.assertEqual(fig.layout.yaxis.tickfont.color, "#ffffff")
 
@@ -45,7 +45,7 @@ class DailySummaryChartTests(unittest.TestCase):
             data,
             "mean_vtec",
             "Mean VTEC",
-            "#00d4ff",
+            "#168bd2",
         )
 
         self.assertEqual(len(fig.data), 2)

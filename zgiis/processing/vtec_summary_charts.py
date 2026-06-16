@@ -8,11 +8,11 @@ import plotly.graph_objects as go
 
 
 _DARK = dict(
-    paper_bgcolor="#060d1a",
-    plot_bgcolor="#0d1b2a",
+    paper_bgcolor="#000000",
+    plot_bgcolor="#000000",
     font_color="#ffffff",
-    yaxis=dict(title="VTEC (TECU)", gridcolor="#1e3a5f"),
-    xaxis=dict(gridcolor="#1e3a5f"),
+    yaxis=dict(title="VTEC (TECU)", gridcolor="#244d73"),
+    xaxis=dict(gridcolor="#244d73"),
     height=300,
     margin=dict(t=44, b=10, l=50, r=20),
     showlegend=False,
@@ -21,7 +21,7 @@ _DARK = dict(
 _CHART_SPECS = (
     ("daytime_mean_vtec", "Mean VTEC (6 AM – 6 PM)", "#ff8c00"),
     ("max_vtec", "Maximum VTEC", "#ff4444"),
-    ("mean_vtec", "Mean VTEC (24-hour)", "#00d4ff"),
+    ("mean_vtec", "Mean VTEC (24-hour)", "#168bd2"),
     ("min_vtec", "Minimum VTEC", "#00ff88"),
 )
 

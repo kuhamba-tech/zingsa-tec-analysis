@@ -426,7 +426,7 @@ with st.sidebar:
         if obs_names:
             st.markdown(
                 f"<div style='font-size:0.76rem;color:#ffffff;margin-bottom:0.3rem;white-space:nowrap'>"
-                f"<span style='color:#00d4ff'>RINEX</span>"
+                f"<span style='color:#168bd2'>RINEX</span>"
                 f" · <span style='color:#00ff88;font-weight:700'>Found: {total_found}</span>"
                 f" · <span style='color:#f0c040'>Selected: {n_sel}</span>"
                 f"</div>",
@@ -481,7 +481,7 @@ with st.sidebar:
             kind_str = " · ".join(kind_bits)
             st.markdown(
                 f"<div style='font-size:0.76rem;color:#ffffff;margin-bottom:0.3rem;white-space:nowrap'>"
-                f"<span style='color:#00d4ff'>NAV</span>"
+                f"<span style='color:#168bd2'>NAV</span>"
                 f" · <span style='color:#00ff88;font-weight:700'>Found: {len(nav_names)}</span>"
                 f" ({kind_str})"
                 f" · <span style='color:#f0c040'>Selected: {n_nav}</span>"
@@ -535,7 +535,7 @@ with st.sidebar:
         if cmn_names:
             st.markdown(
                 f"<div style='font-size:0.76rem;color:#ffffff;margin-bottom:0.3rem;white-space:nowrap'>"
-                f"<span style='color:#00d4ff'>CMN</span>"
+                f"<span style='color:#168bd2'>CMN</span>"
                 f" · <span style='color:#00ff88;font-weight:700'>Found: {len(cmn_names)}</span>"
                 f" · <span style='color:#f0c040'>Selected: {len(default_cmn)}</span>"
                 f"</div>",
@@ -810,7 +810,7 @@ for i, (stage, icon) in enumerate(PROCESSING_STAGES):
     with prog_cols[i]:
         ph = st.empty()
         ph.markdown(
-            f"<div class='zgiis-card' style='text-align:center;padding:0.7rem;border-color:#1e3a5f'>"
+            f"<div class='zgiis-card' style='text-align:center;padding:0.7rem;border-color:#244d73'>"
             f"<div style='font-size:1.5rem'>{icon}</div>"
             f"<div style='font-size:0.72rem;color:#ffffff;margin-top:4px'>{stage}</div>"
             f"</div>",
@@ -821,7 +821,7 @@ for i, (stage, icon) in enumerate(PROCESSING_STAGES):
 
 def mark_stage(idx: int, done: bool = False) -> None:
     ph, stage, icon = stage_placeholders[idx]
-    border = "#00ff88" if done else "#00d4ff"
+    border = "#00ff88" if done else "#168bd2"
     tick   = " ✓" if done else " …"
     ph.markdown(
         f"<div class='zgiis-card' style='text-align:center;padding:0.7rem;border-color:{border}'>"
@@ -1248,7 +1248,7 @@ if not daily.empty and "max_vtec" in daily.columns:
     with _dc2:
         st.plotly_chart(
             build_daily_vtec_chart(
-                daily_storm, "mean_vtec", "Mean VTEC", "#00d4ff"
+                daily_storm, "mean_vtec", "Mean VTEC", "#168bd2"
             ),
             width="stretch", key="sum_mean_vtec",
         )
@@ -1311,15 +1311,15 @@ if len(daily) < 10:
     )
 fig_daily = px.line(daily_storm, x="date", y="mean_vtec",
                     labels={"mean_vtec": "VTEC (TECU)", "date": "Date"})
-fig_daily.update_traces(line_color="#00d4ff")
+fig_daily.update_traces(line_color="#168bd2")
 storm_pts = daily_storm[daily_storm["storm_flag"]]
 if not storm_pts.empty:
     fig_daily.add_scatter(x=storm_pts["date"], y=storm_pts["mean_vtec"],
                           mode="markers", marker=dict(size=10, color="#ff4444"),
                           name="Potential storm/anomaly day")
 fig_daily.update_layout(
-    paper_bgcolor="#060d1a", plot_bgcolor="#0d1b2a", font_color="#ffffff",
-    yaxis=dict(gridcolor="#1e3a5f"), xaxis=dict(gridcolor="#1e3a5f"),
+    paper_bgcolor="#000000", plot_bgcolor="#000000", font_color="#ffffff",
+    yaxis=dict(gridcolor="#244d73"), xaxis=dict(gridcolor="#244d73"),
     height=320, margin=dict(t=20, b=10),
 )
 st.plotly_chart(fig_daily, use_container_width=True)
@@ -1329,18 +1329,18 @@ if gran == "Day":
     st.dataframe(daily_storm, use_container_width=True)
 elif gran == "Month":
     fig_m = px.bar(monthly, x="month", y="mean_vtec", labels={"mean_vtec": "VTEC (TECU)"})
-    fig_m.update_traces(marker_color="#00d4ff")
-    fig_m.update_layout(paper_bgcolor="#060d1a", plot_bgcolor="#0d1b2a",
-                        font_color="#ffffff", yaxis=dict(gridcolor="#1e3a5f"),
-                        xaxis=dict(gridcolor="#1e3a5f"), height=300)
+    fig_m.update_traces(marker_color="#168bd2")
+    fig_m.update_layout(paper_bgcolor="#000000", plot_bgcolor="#000000",
+                        font_color="#ffffff", yaxis=dict(gridcolor="#244d73"),
+                        xaxis=dict(gridcolor="#244d73"), height=300)
     st.plotly_chart(fig_m, use_container_width=True)
     st.dataframe(monthly, use_container_width=True)
 else:
     fig_y = px.bar(yearly, x="year", y="mean_vtec", labels={"mean_vtec": "VTEC (TECU)"})
     fig_y.update_traces(marker_color="#00ff88")
-    fig_y.update_layout(paper_bgcolor="#060d1a", plot_bgcolor="#0d1b2a",
-                        font_color="#ffffff", yaxis=dict(gridcolor="#1e3a5f"),
-                        xaxis=dict(gridcolor="#1e3a5f"), height=300)
+    fig_y.update_layout(paper_bgcolor="#000000", plot_bgcolor="#000000",
+                        font_color="#ffffff", yaxis=dict(gridcolor="#244d73"),
+                        xaxis=dict(gridcolor="#244d73"), height=300)
     st.plotly_chart(fig_y, use_container_width=True)
     st.dataframe(yearly, use_container_width=True)
 
@@ -1386,7 +1386,7 @@ if daily_storm["kp_index"].notna().any():
     st.subheader("VTEC vs Kp Index")
     fig_kp = px.scatter(daily_storm.dropna(subset=["kp_index"]),
                         x="kp_index", y="mean_vtec", trendline="ols")
-    fig_kp.update_layout(paper_bgcolor="#060d1a", plot_bgcolor="#0d1b2a",
+    fig_kp.update_layout(paper_bgcolor="#000000", plot_bgcolor="#000000",
                          font_color="#ffffff", height=300)
     st.plotly_chart(fig_kp, use_container_width=True)
 

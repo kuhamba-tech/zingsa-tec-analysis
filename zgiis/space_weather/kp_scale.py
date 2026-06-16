@@ -43,7 +43,7 @@ REFERENCE_SCALE_ROWS: list[tuple[str, list[tuple[str, str, str]]]] = [
     (
         "TEC Scale<br>(TECU)",
         [
-            ("0-10", "Very Low", "#00d4ff"),
+            ("0-10", "Very Low", "#168bd2"),
             ("10-25", "Low", "#33ee88"),
             ("25-40", "Moderate", "#aaff22"),
             ("40-60", "High", "#ffcc00"),

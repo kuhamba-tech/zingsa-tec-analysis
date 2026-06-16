@@ -9,7 +9,7 @@ import streamlit as st
 from zgiis.processing.pipeline_explanations import BOOK_CITATION
 
 # Match Home.py hero metric cards (image 1 reference)
-HERO_VALUE_COLOR = "#00d4ff"
+HERO_VALUE_COLOR = "#168bd2"
 HERO_WARN_COLOR = "#EF9F27"
 
 CONSTELLATION_KEYS = ("GPS", "Galileo", "BeiDou", "GLONASS")
@@ -173,7 +173,7 @@ def _render_explanation(
         f"<div class='pipeline-explain-panel'>"
         f"<div class='pipeline-explain-title'>{CONSTELLATION_LABELS.get(constellation, constellation)}</div>"
         f"<div class='pipeline-explain-section'>{info['section']}</div>"
-        f"<p class='pipeline-explain-body' style='color:#00d4ff;font-weight:700'>"
+        f"<p class='pipeline-explain-body' style='color:#168bd2;font-weight:700'>"
         f"Current: {n_prns} Satellites · mean VTEC {mean_vtec:.1f} TECU · "
         f"quality {mean_qual:.0f}% · PRN {prefix}01–{prefix}{max_prn:02d}</p>"
         f"<p class='pipeline-explain-body'>{info['summary']}</p>"

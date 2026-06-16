@@ -11,16 +11,19 @@ if str(root) not in sys.path:
     sys.path.insert(0, str(root))
 
 from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
+from zgiis.device import is_mobile_request
 from zgiis.space_weather.fetch_indices import clear_space_weather_cache, get_space_weather
 from zgiis.space_weather.kp_scale import build_synchronized_kp_scales_html
 from zgiis.space_weather.live_timelines import render_all_live_metric_timelines
 from zgiis.theme import inject
 
+mobile_request = is_mobile_request(st)
+
 st.set_page_config(
     page_title="ZGIIS Dashboard",
     page_icon="📊",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed" if mobile_request else "expanded",
 )
 inject(st, page_id="dashboard")
 
@@ -31,7 +34,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-_col_title, _col_refresh = st.columns([10, 1])
+_col_title, _col_refresh = st.columns([8, 2])
 with _col_refresh:
     if st.button("↺ Refresh", key="dashboard_refresh", help="Fetch latest space weather data now"):
         clear_space_weather_cache()
@@ -94,7 +97,7 @@ metric_cards = [
         "Kp Index",
         sw["kp"] if sw["kp"] is not None else "N/A",
         "Planetary activity",
-        "#00d4ff" if sw["kp"] is not None else "#ffffff",
+        "#168bd2" if sw["kp"] is not None else "#ffffff",
     ),
     (
         "geomagnetic",
@@ -111,7 +114,7 @@ metric_cards = [
         "Solar Flux",
         sw["f107"] if sw["f107"] is not None else "N/A",
         "Solar flux units",
-        "#00d4ff" if sw["f107"] is not None else "#ffffff",
+        "#168bd2" if sw["f107"] is not None else "#ffffff",
     ),
     (
         "solar_wind",
@@ -143,7 +146,7 @@ metric_cards = [
         "Stations Online",
         stations_label,
         "Live telemetry unavailable" if online is None else "Zimbabwe CORS",
-        "#00d4ff",
+        "#168bd2",
     ),
 ]
 

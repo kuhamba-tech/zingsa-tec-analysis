@@ -507,11 +507,11 @@ def _render_plotly_map(
     fig.update_layout(
         map=dict(style=base_style, center=dict(lat=-19.5, lon=29.8), zoom=5.5),
         margin=dict(l=0, r=0, t=0, b=0),
-        paper_bgcolor="#060d1a",
-        plot_bgcolor="#060d1a",
+        paper_bgcolor="#000000",
+        plot_bgcolor="#000000",
         height=height,
         showlegend=False,
-        hoverlabel=dict(bgcolor="#0d1b2a", bordercolor="#1e3a5f",
+        hoverlabel=dict(bgcolor="#000000", bordercolor="#244d73",
                         font=dict(color="#ffffff", size=12)),
     )
     st_module.plotly_chart(

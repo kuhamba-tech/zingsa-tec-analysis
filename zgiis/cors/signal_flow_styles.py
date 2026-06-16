@@ -5,15 +5,15 @@ CORS_SIGNAL_FLOW_CSS = """
     width: 100%;
     max-width: 100%;
     min-width: 0;
-    background: linear-gradient(155deg, rgba(13, 27, 42, 0.98), rgba(6, 13, 26, 0.96));
-    border: 1px solid #1e3a5f;
+    background: linear-gradient(155deg, rgba(0, 0, 0, 0.98), rgba(6, 13, 26, 0.96));
+    border: 1px solid #244d73;
     border-radius: 16px;
     padding: 1.2rem 1.15rem 1rem;
     box-sizing: border-box;
     box-shadow: 0 14px 36px rgba(0, 0, 0, 0.28);
 }
 .cors-signal-flow-head {
-    color: #00d4ff;
+    color: #168bd2;
     font-weight: 800;
     font-size: 0.8rem;
     letter-spacing: 0.1em;
@@ -31,7 +31,7 @@ CORS_SIGNAL_FLOW_CSS = """
     box-sizing: border-box;
 }
 .cors-flow-stage {
-    --stage-accent: #00d4ff;
+    --stage-accent: #168bd2;
     position: relative;
     min-width: 0;
     height: 100%;
@@ -57,7 +57,7 @@ CORS_SIGNAL_FLOW_CSS = """
     width: 1.35rem;
     height: 1.35rem;
     border-radius: 999px;
-    color: #060d1a;
+    color: #000000;
     font-size: 0.68rem;
     font-weight: 900;
     line-height: 1.35rem;
@@ -74,7 +74,7 @@ CORS_SIGNAL_FLOW_CSS = """
     min-height: 96px;
     background:
         radial-gradient(circle at 50% 28%, rgba(255, 255, 255, 0.98) 0%, rgba(241, 245, 249, 0.96) 42%, rgba(226, 232, 240, 0.92) 100%);
-    border: 3px solid var(--stage-accent, #1e3a5f);
+    border: 3px solid var(--stage-accent, #244d73);
     border-radius: 12px;
     display: flex;
     align-items: center;
@@ -181,7 +181,7 @@ CORS_SIGNAL_FLOW_CSS = """
     flex-shrink: 0;
 }
 .cors-flow-arrow {
-    color: #00d4ff;
+    color: #168bd2;
     font-size: 1.45rem;
     font-weight: 800;
     line-height: 1;
@@ -192,8 +192,8 @@ CORS_SIGNAL_FLOW_CSS = """
     width: 0.42rem;
     height: 0.42rem;
     border-radius: 50%;
-    background: #00d4ff;
-    box-shadow: 0 0 10px #00d4ff;
+    background: #168bd2;
+    box-shadow: 0 0 10px #168bd2;
     animation: cors-flow-pulse 2.2s ease-in-out infinite;
     opacity: 0.85;
 }

@@ -11,6 +11,11 @@ __pycache__/
 .streamlit/
 secrets.toml
 
+# Local runtime databases
+static/data/*.db
+static/data/*.sqlite
+static/data/*.sqlite3
+
 # Cache / tools
 .pytest_cache/
 .ruff_cache/

@@ -1,0 +1,79 @@
+-- TimescaleDB schema for ZGIIS live VTEC pipeline
+-- Run this once against your TimescaleDB (PostgreSQL) instance:
+--   psql -h <host> -U <user> -d <db> -f schema.sql
+
+-- ── Extensions ──────────────────────────────────────────────────────────────
+CREATE EXTENSION IF NOT EXISTS timescaledb;
+
+-- ── VTEC / STEC observations ─────────────────────────────────────────────────
+-- One row per epoch × station × PRN from the live NTRIP stream.
+CREATE TABLE IF NOT EXISTS vtec_obs (
+    time           TIMESTAMPTZ      NOT NULL,
+    station        TEXT             NOT NULL,   -- 4-char CORS ID (e.g. 'zinh')
+    constellation  TEXT             NOT NULL,   -- GPS | GLONASS | Galileo | BeiDou
+    prn            TEXT             NOT NULL,   -- G01, R05, E12, C23 …
+    stec_tecu      DOUBLE PRECISION,            -- Slant TEC (TECU)
+    vtec_tecu      DOUBLE PRECISION,            -- Vertical TEC after M(E) mapping
+    elevation_deg  DOUBLE PRECISION,            -- Satellite elevation (degrees)
+    cnr_dbhz       DOUBLE PRECISION             -- Carrier-to-noise ratio (dB-Hz)
+);
+
+-- Convert to hypertable (7-day chunks)
+SELECT create_hypertable('vtec_obs', 'time',
+    chunk_time_interval => INTERVAL '7 days',
+    if_not_exists       => TRUE
+);
+
+-- Indices
+CREATE INDEX IF NOT EXISTS vtec_obs_station_time ON vtec_obs (station, time DESC);
+CREATE INDEX IF NOT EXISTS vtec_obs_prn_time     ON vtec_obs (prn,     time DESC);
+
+-- Continuous aggregate: 15-min mean VTEC per station (for CNN-GRU input)
+CREATE MATERIALIZED VIEW IF NOT EXISTS vtec_15min
+WITH (timescaledb.continuous) AS
+SELECT
+    time_bucket('15 minutes', time) AS bucket,
+    station,
+    constellation,
+    AVG(vtec_tecu)      AS mean_vtec,
+    MAX(vtec_tecu)      AS max_vtec,
+    AVG(elevation_deg)  AS mean_elev,
+    COUNT(*)            AS n_obs
+FROM vtec_obs
+GROUP BY bucket, station, constellation
+WITH NO DATA;
+
+SELECT add_continuous_aggregate_policy('vtec_15min',
+    start_offset  => INTERVAL '2 days',
+    end_offset    => INTERVAL '1 minute',
+    schedule_interval => INTERVAL '15 minutes',
+    if_not_exists => TRUE
+);
+
+-- ── RTK monitoring ───────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS rtk_quality (
+    time           TIMESTAMPTZ NOT NULL,
+    station        TEXT        NOT NULL,
+    latency_ms     REAL,
+    msg_rate_hz    REAL,
+    quality        TEXT        -- Good | Degraded | Poor | Offline
+);
+
+SELECT create_hypertable('rtk_quality', 'time',
+    chunk_time_interval => INTERVAL '1 day',
+    if_not_exists       => TRUE
+);
+
+-- ── CNN-GRU forecast results ──────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS vtec_forecast (
+    issued_at      TIMESTAMPTZ NOT NULL,    -- when the forecast was made
+    valid_at       TIMESTAMPTZ NOT NULL,    -- epoch the forecast is for
+    station        TEXT,                   -- NULL = network-wide
+    vtec_forecast  DOUBLE PRECISION,
+    model_version  TEXT
+);
+
+SELECT create_hypertable('vtec_forecast', 'valid_at',
+    chunk_time_interval => INTERVAL '7 days',
+    if_not_exists       => TRUE
+);

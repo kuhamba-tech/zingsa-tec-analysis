@@ -5,7 +5,7 @@ from typing import Any, Dict, Optional, Tuple
 
 import streamlit as st
 
-HERO_CYAN = "#00d4ff"
+HERO_BRAND_BLUE = "#168bd2"
 
 METRIC_KEYS = (
     "kp",
@@ -146,7 +146,7 @@ METRIC_EXPLANATIONS: Dict[str, Dict[str, Any]] = {
 
 def _metric_card_specs(sw: Dict[str, Any]) -> list[Tuple[str, str, str, str, str, str]]:
     risk_color = sw.get("gnss_risk_color", "#1D9E75")
-    kp_color = sw.get("kp_color", HERO_CYAN)
+    kp_color = sw.get("kp_color", HERO_BRAND_BLUE)
     online = sw.get("stations_online")
     total = sw.get("stations_total")
     stations_label = f"{online}/{total}" if online is not None and total else "N/A"
@@ -200,14 +200,14 @@ def _metric_card_specs(sw: Dict[str, Any]) -> list[Tuple[str, str, str, str, str
     )
 
     return [
-        ("kp", "🧭", "Kp Index", str(sw["kp"]), "Planetary activity", HERO_CYAN),
+        ("kp", "🧭", "Kp Index", str(sw["kp"]), "Planetary activity", HERO_BRAND_BLUE),
         ("geomagnetic", "🌌", "Geomagnetic", str(sw["kp_condition"]), "Current state", kp_color),
         ("dst", "🌡️", "Dst Index", dst_value, "Storm index", dst_color),
-        ("f107", "☀️", "Solar Flux", str(sw["f107"]), "Solar flux units", HERO_CYAN),
+        ("f107", "☀️", "Solar Flux", str(sw["f107"]), "Solar flux units", HERO_BRAND_BLUE),
         ("solar_wind", "🌬️", "Solar Wind", solar_wind_value, solar_wind_note, solar_wind_color),
         ("s4", "📶", "Scintillation S4", s4_value, "Observed archive" if s4 is not None else "Observed data unavailable", s4_color),
         ("gnss_risk", "🛰️", "GNSS Risk", str(sw["gnss_risk"]), "Navigation impact", risk_color),
-        ("stations", "📡", "Stations Online", stations_label, "Live telemetry unavailable" if online is None else "Zimbabwe CORS", HERO_CYAN),
+        ("stations", "📡", "Stations Online", stations_label, "Live telemetry unavailable" if online is None else "Zimbabwe CORS", HERO_BRAND_BLUE),
     ]
 
 
@@ -237,7 +237,7 @@ def _hero_card_html(
 def _home_hero_metric_specs(sw: Dict[str, Any]) -> list[Tuple[str, str, str, str, str, str]]:
     """Four headline metrics for the Home page hero strip."""
     risk_color = sw.get("gnss_risk_color", "#1D9E75")
-    kp_color = sw.get("kp_color", HERO_CYAN)
+    kp_color = sw.get("kp_color", HERO_BRAND_BLUE)
     online = sw.get("stations_online")
     total = sw.get("stations_total")
     stations_label = f"{online}/{total}" if online is not None and total else "N/A"
@@ -250,7 +250,7 @@ def _home_hero_metric_specs(sw: Dict[str, Any]) -> list[Tuple[str, str, str, str
             "Kp Index",
             f"{kp_val}" if kp_val is not None else "N/A",
             "Planetary activity",
-            HERO_CYAN if kp_val is not None else "#ffffff",
+            HERO_BRAND_BLUE if kp_val is not None else "#ffffff",
         ),
         (
             "geomagnetic",
@@ -274,7 +274,7 @@ def _home_hero_metric_specs(sw: Dict[str, Any]) -> list[Tuple[str, str, str, str
             "Stations Online",
             stations_label,
             "Live telemetry unavailable" if online is None else "Zimbabwe CORS",
-            HERO_CYAN,
+            HERO_BRAND_BLUE,
         ),
     ]
 
@@ -308,19 +308,19 @@ def _home_hero_metrics_iframe_html(sw: Dict[str, Any]) -> str:
 <style>
   * {{ box-sizing: border-box; margin: 0; padding: 0; }}
   html, body {{
-    background: #060d1a;
+    background: #000000;
     font-family: Arial, Helvetica, sans-serif;
     overflow: hidden;
   }}
   .panel {{
-    background: linear-gradient(155deg, rgba(13, 27, 42, 0.98), rgba(8, 18, 32, 0.94));
-    border: 1px solid #1e3a5f;
+    background: linear-gradient(155deg, rgba(0, 0, 0, 0.98), rgba(0, 0, 0, 0.94));
+    border: 1px solid #244d73;
     border-radius: 14px;
     padding: 14px 16px 12px;
     box-shadow: 0 10px 32px rgba(0, 0, 0, 0.28);
   }}
   .eyebrow {{
-    color: #00d4ff;
+    color: #168bd2;
     font-size: 11px;
     font-weight: 800;
     letter-spacing: 0.1em;
@@ -345,9 +345,9 @@ def _home_hero_metrics_iframe_html(sw: Dict[str, Any]) -> str:
   .card {{
     flex: 1 1 auto;
     width: 100%;
-    background: rgba(10, 22, 40, 0.94);
-    border: 1px solid #1e3a5f;
-    border-left: 3px solid #00d4ff;
+    background: rgba(0, 0, 0, 0.94);
+    border: 1px solid #244d73;
+    border-left: 3px solid #168bd2;
     border-radius: 10px;
     padding: 12px 8px 10px;
     text-align: center;
@@ -394,7 +394,7 @@ def render_home_hero_metrics(st, sw: Dict[str, Any]) -> None:
     """Render four headline metrics with native Streamlit elements."""
     with st.container(border=True):
         st.markdown(
-            "<div style='color:#00d4ff;font-size:0.72rem;font-weight:800;"
+            "<div style='color:#168bd2;font-size:0.72rem;font-weight:800;"
             "letter-spacing:0.1em;text-transform:uppercase;margin-bottom:0.7rem'>"
             "Live space weather &middot; Zimbabwe CORS network</div>",
             unsafe_allow_html=True,
@@ -452,7 +452,7 @@ def _render_explanation(metric_key: str, sw: Dict[str, Any]) -> None:
     st.markdown(
         f"<div class='pipeline-explain-panel'>"
         f"<div class='pipeline-explain-title'>{info['title']}</div>"
-        f"<div class='pipeline-explain-section' style='color:#00d4ff;font-weight:700'>"
+        f"<div class='pipeline-explain-section' style='color:#168bd2;font-weight:700'>"
         f"{_current_value_line(metric_key, sw)}</div>"
         f"<p class='pipeline-explain-body'>{info['summary']}</p>"
         f"<div class='pipeline-explain-heading'>Reference scale</div>"

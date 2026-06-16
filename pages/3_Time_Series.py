@@ -139,10 +139,10 @@ with tab1:
         fig.add_hline(y=p95, line_dash="dash", line_color="#ff4444",
                       annotation_text=f"95th pct: {p95:.1f} TECU",
                       annotation_font_color="#ff4444")
-    fig.update_layout(paper_bgcolor="#060d1a", plot_bgcolor="#0d1b2a",
-                      font_color="#ffffff", yaxis=dict(gridcolor="#1e3a5f"),
-                      xaxis=dict(gridcolor="#1e3a5f"), height=380,
-                      legend=dict(bgcolor="#0d1b2a", bordercolor="#1e3a5f"))
+    fig.update_layout(paper_bgcolor="#000000", plot_bgcolor="#000000",
+                      font_color="#ffffff", yaxis=dict(gridcolor="#244d73"),
+                      xaxis=dict(gridcolor="#244d73"), height=380,
+                      legend=dict(bgcolor="#000000", bordercolor="#244d73"))
     st.plotly_chart(fig, use_container_width=True)
     st.download_button("⬇ Download daily CSV", smooth_daily.to_csv(index=False).encode(), "daily_tec.csv", "text/csv")
 
@@ -157,10 +157,10 @@ with tab2:
         labels={"mean_vtec": "Mean VTEC (TECU)", "month": "Month"},
         title="Monthly Mean VTEC by Station",
     )
-    fig_m.update_layout(paper_bgcolor="#060d1a", plot_bgcolor="#0d1b2a",
-                        font_color="#ffffff", yaxis=dict(gridcolor="#1e3a5f"),
-                        xaxis=dict(gridcolor="#1e3a5f"), height=380,
-                        legend=dict(bgcolor="#0d1b2a", bordercolor="#1e3a5f"))
+    fig_m.update_layout(paper_bgcolor="#000000", plot_bgcolor="#000000",
+                        font_color="#ffffff", yaxis=dict(gridcolor="#244d73"),
+                        xaxis=dict(gridcolor="#244d73"), height=380,
+                        legend=dict(bgcolor="#000000", bordercolor="#244d73"))
     st.plotly_chart(fig_m, use_container_width=True)
 
     fig_range = go.Figure()
@@ -178,10 +178,10 @@ with tab2:
         ))
     fig_range.update_layout(
         title="Monthly VTEC Range (min/mean/max)",
-        paper_bgcolor="#060d1a", plot_bgcolor="#0d1b2a",
-        font_color="#ffffff", yaxis=dict(title="VTEC (TECU)", gridcolor="#1e3a5f"),
-        xaxis=dict(gridcolor="#1e3a5f"), height=360,
-        legend=dict(bgcolor="#0d1b2a", bordercolor="#1e3a5f"),
+        paper_bgcolor="#000000", plot_bgcolor="#000000",
+        font_color="#ffffff", yaxis=dict(title="VTEC (TECU)", gridcolor="#244d73"),
+        xaxis=dict(gridcolor="#244d73"), height=360,
+        legend=dict(bgcolor="#000000", bordercolor="#244d73"),
     )
     st.plotly_chart(fig_range, use_container_width=True)
     st.download_button("⬇ Download monthly CSV", monthly.to_csv(index=False).encode(), "monthly_tec.csv", "text/csv")
@@ -200,20 +200,20 @@ with tab3:
     fig_yr = px.line(yearly, x="year", y="vtec", color="station", markers=True,
                      labels={"vtec": "Mean VTEC (TECU)", "year": "Year"},
                      title="Yearly Mean VTEC Trend")
-    fig_yr.update_layout(paper_bgcolor="#060d1a", plot_bgcolor="#0d1b2a",
-                         font_color="#ffffff", yaxis=dict(gridcolor="#1e3a5f"),
-                         xaxis=dict(gridcolor="#1e3a5f"), height=320,
-                         legend=dict(bgcolor="#0d1b2a", bordercolor="#1e3a5f"))
+    fig_yr.update_layout(paper_bgcolor="#000000", plot_bgcolor="#000000",
+                         font_color="#ffffff", yaxis=dict(gridcolor="#244d73"),
+                         xaxis=dict(gridcolor="#244d73"), height=320,
+                         legend=dict(bgcolor="#000000", bordercolor="#244d73"))
     st.plotly_chart(fig_yr, use_container_width=True)
 
     seasonal = fdf.groupby(["season", "station"])["vtec"].mean().reset_index()
     fig_sea = px.bar(seasonal, x="season", y="vtec", color="station", barmode="group",
                      labels={"vtec": "Mean VTEC (TECU)", "season": "Season"},
                      title="Seasonal VTEC Variation")
-    fig_sea.update_layout(paper_bgcolor="#060d1a", plot_bgcolor="#0d1b2a",
-                          font_color="#ffffff", yaxis=dict(gridcolor="#1e3a5f"),
-                          xaxis=dict(gridcolor="#1e3a5f"), height=320,
-                          legend=dict(bgcolor="#0d1b2a", bordercolor="#1e3a5f"))
+    fig_sea.update_layout(paper_bgcolor="#000000", plot_bgcolor="#000000",
+                          font_color="#ffffff", yaxis=dict(gridcolor="#244d73"),
+                          xaxis=dict(gridcolor="#244d73"), height=320,
+                          legend=dict(bgcolor="#000000", bordercolor="#244d73"))
     st.plotly_chart(fig_sea, use_container_width=True)
 
     # DOY heatmap (station × doy)
@@ -227,7 +227,7 @@ with tab3:
             labels={"x": "Day of Year", "y": "Station", "color": "VTEC"},
             title="VTEC Heatmap: Station × Day of Year",
         )
-        fig_heat.update_layout(paper_bgcolor="#060d1a", font_color="#ffffff", height=280)
+        fig_heat.update_layout(paper_bgcolor="#000000", font_color="#ffffff", height=280)
         st.plotly_chart(fig_heat, use_container_width=True)
 
 # ── Tab 4: Diurnal ───────────────────────────────────────────────────────────
@@ -244,9 +244,9 @@ with tab4:
         labels={"vtec": "VTEC (TECU)", "hour": "Hour (UTC)"},
         title="Diurnal VTEC Variation (24-hour pattern)",
     )
-    fig_d.update_layout(paper_bgcolor="#060d1a", plot_bgcolor="#0d1b2a",
-                        font_color="#ffffff", yaxis=dict(gridcolor="#1e3a5f"),
-                        xaxis=dict(gridcolor="#1e3a5f", dtick=2), height=360,
-                        legend=dict(bgcolor="#0d1b2a", bordercolor="#1e3a5f"))
+    fig_d.update_layout(paper_bgcolor="#000000", plot_bgcolor="#000000",
+                        font_color="#ffffff", yaxis=dict(gridcolor="#244d73"),
+                        xaxis=dict(gridcolor="#244d73", dtick=2), height=360,
+                        legend=dict(bgcolor="#000000", bordercolor="#244d73"))
     st.plotly_chart(fig_d, use_container_width=True)
     st.caption("Peak TEC typically occurs around 14:00–16:00 LT over Zimbabwe (UTC+2).")

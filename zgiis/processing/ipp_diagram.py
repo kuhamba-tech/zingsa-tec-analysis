@@ -6,7 +6,7 @@ import base64
 import math
 
 _FONT = "Arial,Helvetica,sans-serif"
-_BG = "#060d1a"
+_BG = "#000000"
 _W = 520
 _H = 400
 
@@ -110,9 +110,9 @@ def _ipp_svg() -> str:
 
   <!-- Ionospheric shell -->
   <path d="M {shell_lx:.1f} {shell_ly:.1f} A {rs} {rs} 0 0 1 {shell_rx:.1f} {shell_ry:.1f}"
-        fill="none" stroke="#00d4ff" stroke-width="1.8" stroke-dasharray="8,5"/>
+        fill="none" stroke="#168bd2" stroke-width="1.8" stroke-dasharray="8,5"/>
   {_label_bg(ox + rs - 18, 36, 132)}
-  <text x="{ox + rs + 48}" y="36" text-anchor="middle" fill="#00d4ff" font-size="12" font-weight="bold"
+  <text x="{ox + rs + 48}" y="36" text-anchor="middle" fill="#168bd2" font-size="12" font-weight="bold"
         font-family="{_FONT}">Ionospheric layer</text>
 
   <!-- Local vertical extension at IPP (for angle z) -->
@@ -148,9 +148,9 @@ def _ipp_svg() -> str:
   {_callout(sx, sy, sx - 18, sy + 38, "Permanent station", color="#00ff88", bold=True, font_size=11, anchor="middle")}
 
   <!-- Satellite -->
-  <circle cx="{satx}" cy="{saty}" r="9" fill="#1e3a5f" stroke="#00d4ff" stroke-width="1.8"/>
-  <line x1="{satx - 22}" y1="{saty}" x2="{satx - 36}" y2="{saty}" stroke="#00d4ff" stroke-width="2"/>
-  <line x1="{satx + 22}" y1="{saty}" x2="{satx + 36}" y2="{saty}" stroke="#00d4ff" stroke-width="2"/>
+  <circle cx="{satx}" cy="{saty}" r="9" fill="#244d73" stroke="#168bd2" stroke-width="1.8"/>
+  <line x1="{satx - 22}" y1="{saty}" x2="{satx - 36}" y2="{saty}" stroke="#168bd2" stroke-width="2"/>
+  <line x1="{satx + 22}" y1="{saty}" x2="{satx + 36}" y2="{saty}" stroke="#168bd2" stroke-width="2"/>
   {_callout(satx, saty, satx + 14, saty - 34, "Satellite", color="#ffffff", anchor="start")}
 
   <!-- Angle z (zenith at IPP) -->
@@ -278,7 +278,7 @@ def render_ipp_diagram_streamlit(st) -> None:
     margin: 0; padding: 10px 8px; background: {_BG};
     display: flex; align-items: center; justify-content: center;
     overflow: hidden;
-    border: 1px solid #1e3a5f; border-radius: 12px;
+    border: 1px solid #244d73; border-radius: 12px;
     box-sizing: border-box; min-height: 390px;
   }}
   svg {{ max-width: 100%; height: auto; display: block; }}

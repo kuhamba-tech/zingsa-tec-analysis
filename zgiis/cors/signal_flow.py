@@ -18,7 +18,7 @@ _FLOW_STAGES = (
     {
         "key": "receiver",
         "title": "Leica GR50 Receiver",
-        "accent": "#00d4ff",
+        "accent": "#168bd2",
         "caption": "Tracks GPS · GLONASS · Galileo · BeiDou",
         "detail": "555-channel reference station receiver",
         "files": ("gr50", "receiver"),
@@ -172,7 +172,7 @@ html, body {{
   width: 100%;
   min-width: 100%;
   box-sizing: border-box;
-  background: #060d1a;
+  background: #000000;
   color: #ffffff;
   font-family: Arial, Helvetica, sans-serif;
   overflow-x: hidden;

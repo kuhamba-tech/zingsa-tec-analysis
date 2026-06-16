@@ -90,13 +90,13 @@ with col_gauge:
         value=kp_val,
         domain={"x": [0, 1], "y": [0, 1]},
         title={"text": "Kp Index", "font": {"color": "#ffffff", "size": 14}},
-        number={"font": {"color": "#00d4ff", "size": 42}},
+        number={"font": {"color": "#168bd2", "size": 42}},
         gauge=dict(
             axis=dict(range=[0, 9], tickwidth=1, tickcolor="#ffffff",
                       tickfont=dict(color="#ffffff")),
             bar=dict(color=_risk_color(_classify_kp(kp_val)[1]), thickness=0.25),
-            bgcolor="#0d1b2a",
-            borderwidth=1, bordercolor="#1e3a5f",
+            bgcolor="#000000",
+            borderwidth=1, bordercolor="#244d73",
             steps=[
                 dict(range=[0,3], color="#001a08"),
                 dict(range=[3,5], color="#1a1a00"),
@@ -107,7 +107,7 @@ with col_gauge:
         ),
     ))
     fig_gauge.update_layout(
-        paper_bgcolor="#060d1a", font_color="#ffffff",
+        paper_bgcolor="#000000", font_color="#ffffff",
         height=280, margin=dict(l=20, r=20, t=30, b=10),
     )
     st.plotly_chart(fig_gauge, use_container_width=True)
@@ -127,7 +127,7 @@ with col_info:
         color = "#00ff88" if ok else "#ff4444"
         st.markdown(
             f"<div style='display:flex;gap:10px;align-items:flex-start;margin:6px 0;padding:6px;"
-            f"background:#0d1b2a;border-radius:6px;border-left:2px solid {color}'>"
+            f"background:#000000;border-radius:6px;border-left:2px solid {color}'>"
             f"<span>{icon}</span>"
             f"<div><div style='color:#ffffff;font-size:0.88rem'>{service}</div>"
             f"<div style='color:#ffffff;font-size:0.75rem'>{note}</div>"

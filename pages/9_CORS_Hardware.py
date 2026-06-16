@@ -23,10 +23,10 @@ inject(st, page_id="cors_hardware")
 # ── Hero banner ───────────────────────────────────────────────────────────────
 st.markdown(
     """
-    <div style='background:linear-gradient(135deg,#0a1628 0%,#0d2240 50%,#071020 100%);
-                border:1px solid #1e3a5f;border-left:5px solid #00d4ff;border-radius:14px;
+    <div style='background:linear-gradient(135deg,#000000 0%,#000000 50%,#000000 100%);
+                border:1px solid #244d73;border-left:5px solid #168bd2;border-radius:14px;
                 padding:2rem 2.2rem;margin-bottom:1.5rem'>
-      <div style='font-size:0.72rem;color:#00d4ff;font-weight:800;letter-spacing:0.12em;
+      <div style='font-size:0.72rem;color:#168bd2;font-weight:800;letter-spacing:0.12em;
                   text-transform:uppercase;margin-bottom:0.4rem'>ZINGSA CORS NETWORK</div>
       <div style='font-size:2rem;font-weight:900;color:#ffffff;line-height:1.2;
                   margin-bottom:0.6rem'>📡 Station Hardware Specification</div>
@@ -42,7 +42,7 @@ st.markdown(
 
 # ── Equipment cards ───────────────────────────────────────────────────────────
 st.markdown(
-    "<div style='font-size:0.72rem;color:#00d4ff;font-weight:800;letter-spacing:0.12em;"
+    "<div style='font-size:0.72rem;color:#168bd2;font-weight:800;letter-spacing:0.12em;"
     "text-transform:uppercase;margin-bottom:1rem'>Station Equipment</div>",
     unsafe_allow_html=True,
 )
@@ -83,7 +83,7 @@ def _hw_card(
             for k, v in specs
         )
         st.markdown(
-            f"<div style='background:#0d1b2a;border:1px solid #1e3a5f;"
+            f"<div style='background:#000000;border:1px solid #244d73;"
             f"border-top:4px solid {accent};border-radius:12px;padding:1.4rem 1.3rem;"
             f"height:100%;display:flex;flex-direction:column;gap:0.8rem'>"
             f"<div style='text-align:center'>"
@@ -93,7 +93,7 @@ def _hw_card(
             f"<div style='font-size:0.7rem;color:{accent};text-transform:uppercase;"
             f"letter-spacing:0.1em;font-weight:700;margin-top:0.2rem'>{category}</div>"
             f"</div>"
-            f"<div style='border-top:1px solid #1e3a5f'></div>"
+            f"<div style='border-top:1px solid #244d73'></div>"
             f"<div style='font-size:0.8rem;color:#ffffff;line-height:1.55'>{desc}</div>"
             f"<table style='border-collapse:collapse;width:100%;margin-top:0.3rem'>{rows}</table>"
             f"</div>",
@@ -105,7 +105,7 @@ _hw_card(
     icon="🖥️",
     model="Leica GR50",
     category="GNSS Receiver",
-    accent="#00d4ff",
+    accent="#168bd2",
     image_names=("gr50", "receiver"),
     desc=(
         "Professional reference station receiver with SmartTrack+ technology. "
@@ -177,7 +177,7 @@ st.markdown("<div style='margin-top:1.4rem'></div>", unsafe_allow_html=True)
 # ── Station architecture diagram ──────────────────────────────────────────────
 st.markdown("---")
 st.markdown(
-    "<div style='font-size:0.72rem;color:#00d4ff;font-weight:800;letter-spacing:0.12em;"
+    "<div style='font-size:0.72rem;color:#168bd2;font-weight:800;letter-spacing:0.12em;"
     "text-transform:uppercase;margin-bottom:1rem'>Typical Station Architecture</div>",
     unsafe_allow_html=True,
 )
@@ -191,7 +191,7 @@ def _req_card(col, title: str, accent: str, lines: list[str]) -> None:
     body = "<br>".join(lines)
     with col:
         st.markdown(
-            f"<div style='background:#071829;border-left:3px solid {accent};"
+            f"<div style='background:#000000;border-left:3px solid {accent};"
             f"border-radius:6px;padding:0.85rem 1rem;height:100%'>"
             f"<div style='font-size:0.72rem;color:{accent};font-weight:700;"
             f"text-transform:uppercase;letter-spacing:0.06em'>{title}</div>"
@@ -202,14 +202,14 @@ def _req_card(col, title: str, accent: str, lines: list[str]) -> None:
 
 
 st.markdown(
-    "<div style='background:#0d1b2a;border:1px solid #1e3a5f;border-radius:12px;"
+    "<div style='background:#000000;border:1px solid #244d73;border-radius:12px;"
     "padding:1.5rem;margin-bottom:0.5rem'>"
-    "<div style='color:#00d4ff;font-weight:800;font-size:0.78rem;letter-spacing:0.08em;"
+    "<div style='color:#168bd2;font-weight:800;font-size:0.78rem;letter-spacing:0.08em;"
     "text-transform:uppercase;margin-bottom:1rem'>Station Requirements</div>",
     unsafe_allow_html=True,
 )
 req_c1, req_c2, req_c3, req_c4 = st.columns(4)
-_req_card(req_c1, "Power", "#00d4ff", [
+_req_card(req_c1, "Power", "#168bd2", [
     "220 V AC with UPS backup",
     "PoE option for GR50 (802.3af)",
 ])
@@ -230,14 +230,14 @@ st.markdown("</div>", unsafe_allow_html=True)
 # ── Summary metrics strip ─────────────────────────────────────────────────────
 st.markdown("---")
 st.markdown(
-    "<div style='font-size:0.72rem;color:#00d4ff;font-weight:800;letter-spacing:0.12em;"
+    "<div style='font-size:0.72rem;color:#168bd2;font-weight:800;letter-spacing:0.12em;"
     "text-transform:uppercase;margin-bottom:1rem'>Network Capability Summary</div>",
     unsafe_allow_html=True,
 )
 
 mc1, mc2, mc3, mc4, mc5 = st.columns(5)
 for _col, _icon, _val, _lbl, _clr in [
-    (mc1, "🛰️", "4",         "GNSS\nConstellations", "#00d4ff"),
+    (mc1, "🛰️", "4",         "GNSS\nConstellations", "#168bd2"),
     (mc2, "📶", "555",        "Tracking\nChannels",   "#00ff88"),
     (mc3, "⚡", "100 Hz",    "Max Data\nRate",        "#ff8c00"),
     (mc4, "📏", "3 mm",      "Position\nAccuracy",    "#a78bfa"),
@@ -245,7 +245,7 @@ for _col, _icon, _val, _lbl, _clr in [
 ]:
     with _col:
         st.markdown(
-            f"<div style='background:#0d1b2a;border:1px solid #1e3a5f;"
+            f"<div style='background:#000000;border:1px solid #244d73;"
             f"border-top:3px solid {_clr};border-radius:10px;padding:1rem;"
             f"text-align:center'>"
             f"<div style='font-size:1.6rem'>{_icon}</div>"

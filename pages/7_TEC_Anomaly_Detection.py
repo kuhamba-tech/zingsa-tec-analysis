@@ -63,9 +63,10 @@ sw = get_space_weather()
 
 with st.sidebar:
     st.markdown("### 🔬 TEC Anomaly Tools")
-    anomaly_pct = st.slider("Anomaly threshold (percentile)", 80, 99, 95)
-    storm_kp    = st.slider("Storm Kp threshold", 3.0, 9.0, 5.0, 0.5)
-    ref_year    = st.selectbox("Reference year (climatology)", sorted(df["year"].unique()), index=0)
+    anomaly_pct    = st.slider("Anomaly threshold (percentile)", 80, 99, 95)
+    storm_kp       = st.slider("Storm Kp threshold", 3.0, 9.0, 5.0, 0.5)
+    ref_year       = st.selectbox("Reference year (climatology)", sorted(df["year"].unique()), index=0)
+    forecast_days  = st.selectbox("Forecast horizon (days)", [30, 60, 90], index=0)
     st.divider()
     st.page_link("Home.py", label="← Back to Home")
 
@@ -73,9 +74,9 @@ st.markdown("<div class='zgiis-title' style='font-size:1.7rem'>🔬 TEC Anomaly 
 st.caption("TEC anomaly detection · storm analysis · diurnal/seasonal/solar-cycle tools")
 st.markdown("---")
 
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "Anomaly Detection", "Storm Comparison", "Diurnal Variation",
-    "Seasonal Variation", "Solar Cycle", "EIA Study",
+    "Seasonal Variation", "Solar Cycle", "EIA Study", "TEC Prediction",
 ])
 
 # ── Tab 1: Anomaly Detection ───────────────────────────────────────────────────
@@ -92,7 +93,7 @@ with tab1:
 
     fig = go.Figure()
     fig.add_scatter(x=adf["date"], y=adf["mean_vtec"], mode="lines",
-                    line=dict(color="#00d4ff", width=1.5), name="VTEC")
+                    line=dict(color="#168bd2", width=1.5), name="VTEC")
     fig.add_scatter(
         x=adf[adf["anomaly"]]["date"], y=adf[adf["anomaly"]]["mean_vtec"],
         mode="markers", marker=dict(size=9, color="#ff4444", symbol="star"),
@@ -101,10 +102,10 @@ with tab1:
     fig.add_hline(y=threshold, line_dash="dash", line_color="#ff8c00",
                   annotation_text=f"{anomaly_pct}th pct: {threshold:.2f} TECU",
                   annotation_font_color="#ff8c00")
-    fig.update_layout(paper_bgcolor="#060d1a", plot_bgcolor="#0d1b2a",
-                      font_color="#ffffff", yaxis=dict(gridcolor="#1e3a5f"),
-                      xaxis=dict(gridcolor="#1e3a5f"), height=360,
-                      legend=dict(bgcolor="#0d1b2a", bordercolor="#1e3a5f"))
+    fig.update_layout(paper_bgcolor="#000000", plot_bgcolor="#000000",
+                      font_color="#ffffff", yaxis=dict(gridcolor="#244d73"),
+                      xaxis=dict(gridcolor="#244d73"), height=360,
+                      legend=dict(bgcolor="#000000", bordercolor="#244d73"))
     st.plotly_chart(fig, use_container_width=True)
 
     anomaly_days = adf[adf["anomaly"]]
@@ -148,17 +149,17 @@ with tab2:
     )
     fig_sc.update_layout(
         title=f"Storm vs Quiet Day VTEC by Month ({ref_year})",
-        paper_bgcolor="#060d1a", plot_bgcolor="#0d1b2a",
+        paper_bgcolor="#000000", plot_bgcolor="#000000",
         font_color="#ffffff",
-        yaxis=dict(title="VTEC (TECU)", gridcolor="#1e3a5f"),
+        yaxis=dict(title="VTEC (TECU)", gridcolor="#244d73"),
         xaxis=dict(
             title="Month",
-            gridcolor="#1e3a5f",
+            gridcolor="#244d73",
             tickformat="%b",
             dtick="M1",
             ticklabelmode="period",
         ),
-        height=360, legend=dict(bgcolor="#0d1b2a", bordercolor="#1e3a5f"),
+        height=360, legend=dict(bgcolor="#000000", bordercolor="#244d73"),
     )
     st.plotly_chart(fig_sc, use_container_width=True)
     st.metric("Storm days count", int(storm_mask.sum()))
@@ -186,15 +187,15 @@ with tab3:
         line_color="rgba(255,255,255,0)", name="±1σ",
     )
     fig_d.add_scatter(x=diurnal["hour"], y=diurnal["mean_vtec"],
-                      mode="lines+markers", line=dict(color="#00d4ff", width=2.5),
+                      mode="lines+markers", line=dict(color="#168bd2", width=2.5),
                       marker=dict(size=8), name="Mean VTEC")
     fig_d.update_layout(
         title="24-hour VTEC Variation (UTC)",
-        paper_bgcolor="#060d1a", plot_bgcolor="#0d1b2a",
+        paper_bgcolor="#000000", plot_bgcolor="#000000",
         font_color="#ffffff",
-        yaxis=dict(title="VTEC (TECU)", gridcolor="#1e3a5f"),
-        xaxis=dict(title="Hour (UTC)", dtick=2, gridcolor="#1e3a5f"),
-        height=360, legend=dict(bgcolor="#0d1b2a", bordercolor="#1e3a5f"),
+        yaxis=dict(title="VTEC (TECU)", gridcolor="#244d73"),
+        xaxis=dict(title="Hour (UTC)", dtick=2, gridcolor="#244d73"),
+        height=360, legend=dict(bgcolor="#000000", bordercolor="#244d73"),
     )
     st.plotly_chart(fig_d, use_container_width=True)
     st.caption("Local time (LT) = UTC + 2h for Zimbabwe. Peak TEC typically at ~14:00 LT.")
@@ -212,12 +213,12 @@ with tab4:
 
     fig_sea = go.Figure()
     fig_sea.add_bar(x=seasonal["Season"], y=seasonal["Mean"], name="Mean VTEC",
-                    marker_color="#00d4ff", error_y=dict(type="data", array=seasonal["Std"].tolist()))
+                    marker_color="#168bd2", error_y=dict(type="data", array=seasonal["Std"].tolist()))
     fig_sea.update_layout(
         title="Seasonal Mean VTEC (southern hemisphere seasons)",
-        paper_bgcolor="#060d1a", plot_bgcolor="#0d1b2a",
-        font_color="#ffffff", yaxis=dict(title="VTEC (TECU)", gridcolor="#1e3a5f"),
-        xaxis=dict(gridcolor="#1e3a5f"), height=340,
+        paper_bgcolor="#000000", plot_bgcolor="#000000",
+        font_color="#ffffff", yaxis=dict(title="VTEC (TECU)", gridcolor="#244d73"),
+        xaxis=dict(gridcolor="#244d73"), height=340,
     )
     st.plotly_chart(fig_sea, use_container_width=True)
     st.dataframe(seasonal, use_container_width=True)
@@ -230,17 +231,17 @@ with tab5:
 
     fig_yr = go.Figure()
     fig_yr.add_scatter(x=yearly["year"], y=yearly["mean_vtec"], mode="lines+markers",
-                       line=dict(color="#00d4ff", width=2.5), name="Mean VTEC")
+                       line=dict(color="#168bd2", width=2.5), name="Mean VTEC")
     fig_yr.add_scatter(x=yearly["year"], y=yearly["max_vtec"], mode="lines",
                        line=dict(color="#ff4444", dash="dot"), name="Max VTEC")
     fig_yr.add_scatter(x=yearly["year"], y=yearly["min_vtec"], mode="lines",
                        line=dict(color="#00ff88", dash="dot"), name="Min VTEC")
     fig_yr.update_layout(
         title="Annual TEC Trend — Solar Cycle Influence",
-        paper_bgcolor="#060d1a", plot_bgcolor="#0d1b2a",
-        font_color="#ffffff", yaxis=dict(title="VTEC (TECU)", gridcolor="#1e3a5f"),
-        xaxis=dict(title="Year", dtick=1, gridcolor="#1e3a5f"),
-        height=360, legend=dict(bgcolor="#0d1b2a", bordercolor="#1e3a5f"),
+        paper_bgcolor="#000000", plot_bgcolor="#000000",
+        font_color="#ffffff", yaxis=dict(title="VTEC (TECU)", gridcolor="#244d73"),
+        xaxis=dict(title="Year", dtick=1, gridcolor="#244d73"),
+        height=360, legend=dict(bgcolor="#000000", bordercolor="#244d73"),
     )
     st.plotly_chart(fig_yr, use_container_width=True)
 
@@ -282,7 +283,7 @@ with tab6:
     )
     fig_eia = go.Figure(go.Scatter(
         x=lats_eia, y=eia_tec, mode="lines",
-        line=dict(color="#00d4ff", width=2.5), fill="tozeroy",
+        line=dict(color="#168bd2", width=2.5), fill="tozeroy",
         fillcolor="rgba(0,212,255,0.08)",
     ))
     fig_eia.add_vrect(x0=-22.5, x1=-15.5, fillcolor="rgba(0,255,136,0.07)",
@@ -290,13 +291,122 @@ with tab6:
                       annotation_font_color="#00ff88")
     fig_eia.update_layout(
         title="Typical EIA VTEC Latitudinal Profile (Africa sector, daytime)",
-        paper_bgcolor="#060d1a", plot_bgcolor="#0d1b2a", font_color="#ffffff",
-        yaxis=dict(title="VTEC (TECU)", gridcolor="#1e3a5f"),
-        xaxis=dict(title="Geographic Latitude (°)", gridcolor="#1e3a5f"),
+        paper_bgcolor="#000000", plot_bgcolor="#000000", font_color="#ffffff",
+        yaxis=dict(title="VTEC (TECU)", gridcolor="#244d73"),
+        xaxis=dict(title="Geographic Latitude (°)", gridcolor="#244d73"),
         height=340,
     )
     st.plotly_chart(fig_eia, use_container_width=True)
     st.caption("During solar maximum, the southern EIA crest can extend to ~20°S, directly affecting Zimbabwe CORS stations.")
+
+# ── Tab 7: TEC Prediction ─────────────────────────────────────────────────────
+with tab7:
+    from scipy.optimize import curve_fit
+
+    st.subheader(f"TEC Prediction — {forecast_days}-day Forecast")
+    st.caption(
+        "Seasonal + linear trend model fitted to historical daily VTEC. "
+        "Confidence band = ±1 std of fit residuals."
+    )
+
+    # Build daily series
+    if not daily_df.empty and "mean_vtec" in daily_df.columns:
+        pred_df = daily_df[["date", "mean_vtec"]].copy()
+    else:
+        pred_df = df.groupby("date")["vtec"].mean().reset_index()
+        pred_df.columns = ["date", "mean_vtec"]
+    pred_df = pred_df.sort_values("date").dropna()
+
+    if len(pred_df) < 30:
+        st.warning("Not enough history for a reliable forecast (need ≥ 30 days).")
+    else:
+        t0 = pred_df["date"].min()
+        t_num = (pred_df["date"] - t0).dt.days.values.astype(float)
+        y_obs = pred_df["mean_vtec"].values
+
+        def _model(t, a, b, c1, d1, c2, d2):
+            return (
+                a + b * t
+                + c1 * np.sin(2 * np.pi * t / 365.25)
+                + d1 * np.cos(2 * np.pi * t / 365.25)
+                + c2 * np.sin(4 * np.pi * t / 365.25)
+                + d2 * np.cos(4 * np.pi * t / 365.25)
+            )
+
+        try:
+            popt, _ = curve_fit(_model, t_num, y_obs, maxfev=10000)
+        except RuntimeError:
+            popt = np.polyfit(t_num, y_obs, 1)[::-1].tolist() + [0, 0, 0, 0]
+
+        y_fit   = _model(t_num, *popt)
+        residuals = y_obs - y_fit
+        sigma   = residuals.std()
+
+        # Future horizon
+        t_future = np.arange(t_num[-1] + 1, t_num[-1] + forecast_days + 1)
+        dates_future = pd.date_range(pred_df["date"].max() + pd.Timedelta(days=1), periods=forecast_days)
+        y_pred  = _model(t_future, *popt)
+
+        fig_pred = go.Figure()
+
+        # Historical
+        fig_pred.add_scatter(
+            x=pred_df["date"], y=y_obs,
+            mode="lines", name="Observed VTEC",
+            line=dict(color="#168bd2", width=1.5),
+        )
+        # Fitted
+        fig_pred.add_scatter(
+            x=pred_df["date"], y=y_fit,
+            mode="lines", name="Model fit",
+            line=dict(color="#ffffff", width=1, dash="dot"),
+        )
+        # Forecast ribbon
+        fig_pred.add_scatter(
+            x=list(dates_future) + list(dates_future)[::-1],
+            y=list(y_pred + sigma) + list(y_pred - sigma)[::-1],
+            fill="toself", fillcolor="rgba(255,165,0,0.15)",
+            line_color="rgba(0,0,0,0)", name="±1σ band", showlegend=True,
+        )
+        # Forecast line
+        fig_pred.add_scatter(
+            x=dates_future, y=y_pred,
+            mode="lines", name=f"{forecast_days}-day forecast",
+            line=dict(color="#ff8c00", width=2.5),
+        )
+        # Vertical divider
+        fig_pred.add_vline(
+            x=pred_df["date"].max().timestamp() * 1000,
+            line_dash="dash", line_color="#888888",
+            annotation_text="Forecast →", annotation_font_color="#888888",
+        )
+        fig_pred.update_layout(
+            paper_bgcolor="#000000", plot_bgcolor="#000000",
+            font_color="#ffffff",
+            yaxis=dict(title="VTEC (TECU)", gridcolor="#244d73"),
+            xaxis=dict(title="Date", gridcolor="#244d73"),
+            height=380,
+            legend=dict(bgcolor="#000000", bordercolor="#244d73"),
+        )
+        st.plotly_chart(fig_pred, use_container_width=True)
+
+        # Summary metrics
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Forecast mean VTEC", f"{y_pred.mean():.2f} TECU")
+        m2.metric("Forecast peak VTEC", f"{y_pred.max():.2f} TECU")
+        m3.metric("Model fit σ (residuals)", f"±{sigma:.2f} TECU")
+
+        # Export forecast
+        fc_out = pd.DataFrame({"date": dates_future, "predicted_vtec": y_pred,
+                               "upper_1sigma": y_pred + sigma, "lower_1sigma": y_pred - sigma})
+        st.download_button(
+            "⬇ Export forecast CSV",
+            fc_out.to_csv(index=False).encode(),
+            f"tec_forecast_{forecast_days}d.csv", "text/csv",
+        )
+
+        if using_demo:
+            st.caption("⚠ Forecast is based on demo data. Load real RINEX files via Processing for operational predictions.")
 
 # ── Export section ─────────────────────────────────────────────────────────────
 st.markdown("---")

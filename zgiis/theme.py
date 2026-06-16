@@ -3,43 +3,82 @@
 DARK_CSS = """
 <style>
 /* ── Base ── */
-html, body, [data-testid="stAppViewContainer"] {
-    background-color: #060d1a !important;
+html, body,
+[data-testid="stAppViewContainer"],
+[data-testid="stMain"],
+[data-testid="stMainBlockContainer"],
+section[data-testid="stMain"] {
+    background-color: #000000 !important;
     color: #ffffff !important;
 }
 [data-testid="stSidebar"] {
-    background-color: #0d1b2a !important;
-    border-right: 1px solid #1e3a5f;
+    background: #000000 !important;
+    border-right: 10px solid #17367a;
 }
 /* sidebar base text */
 [data-testid="stSidebar"] { color: #ffffff; }
 [data-testid="stHeader"] { background: transparent !important; }
 
+/* Sidebar navigation uses the ZINGSA logo blues. */
+[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"],
+[data-testid="stSidebar"] a[href] {
+    border: 1px solid transparent !important;
+    border-radius: 7px !important;
+    color: #ffffff !important;
+}
+[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"]:hover,
+[data-testid="stSidebar"] a[href]:hover {
+    background-color: rgba(22, 139, 210, 0.16) !important;
+    border-color: rgba(22, 139, 210, 0.45) !important;
+}
+[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"][aria-current="page"],
+[data-testid="stSidebar"] a[href][aria-current="page"] {
+    background: #17367a !important;
+    border-color: #168bd2 !important;
+    box-shadow: inset 3px 0 0 #63c7ff, 0 3px 12px rgba(0, 0, 0, 0.24);
+}
+[data-testid="stSidebar"] [aria-current="page"] p,
+[data-testid="stSidebar"] [aria-current="page"] span {
+    color: #ffffff !important;
+    font-weight: 750 !important;
+}
+[data-testid="stSidebar"] hr {
+    border-color: rgba(255, 255, 255, 0.35) !important;
+}
+
 /* ── Cards ── */
 .zgiis-card {
-    background: #0d1b2a;
-    border: 1px solid #1e3a5f;
+    background: #000000;
+    border: 1px solid #244d73;
     border-radius: 10px;
     padding: 1.1rem 1.3rem;
     margin-bottom: 0.7rem;
 }
-.zgiis-card-accent { border-left: 3px solid #00d4ff; }
+.zgiis-card-accent { border-left: 3px solid #168bd2; }
 .zgiis-card-warn   { border-left: 3px solid #ff8c00; }
 .zgiis-card-alert  { border-left: 3px solid #ff4444; }
 .zgiis-card-ok     { border-left: 3px solid #00ff88; }
 
 /* ── Metric numbers ── */
 .big-metric {
-    font-size: 2.4rem;
+    font-size: clamp(1.1rem, 2.2vw, 2.4rem);
     font-weight: 700;
-    color: #00d4ff;
-    line-height: 1.1;
+    color: #168bd2;
+    line-height: 1.15;
+    word-break: keep-all;
+    overflow-wrap: normal;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 .metric-label {
     font-size: 0.78rem;
     color: #ffffff;
     text-transform: uppercase;
     letter-spacing: 0.08em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 /* ── Global page headings and subtitles ── */
@@ -99,13 +138,13 @@ h1 *, h2 *, h3 *, h4 *, h5 *, h6 *,
 .hero-dashboard-panel {
     margin: 0.55rem 0 0.75rem 0;
     padding: 1.15rem 1.35rem 1.1rem;
-    background: linear-gradient(155deg, rgba(13, 27, 42, 0.98), rgba(8, 18, 32, 0.94));
-    border: 1px solid #1e3a5f;
+    background: linear-gradient(155deg, rgba(0, 0, 0, 0.98), rgba(0, 0, 0, 0.94));
+    border: 1px solid #244d73;
     border-radius: 14px;
     box-shadow: 0 10px 32px rgba(0, 0, 0, 0.28);
 }
 .hero-panel-eyebrow {
-    color: #00d4ff;
+    color: #168bd2;
     font-size: 0.68rem;
     font-weight: 800;
     letter-spacing: 0.1em;
@@ -132,7 +171,7 @@ h1 *, h2 *, h3 *, h4 *, h5 *, h6 *,
 /* Home hero metrics iframe */
 [data-testid="stMain"] [data-testid="stHtml"] iframe {
     border: none !important;
-    background: #060d1a !important;
+    background: #000000 !important;
 }
 .hero-dashboard-panel-inline {
     margin: 0.4rem 0 0.7rem 0;
@@ -147,24 +186,50 @@ h1 *, h2 *, h3 *, h4 *, h5 *, h6 *,
 }
 @media (max-width: 900px) {
     .hero-metrics-grid-4x2 {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        grid-template-rows: auto;
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        grid-template-rows: auto !important;
     }
     .hero-metrics-grid-5 {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
     }
 }
 @media (max-width: 520px) {
     .hero-metrics-grid-4x2 {
-        grid-template-columns: 1fr;
+        grid-template-columns: 1fr !important;
     }
     .hero-metrics-grid-5 {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+    [data-testid="stMainBlockContainer"] {
+        padding-left: 0.75rem !important;
+        padding-right: 0.75rem !important;
+    }
+    .zgiis-title {
+        font-size: 1.55rem;
+    }
+    .zgiis-tagline {
+        font-size: 0.82rem;
+        line-height: 1.35;
+    }
+    .hero-status-card,
+    .hero-status-card-compact {
+        min-height: 96px;
+        padding: 0.55rem 0.4rem 0.45rem;
+    }
+    .hero-status-icon {
+        font-size: 1.05rem;
+        margin-bottom: 0.2rem;
+    }
+    .hero-status-value {
+        font-size: 1.2rem;
+    }
+    .zgiis-card {
+        padding: 0.8rem 0.9rem;
     }
 }
 .hero-metrics-grid .hero-status-card {
     margin-bottom: 0;
-    background: rgba(10, 22, 40, 0.94);
+    background: rgba(0, 0, 0, 0.94);
     border-radius: 10px;
 }
 
@@ -210,6 +275,40 @@ h1 *, h2 *, h3 *, h4 *, h5 *, h6 *,
     line-height: 1.2;
     opacity: 0.92;
 }
+.mobile-coverage-card {
+    display: grid;
+    gap: 0.75rem;
+    padding: 1rem;
+    background: #000000;
+    border: 1px solid #244d73;
+    border-radius: 10px;
+}
+.mobile-coverage-row {
+    display: grid;
+    grid-template-columns: 72px minmax(0, 1fr) 28px;
+    align-items: center;
+    gap: 0.65rem;
+}
+.mobile-coverage-label,
+.mobile-coverage-value {
+    color: #ffffff;
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+.mobile-coverage-value {
+    text-align: right;
+}
+.mobile-coverage-track {
+    height: 10px;
+    overflow: hidden;
+    background: #163654;
+    border-radius: 999px;
+}
+.mobile-coverage-fill {
+    height: 100%;
+    min-width: 4px;
+    border-radius: inherit;
+}
 
 /* PRN Explorer — constellation name (GPS, Galileo, etc.) */
 .prn-const-label {
@@ -245,7 +344,7 @@ h1 *, h2 *, h3 *, h4 *, h5 *, h6 *,
 
 /* ── VTEC Theory page callouts ── */
 .vtec-why-box {
-    background: #071829;
+    background: #000000;
     border-left: 3px solid #f59e0b;
     border-radius: 6px;
     padding: 0.7rem 1rem;
@@ -270,8 +369,8 @@ h1 *, h2 *, h3 *, h4 *, h5 *, h6 *,
 
 /* ── VTEC Theory IPP geometry diagram ── */
 .ipp-geom-card {
-    background: #060d1a;
-    border: 1px solid #1e3a5f;
+    background: #000000;
+    border: 1px solid #244d73;
     border-radius: 12px;
     padding: 0.65rem 0.5rem 0.45rem;
     max-width: 100%;
@@ -290,7 +389,7 @@ h1 *, h2 *, h3 *, h4 *, h5 *, h6 *,
 }
 .ipp-geom-card-iframe iframe {
     border: none !important;
-    background: #060d1a !important;
+    background: #000000 !important;
 }
 .ipp-geom-svg {
     display: block;
@@ -300,9 +399,9 @@ h1 *, h2 *, h3 *, h4 *, h5 *, h6 *,
     margin: 0 auto;
 }
 .ipp-geom-legend {
-    background: rgba(10, 22, 40, 0.94);
-    border: 1px solid #1e3a5f;
-    border-left: 3px solid #00d4ff;
+    background: rgba(0, 0, 0, 0.94);
+    border: 1px solid #244d73;
+    border-left: 3px solid #168bd2;
     border-radius: 10px;
     padding: 0.85rem 0.9rem;
     font-size: 0.82rem;
@@ -311,7 +410,7 @@ h1 *, h2 *, h3 *, h4 *, h5 *, h6 *,
     max-width: 100%;
 }
 .ipp-geom-legend-title {
-    color: #00d4ff;
+    color: #168bd2;
     font-size: 0.72rem;
     font-weight: 800;
     letter-spacing: 0.08em;
@@ -361,8 +460,8 @@ h1 *, h2 *, h3 *, h4 *, h5 *, h6 *,
 
 /* ── VTEC Theory step illustrations ── */
 .vtec-illus-card {
-    background: #060d1a;
-    border: 1px solid #1e3a5f;
+    background: #000000;
+    border: 1px solid #244d73;
     border-radius: 12px;
     padding: 0.75rem 0.7rem 0.6rem;
     max-width: 100%;
@@ -441,7 +540,7 @@ h1 *, h2 *, h3 *, h4 *, h5 *, h6 *,
 .hero-click-card,
 .prn-hero-card {
     margin-bottom: 0 !important;
-    background: rgba(10, 22, 40, 0.94);
+    background: rgba(0, 0, 0, 0.94);
     border-radius: 10px;
     pointer-events: none;
     transition: box-shadow 0.15s, background 0.15s;
@@ -506,8 +605,8 @@ h1 *, h2 *, h3 *, h4 *, h5 *, h6 *,
     display: none;
 }
 [data-testid="stVerticalBlockBorderWrapper"]:has(.dashboard-panel-marker) {
-    background: linear-gradient(155deg, rgba(13, 27, 42, 0.98), rgba(8, 18, 32, 0.94));
-    border-color: #1e3a5f !important;
+    background: linear-gradient(155deg, rgba(0, 0, 0, 0.98), rgba(0, 0, 0, 0.94));
+    border-color: #244d73 !important;
     border-radius: 14px !important;
     box-shadow: 0 10px 32px rgba(0, 0, 0, 0.28);
 }
@@ -656,7 +755,7 @@ h1 *, h2 *, h3 *, h4 *, h5 *, h6 *,
 .proc-prompt-banner {
     background: #0d2a4a;
     border: 1px solid #1e5a8f;
-    border-left: 4px solid #00d4ff;
+    border-left: 4px solid #168bd2;
     border-radius: 8px;
     padding: 0.75rem 1rem;
     color: #ffffff;
@@ -683,7 +782,7 @@ h1 *, h2 *, h3 *, h4 *, h5 *, h6 *,
     justify-content: center;
     gap: 0.5rem;
     color: #ffffff;
-    background: #0d1b2a;
+    background: #000000;
     border: 1px solid #334a68;
     border-radius: 11px;
     font-size: 0.9rem;
@@ -736,8 +835,8 @@ h1 *, h2 *, h3 *, h4 *, h5 *, h6 *,
     line-height: 1.35 !important;
     font-size: 0.78rem !important;
     color: #ffffff !important;
-    background: #0d1b2a !important;
-    border: 1px solid #1e3a5f !important;
+    background: #000000 !important;
+    border: 1px solid #244d73 !important;
     border-radius: 10px !important;
     font-weight: 650 !important;
     display: flex !important;
@@ -745,13 +844,13 @@ h1 *, h2 *, h3 *, h4 *, h5 *, h6 *,
     justify-content: center !important;
 }
 [data-testid="stMarkdown"]:has(.pipeline-explorer-row) + [data-testid="stHorizontalBlock"] button[kind="secondary"]:hover {
-    border-color: #00d4ff !important;
+    border-color: #168bd2 !important;
     background: #102338 !important;
     color: #ffffff !important;
 }
 [data-testid="stMarkdown"]:has(.pipeline-explorer-row) + [data-testid="stHorizontalBlock"] button[kind="primary"] {
     background: #102338 !important;
-    border-color: #00d4ff !important;
+    border-color: #168bd2 !important;
     box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.4) !important;
     color: #ffffff !important;
 }
@@ -760,9 +859,9 @@ h1 *, h2 *, h3 *, h4 *, h5 *, h6 *,
 .pipeline-explain-panel {
     margin-top: 0.9rem;
     padding: 1rem 1.15rem;
-    background: #0d1b2a;
-    border: 1px solid #1e3a5f;
-    border-left: 3px solid #00d4ff;
+    background: #000000;
+    border: 1px solid #244d73;
+    border-left: 3px solid #168bd2;
     border-radius: 10px;
 }
 .pipeline-explain-title {
@@ -807,7 +906,7 @@ h1 *, h2 *, h3 *, h4 *, h5 *, h6 *,
 /* LaTeX equation blocks inside pipeline explanations */
 div[data-testid="stMarkdownContainer"] h3,
 div[data-testid="stMarkdownContainer"] p strong {
-    color: #00d4ff !important;
+    color: #168bd2 !important;
     font-size: 0.76rem !important;
     font-weight: 700 !important;
 }
@@ -815,7 +914,7 @@ div[data-testid="stMarkdownContainer"] div.katex-display {
     margin: 0.45rem 0 0.75rem !important;
     padding: 0.55rem 0.75rem !important;
     background: rgba(0, 0, 0, 0.28) !important;
-    border-left: 2px solid #00d4ff !important;
+    border-left: 2px solid #168bd2 !important;
     border-radius: 6px !important;
     overflow-x: auto !important;
 }
@@ -836,9 +935,9 @@ div[data-testid="stMarkdownContainer"] .katex {
     max-width: 100%;
     color: #ffffff;
     font-size: 0.86rem;
-    background: #0d1b2a;
+    background: #000000;
     border: 1px solid #1e4e78;
-    border-left: 4px solid #00d4ff;
+    border-left: 4px solid #168bd2;
     border-radius: 10px;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
 }
@@ -912,7 +1011,7 @@ div[data-testid="stMarkdownContainer"] .katex {
 .js-plotly-plot .plotly { background: transparent !important; }
 
 /* ── Streamlit elements ── */
-[data-testid="stMetricValue"] { color: #00d4ff !important; font-weight: 700; }
+[data-testid="stMetricValue"] { color: #168bd2 !important; font-weight: 700; }
 [data-testid="stMetricLabel"],
 [data-testid="stMetricLabel"] p,
 [data-testid="stMetricLabel"] span,
@@ -923,7 +1022,7 @@ div[data-testid="stMarkdownContainer"] .katex {
 }
 button[kind="primary"] {
     background: linear-gradient(90deg, #004466, #006688) !important;
-    border: 1px solid #00d4ff !important;
+    border: 1px solid #168bd2 !important;
     color: #ffffff !important;
     -webkit-text-fill-color: #ffffff !important;
 }
@@ -958,7 +1057,7 @@ button[kind="primary"] * {
     color: #ffffff !important;
     background-color: #0a1e33 !important;
     border: 1px solid #2a5080 !important;
-    caret-color: #00d4ff !important;
+    caret-color: #168bd2 !important;
 }
 
 /* Placeholder text in inputs */
@@ -984,8 +1083,8 @@ button[kind="primary"] * {
 [data-testid="stSidebar"] button[kind="secondary"]:hover,
 [data-testid="stSidebar"] button:not([kind="primary"]):hover {
     background-color: #0d3060 !important;
-    border-color: #00d4ff !important;
-    color: #00d4ff !important;
+    border-color: #168bd2 !important;
+    color: #168bd2 !important;
 }
 
 /* Multiselect box — the container */
@@ -1005,7 +1104,7 @@ button[kind="primary"] * {
 /* Selected tags (pills) inside multiselect */
 [data-testid="stSidebar"] [data-baseweb="tag"] {
     background-color: #003355 !important;
-    border: 1px solid #00d4ff !important;
+    border: 1px solid #168bd2 !important;
 }
 [data-testid="stSidebar"] [data-baseweb="tag"] span {
     color: #ffffff !important;
@@ -1019,7 +1118,7 @@ button[kind="primary"] * {
 /* Number input +/- buttons */
 [data-testid="stSidebar"] [data-testid="stNumberInputStepDown"],
 [data-testid="stSidebar"] [data-testid="stNumberInputStepUp"] {
-    color: #00d4ff !important;
+    color: #168bd2 !important;
     background-color: #0a2040 !important;
 }
 
@@ -1053,8 +1152,8 @@ button[kind="primary"] * {
     left: 0;
     right: 0;
     z-index: 9999;
-    background: #060d1a;
-    border-top: 1px solid #1e3a5f;
+    background: #000000;
+    border-top: 1px solid #244d73;
     padding: 0.45rem 1.5rem;
     text-align: center;
     font-size: 0.72rem;
@@ -1105,6 +1204,102 @@ button[kind="primary"] * {
 .js-plotly-plot .plotly .main-svg text,
 .js-plotly-plot .plotly .main-svg tspan {
     opacity: 1;
+}
+
+/* Mobile layout shared by every Streamlit page. */
+@media (max-width: 700px) {
+    [data-testid="stMainBlockContainer"] {
+        max-width: 100% !important;
+        padding: 1rem 0.75rem 4rem !important;
+    }
+    [data-testid="stHorizontalBlock"] {
+        flex-wrap: wrap !important;
+        gap: 0.75rem !important;
+    }
+    [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+        flex: 1 1 100% !important;
+        width: 100% !important;
+        min-width: 0 !important;
+    }
+    [data-testid="stVerticalBlock"] {
+        gap: 0.75rem !important;
+    }
+    [data-testid="stSidebar"] {
+        max-width: min(88vw, 21rem) !important;
+    }
+    [data-testid="stSidebar"] button,
+    [data-testid="stMain"] button,
+    [data-testid="stMain"] a {
+        min-height: 44px;
+    }
+    [data-baseweb="tab-list"] {
+        overflow-x: auto !important;
+        overflow-y: hidden !important;
+        flex-wrap: nowrap !important;
+        scrollbar-width: thin;
+    }
+    [data-baseweb="tab"] {
+        flex: 0 0 auto !important;
+        min-height: 44px;
+        padding-left: 0.8rem !important;
+        padding-right: 0.8rem !important;
+    }
+    [role="radiogroup"],
+    [data-testid="stSegmentedControl"] > div {
+        flex-wrap: wrap !important;
+    }
+    [data-testid="stDataFrame"],
+    [data-testid="stTable"],
+    [data-testid="stPlotlyChart"],
+    [data-testid="stImage"],
+    iframe {
+        max-width: 100% !important;
+    }
+    [data-testid="stDataFrame"],
+    [data-testid="stTable"] {
+        overflow-x: auto !important;
+    }
+    [data-testid="stPlotlyChart"] .js-plotly-plot,
+    [data-testid="stPlotlyChart"] .plot-container,
+    [data-testid="stPlotlyChart"] .svg-container {
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+    img,
+    svg {
+        max-width: 100%;
+        height: auto;
+    }
+    h1 {
+        font-size: clamp(1.55rem, 7vw, 2rem) !important;
+        line-height: 1.2 !important;
+    }
+    h2 {
+        font-size: clamp(1.3rem, 6vw, 1.65rem) !important;
+    }
+    h3 {
+        font-size: clamp(1.1rem, 5vw, 1.4rem) !important;
+    }
+    .zgiis-footer {
+        padding-left: 0.75rem;
+        padding-right: 0.75rem;
+        text-align: center;
+        line-height: 1.45;
+    }
+}
+
+@media (max-width: 430px) {
+    [data-testid="stMainBlockContainer"] {
+        padding-left: 0.55rem !important;
+        padding-right: 0.55rem !important;
+    }
+    .hero-metrics-grid-5 {
+        grid-template-columns: 1fr !important;
+    }
+    .mobile-coverage-row {
+        grid-template-columns: 64px minmax(0, 1fr) 24px;
+        gap: 0.45rem;
+    }
 }
 </style>
 """

@@ -4,16 +4,21 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import plotly.graph_objects as go
 import streamlit as st
 
 root = Path(__file__).resolve().parent
 if str(root) not in sys.path:
     sys.path.insert(0, str(root))
 
-logo_path = root / "static" / "zingsa_logo.png"
+optimized_logo_path = root / "static" / "zingsa_logo_optimized.webp"
+logo_path = (
+    optimized_logo_path
+    if optimized_logo_path.exists()
+    else root / "static" / "zingsa_logo.png"
+)
 
 from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS, stations_for_map
+from zgiis.device import is_mobile_request
 from zgiis.maps.station_map import (
     MAP_STYLE_KEYS,
     MAP_STYLE_OPTIONS,
@@ -24,22 +29,24 @@ from zgiis.space_weather.fetch_indices import get_space_weather
 from zgiis.space_weather import metric_explainer
 from zgiis.theme import inject
 
+mobile_request = is_mobile_request(st)
+
 st.set_page_config(
     page_title="GNSS Based TEC Analysis Using Zimbabwe CORS Network",
     page_icon="🛰️",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed" if mobile_request else "expanded",
 )
 inject(st, page_id="home")
 
 # ── Sidebar ──────────────────────────────────────────────────────────────────
 with st.sidebar:
-    if logo_path.exists():
+    if logo_path.exists() and not mobile_request:
         _, logo_col, _ = st.columns([1, 5, 1])
         with logo_col:
             st.image(str(logo_path), width="stretch")
     st.markdown(
-        "<div style='text-align:center;color:#00d4ff;font-weight:900;"
+        "<div style='text-align:center;color:#168bd2;font-weight:900;"
         "font-size:1.05rem;letter-spacing:0.05em;line-height:1.35;"
         "padding:0 0.25rem 0.5rem'>ZINGSA SPACE SCIENCE DEPARTMENT</div>",
         unsafe_allow_html=True,
@@ -54,9 +61,10 @@ with st.sidebar:
     st.page_link("pages/5_TEC_Heatmap.py",       label="🗺️ TEC Heat Map",        )
     st.page_link("pages/6_Space_Weather.py",     label="☀️ Space Weather",       )
     st.page_link("pages/7_TEC_Anomaly_Detection.py", label="🔬 TEC Anomaly Detection", )
-    st.page_link("pages/11_AI_Assistant.py",      label="🤖 AI Assistant",         )
     st.page_link("pages/9_CORS_Hardware.py",     label="📡 CORS Hardware",         )
     st.page_link("pages/10_VTEC_Theory.py",     label="📐 Calculating VTEC",      )
+    st.page_link("pages/12_Live_Pipeline.py",   label="📡 Live Pipeline",         )
+    st.page_link("pages/13_AI_Assistant.py",    label="🤖 AI Assistant",          )
     st.divider()
     st.caption("v1.0.0 · ZINGSA © 2026")
 
@@ -72,7 +80,11 @@ home_metric_renderer = getattr(
     "render_home_hero_metrics",
     metric_explainer.render_sw_metric_cards,
 )
-title_col, logo_col = st.columns([5.2, 0.8], vertical_alignment="top")
+if mobile_request:
+    title_col = st.container()
+    logo_col = None
+else:
+    title_col, logo_col = st.columns([5.2, 0.8], vertical_alignment="top")
 
 with title_col:
     st.markdown(
@@ -82,17 +94,18 @@ with title_col:
     )
     home_metric_renderer(st, sw)
 
-with logo_col:
-    if logo_path.exists():
-        st.markdown("<div class='hero-logo-wrap'>", unsafe_allow_html=True)
-        st.image(str(logo_path), width="stretch")
-        st.markdown("</div>", unsafe_allow_html=True)
-    else:
-        st.markdown(
-            "<div class='hero-logo-wrap' style='text-align:center;color:#ffffff;font-size:0.7rem'>"
-            "Place <code>zingsa_logo.png</code> in <code>static/</code></div>",
-            unsafe_allow_html=True,
-        )
+if logo_col is not None:
+    with logo_col:
+        if logo_path.exists():
+            st.markdown("<div class='hero-logo-wrap'>", unsafe_allow_html=True)
+            st.image(str(logo_path), width="stretch")
+            st.markdown("</div>", unsafe_allow_html=True)
+        else:
+            st.markdown(
+                "<div class='hero-logo-wrap' style='text-align:center;color:#ffffff;font-size:0.7rem'>"
+                "Place <code>zingsa_logo.png</code> in <code>static/</code></div>",
+                unsafe_allow_html=True,
+            )
 
 # ── CORS network map ──────────────────────────────────────────────────────────
 map_hdr, map_style_col, map_risk = st.columns([3, 4, 1])
@@ -127,20 +140,38 @@ with map_risk:
         unsafe_allow_html=True,
     )
 
-render_cors_station_map(
-    st,
-    stations=stations_for_map(sw.get("station_health")),
-    color_by="status",
-    map_style=home_map_style,
-    height=400,
-    show_tec_legend=home_map_style == "tec_heatmap",
-    key="home_cors_map",
-)
-if home_map_style == "tec_heatmap":
+show_home_map = True
+if mobile_request:
+    show_home_map = bool(st.session_state.get("home_mobile_map_loaded"))
+    if not show_home_map:
+        st.info(
+            "Mobile data saver is active. Load the interactive map only when "
+            "you need station details or map layers."
+        )
+        if st.button(
+            "Load interactive CORS map",
+            type="primary",
+            use_container_width=True,
+            key="home_mobile_map_load",
+        ):
+            st.session_state["home_mobile_map_loaded"] = True
+            show_home_map = True
+
+if show_home_map:
+    render_cors_station_map(
+        st,
+        stations=stations_for_map(sw.get("station_health")),
+        color_by="status",
+        map_style=home_map_style,
+        height=300 if mobile_request else 400,
+        show_tec_legend=home_map_style == "tec_heatmap",
+        key="home_cors_map",
+    )
+if show_home_map and home_map_style == "tec_heatmap":
     st.markdown(
         "<div style='display:flex;flex-wrap:wrap;align-items:center;gap:18px;"
         "margin-top:0.4rem;margin-bottom:0.5rem;padding:0.75rem 1rem;"
-        "background:#0d1b2a;border:1px solid #1e3a5f;border-left:4px solid #00d4ff;"
+        "background:#000000;border:1px solid #244d73;border-left:4px solid #168bd2;"
         "border-radius:10px'>"
         # gradient bar
         "<div style='display:flex;flex-direction:column;align-items:center;gap:4px;flex-shrink:0'>"
@@ -189,7 +220,7 @@ nav_card(col4, "🗺️", "TEC Heat Map",      "Interpolated TEC grid over Zimba
 col5, col6, col7 = st.columns(3)
 nav_card(col5, "☀️", "Space Weather",     "Kp · F10.7 · storm alerts",                 "pages/6_Space_Weather.py", "zgiis-card-warn")
 nav_card(col6, "🔬", "TEC Anomaly Detection", "Anomaly · seasonal · solar cycle tools", "pages/7_TEC_Anomaly_Detection.py", "zgiis-card-accent")
-nav_card(col7, "🤖", "AI Assistant",      "Ask TEC AI — ionosphere Q&A",               "pages/11_AI_Assistant.py",  "zgiis-card-ok")
+nav_card(col7, "🤖", "AI Assistant",      "Ask TEC AI — ionosphere Q&A",               "pages/13_AI_Assistant.py",  "zgiis-card-ok")
 
 st.markdown("---")
 
@@ -201,53 +232,80 @@ for station in ZIMBABWE_CORS_STATIONS:
         if constellation in constellation_counts:
             constellation_counts[constellation] += 1
 
-constellation_chart = go.Figure(
-    go.Pie(
-        labels=list(constellation_counts.keys()),
-        values=list(constellation_counts.values()),
-        hole=0.52,
-        domain=dict(x=[0.12, 0.68], y=[0.08, 0.92]),
-        marker=dict(
-            colors=["#0077aa", "#ff8c00", "#00cc66", "#aa33dd"],
-            line=dict(color="#060d1a", width=2),
-        ),
-        textinfo="percent",
-        texttemplate="%{percent:.1%}",
-        textposition="inside",
-        insidetextorientation="horizontal",
-        textfont=dict(color="#ffffff", size=16, family="Arial Black"),
-        hovertemplate="<b>%{label}</b><br>%{value} stations<br>%{percent:.1%}<extra></extra>",
-    )
-)
-constellation_chart.update_layout(
-    paper_bgcolor="#060d1a",
-    plot_bgcolor="#060d1a",
-    font=dict(color="#ffffff", size=14),
-    uniformtext=dict(minsize=16, mode="show"),
-    legend=dict(
-        bgcolor="#0d1b2a",
-        bordercolor="#1e3a5f",
-        borderwidth=1,
-        font=dict(color="#ffffff", size=14),
-        x=0.74,
-        y=0.78,
-    ),
-    height=360,
-    margin=dict(t=5, b=10, l=10, r=10),
-    annotations=[
-        dict(
-            text="Constellations",
-            x=0.4,
-            y=0.5,
-            font_size=14,
-            showarrow=False,
-            font_color="#ffffff",
+if mobile_request:
+    maximum_count = max(constellation_counts.values(), default=1)
+    coverage_colors = {
+        "GPS": "#0077aa",
+        "GLONASS": "#ff8c00",
+        "Galileo": "#00cc66",
+        "BeiDou": "#aa33dd",
+    }
+    coverage_rows = "".join(
+        (
+            "<div class='mobile-coverage-row'>"
+            f"<div class='mobile-coverage-label'>{name}</div>"
+            "<div class='mobile-coverage-track'>"
+            f"<div class='mobile-coverage-fill' style='width:{count * 100 / maximum_count:.1f}%;"
+            f"background:{coverage_colors[name]}'></div></div>"
+            f"<div class='mobile-coverage-value'>{count}</div>"
+            "</div>"
         )
-    ],
-)
-chart_left, chart_center, chart_right = st.columns([1, 3, 1])
-with chart_center:
-    st.plotly_chart(constellation_chart, width="stretch")
+        for name, count in constellation_counts.items()
+    )
+    st.markdown(
+        f"<div class='mobile-coverage-card'>{coverage_rows}</div>",
+        unsafe_allow_html=True,
+    )
+else:
+    import plotly.graph_objects as go
+
+    constellation_chart = go.Figure(
+        go.Pie(
+            labels=list(constellation_counts.keys()),
+            values=list(constellation_counts.values()),
+            hole=0.52,
+            domain=dict(x=[0.12, 0.68], y=[0.08, 0.92]),
+            marker=dict(
+                colors=["#0077aa", "#ff8c00", "#00cc66", "#aa33dd"],
+                line=dict(color="#000000", width=2),
+            ),
+            textinfo="percent",
+            texttemplate="%{percent:.1%}",
+            textposition="inside",
+            insidetextorientation="horizontal",
+            textfont=dict(color="#ffffff", size=16, family="Arial Black"),
+            hovertemplate="<b>%{label}</b><br>%{value} stations<br>%{percent:.1%}<extra></extra>",
+        )
+    )
+    constellation_chart.update_layout(
+        paper_bgcolor="#000000",
+        plot_bgcolor="#000000",
+        font=dict(color="#ffffff", size=14),
+        uniformtext=dict(minsize=16, mode="show"),
+        legend=dict(
+            bgcolor="#000000",
+            bordercolor="#244d73",
+            borderwidth=1,
+            font=dict(color="#ffffff", size=14),
+            x=0.74,
+            y=0.78,
+        ),
+        height=360,
+        margin=dict(t=5, b=10, l=10, r=10),
+        annotations=[
+            dict(
+                text="Constellations",
+                x=0.4,
+                y=0.5,
+                font_size=14,
+                showarrow=False,
+                font_color="#ffffff",
+            )
+        ],
+    )
+    chart_left, chart_center, chart_right = st.columns([1, 3, 1])
+    with chart_center:
+        st.plotly_chart(constellation_chart, width="stretch")
 
 st.markdown("---")
 
@@ -267,7 +325,7 @@ for _col, _title, _count, _range, _note, _title_color, _border_color in [
 ]:
     with _col:
         st.markdown(
-            f"<div style='background:#0d1b2a;border:1px solid #1e3a5f;"
+            f"<div style='background:#000000;border:1px solid #244d73;"
             f"border-left:4px solid {_border_color};border-radius:10px;"
             f"padding:1.1rem 1.3rem;margin-bottom:0.7rem'>"
             f"<div style='font-size:1rem;font-weight:800;color:#ffffff;margin-bottom:0.5rem'>{_title}</div>"

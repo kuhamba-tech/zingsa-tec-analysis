@@ -23,7 +23,7 @@ inject(st, page_id="vtec_theory")
 
 
 # ─── helpers ──────────────────────────────────────────────────────────────────
-def _step(num: str, title: str, accent: str = "#00d4ff") -> None:
+def _step(num: str, title: str, accent: str = "#168bd2") -> None:
     st.markdown(
         f"<div style='display:flex;align-items:center;gap:0.9rem;margin:2rem 0 0.6rem'>"
         f"<div style='background:{accent};color:#000000;font-size:0.72rem;font-weight:900;"
@@ -35,9 +35,9 @@ def _step(num: str, title: str, accent: str = "#00d4ff") -> None:
     )
 
 
-def _card(body: str, border: str = "#1e3a5f") -> None:
+def _card(body: str, border: str = "#244d73") -> None:
     st.markdown(
-        f"<div style='background:#0d1b2a;border:1px solid {border};"
+        f"<div style='background:#000000;border:1px solid {border};"
         f"border-left:4px solid {border};border-radius:10px;"
         f"padding:1.1rem 1.3rem;margin-bottom:0.5rem;color:#ffffff;"
         f"font-size:0.88rem;line-height:1.7'>{body}</div>",
@@ -56,15 +56,15 @@ def _why(text: str) -> None:
 
 def _vars(rows: list[tuple[str, str]]) -> None:
     html = (
-        "<div style='background:#060d1a;border:1px solid #1e3a5f;border-radius:8px;"
+        "<div style='background:#000000;border:1px solid #244d73;border-radius:8px;"
         "padding:0.8rem 1rem;margin:0.5rem 0'>"
-        "<div style='font-size:0.68rem;color:#00d4ff;font-weight:800;text-transform:uppercase;"
+        "<div style='font-size:0.68rem;color:#168bd2;font-weight:800;text-transform:uppercase;"
         "letter-spacing:0.08em;margin-bottom:0.5rem'>Variable key</div>"
         "<table style='border-collapse:collapse;width:100%'>"
     )
     for sym, meaning in rows:
         html += (
-            f"<tr><td style='color:#00d4ff;padding:0.18rem 1rem 0.18rem 0;"
+            f"<tr><td style='color:#168bd2;padding:0.18rem 1rem 0.18rem 0;"
             f"font-size:0.80rem;white-space:nowrap;vertical-align:top'>{sym}</td>"
             f"<td style='color:#ffffff;font-size:0.80rem;line-height:1.5'>{meaning}</td></tr>"
         )
@@ -80,7 +80,7 @@ def _eq_label(label: str) -> None:
     )
 
 
-def _explain(card_body: str, why_text: str, step_id: str, border: str = "#1e3a5f") -> None:
+def _explain(card_body: str, why_text: str, step_id: str, border: str = "#244d73") -> None:
     """Concept text on the left, illustration on the right."""
     text_col, fig_col = st.columns([5, 4], gap="medium")
     with text_col:
@@ -92,10 +92,10 @@ def _explain(card_body: str, why_text: str, step_id: str, border: str = "#1e3a5f
 
 # ─── Hero ─────────────────────────────────────────────────────────────────────
 st.markdown(
-    "<div style='background:linear-gradient(135deg,#0a1628,#0d2240,#071020);"
-    "border:1px solid #1e3a5f;border-left:5px solid #00d4ff;border-radius:14px;"
+    "<div style='background:linear-gradient(135deg,#000000,#000000,#000000);"
+    "border:1px solid #244d73;border-left:5px solid #168bd2;border-radius:14px;"
     "padding:2rem 2.2rem;margin-bottom:0.5rem'>"
-    "<div style='font-size:0.72rem;color:#00d4ff;font-weight:800;letter-spacing:0.12em;"
+    "<div style='font-size:0.72rem;color:#168bd2;font-weight:800;letter-spacing:0.12em;"
     "text-transform:uppercase;margin-bottom:0.4rem'>ZGIIS · Ionospheric TEC Theory</div>"
     "<div style='font-size:2rem;font-weight:900;color:#ffffff;line-height:1.2;"
     "margin-bottom:0.6rem'>📐 Calculating Vertical TEC (VTEC)</div>"
@@ -113,7 +113,7 @@ st.markdown(
 )
 
 st.markdown(
-    "<div style='font-size:0.82rem;color:#ffffff;background:#0d1b2a;border:1px solid #1e3a5f;"
+    "<div style='font-size:0.82rem;color:#ffffff;background:#000000;border:1px solid #244d73;"
     "border-radius:8px;padding:0.8rem 1.1rem;margin-bottom:0.6rem'>"
     "📖 &nbsp;<strong>Reading order:</strong> Steps 1 → 10 follow the exact computational "
     "sequence implemented in GPS_TEC v3.5. Each step builds on the previous one. "
@@ -127,7 +127,7 @@ render_pipeline_overview_cards()
 # ══════════════════════════════════════════════════════════════════════════════
 # STEP 1 — Ionospheric Delay
 # ══════════════════════════════════════════════════════════════════════════════
-_step("1", "Ionospheric Delay on a Trans-Ionospheric Signal", "#00d4ff")
+_step("1", "Ionospheric Delay on a Trans-Ionospheric Signal", "#168bd2")
 
 _explain(
     "GNSS signals are radio waves. As they pass through the ionosphere — a layer of "
@@ -139,7 +139,7 @@ _explain(
     "can occur. At GPS L1, a TEC of 100 TECU causes ~16 m of range error. "
     "Quantifying δρ is the foundation of all TEC estimation.",
     "1",
-    border="#00d4ff",
+    border="#168bd2",
 )
 
 st.latex(r"""
@@ -302,7 +302,7 @@ _vars([
 # ══════════════════════════════════════════════════════════════════════════════
 # STEP 5 — Cycle Slip Detection & Correction
 # ══════════════════════════════════════════════════════════════════════════════
-_step("5", "Cycle Slip Detection and Correction", "#00d4ff")
+_step("5", "Cycle Slip Detection and Correction", "#168bd2")
 
 _explain(
     "Before levelling, the phase TEC arc must be free of <strong>cycle slips</strong> — "
@@ -318,7 +318,7 @@ _explain(
     "phase TEC arc, which would corrupt the levelling offset calculated in Step 5. "
     "Slip correction is mandatory before any subsequent processing.",
     "5",
-    border="#00d4ff",
+    border="#168bd2",
 )
 
 st.latex(r"""
@@ -472,7 +472,7 @@ _vars([
 # ══════════════════════════════════════════════════════════════════════════════
 # STEP 9 — VTEC: The Final Result
 # ══════════════════════════════════════════════════════════════════════════════
-_step("9", "Vertical TEC (VTEC) — The Final Ionospheric Product", "#00d4ff")
+_step("9", "Vertical TEC (VTEC) — The Final Ionospheric Product", "#168bd2")
 
 _explain(
     "All previous steps converge here. Subtracting the satellite and receiver DCBs from TEC_R "
@@ -486,7 +486,7 @@ _explain(
     "and satellites, used to detect geomagnetic storm effects and equatorial plasma bubbles, "
     "and fed into RTK/PPP corrections to improve positioning accuracy across the Zimbabwe CORS network.",
     "9",
-    border="#00d4ff",
+    border="#168bd2",
 )
 
 st.latex(r"""
@@ -564,14 +564,14 @@ _vars([
 # ══════════════════════════════════════════════════════════════════════════════
 st.markdown("---")
 st.markdown(
-    "<div style='font-size:0.72rem;color:#00d4ff;font-weight:800;letter-spacing:0.12em;"
+    "<div style='font-size:0.72rem;color:#168bd2;font-weight:800;letter-spacing:0.12em;"
     "text-transform:uppercase;margin-bottom:0.8rem'>Complete Computation Pipeline</div>",
     unsafe_allow_html=True,
 )
 
 st.markdown(
     """
-    <div style='background:#0d1b2a;border:1px solid #1e3a5f;border-radius:12px;
+    <div style='background:#000000;border:1px solid #244d73;border-radius:12px;
                 padding:1.5rem;font-family:monospace;font-size:0.82rem;color:#ffffff;
                 line-height:2.1'>
       <span style='color:#ffffff;font-weight:700'>RINEX obs file</span>

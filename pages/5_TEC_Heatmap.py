@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -13,9 +14,9 @@ root = Path(__file__).resolve().parents[1]
 if str(root) not in sys.path:
     sys.path.insert(0, str(root))
 
-from zgiis.api.cors_client import fetch_live_tec_stations
-from zgiis.cors.stations import normalize_station_status
+from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS, normalize_station_status
 from zgiis.maps.interpolation import interpolate_tec, make_plotly_heatmap_trace
+from zgiis.maps.station_map import map_style_from_label, render_cors_station_map
 from zgiis.theme import inject
 
 st.set_page_config(
@@ -27,9 +28,9 @@ inject(st, page_id="tec_heatmap")
 
 with st.sidebar:
     st.markdown("### Heat Map Controls")
-    map_style = st.selectbox(
-        "Map style",
-        ["carto-darkmatter", "open-street-map", "carto-positron"],
+    selected_layer = st.selectbox(
+        "Map layer",
+        ["Hybrid", "Satellite", "Street", "TEC Heat Map"],
         index=0,
     )
     interp_method = st.selectbox(
@@ -53,25 +54,81 @@ st.markdown(
 st.caption("Live telemetry-backed Total Electron Content (VTEC) over Zimbabwe")
 st.markdown("---")
 
-live_tec = fetch_live_tec_stations(country="Zimbabwe")
-sdf = pd.DataFrame(live_tec["stations"])
+map_style = map_style_from_label(selected_layer)
+
+
+@st.cache_resource(show_spinner=False)
+def _get_db():
+    try:
+        from zgiis.db.timescale import TecDB
+        return TecDB()
+    except Exception:
+        return None
+
+
+def _local_vtec_stations(hours: float = 2.0) -> pd.DataFrame:
+    db = _get_db()
+    if db is None:
+        return pd.DataFrame()
+    try:
+        summary = db.station_summary(hours=hours)
+    except Exception:
+        return pd.DataFrame()
+    if summary.empty:
+        return pd.DataFrame()
+
+    station_lookup = {station.code.lower(): station for station in ZIMBABWE_CORS_STATIONS}
+    rows = []
+    for _, row in summary.iterrows():
+        code = str(row.get("station", "")).lower().rstrip("_")
+        station = station_lookup.get(code)
+        if station is None:
+            continue
+        rows.append(
+            {
+                "name": station.name,
+                "code": station.code,
+                "lat": station.lat,
+                "lon": station.lon,
+                "vtec": float(row["mean_vtec"]),
+                "status": "online",
+                "data_source": "local live pipeline",
+                "obs_count": int(row.get("obs_count") or 0),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+sdf = _local_vtec_stations(hours=2.0)
 
 if sdf.empty:
     st.error("Live TEC map unavailable")
     st.warning(
-        f"{live_tec['reason']} No archive, climatology-model, hard-coded, "
-        "or randomly generated TEC values are displayed as live data."
+        "No recent VTEC observations were found in the local live-pipeline database. "
+        "The map below shows configured Zimbabwe CORS station locations only; "
+        "no archive, model, hard-coded, or randomly generated TEC values are displayed as live data."
+    )
+    unavailable_stations = [
+        replace(station, status="unknown", current_tec=0.0)
+        for station in ZIMBABWE_CORS_STATIONS
+    ]
+    render_cors_station_map(
+        st,
+        stations=unavailable_stations,
+        color_by="status",
+        map_style=map_style,
+        height=520,
+        show_tec_legend=False,
+        key="tec_heatmap_unavailable",
     )
     st.caption(
-        f"Production source: {live_tec.get('api_base') or 'ZINGSA CORS API'}"
-        f" | Live telemetry stations: {live_tec['telemetry_live']}"
-        f" | API check: {live_tec.get('updated_utc') or 'unavailable'}"
+        "Click any station marker for station name, coordinates, receiver height, "
+        "and supported GNSS constellations. Grey markers mean live TEC telemetry is unavailable."
     )
     st.stop()
 
 st.success(
-    f"Live CORS telemetry | {len(sdf)} station VTEC observations"
-    f" | Updated {live_tec.get('updated_utc') or 'time unavailable'}"
+    f"Local live pipeline | {len(sdf)} station VTEC observations from the last 2 hours"
 )
 
 traces: list[go.BaseTraceType] = []
@@ -135,14 +192,24 @@ if show_stations:
     )
 
 fig = go.Figure(data=traces)
+plotly_map_styles = {
+    "hybrid": "carto-darkmatter",
+    "satellite": "carto-darkmatter",
+    "street": "open-street-map",
+    "tec_heatmap": "carto-darkmatter",
+}
 fig.update_layout(
-    mapbox={"style": map_style, "center": {"lat": -19.0, "lon": 29.8}, "zoom": 5.6},
+    mapbox={
+        "style": plotly_map_styles.get(map_style, "carto-darkmatter"),
+        "center": {"lat": -19.0, "lon": 29.8},
+        "zoom": 5.6,
+    },
     margin={"l": 0, "r": 0, "t": 0, "b": 0},
     height=560,
-    paper_bgcolor="#060d1a",
+    paper_bgcolor="#000000",
     legend={
-        "bgcolor": "#0d1b2a",
-        "bordercolor": "#1e3a5f",
+        "bgcolor": "#000000",
+        "bordercolor": "#244d73",
         "font_color": "#ffffff",
     },
 )
@@ -172,13 +239,13 @@ if show_gradient and interp_ok:
     )
     gradient_fig.update_layout(
         mapbox={
-            "style": map_style,
+            "style": plotly_map_styles.get(map_style, "carto-darkmatter"),
             "center": {"lat": -19.0, "lon": 29.8},
             "zoom": 5.6,
         },
         margin={"l": 0, "r": 0, "t": 0, "b": 0},
         height=400,
-        paper_bgcolor="#060d1a",
+        paper_bgcolor="#000000",
     )
     st.plotly_chart(gradient_fig, use_container_width=True)
 

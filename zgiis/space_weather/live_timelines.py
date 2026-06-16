@@ -34,7 +34,7 @@ def build_timeline_figure(
     df: pd.DataFrame,
     *,
     y_title: str,
-    line_color: str = "#00d4ff",
+    line_color: str = "#168bd2",
     y_range: Optional[tuple[float, float]] = None,
     zones: Optional[list[tuple[float, float, str]]] = None,
     threshold: Optional[tuple[float, str, str]] = None,
@@ -68,19 +68,19 @@ def build_timeline_figure(
         )
     yaxis: dict[str, Any] = {
         "title": dict(text=y_title, font=dict(color="#ffffff")),
-        "gridcolor": "#1e3a5f",
+        "gridcolor": "#244d73",
         "tickfont": dict(color="#ffffff"),
     }
     if y_range is not None:
         yaxis["range"] = list(y_range)
     fig.update_layout(
-        paper_bgcolor="#060d1a",
-        plot_bgcolor="#0d1b2a",
+        paper_bgcolor="#000000",
+        plot_bgcolor="#000000",
         font_color="#ffffff",
         yaxis=yaxis,
         xaxis=dict(
             title=dict(text="UTC", font=dict(color="#ffffff")),
-            gridcolor="#1e3a5f",
+            gridcolor="#244d73",
             tickfont=dict(color="#ffffff"),
             tickformat="%H:%M",
         ),
@@ -100,7 +100,7 @@ def render_live_timeline(
     value_key: str,
     source: str,
     y_title: str,
-    line_color: str = "#00d4ff",
+    line_color: str = "#168bd2",
     y_range: Optional[tuple[float, float]] = None,
     zones: Optional[list[tuple[float, float, str]]] = None,
     threshold: Optional[tuple[float, str, str]] = None,
