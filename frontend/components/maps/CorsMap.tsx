@@ -1,0 +1,163 @@
+"use client";
+import { useEffect, useRef } from "react";
+import type { Station } from "@/lib/types";
+import type { MapLayer } from "./CorsMapWithLayers";
+
+interface Props {
+  stations: Station[];
+  height?: number;
+  layer?: MapLayer;
+}
+
+const STATUS_COLOR: Record<string, string> = {
+  online: "#00ff88",
+  degraded: "#ff8c00",
+  offline: "#ff4444",
+  unknown: "#666",
+};
+
+const TILE_URLS: Record<MapLayer, string> = {
+  "Hybrid":       "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+  "Satellite":    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+  "Street":       "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+  "TEC Heat Map": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+};
+
+// Hybrid adds a labels overlay on top of satellite
+const LABEL_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}";
+
+export default function CorsMap({ stations, height = 420, layer = "Hybrid" }: Props) {
+  const mapRef    = useRef<HTMLDivElement>(null);
+  const popupRef  = useRef<HTMLDivElement>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const olMapRef  = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const baseTileRef  = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const labelTileRef = useRef<any>(null);
+
+  // ── Initial map creation ──────────────────────────────────────────────────
+  useEffect(() => {
+    const container = mapRef.current;
+    const popupEl   = popupRef.current;
+    if (!container || !popupEl) return;
+
+    let disposed = false;
+
+    (async () => {
+      const ol          = await import("ol");
+      const { fromLonLat }   = await import("ol/proj");
+      const TileLayer        = (await import("ol/layer/Tile")).default;
+      const VectorLayer      = (await import("ol/layer/Vector")).default;
+      const VectorSource     = (await import("ol/source/Vector")).default;
+      const XYZ             = (await import("ol/source/XYZ")).default;
+      const Feature          = (await import("ol/Feature")).default;
+      const Point            = (await import("ol/geom/Point")).default;
+      const { Style, Circle, Fill, Stroke, Text } = await import("ol/style");
+      const Overlay          = (await import("ol/Overlay")).default;
+      const View             = (await import("ol/View")).default;
+
+      if (disposed || olMapRef.current) return;
+
+      const baseTile = new TileLayer({
+        source: new XYZ({ url: TILE_URLS[layer], attributions: "Esri / OSM" }),
+        zIndex: 0,
+      });
+      const labelTile = new TileLayer({
+        source: new XYZ({ url: LABEL_URL }),
+        visible: layer === "Hybrid",
+        zIndex: 1,
+      });
+
+      const features = stations.map((s) => {
+        const f = new Feature({ geometry: new Point(fromLonLat([s.lon, s.lat])), station: s });
+        f.setStyle(new Style({
+          image: new Circle({
+            radius: 7,
+            fill: new Fill({ color: STATUS_COLOR[s.status] ?? "#666" }),
+            stroke: new Stroke({ color: "#fff", width: 1.5 }),
+          }),
+          text: new Text({
+            text: s.code.toUpperCase(),
+            offsetY: -14,
+            fill: new Fill({ color: "#fff" }),
+            stroke: new Stroke({ color: "#000", width: 3 }),
+            font: "bold 10px sans-serif",
+          }),
+        }));
+        return f;
+      });
+
+      const popup = new Overlay({ element: popupEl, positioning: "bottom-center", offset: [0, -14] });
+
+      const map = new ol.Map({
+        target: container,
+        layers: [baseTile, labelTile, new VectorLayer({ source: new VectorSource({ features }), zIndex: 2 })],
+        view: new View({ center: fromLonLat([29.5, -19.0]), zoom: 6 }),
+        overlays: [popup],
+        controls: [],
+      });
+
+      // OpenLayers' typed overloads are stricter than the runtime event map here.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (map as any).on("pointermove", (evt: { pixel: [number, number]; coordinate: number[] }) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const f = map.forEachFeatureAtPixel(evt.pixel, (feat: any) => feat);
+        if (f) {
+          const s: Station = f.get("station");
+          popupEl.innerHTML = `<b>${s.code.toUpperCase()}</b> — ${s.name}<br>Status: ${s.status}<br>TEC: ${s.current_tec != null ? s.current_tec.toFixed(2) + " TECU" : "N/A"}`;
+          popup.setPosition(evt.coordinate);
+          popupEl.style.display = "block";
+        } else {
+          popupEl.style.display = "none";
+          popup.setPosition(undefined);
+        }
+      });
+
+      olMapRef.current  = map;
+      baseTileRef.current  = baseTile;
+      labelTileRef.current = labelTile;
+    })();
+
+    return () => {
+      disposed = true;
+      if (olMapRef.current) { olMapRef.current.dispose(); olMapRef.current = null; }
+      baseTileRef.current  = null;
+      labelTileRef.current = null;
+      if (popupEl) { popupEl.style.display = "none"; popupEl.innerHTML = ""; }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // mount once
+
+  // ── Swap tile layer when `layer` prop changes ────────────────────────────
+  useEffect(() => {
+    if (!baseTileRef.current || !labelTileRef.current) return;
+    (async () => {
+      const XYZ = (await import("ol/source/XYZ")).default;
+      baseTileRef.current.setSource(new XYZ({ url: TILE_URLS[layer], attributions: "Esri / OSM" }));
+      labelTileRef.current.setVisible(layer === "Hybrid");
+    })();
+  }, [layer]);
+
+  return (
+    <div style={{ position: "relative", width: "100%", height }}>
+      <div ref={mapRef} className="map-container" style={{ width: "100%", height }} />
+      <div
+        ref={popupRef}
+        style={{
+          display: "none",
+          position: "absolute",
+          background: "#0a0f1a",
+          border: "1px solid #244d73",
+          borderRadius: "8px",
+          padding: "0.6rem 0.9rem",
+          fontSize: "0.8rem",
+          color: "#fff",
+          pointerEvents: "none",
+          minWidth: "140px",
+          zIndex: 10,
+        }}
+      />
+    </div>
+  );
+}
