@@ -62,7 +62,7 @@ export default async function HomePage() {
         <h2 style={{ fontSize: "0.78rem", fontWeight: 700, marginBottom: "0.8rem", color: "var(--text-muted)", letterSpacing: "0.08em", textTransform: "uppercase" }}>
           Analysis Modules
         </h2>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "0.75rem" }}>
+        <div className="analysis-modules-grid">
           {MODULES.map(({ href, icon, title, desc }) => (
             <Link key={href} href={href} style={{ textDecoration: "none" }}>
               <div className="card card-accent" style={{ cursor: "pointer" }}>
