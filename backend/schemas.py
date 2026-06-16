@@ -202,6 +202,14 @@ class StationLiveStatus(BaseModel):
     last_vtec: float | None = None
 
 
+class LivePipelineStatus(BaseModel):
+    ntrip_configured: bool = False
+    active_streams: int = 0
+    streams: dict[str, Any] = {}
+    db_backend: str = "sqlite"
+    record_count: int = 0
+
+
 # ── Forecast ───────────────────────────────────────────────────────────────────
 
 class ForecastStatus(BaseModel):

@@ -260,6 +260,11 @@ def _embed_svg(svg: str, css_class: str, alt: str) -> str:
     )
 
 
+def get_ipp_svg() -> str:
+    """Raw IPP geometry SVG for Next.js / API consumers."""
+    return _ipp_svg()
+
+
 def render_ipp_diagram_block() -> str:
     img = _embed_svg(_ipp_svg(), "ipp-geom-img", "Ionospheric pierce point geometry")
     return f"<div class='ipp-geom-card'>{img}</div>"

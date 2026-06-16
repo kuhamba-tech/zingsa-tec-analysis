@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import base64
 import math
+import re
+from typing import Any
 
 _FONT = "Arial,Helvetica,sans-serif"
 _BG = "#000000"
@@ -14,6 +16,20 @@ _W = 340
 _H = 280
 
 _ILLUSTRATIONS: dict[str, tuple[str, str]] = {}
+
+STEP_META: dict[str, dict[str, str]] = {
+    "1": {"num": "1", "short": "Ionospheric delay", "accent": "#168bd2"},
+    "2": {"num": "2", "short": "Refractive index", "accent": "#00ff88"},
+    "3": {"num": "3", "short": "STEC definition", "accent": "#a78bfa"},
+    "4": {"num": "4", "short": "Code TEC", "accent": "#f472b6"},
+    "4b": {"num": "4b", "short": "Phase TEC", "accent": "#f59e0b"},
+    "5": {"num": "5", "short": "Cycle slips", "accent": "#168bd2"},
+    "6": {"num": "6", "short": "Levelling", "accent": "#00ff88"},
+    "7": {"num": "7", "short": "DCB correction", "accent": "#ef4444"},
+    "8": {"num": "8", "short": "Mapping S(E)", "accent": "#f59e0b"},
+    "9": {"num": "9", "short": "VTEC formula", "accent": "#168bd2"},
+    "10": {"num": "10", "short": "IPP location", "accent": "#00ff88"},
+}
 
 
 def _register(step_id: str, caption: str, svg: str) -> None:
@@ -28,21 +44,168 @@ def _embed_svg(svg: str, css_class: str = "vtec-illus-img") -> str:
     )
 
 
-def render_vtec_illustration(step_id: str) -> str:
+def _svg_canvas_height(svg: str) -> int:
+    match = re.search(r'viewBox="0\s+0\s+(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)"', svg)
+    if match:
+        return max(int(float(match.group(2))), _H)
+    return _H
+
+
+def _illustration_card_html(step_id: str) -> tuple[str, int]:
+    """Build illustration card HTML and suggested iframe height."""
     caption, svg = _ILLUSTRATIONS[step_id]
+    meta = STEP_META.get(step_id, {})
+    accent = meta.get("accent", "#168bd2")
+    num = meta.get("num", step_id)
+    short = meta.get("short", "")
+    badge = (
+        f'<div class="vtec-illus-step-badge" style="border-color:{accent};color:{accent}">'
+        f"STEP {num}</div>"
+    )
+    title = f'<div class="vtec-illus-step-title">{short}</div>' if short else ""
     card_class = "vtec-illus-card"
-    img_class = "vtec-illus-img"
     if step_id == "9":
         card_class += " vtec-step9-card"
-        img_class += " vtec-step9-img"
-    elif step_id == "pipeline":
-        card_class += " vtec-pipeline-card"
-        img_class += " vtec-pipeline-img"
-    return (
-        f"<div class='{card_class}'>"
-        f"<div class='vtec-illus-caption'>{caption}</div>"
-        f"{_embed_svg(svg, css_class=img_class)}"
+    elif step_id == "10":
+        card_class += " vtec-step10-card"
+    svg_h = _svg_canvas_height(svg)
+    iframe_h = svg_h + 130
+    html = (
+        f'<div class="{card_class}">'
+        f"{badge}{title}"
+        f'<div class="vtec-illus-caption">{caption}</div>'
+        f'<div class="vtec-illus-svg-wrap">{svg}</div>'
         f"</div>"
+    )
+    return html, iframe_h
+
+
+def render_vtec_illustration_streamlit(st_module: Any, step_id: str) -> None:
+    """Render via iframe — Streamlit strips data-URI images from markdown HTML."""
+    import streamlit.components.v1 as components
+
+    if step_id not in _ILLUSTRATIONS:
+        st_module.warning(f"No illustration registered for step {step_id!r}.")
+        return
+
+    card_html, iframe_h = _illustration_card_html(step_id)
+    components.html(
+        f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"/>
+<style>
+  html, body {{
+    margin: 0;
+    padding: 0;
+    background: {_BG};
+    color: #ffffff;
+    font-family: Arial, Helvetica, sans-serif;
+    overflow: hidden;
+  }}
+  .vtec-illus-card {{
+    background: #000000;
+    border: 1px solid #244d73;
+    border-radius: 12px;
+    padding: 0.75rem 0.7rem 0.65rem;
+    box-sizing: border-box;
+  }}
+  .vtec-illus-step-badge {{
+    display: inline-block;
+    font-size: 0.65rem;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    padding: 0.22rem 0.55rem;
+    border-radius: 20px;
+    border: 1.5px solid #168bd2;
+    margin-bottom: 0.35rem;
+  }}
+  .vtec-illus-step-title {{
+    color: #ffffff;
+    font-size: 0.82rem;
+    font-weight: 800;
+    margin-bottom: 0.35rem;
+  }}
+  .vtec-illus-caption {{
+    color: #ffffff;
+    font-size: 0.78rem;
+    line-height: 1.45;
+    margin-bottom: 0.5rem;
+  }}
+  .vtec-illus-svg-wrap {{
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }}
+  .vtec-illus-svg-wrap svg {{
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    height: auto;
+  }}
+</style></head>
+<body>{card_html}</body></html>""",
+        height=iframe_h,
+        scrolling=False,
+    )
+
+
+def get_illustration(step_id: str) -> dict[str, str]:
+    """Framework-agnostic illustration payload (Next.js / API / static HTML)."""
+    if step_id not in _ILLUSTRATIONS:
+        raise KeyError(f"Unknown illustration step: {step_id!r}")
+    caption, svg = _ILLUSTRATIONS[step_id]
+    meta = STEP_META.get(step_id, {})
+    return {
+        "step_id": step_id,
+        "caption": caption,
+        "svg": svg,
+        "num": meta.get("num", step_id),
+        "short": meta.get("short", ""),
+        "accent": meta.get("accent", "#168bd2"),
+    }
+
+
+def get_journey_pills() -> list[dict[str, str]]:
+    """Structured 10-step roadmap for React (no Streamlit HTML)."""
+    order = ["1", "2", "3", "4", "4b", "5", "6", "7", "8", "9", "10"]
+    return [
+        {
+            "num": STEP_META[step_id]["num"],
+            "short": STEP_META[step_id]["short"],
+            "accent": STEP_META[step_id]["accent"],
+        }
+        for step_id in order
+    ]
+
+
+def render_vtec_illustration(step_id: str) -> str:
+    """HTML card with inline SVG — works in Next.js and any HTML renderer."""
+    card_html, _ = _illustration_card_html(step_id)
+    return card_html
+
+
+def render_vtec_steps_journey() -> str:
+    """Horizontal 10-step roadmap — theory reading order at a glance."""
+    pills: list[str] = []
+    order = ["1", "2", "3", "4", "4b", "5", "6", "7", "8", "9", "10"]
+    for i, step_id in enumerate(order):
+        meta = STEP_META[step_id]
+        accent = meta["accent"]
+        pills.append(
+            f"<div class='vtec-journey-pill' style='--pill-accent:{accent}'>"
+            f"<span class='vtec-journey-num'>{meta['num']}</span>"
+            f"<span class='vtec-journey-label'>{meta['short']}</span>"
+            f"</div>"
+        )
+        if i < len(order) - 1:
+            pills.append("<div class='vtec-journey-arrow' aria-hidden='true'>→</div>")
+    return (
+        "<div class='vtec-steps-journey-wrap'>"
+        "<div class='vtec-steps-journey-title'>"
+        "10-step VTEC derivation — follow left to right"
+        "</div>"
+        f"<div class='vtec-steps-journey'>{''.join(pills)}</div>"
+        "</div>"
     )
 
 
@@ -727,5 +890,45 @@ _register(
     "pipeline",
     "Full GPS_TEC v3.5 pipeline: RINEX in, geo-located VTEC maps out.",
     _pipeline_svg(),
+)
+
+
+def _step10_svg() -> str:
+    """IPP on globe — receiver, pierce point, and geographic coordinates."""
+    g = _earth_scene(ox=118, oy=200, re=58, shell_r=88, station_angle=200, sat_angle=315, sat_dist=1.5)
+    ix = g["shell_x"]
+    iy = g["shell_y"]
+    return _canvas(
+        _arrow_defs("s10-arr", "#00ff88")
+        + _earth_disk(g, label="Earth")
+        + _iono_arc(g)
+        + _station_marker(g, "CORS Rx")
+        + _satellite_marker(g, "SV")
+        + f"""
+  <line x1="{g['sat_x']:.1f}" y1="{g['sat_y']:.1f}" x2="{g['sx']:.1f}" y2="{g['sy']:.1f}"
+        stroke="#e2e8f0" stroke-width="2.4" marker-end="url(#s10-arr)"/>
+  <circle cx="{ix:.1f}" cy="{iy:.1f}" r="7" fill="#ff8c00" stroke="#ffffff" stroke-width="1.2"/>
+  <line x1="{g['ox']:.1f}" y1="{g['oy']:.1f}" x2="{ix:.1f}" y2="{iy:.1f}"
+        stroke="#64748b" stroke-width="1.2" stroke-dasharray="4,3"/>
+  <rect x="198" y="28" width="128" height="52" rx="8" fill="#000000" stroke="#00ff88" stroke-width="1.4"/>
+  <text x="262" y="48" text-anchor="middle" fill="#00ff88" font-size="11" font-weight="800"
+        font-family="{_FONT}">IPP coordinates</text>
+  <text x="262" y="66" text-anchor="middle" fill="{_WHITE}" font-size="10" font-family="{_FONT}">
+    lat φ_pp , lon λ_pp
+  </text>
+  <text x="262" y="82" text-anchor="middle" fill="#ffffff" font-size="9" font-family="{_FONT}">
+    from E, A, φ_u, λ_u
+  </text>
+  <text x="{ix + 14:.1f}" y="{iy - 6:.1f}" fill="#ff8c00" font-size="10" font-weight="700"
+        font-family="{_FONT}">IPP</text>
+  {_footer("Each VTEC value is tagged to this pierce point")}
+"""
+    )
+
+
+_register(
+    "10",
+    "The IPP is where the signal crosses the thin shell — VTEC is geo-located there.",
+    _step10_svg(),
 )
 

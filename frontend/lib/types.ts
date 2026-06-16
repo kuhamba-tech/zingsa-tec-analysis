@@ -169,6 +169,14 @@ export interface StationLiveStatus {
   last_vtec: number | null;
 }
 
+export interface LivePipelineStatus {
+  ntrip_configured: boolean;
+  active_streams: number;
+  streams: Record<string, unknown>;
+  db_backend: string;
+  record_count: number;
+}
+
 // ── Forecast ──────────────────────────────────────────────────────────────────
 export interface ForecastStatus {
   torch_ok: boolean;
@@ -188,3 +196,62 @@ export interface ForecastPoint {
 // ── Chat ──────────────────────────────────────────────────────────────────────
 export interface ChatMessage { role: "user" | "assistant"; content: string; }
 export interface ChatResponse { reply: string; context_injected: boolean; }
+
+// ── VTEC Theory ───────────────────────────────────────────────────────────────
+export interface TheoryEquation {
+  latex: string;
+  number: string;
+  caption: string;
+}
+
+export interface TheoryVariable {
+  symbol: string;
+  meaning: string;
+}
+
+export interface TheoryIllustration {
+  step_id: string;
+  caption: string;
+  svg: string;
+  num: string;
+  short: string;
+  accent: string;
+}
+
+export interface TheoryJourneyPill {
+  num: string;
+  short: string;
+  accent: string;
+}
+
+export interface TheoryPipelineStage {
+  label: string;
+  icon: string;
+}
+
+export interface TheoryStep {
+  id: string;
+  title: string;
+  accent: string;
+  body: string;
+  why: string;
+  equations: TheoryEquation[];
+  variables: TheoryVariable[];
+  illustration: TheoryIllustration;
+  ipp_detail?: boolean;
+}
+
+export interface VtecTheoryPayload {
+  citation: string;
+  journey: TheoryJourneyPill[];
+  pipeline_stages: TheoryPipelineStage[];
+  computation_pipeline: ComputationPipeline;
+  steps: TheoryStep[];
+  ipp: { svg: string; legend_html: string };
+}
+
+export interface ComputationPipeline {
+  inputs: string[];
+  stages: { label: string; ref: string }[];
+  output: string;
+}

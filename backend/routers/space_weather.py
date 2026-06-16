@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import datetime as dt
+
 from fastapi import APIRouter, Depends
 
 from backend.deps import require_api_key
@@ -10,6 +12,7 @@ from backend.schemas import (
     SpaceWeatherTimelines,
     TimelinePoint,
 )
+from backend.timeline_cache import merge_timeline
 
 router = APIRouter(prefix="/space-weather", tags=["space-weather"])
 
@@ -126,12 +129,51 @@ async def timelines(_=Depends(require_api_key)):
             out.append(TimelinePoint(t=str(p["time_tag"]), v=v))
         return out
 
+    def _single_current_point(value: object, timestamp: object) -> list[TimelinePoint]:
+        if value is None:
+            return []
+        try:
+            v = float(value)
+        except (TypeError, ValueError):
+            return []
+        t = str(timestamp or dt.datetime.utcnow().replace(microsecond=0).isoformat())
+        return [TimelinePoint(t=t, v=v)]
+
+    def _use_live_series_or_current_snapshot(
+        raw: list | None,
+        value_key: str,
+        current_value: object,
+        timestamp: object,
+    ) -> list[TimelinePoint]:
+        points = _pts_keyed(raw, value_key)
+        values = {point.v for point in points if point.v is not None}
+        if len(points) > 1 and len(values) > 1:
+            return points
+        return _single_current_point(current_value, timestamp)
+
+    kp = merge_timeline("kp", _pts_kp(sw.get("kp_history")))
+    dst = merge_timeline("dst", _pts_keyed(sw.get("dst_history"), "dst"))
+    f107 = merge_timeline("f107", _pts_keyed(sw.get("f107_history"), "flux"))
+    solar_wind = merge_timeline(
+        "solar_wind",
+        _pts_keyed(sw.get("solar_wind_history"), "speed"),
+    )
+    s4 = merge_timeline(
+        "s4",
+        _use_live_series_or_current_snapshot(
+            sw.get("s4_history"),
+            "s4",
+            sw.get("s4"),
+            sw.get("updated_utc") or sw.get("timestamp"),
+        ),
+    )
+
     return SpaceWeatherTimelines(
-        kp=_pts_kp(sw.get("kp_history")),
-        dst=_pts_keyed(sw.get("dst_history"), "dst"),
-        f107=_pts_keyed(sw.get("f107_history"), "flux"),
-        solar_wind=_pts_keyed(sw.get("solar_wind_history"), "speed"),
-        s4=_pts_keyed(sw.get("s4_history"), "s4"),
+        kp=kp,
+        dst=dst,
+        f107=f107,
+        solar_wind=solar_wind,
+        s4=s4,
         gnss_risk=_pts_keyed(sw.get("gnss_risk_history"), "risk_score"),
         stations_online=_pts_keyed(sw.get("stations_online_history"), "online"),
     )

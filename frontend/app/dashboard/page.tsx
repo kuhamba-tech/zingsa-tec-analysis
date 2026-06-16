@@ -102,6 +102,15 @@ function timelineValues(points: TimelinePoint[]) {
   return points.map((point) => point.v ?? 0);
 }
 
+function safePoints(points: TimelinePoint[] | undefined) {
+  return Array.isArray(points) ? points : [];
+}
+
+function liveSource(source: string, points: TimelinePoint[]) {
+  const latest = points.at(-1)?.t;
+  return latest ? `${source} ${points.length} API points. Latest sample: ${latest} UTC.` : source;
+}
+
 function TimelinePanel({
   title,
   points,
@@ -165,6 +174,7 @@ export default function DashboardPage() {
   const [tl, setTl] = useState<SpaceWeatherTimelines | null>(null);
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState("");
+  const [apiStatus, setApiStatus] = useState<"Live" | "Offline">("Live");
 
   const load = useCallback(async () => {
     try {
@@ -172,17 +182,28 @@ export default function DashboardPage() {
       setSw(swData);
       setTl(tlData);
       setLastUpdated(new Date().toUTCString().slice(0, 25));
+      setApiStatus("Live");
     } catch {
       // The cards keep their empty state if the API is temporarily offline.
+      setApiStatus("Offline");
     }
     setLoading(false);
   }, []);
 
   useEffect(() => {
     load();
+    const id = window.setInterval(load, 60000);
+    return () => window.clearInterval(id);
   }, [load]);
 
   const kpColor = sw?.kp_color ?? "#168bd2";
+  const kpPoints = safePoints(tl?.kp);
+  const dstPoints = safePoints(tl?.dst);
+  const f107Points = safePoints(tl?.f107);
+  const solarWindPoints = safePoints(tl?.solar_wind);
+  const s4Points = safePoints(tl?.s4);
+  const gnssRiskPoints = safePoints(tl?.gnss_risk);
+  const stationsOnlinePoints = safePoints(tl?.stations_online);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.4rem" }}>
@@ -204,7 +225,11 @@ export default function DashboardPage() {
         </button>
       </div>
 
-      {lastUpdated && <p style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>Updated {lastUpdated} UTC</p>}
+      {lastUpdated && (
+        <p style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
+          Updated {lastUpdated} UTC - API status: {apiStatus} - graphs refresh every 60 seconds
+        </p>
+      )}
 
       <div className="dashboard-metric-grid">
         <MetricCard label="Kp Index" value={sw?.kp?.toFixed(1) ?? null} sub="Planetary activity" color={kpColor} variant="ok" />
@@ -230,60 +255,61 @@ export default function DashboardPage() {
 
       <ScaleReference />
 
-      {tl && tl.kp.length > 0 && (
+      {kpPoints.length > 0 && (
         <div className="card operations-chart-card">
           <div className="operations-chart-title">7-Day Index Timelines</div>
           <LineChart
-            labels={timelineLabels(tl.kp)}
+            labels={timelineLabels(kpPoints)}
             datasets={[
-              { label: "Kp", data: timelineValues(tl.kp), color: "#168bd2" },
-              { label: "Dst (nT)", data: timelineValues(tl.dst), color: "#ff8c00" },
+              { label: "Kp", data: timelineValues(kpPoints), color: "#168bd2" },
+              { label: "Dst (nT)", data: timelineValues(dstPoints), color: "#ff8c00" },
             ]}
             yLabel="Index value"
             height={260}
           />
+          <p className="operations-source">{liveSource("Source: /space-weather/timelines Kp and Dst API feed.", kpPoints)}</p>
         </div>
       )}
 
       <section className="operations-timelines">
         <TimelinePanel
           title="Live NOAA F10.7 Solar Flux Timeline"
-          points={tl?.f107 ?? []}
+          points={f107Points}
           color="#168bd2"
           yLabel="F10.7 (sfu)"
-          source="Source: NOAA SWPC F10.7 cm flux feed."
+          source={liveSource("Source: /space-weather/timelines NOAA SWPC F10.7 cm flux API feed.", f107Points)}
           empty="Live NOAA F10.7 solar flux feed is unavailable."
         />
         <TimelinePanel
           title="Live NOAA Solar Wind Timeline"
-          points={tl?.solar_wind ?? []}
+          points={solarWindPoints}
           color="#168bd2"
           yLabel="Speed (km/s)"
-          source="Source: NOAA SWPC solar-wind plasma feed."
+          source={liveSource("Source: /space-weather/timelines NOAA SWPC solar-wind plasma API feed.", solarWindPoints)}
           empty="Live NOAA solar-wind plasma feed is unavailable."
         />
         <TimelinePanel
           title="Live Scintillation S4 Timeline"
-          points={tl?.s4 ?? []}
+          points={s4Points}
           color="#168bd2"
           yLabel="S4 Index"
-          source="Source: ZINGSA CORS ionosphere archive current observed snapshot."
+          source={liveSource("Source: /space-weather/timelines ZINGSA CORS S4 live/backfilled API feed.", s4Points)}
           empty="Live scintillation S4 telemetry is unavailable."
         />
         <TimelinePanel
           title="Live GNSS Risk Timeline"
-          points={tl?.gnss_risk ?? []}
+          points={gnssRiskPoints}
           color="#168bd2"
           yLabel="Risk Level"
-          source="Source: Derived from NOAA Kp feed using ZINGSA GNSS risk thresholds."
+          source={liveSource("Source: /space-weather/timelines derived GNSS risk API feed.", gnssRiskPoints)}
           empty="Live GNSS risk timeline is unavailable."
         />
         <TimelinePanel
           title="Live CORS Stations Online Timeline"
-          points={tl?.stations_online ?? []}
+          points={stationsOnlinePoints}
           color="#00ff88"
           yLabel="Stations Online"
-          source="Source: Live ZINGSA CORS telemetry station-count feed."
+          source={liveSource("Source: /space-weather/timelines live ZINGSA CORS station-count API feed.", stationsOnlinePoints)}
           empty="Live CORS telemetry is unavailable - no station count timeline."
         />
       </section>

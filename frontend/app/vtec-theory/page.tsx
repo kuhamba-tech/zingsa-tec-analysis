@@ -1,77 +1,207 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { getVtecTheory } from "@/lib/api";
+import type { VtecTheoryPayload } from "@/lib/types";
+import IllustrationCard from "@/components/theory/IllustrationCard";
+import LatexEquation from "@/components/theory/LatexEquation";
+
 export default function VtecTheoryPage() {
-  const STAGES = [
-    { n: "1", title: "Load RINEX / CMN",     formula: null,                                                            desc: "Read observation (.rnx) and navigation (.nav) files. Extract L1, L2 pseudorange and carrier-phase per epoch per PRN." },
-    { n: "2", title: "Cycle Slip Detection",  formula: "ΔΦ = Φ₁ − Φ₂ (epoch-to-epoch)",                               desc: "Detect abrupt phase jumps > 0.5 TECU. Correct or discard affected epochs to maintain phase continuity." },
-    { n: "3", title: "DCB Correction",        formula: "TECU_corr = TECU_obs − DCB_sat − DCB_rcv",                    desc: "Apply CODE/IGS daily P1-P2 differential code biases. 1 ns DCB ≈ 2.854 TECU at GPS frequencies." },
-    { n: "4", title: "Receiver Bias Removal", formula: "VTEC_unbiased = VTEC − bias_rcv",                             desc: "Estimate receiver P1-P2 bias from scatter in code-derived TEC. Typically ±5 TECU per receiver." },
-    { n: "5", title: "STEC from Phase",       formula: "STEC = (f₁²·f₂²) / (40.3·(f₁²−f₂²)) · (λ₁Φ₁ − λ₂Φ₂)",   desc: "Convert carrier-phase difference to slant TEC along line-of-sight to each satellite. (Gopi Eq. 4.12)" },
-    { n: "6", title: "VTEC via Mapping",      formula: "VTEC = STEC · √(1 − (Rₑ cos E / (Rₑ+H))²)",                 desc: "Apply single-layer mapping function at IPP height H = 350 km, elevation E. (Gopi Eq. 4.17)" },
-    { n: "7", title: "TEC Maps & Storage",    formula: null,                                                            desc: "Interpolate VTEC from 24 CORS stations onto regular lat/lon grid over Zimbabwe. Store in TimescaleDB." },
-  ];
+  const [data, setData] = useState<VtecTheoryPayload | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    getVtecTheory()
+      .then(setData)
+      .catch((e) => setError(String(e)))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="page-title" style={{ padding: "2rem 0" }}>
+        Loading VTEC Theory…
+      </div>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <div className="banner banner-alert">
+        Could not load theory content. Ensure the ZGIIS API is running on port 8000.
+        {error ? ` (${error})` : ""}
+      </div>
+    );
+  }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "1.4rem" }}>
-      <div>
-        <h1 className="page-title">📚 VTEC Theory & Equations</h1>
-        <p className="page-subtitle">Step-by-step pipeline from RINEX observation to vertical TEC — following Singh & Tiwari (2022) Chapter 4</p>
+    <div className="vtec-theory-page">
+      <header className="vtec-theory-hero">
+        <div className="vtec-theory-hero-kicker">ZGIIS · Ionospheric TEC Theory</div>
+        <h1 className="page-title">📐 Calculating Vertical TEC (VTEC)</h1>
+        <p className="page-subtitle">
+          A step-by-step derivation from dual-frequency GNSS observations, following Gopi Krishna
+          Seemala — Singh &amp; Tiwari (2022), Chapter 4. Equations numbered (4.1–4.22) with
+          illustrations on each step.
+        </p>
+        <p className="vtec-theory-freq-note">
+          GPS L1 = 1575.42 MHz · GPS L2 = 1227.60 MHz · 1 TECU = 10¹⁶ electrons m⁻²
+        </p>
+      </header>
+
+      <div className="banner banner-info vtec-theory-reading-note">
+        <strong>Reading order:</strong> Steps 1 → 10 follow the GPS_TEC v3.5 computational
+        sequence. Each step builds on the previous one. Use the roadmap below, then scroll through
+        the detailed steps with diagrams on the right.
       </div>
 
-      {/* IPP geometry diagram */}
-      <div className="card card-accent">
-        <div className="metric-label" style={{ marginBottom: "0.8rem" }}>Ionospheric Pierce Point (IPP) Geometry</div>
-        <svg viewBox="0 0 500 220" style={{ width: "100%", maxWidth: "560px", display: "block" }}>
-          {/* Earth */}
-          <ellipse cx="250" cy="260" rx="280" ry="120" fill="#0a1a2a" stroke="#244d73" strokeWidth="1.5" />
-          <text x="250" y="200" textAnchor="middle" fill="#ffffff" fontSize="12">Earth (Rₑ = 6371 km)</text>
-          {/* Ionospheric shell */}
-          <ellipse cx="250" cy="80" rx="270" ry="40" fill="none" stroke="#168bd2" strokeWidth="1" strokeDasharray="6 3" opacity="0.6" />
-          <text x="490" y="84" textAnchor="end" fill="#168bd2" fontSize="11">Shell H = 350 km</text>
-          {/* Satellite */}
-          <circle cx="420" cy="20" r="8" fill="#ff8c00" />
-          <text x="432" y="25" fill="#ff8c00" fontSize="12">Satellite</text>
-          {/* Receiver */}
-          <circle cx="90" cy="178" r="6" fill="#00ff88" />
-          <text x="60" y="195" fill="#00ff88" fontSize="11">Receiver</text>
-          {/* LOS */}
-          <line x1="90" y1="178" x2="420" y2="20" stroke="#ffffff" strokeWidth="1.5" />
-          {/* IPP */}
-          <circle cx="260" cy="78" r="5" fill="#ff4444" />
-          <text x="268" y="74" fill="#ff4444" fontSize="11">IPP</text>
-          {/* Elevation arc */}
-          <text x="108" y="168" fill="#a78bfa" fontSize="11">E°</text>
-          {/* Zenith line */}
-          <line x1="90" y1="178" x2="90" y2="80" stroke="#444" strokeWidth="1" strokeDasharray="3 3" />
-          {/* Labels */}
-          <text x="175" y="130" fill="#ffffff" fontSize="11" transform="rotate(-28 175 130)">STEC (slant path)</text>
-          <line x1="90" y1="178" x2="260" y2="78" stroke="none" />
-          <line x1="260" y1="78" x2="260" y2="178" stroke="#168bd2" strokeWidth="1.5" strokeDasharray="4 2" />
-          <text x="270" y="132" fill="#168bd2" fontSize="11">VTEC</text>
-        </svg>
-      </div>
+      <section className="vtec-steps-journey-wrap">
+        <div className="vtec-steps-journey-title">
+          10-step VTEC derivation — follow left to right
+        </div>
+        <div className="vtec-steps-journey">
+          {data.journey.map((pill, i) => (
+            <span key={pill.num} style={{ display: "contents" }}>
+              <div
+                className="vtec-journey-pill"
+                style={{ ["--pill-accent" as string]: pill.accent }}
+              >
+                <span className="vtec-journey-num">{pill.num}</span>
+                <span className="vtec-journey-label">{pill.short}</span>
+              </div>
+              {i < data.journey.length - 1 ? (
+                <span className="vtec-journey-arrow" aria-hidden>
+                  →
+                </span>
+              ) : null}
+            </span>
+          ))}
+        </div>
+      </section>
 
-      {/* Pipeline stages */}
-      <div style={{ display: "flex", flexDirection: "column", gap: "0.7rem" }}>
-        {STAGES.map((s) => (
-          <div key={s.n} className="card" style={{ display: "flex", gap: "1rem", alignItems: "flex-start" }}>
-            <div style={{ width: "2rem", height: "2rem", background: "var(--accent)", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, flexShrink: 0, color: "#000" }}>
-              {s.n}
-            </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 700, marginBottom: "0.25rem" }}>{s.title}</div>
-              {s.formula && (
-                <div style={{ fontFamily: "monospace", fontSize: "0.82rem", color: "var(--accent)", background: "#0d1b2a", padding: "0.3rem 0.6rem", borderRadius: "5px", marginBottom: "0.35rem", overflowX: "auto" }}>
-                  {s.formula}
-                </div>
-              )}
-              <div style={{ fontSize: "0.83rem", color: "var(--text-muted)", lineHeight: 1.55 }}>{s.desc}</div>
-            </div>
+      <section className="pipeline-overview-cards">
+        {data.pipeline_stages.map((stage) => (
+          <div key={stage.label} className="pipeline-overview-card">
+            <span
+              className="pipeline-overview-icon"
+              dangerouslySetInnerHTML={{ __html: stage.icon }}
+            />
+            <span>{stage.label}</span>
           </div>
         ))}
-      </div>
+      </section>
 
-      <div className="banner banner-info" style={{ fontSize: "0.8rem" }}>
-        Reference: Singh, A.K. &amp; Tiwari, S. (2022). <em>GNSS-Based TEC Analysis</em>, Chapter 4: Ionospheric TEC Estimation. All equations implemented in <code>tec_core.py</code>.
-      </div>
+      {data.steps.map((step) => (
+        <section key={step.id} className="vtec-theory-step">
+          <div className="vtec-theory-step-header">
+            <span className="vtec-theory-step-badge" style={{ background: step.accent }}>
+              STEP {step.id.toUpperCase()}
+            </span>
+            <h2 className="vtec-theory-step-title">{step.title}</h2>
+          </div>
+
+          <div className="vtec-theory-step-grid">
+            <div className="vtec-theory-step-text">
+              <div
+                className="card vtec-theory-body-card"
+                style={{ borderLeftColor: step.accent }}
+              >
+                <p>{step.body}</p>
+              </div>
+              <div className="vtec-why-box">
+                <span className="vtec-why-label">Why this matters · </span>
+                <span>{step.why}</span>
+              </div>
+
+              {step.equations.map((eq) => (
+                <LatexEquation
+                  key={eq.number}
+                  latex={eq.latex}
+                  number={eq.number}
+                  caption={eq.caption}
+                />
+              ))}
+
+              {step.variables.length > 0 ? (
+                <div className="vtec-vars-wrap">
+                  <div className="vtec-vars-title">Where</div>
+                  <table className="vtec-vars-table">
+                    <tbody>
+                      {step.variables.map((row) => (
+                        <tr key={row.symbol}>
+                          <td
+                            className="vtec-vars-sym"
+                            dangerouslySetInnerHTML={{ __html: row.symbol }}
+                          />
+                          <td
+                            className="vtec-vars-meaning"
+                            dangerouslySetInnerHTML={{ __html: row.meaning }}
+                          />
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
+
+              {step.ipp_detail ? (
+                <div className="vtec-ipp-detail">
+                  <div className="vtec-ipp-detail-title">Detailed IPP geometry reference</div>
+                  <div className="vtec-ipp-detail-grid">
+                    <div className="ipp-geom-card">
+                      <div
+                        className="ipp-geom-svg-wrap"
+                        dangerouslySetInnerHTML={{ __html: data.ipp.svg }}
+                      />
+                    </div>
+                    <div
+                      className="ipp-geom-legend-wrap"
+                      dangerouslySetInnerHTML={{ __html: data.ipp.legend_html }}
+                    />
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            <aside className="vtec-theory-step-figure">
+              <div className="vtec-figure-label">Illustration</div>
+              <IllustrationCard illustration={step.illustration} />
+            </aside>
+          </div>
+        </section>
+      ))}
+
+      <section className="vtec-computation-pipeline">
+        <div className="vtec-computation-pipeline-title">Complete Computation Pipeline</div>
+        <div className="vtec-computation-pipeline-box">
+          <div className="vtec-pipeline-inputs">
+            {data.computation_pipeline.inputs.map((item, i) => (
+              <span key={item}>
+                {i > 0 ? " + " : ""}
+                <strong>{item}</strong>
+              </span>
+            ))}
+          </div>
+          <div className="vtec-pipeline-connector">│</div>
+          {data.computation_pipeline.stages.map((stage, i) => (
+            <div key={stage.label}>
+              <div className="vtec-pipeline-stage">
+                <strong>
+                  {String.fromCharCode(0x2460 + i)} {stage.label}
+                </strong>
+                <em>← {stage.ref}</em>
+              </div>
+              <div className="vtec-pipeline-connector">│</div>
+            </div>
+          ))}
+          <div className="vtec-pipeline-output">
+            <strong>Output: {data.computation_pipeline.output}</strong>
+          </div>
+        </div>
+      </section>
+
+      <footer className="banner banner-info vtec-theory-citation">{data.citation}</footer>
     </div>
   );
 }

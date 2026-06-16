@@ -367,6 +367,88 @@ h1 *, h2 *, h3 *, h4 *, h5 *, h6 *,
     color: #ffffff !important;
 }
 
+/* ── VTEC Theory — textbook display equations ── */
+.vtec-eq-wrap {
+    margin: 0.85rem 0 0.65rem;
+    padding: 1rem 1.35rem 0.85rem;
+    background: rgba(8, 18, 32, 0.92);
+    border: 1px solid #244d73;
+    border-radius: 10px;
+    box-shadow: inset 0 1px 0 rgba(22, 139, 210, 0.12);
+}
+.vtec-eq-wrap + .vtec-eq-wrap {
+    margin-top: 0.55rem;
+}
+div[data-testid="stMarkdownContainer"] .vtec-eq-wrap div.katex-display {
+    margin: 0 !important;
+    padding: 0.35rem 0.5rem !important;
+    background: transparent !important;
+    border: none !important;
+    border-radius: 0 !important;
+    text-align: center !important;
+    overflow-x: auto !important;
+}
+div[data-testid="stMarkdownContainer"] .vtec-eq-wrap .katex {
+    color: #ffffff !important;
+    font-size: 1.12em !important;
+}
+div[data-testid="stMarkdownContainer"] .vtec-eq-wrap .katex .tag {
+    color: #63c7ff !important;
+    font-size: 0.92em !important;
+    font-weight: 700 !important;
+    padding-left: 1rem !important;
+}
+.vtec-eq-caption {
+    text-align: center;
+    color: #94a3b8;
+    font-size: 0.8rem;
+    font-style: italic;
+    line-height: 1.45;
+    margin-top: 0.55rem;
+    padding-top: 0.45rem;
+    border-top: 1px solid rgba(36, 77, 115, 0.55);
+}
+.vtec-vars-wrap {
+    background: #000000;
+    border: 1px solid #244d73;
+    border-radius: 8px;
+    padding: 0.8rem 1rem;
+    margin: 0.5rem 0 0.75rem;
+}
+.vtec-vars-title {
+    font-size: 0.68rem;
+    color: #168bd2;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 0.5rem;
+}
+.vtec-vars-table {
+    border-collapse: collapse;
+    width: 100%;
+}
+.vtec-vars-table td {
+    vertical-align: top;
+    padding: 0.22rem 0;
+    font-size: 0.8rem;
+    line-height: 1.5;
+}
+.vtec-vars-sym {
+    color: #63c7ff;
+    padding-right: 1rem;
+    white-space: nowrap;
+    font-family: "Times New Roman", Times, serif;
+    font-style: italic;
+    font-size: 0.92rem;
+}
+.vtec-vars-sym sub,
+.vtec-vars-sym sup {
+    font-size: 0.72em;
+}
+.vtec-vars-meaning {
+    color: #ffffff;
+}
+
 /* ── VTEC Theory IPP geometry diagram ── */
 .ipp-geom-card {
     background: #000000;
@@ -477,6 +559,81 @@ h1 *, h2 *, h3 *, h4 *, h5 *, h6 *,
     line-height: 1.45;
     margin-bottom: 0.5rem;
     padding: 0 0.15rem;
+}
+.vtec-illus-step-badge {
+    display: inline-block;
+    font-size: 0.65rem;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    padding: 0.22rem 0.55rem;
+    border-radius: 20px;
+    border: 1.5px solid #168bd2;
+    margin-bottom: 0.35rem;
+}
+.vtec-illus-step-title {
+    color: #ffffff;
+    font-size: 0.82rem;
+    font-weight: 800;
+    margin-bottom: 0.35rem;
+    padding: 0 0.15rem;
+}
+.vtec-steps-journey-wrap {
+    background: #000000;
+    border: 1px solid #244d73;
+    border-radius: 12px;
+    padding: 0.85rem 1rem 0.75rem;
+    margin: 0.5rem 0 1rem;
+    overflow-x: auto;
+}
+.vtec-steps-journey-title {
+    color: #168bd2;
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 0.65rem;
+}
+.vtec-steps-journey {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem 0.25rem;
+    min-width: min-content;
+}
+.vtec-journey-pill {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-width: 4.6rem;
+    padding: 0.45rem 0.35rem;
+    border-radius: 8px;
+    border: 1px solid #244d73;
+    border-top: 3px solid var(--pill-accent, #168bd2);
+    background: rgba(10, 22, 40, 0.9);
+}
+.vtec-journey-num {
+    color: var(--pill-accent, #168bd2);
+    font-size: 0.72rem;
+    font-weight: 900;
+}
+.vtec-journey-label {
+    color: #ffffff;
+    font-size: 0.58rem;
+    font-weight: 700;
+    text-align: center;
+    line-height: 1.2;
+    margin-top: 0.15rem;
+}
+.vtec-journey-arrow {
+    color: #168bd2;
+    font-size: 0.9rem;
+    font-weight: 800;
+    padding: 0 0.1rem;
+    flex-shrink: 0;
+}
+.vtec-step10-card {
+    min-height: 16rem;
 }
 .vtec-illus-svg,
 .vtec-illus-img {

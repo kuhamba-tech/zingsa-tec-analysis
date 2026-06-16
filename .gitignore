@@ -10,6 +10,10 @@ __pycache__/
 # Streamlit / secrets
 .streamlit/
 secrets.toml
+.env
+*.env
+!.env.example
+!*/.env.example
 
 # Local runtime databases
 static/data/*.db

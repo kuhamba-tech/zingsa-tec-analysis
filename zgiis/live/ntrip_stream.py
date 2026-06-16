@@ -27,6 +27,8 @@ except ImportError:
     _PYRTCM_OK = False
     log.warning("pyrtcm not installed — install with: pip install pyrtcm")
 
+_C_LIGHT = 2.99792458e8  # m/s
+
 # RTCM MSM4/MSM7 message types per constellation
 _MSM_TYPES: dict[str, set[int]] = {
     "GPS":     {1074, 1075, 1076, 1077},
@@ -58,9 +60,19 @@ def _constellation_for(msg_type: int) -> str:
     return "Unknown"
 
 
-def _extract_msm(msg, constellation: str, station: str, epoch: datetime) -> list[dict]:
+# Per-cell DF field names: MSM4/5 use the "plain resolution" set, MSM6/7 use
+# the "extended resolution" set (and add a phase-range-rate field, unused here).
+# See pyrtcm rtcmtypes_get_msm.py MSM_SIG_4..7 / rtcmtypes_core.py DF400-DF408.
+def _msm_field_set(msg_type: int) -> tuple[str, str, str]:
+    sub = msg_type % 10
+    if sub in (6, 7):
+        return ("DF405", "DF406", "DF408")  # pseudorange, phaserange, CNR (extended)
+    return ("DF400", "DF401", "DF403")      # pseudorange, phaserange, CNR (MSM4/5)
+
+
+def _extract_msm(msg, msg_type: int, constellation: str, station: str, epoch: datetime) -> list[dict]:
     """
-    Pull per-signal L1/L2 observations from a pyrtcm MSM4/MSM7 message.
+    Pull per-signal L1/L2 observations from a pyrtcm MSM4-7 message.
     Returns a list of raw observation dicts.
     """
     records: list[dict] = []
@@ -70,28 +82,41 @@ def _extract_msm(msg, constellation: str, station: str, epoch: datetime) -> list
         if nsat == 0 or nsig == 0:
             return records
 
-        # Build rough range per satellite (ms → metres, speed of light = 299792.458 km/s)
-        rough_ranges: list[float] = []
+        pr_field, cp_field, cnr_field = _msm_field_set(msg_type)
+        freq1 = _FREQ1.get(constellation, _FREQ1["GPS"])
+        freq2 = _FREQ2.get(constellation, _FREQ2["GPS"])
+
+        # Rough range per satellite, in milliseconds (DF397 = integer ms,
+        # DF398 = fractional ms modulo 1ms). NOT DF399, which is a Doppler
+        # (phase-range-rate) term and unrelated to range reconstruction.
+        rough_ranges_ms: list[float] = []
         for i in range(1, nsat + 1):
-            int_ms  = getattr(msg, f"DF397_{i:02d}", 0) or 0
-            mod_ms  = getattr(msg, f"DF399_{i:02d}", 0.0) or 0.0
-            rough_ranges.append((int_ms + mod_ms) * 0.001 * 299_792_458.0)
+            int_ms = getattr(msg, f"DF397_{i:02d}", 0) or 0
+            mod_ms = getattr(msg, f"DF398_{i:02d}", 0.0) or 0.0
+            rough_ranges_ms.append(float(int_ms) + float(mod_ms))
 
         # Iterate over cell (satellite × signal) grid
         for cell in range(1, nsat * nsig + 1):
             sat_idx = ((cell - 1) // nsig) + 1
             sig_idx = ((cell - 1) % nsig) + 1
 
-            fine_pr = getattr(msg, f"DF403_{cell:02d}", None)
-            fine_cp = getattr(msg, f"DF404_{cell:02d}", None)
-            if fine_pr is None or fine_cp is None:
+            fine_pr_ms = getattr(msg, f"{pr_field}_{cell:02d}", None)
+            fine_cp_ms = getattr(msg, f"{cp_field}_{cell:02d}", None)
+            if fine_pr_ms is None or fine_cp_ms is None:
                 continue
 
-            cnr = getattr(msg, f"DF420_{cell:02d}", None) or getattr(msg, f"DF402_{cell:02d}", None)
-            lock_time = getattr(msg, f"DF402_{cell:02d}", None)
+            cnr = getattr(msg, f"{cnr_field}_{cell:02d}", None)
+            lock_field = "DF407" if pr_field == "DF405" else "DF402"
+            lock_time = getattr(msg, f"{lock_field}_{cell:02d}", None)
 
-            rough = rough_ranges[sat_idx - 1] if sat_idx <= len(rough_ranges) else 0.0
+            rough_ms = rough_ranges_ms[sat_idx - 1] if sat_idx <= len(rough_ranges_ms) else 0.0
             prn = f"{constellation[0]}{sat_idx:02d}"
+
+            pseudorange_m = (rough_ms + fine_pr_ms) * 1e-3 * _C_LIGHT
+            phaserange_m = (rough_ms + fine_cp_ms) * 1e-3 * _C_LIGHT
+            # freq depends on sig_idx (L1 vs L2); cycles = distance / wavelength
+            freq_hz = freq1 if sig_idx == 1 else freq2
+            carrier_phase_cycles = phaserange_m * freq_hz / _C_LIGHT
 
             records.append({
                 "epoch":              epoch,
@@ -100,12 +125,12 @@ def _extract_msm(msg, constellation: str, station: str, epoch: datetime) -> list
                 "prn":                prn,
                 "sat_idx":            sat_idx,
                 "sig_idx":            sig_idx,
-                "pseudorange_m":      rough + (fine_pr or 0.0),
-                "carrier_phase_cycles": fine_cp,
+                "pseudorange_m":      pseudorange_m,
+                "carrier_phase_cycles": carrier_phase_cycles,
                 "cnr_dbhz":           cnr,
                 "lock_time":          lock_time,
-                "freq1_hz":           _FREQ1.get(constellation, _FREQ1["GPS"]),
-                "freq2_hz":           _FREQ2.get(constellation, _FREQ2["GPS"]),
+                "freq1_hz":           freq1,
+                "freq2_hz":           freq2,
             })
     except Exception as exc:
         log.debug("MSM parse error [%s]: %s", station, exc)
@@ -230,7 +255,7 @@ class StationStream(threading.Thread):
                     continue
 
                 constellation = _constellation_for(msg_type)
-                records = _extract_msm(msg, constellation, self.station, t_recv)
+                records = _extract_msm(msg, msg_type, constellation, self.station, t_recv)
 
                 with self._lock:
                     self._last_seen = t_recv

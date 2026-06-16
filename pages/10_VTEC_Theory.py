@@ -11,7 +11,42 @@ if str(root) not in sys.path:
 
 from zgiis.processing.ipp_diagram import IPP_LEGEND_HTML, render_ipp_diagram_streamlit
 from zgiis.processing.pipeline_explanations import render_pipeline_overview_cards
-from zgiis.processing.vtec_illustrations import render_vtec_illustration
+from zgiis.processing.vtec_illustrations import (
+    render_vtec_illustration,
+    render_vtec_steps_journey,
+)
+from zgiis.processing.vtec_equations import (
+    EQ_4_1,
+    EQ_4_2,
+    EQ_4_3,
+    EQ_4_4,
+    EQ_4_5,
+    EQ_4_8,
+    EQ_4_10,
+    EQ_4_12,
+    EQ_4_13,
+    EQ_4_14,
+    EQ_4_15,
+    EQ_4_16,
+    EQ_4_17,
+    EQ_4_18,
+    EQ_4_19,
+    EQ_4_20,
+    EQ_4_21,
+    EQ_4_22,
+    VARS_STEP_1,
+    VARS_STEP_2,
+    VARS_STEP_3,
+    VARS_STEP_4,
+    VARS_STEP_4B,
+    VARS_STEP_5,
+    VARS_STEP_6,
+    VARS_STEP_7,
+    VARS_STEP_8,
+    VARS_STEP_9,
+    VARS_STEP_10,
+    render_book_equation,
+)
 from zgiis.theme import inject
 
 st.set_page_config(
@@ -56,28 +91,17 @@ def _why(text: str) -> None:
 
 def _vars(rows: list[tuple[str, str]]) -> None:
     html = (
-        "<div style='background:#000000;border:1px solid #244d73;border-radius:8px;"
-        "padding:0.8rem 1rem;margin:0.5rem 0'>"
-        "<div style='font-size:0.68rem;color:#168bd2;font-weight:800;text-transform:uppercase;"
-        "letter-spacing:0.08em;margin-bottom:0.5rem'>Variable key</div>"
-        "<table style='border-collapse:collapse;width:100%'>"
+        "<div class='vtec-vars-wrap'>"
+        "<div class='vtec-vars-title'>Where</div>"
+        "<table class='vtec-vars-table'>"
     )
     for sym, meaning in rows:
         html += (
-            f"<tr><td style='color:#168bd2;padding:0.18rem 1rem 0.18rem 0;"
-            f"font-size:0.80rem;white-space:nowrap;vertical-align:top'>{sym}</td>"
-            f"<td style='color:#ffffff;font-size:0.80rem;line-height:1.5'>{meaning}</td></tr>"
+            f"<tr><td class='vtec-vars-sym'>{sym}</td>"
+            f"<td class='vtec-vars-meaning'>{meaning}</td></tr>"
         )
     html += "</table></div>"
     st.markdown(html, unsafe_allow_html=True)
-
-
-def _eq_label(label: str) -> None:
-    st.markdown(
-        f"<div style='font-size:0.68rem;color:#ffffff;text-align:right;"
-        f"margin-top:-0.3rem;margin-bottom:0.4rem'>{label}</div>",
-        unsafe_allow_html=True,
-    )
 
 
 def _explain(card_body: str, why_text: str, step_id: str, border: str = "#244d73") -> None:
@@ -87,6 +111,12 @@ def _explain(card_body: str, why_text: str, step_id: str, border: str = "#244d73
         _card(card_body, border=border)
         _why(why_text)
     with fig_col:
+        st.markdown(
+            "<div style='font-size:0.68rem;color:#168bd2;font-weight:700;"
+            "letter-spacing:0.06em;text-transform:uppercase;margin-bottom:0.35rem'>"
+            "Illustration</div>",
+            unsafe_allow_html=True,
+        )
         st.markdown(render_vtec_illustration(step_id), unsafe_allow_html=True)
 
 
@@ -117,10 +147,12 @@ st.markdown(
     "border-radius:8px;padding:0.8rem 1.1rem;margin-bottom:0.6rem'>"
     "📖 &nbsp;<strong>Reading order:</strong> Steps 1 → 10 follow the exact computational "
     "sequence implemented in GPS_TEC v3.5. Each step builds on the previous one. "
-    "Equations are numbered as they appear in the source chapter (4.1 – 4.22)."
+    "Equations are numbered (4.1 – 4.22) as in the source chapter and typeset in display form "
+    "with centred expressions and right-aligned equation numbers, as in a textbook."
     "</div>",
     unsafe_allow_html=True,
 )
+st.markdown(render_vtec_steps_journey(), unsafe_allow_html=True)
 render_pipeline_overview_cards()
 
 
@@ -142,17 +174,11 @@ _explain(
     border="#168bd2",
 )
 
-st.latex(r"""
-\delta\rho \;=\; \int_{\mathrm{Sat}}^{\mathrm{Rx}} \!\left(\frac{c}{v} - 1\right) dl
-""")
-_eq_label("Eq. 4.1 — Ionospheric range delay along the line of sight")
-
-_vars([
-    ("c", "Speed of light in vacuum (3 × 10⁸ m s⁻¹)"),
-    ("υ", "Actual propagation velocity of the signal through the ionosphere"),
-    ("dl", "Infinitesimal path element along the ray from satellite (Sat) to receiver (Rx)"),
-    ("δρ", "Ionospheric range delay in metres (positive for code/pseudorange, negative for carrier phase)"),
-])
+render_book_equation(
+    st, EQ_4_1, "4.1",
+    "Ionospheric range delay along the line of sight",
+)
+_vars(VARS_STEP_1)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -175,23 +201,19 @@ _explain(
     border="#00ff88",
 )
 
-st.latex(r"""
-\eta_{p} \;=\; 1 \;-\; \frac{40.3\; N_e}{f^{2}}
-""")
-_eq_label("Phase refractive index (first-order approximation, ω ≫ ω_p)")
-
-st.latex(r"""
-\eta_{g} \;=\; 1 \;+\; \frac{40.3\; N_e}{f^{2}}
-""")
-_eq_label("Group refractive index (first-order approximation)")
-
-_vars([
-    ("η_p", "Phase refractive index (causes carrier phase advance)"),
-    ("η_g", "Group refractive index (causes pseudorange delay)"),
-    ("40.3", "Physical constant = e²/(8π²ε·m) ≈ 40.308 m³ s⁻² (often rounded to 40.3)"),
-    ("N_e", "Free electron number density (electrons m⁻³) at a point along the path"),
-    ("f",   "Carrier frequency in Hz (L1 = 1.57542 × 10⁹ Hz, L2 = 1.2276 × 10⁹ Hz)"),
-])
+render_book_equation(
+    st, EQ_4_2, "4.2",
+    "Appleton–Hartree refractive index (simplified when ω ≫ ω_p)",
+)
+render_book_equation(
+    st, EQ_4_3, "4.3",
+    "Phase refractive index — first-order approximation",
+)
+render_book_equation(
+    st, EQ_4_4, "4.4",
+    "Group refractive index — first-order approximation",
+)
+_vars(VARS_STEP_2)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -214,18 +236,11 @@ _explain(
     border="#a78bfa",
 )
 
-st.latex(r"""
-\delta\rho
-  \;=\; \frac{40.3}{f^{2}} \int_{\mathrm{Sat}}^{\mathrm{Rx}} N_e \, dl
-  \;=\; \frac{40.3}{f^{2}} \cdot \mathrm{STEC}
-""")
-_eq_label("Ionospheric range delay in metres — the link between delay and STEC")
-
-_vars([
-    ("STEC", "Slant Total Electron Content along the oblique line of sight (TECU)"),
-    ("∫N_e dl", "Line integral of electron density from satellite to receiver"),
-    ("f",   "Carrier frequency (Hz) — delay ∝ 1/f², hence the dispersive nature"),
-])
+render_book_equation(
+    st, EQ_4_5, "4.5",
+    "Ionospheric range delay in metres — link between delay and STEC",
+)
+_vars(VARS_STEP_3)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -246,25 +261,15 @@ _explain(
     border="#f472b6",
 )
 
-st.latex(r"""
-C_2 - C_1
-  \;=\; \Delta\rho
-  \;=\; \delta\rho_2 - \delta\rho_1
-  \;=\; \frac{40.3\,\cdot\,\mathrm{TEC}\,(f_1^2 - f_2^2)}{f_1^2\,f_2^2}
-""")
-_eq_label("Differential code delay — all non-dispersive terms cancel")
-
-st.latex(r"""
-\mathrm{TEC}_G \;=\; \frac{f_1^2 \, f_2^2}{40.3\,(f_1^2 - f_2^2)} \,(C_2 - C_1)
-""")
-_eq_label("Absolute (noisy) TEC from dual-frequency pseudoranges")
-
-_vars([
-    ("C₁, C₂", "Pseudorange (code) observations on L1 and L2 (metres)"),
-    ("f₁ = 1575.42 MHz", "GPS L1 frequency"),
-    ("f₂ = 1227.60 MHz", "GPS L2 frequency"),
-    ("TEC_G",  "Code-derived TEC — absolute but noisy (~1–3 TECU RMS noise)"),
-])
+render_book_equation(
+    st, EQ_4_8, "4.8",
+    "Differential code delay — non-dispersive terms cancel",
+)
+render_book_equation(
+    st, EQ_4_10, "4.10",
+    "Absolute (noisy) TEC from dual-frequency pseudoranges",
+)
+_vars(VARS_STEP_4)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -287,16 +292,11 @@ _explain(
     border="#f59e0b",
 )
 
-st.latex(r"""
-\mathrm{TEC}_P \;=\; \frac{f_1^2 \, f_2^2}{40.3\,(f_1^2 - f_2^2)} \,(L_1 - L_2)
-""")
-_eq_label("Precise but ambiguous TEC from dual-frequency carrier phase")
-
-_vars([
-    ("L₁, L₂", "Carrier phase observations on L1 and L2, expressed in metres"),
-    ("TEC_P",  "Phase-derived TEC — precise (~0.003 TECU noise) but with unknown integer offset"),
-    ("Ambiguity", "Unknown integer number of full carrier cycles at tracking start"),
-])
+render_book_equation(
+    st, EQ_4_12, "4.12",
+    "Precise but ambiguous TEC from dual-frequency carrier phase",
+)
+_vars(VARS_STEP_4B)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -321,19 +321,11 @@ _explain(
     border="#168bd2",
 )
 
-st.latex(r"""
-\text{Slip} = \begin{cases}
-  \text{No}  & \text{if } \lvert x_i - x_{i-1} \rvert \;\leq\; \sigma_{10} \\[6pt]
-  \text{Yes} & \text{if } \lvert x_i - x_{i-1} \rvert \;>\; \sigma_{10}
-\end{cases}
-""")
-_eq_label("Adaptive cycle-slip detector — σ₁₀ is std dev of the previous 10 TEC_P samples")
-
-_vars([
-    ("xᵢ",    "Phase TEC (TEC_P) at the current epoch i"),
-    ("x_{i−1}", "Phase TEC at the previous epoch"),
-    ("σ₁₀",  "Standard deviation of TEC_P over the previous 10 samples (dynamic threshold)"),
-])
+render_book_equation(
+    st, EQ_4_13, "4.13",
+    "Adaptive cycle-slip detector — σ₁₀ is the std dev of the previous 10 TEC_P samples",
+)
+_vars(VARS_STEP_5)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -358,29 +350,15 @@ _explain(
     border="#00ff88",
 )
 
-st.latex(r"""
-y_i = \begin{cases}
-  x_i                      & \text{if } \lvert x_i - \mu \rvert < 2\,\sigma \\[6pt]
-  \text{(outlier, remove)} & \text{if } \lvert x_i - \mu \rvert \geq 2\,\sigma
-\end{cases}
-""")
-_eq_label("Outlier rejection using 2σ criterion on arc offsets (xᵢ = TEC_G − TEC_P)")
-
-st.latex(r"""
-\mathrm{TEC}_R \;=\; \mathrm{TEC}_P
-  \;+\; \underbrace{
-    \frac{1}{N}\sum_{i=1}^{N}
-    \!\Bigl(\mathrm{TEC}_{G_i} - \mathrm{TEC}_{P_i}\Bigr)
-  }_{\text{arc ambiguity offset}}
-""")
-_eq_label("Levelled slant TEC — phase precision + code absolute level")
-
-_vars([
-    ("TEC_R",  "Levelled (absolute + precise) slant TEC — the result of this step"),
-    ("N",      "Number of epochs in the single continuous satellite arc (elevation > 20°)"),
-    ("μ, σ",  "Mean and standard deviation of the 1-hour window of arc offsets (for MAD filter)"),
-    ("Arc",    "Continuous sequence of observations from a single PRN without time gaps"),
-])
+render_book_equation(
+    st, EQ_4_14, "4.14",
+    "Outlier rejection using 2σ criterion on arc offsets (xᵢ = TEC_G − TEC_P)",
+)
+render_book_equation(
+    st, EQ_4_15, "4.15",
+    "Levelled slant TEC — phase precision with code absolute level",
+)
+_vars(VARS_STEP_6)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -405,28 +383,15 @@ _explain(
     border="#ef4444",
 )
 
-st.latex(r"""
-\sigma_k(t)
-  \;=\; \sqrt{\,
-    \frac{1}{M_t}
-    \sum_{j=1}^{M_t}
-    \Bigl[\mathrm{VTEC}_j^{\,k}(t) - \overline{\mathrm{VTEC}}^{\,k}(t)\Bigr]^{2}
-  }
-""")
-_eq_label("Spread of VTEC values from all M_t satellites at epoch t, for trial receiver DCB = DCB(k)")
-
-st.latex(r"""
-\sigma_{\mathrm{Total}}(k) \;=\; \sum_{i=1}^{N} \sigma_k(t_i)
-""")
-_eq_label("Sum of spreads over all N epochs of the day — minimised to find optimal receiver DCB")
-
-_vars([
-    ("DCB_Si",  "Differential Code Bias of the i-th satellite (ns or TECU) — from IGS/CODE"),
-    ("DCB_R",   "Receiver Differential Code Bias (ns or TECU) — estimated by minimising σ_Total"),
-    ("M_t",     "Number of satellites in view at epoch t (elevation > 30°)"),
-    ("VTEC_j^k","VTEC from satellite j calculated with trial receiver DCB value DCB(k)"),
-    ("σ_Total", "Total daily spread — the objective function; minimised at the correct DCB"),
-])
+render_book_equation(
+    st, EQ_4_21, "4.21",
+    "Spread of VTEC values from all M_t satellites at epoch t (trial receiver DCB = DCB(k))",
+)
+render_book_equation(
+    st, EQ_4_22, "4.22",
+    "Sum of spreads over all N epochs — minimised to find optimal receiver DCB",
+)
+_vars(VARS_STEP_7)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -453,20 +418,11 @@ _explain(
     border="#f59e0b",
 )
 
-st.latex(r"""
-S(E) \;=\; \left[
-  1 - \left(\frac{R_E \cos E}{R_E + H_{\mathrm{IPP}}}\right)^{\!2}
-\right]^{-\,\frac{1}{2}}
-""")
-_eq_label("Thin-shell obliquity / mapping function — converts slant path to vertical")
-
-_vars([
-    ("S(E)",     "Mapping function — always ≥ 1; equals 1 only when satellite is at zenith"),
-    ("E",        "Satellite elevation angle above the horizon (degrees or radians)"),
-    ("R_E",      "Earth's mean radius ≈ 6378 km"),
-    ("H_IPP",    "Ionospheric pierce point altitude (typically 350–400 km)"),
-    ("cos E",    "Accounts for the oblique path angle through the shell"),
-])
+render_book_equation(
+    st, EQ_4_17, "4.17",
+    "Thin-shell obliquity factor — converts slant path length to vertical",
+)
+_vars(VARS_STEP_8)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -489,19 +445,11 @@ _explain(
     border="#168bd2",
 )
 
-st.latex(r"""
-\mathrm{VTEC}
-  \;=\; \frac{\mathrm{TEC}_R \;-\; \mathrm{DCB}_R \;-\; \mathrm{DCB}_{S_i}}{S(E)}
-""")
-_eq_label("Vertical TEC at the IPP — the central ionospheric product of ZGIIS")
-
-_vars([
-    ("VTEC",   "Vertical Total Electron Content at the IPP location (TECU)"),
-    ("TEC_R",  "Levelled slant TEC from Step 6 (TECU)"),
-    ("DCB_R",  "Receiver hardware bias from Step 7 (TECU)"),
-    ("DCB_Si", "Satellite hardware bias from IGS/CODE for satellite i (TECU)"),
-    ("S(E)",   "Mapping function from Step 8 — removes elevation dependence"),
-])
+render_book_equation(
+    st, EQ_4_16, "4.16",
+    "Vertical TEC at the IPP — the central ionospheric product of ZGIIS",
+)
+_vars(VARS_STEP_9)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -509,54 +457,44 @@ _vars([
 # ══════════════════════════════════════════════════════════════════════════════
 _step("10", "Locating the Ionospheric Pierce Point (IPP) on the Globe", "#00ff88")
 
-_card(
+_explain(
     "Each VTEC value is geo-located at the <strong>IPP</strong> — the geographic position "
     "where the signal crosses the thin ionospheric shell. "
     "Given the receiver's geodetic latitude φᵤ and longitude λᵤ, and the observed "
     "satellite elevation E and azimuth A, the IPP latitude and longitude are computed "
     "using the single-layer model geometry. "
     "Ψ_pp is the Earth-centre angle between the receiver and the IPP's ground projection.",
-    border="#00ff88",
-)
-_why(
     "IPP coordinates allow ZGIIS to plot TEC spatial maps, study the Equatorial Ionisation "
     "Anomaly (EIA) crest movement over Southern Africa, and detect travelling ionospheric "
-    "disturbances (TIDs) by tracking how VTEC changes across the IPP network."
+    "disturbances (TIDs) by tracking how VTEC changes across the IPP network.",
+    "10",
+    border="#00ff88",
 )
 
+st.markdown(
+    "<div style='font-size:0.72rem;color:#00ff88;font-weight:800;letter-spacing:0.08em;"
+    "text-transform:uppercase;margin:1rem 0 0.5rem'>Detailed IPP geometry reference</div>",
+    unsafe_allow_html=True,
+)
 ipp_diag_col, ipp_legend_col = st.columns([3, 2], gap="medium")
 with ipp_diag_col:
     render_ipp_diagram_streamlit(st)
 with ipp_legend_col:
     st.markdown(IPP_LEGEND_HTML, unsafe_allow_html=True)
 
-st.latex(r"""
-\psi_{pp} \;=\; \frac{\pi}{2} - E
-          - \arcsin\!\left(\frac{R_E\,\cos E}{R_E + H_{\mathrm{IPP}}}\right)
-""")
-_eq_label("Earth-centre angle between receiver and IPP ground projection")
-
-st.latex(r"""
-\varphi_{pp} \;=\; \arcsin\!\left(
-  \sin\varphi_u\,\sin\psi_{pp}
-  + \cos\varphi_u\,\cos\psi_{pp}\,\cos A
-\right)
-""")
-_eq_label("Geographic latitude of the IPP")
-
-st.latex(r"""
-\lambda_{pp} \;=\; \lambda_u
-  \;+\; \arcsin\!\left(\frac{\sin\psi_{pp}\,\sin A}{\cos\varphi_{pp}}\right)
-""")
-_eq_label("Geographic longitude of the IPP")
-
-_vars([
-    ("φᵤ, λᵤ",  "Geodetic latitude and longitude of the CORS receiver"),
-    ("E",        "Satellite elevation angle (radians)"),
-    ("A",        "Satellite azimuth angle from North (radians)"),
-    ("Ψ_pp",    "Earth-centre angle (radians) from receiver to IPP ground projection"),
-    ("φ_pp, λ_pp", "Geographic coordinates of the Ionospheric Pierce Point"),
-])
+render_book_equation(
+    st, EQ_4_18, "4.18",
+    "Earth-centre angle between receiver and IPP ground projection",
+)
+render_book_equation(
+    st, EQ_4_19, "4.19",
+    "Geographic latitude of the ionospheric pierce point",
+)
+render_book_equation(
+    st, EQ_4_20, "4.20",
+    "Geographic longitude of the ionospheric pierce point",
+)
+_vars(VARS_STEP_10)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

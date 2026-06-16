@@ -6,23 +6,23 @@ import json
 from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
 
 from backend.deps import require_api_key
-from backend.schemas import LiveObservation, StationLiveStatus
+from backend.schemas import LiveObservation, LivePipelineStatus, StationLiveStatus
 
 router = APIRouter(prefix="/live", tags=["live"])
 
 
 def _db():
     try:
-        from zgiis.db.timescale import TecDB
-        return TecDB()
+        from backend.live_manager import get_db
+        return get_db()
     except Exception:
         return None
 
 
 def _monitor():
     try:
-        from zgiis.live.rtk_monitor import RTKMonitor
-        return RTKMonitor()
+        from backend.live_manager import get_monitor
+        return get_monitor()
     except Exception:
         return None
 
@@ -69,7 +69,7 @@ async def live_stations(_=Depends(require_api_key)):
         if mon:
             try:
                 stats = mon.latency(s.code)
-                lat_ms = stats.get("mean")
+                lat_ms = stats.get("mean_ms")
                 msg_rt = mon.msg_rate(s.code)
                 stale = mon.is_stale(s.code)
             except Exception:
@@ -85,6 +85,24 @@ async def live_stations(_=Depends(require_api_key)):
             last_vtec=s.current_tec,
         ))
     return result
+
+
+@router.get("/pipeline-status", response_model=LivePipelineStatus)
+async def pipeline_status(_=Depends(require_api_key)):
+    from backend.live_manager import status as live_status
+    s = live_status()
+    db = _db()
+    try:
+        record_count = db.record_count() if db else 0
+    except Exception:
+        record_count = 0
+    return LivePipelineStatus(
+        ntrip_configured=s["configured"],
+        active_streams=s["active_streams"],
+        streams=s["streams"],
+        db_backend=s["db_backend"],
+        record_count=record_count,
+    )
 
 
 @router.websocket("/stream")

@@ -30,6 +30,9 @@ export default function ProcessingPage() {
   const [loading, setLoading]   = useState(false);
   const [tab, setTab]           = useState<"cmn" | "rinex">("cmn");
   const [mapLayer, setMapLayer] = useState<MapLayer>("Hybrid");
+  const [cmnName, setCmnName]   = useState("No file selected");
+  const [obsName, setObsName]   = useState("No observation files selected");
+  const [navName, setNavName]   = useState("No navigation files selected");
   const obsRef = useRef<HTMLInputElement>(null);
   const navRef = useRef<HTMLInputElement>(null);
   const cmnRef = useRef<HTMLInputElement>(null);
@@ -92,19 +95,78 @@ export default function ProcessingPage() {
         {tab === "cmn" && (
           <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
             <label style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>Select .Cmn observation file</label>
-            <input ref={cmnRef} type="file" accept=".Cmn,.cmn,.csv"
-              style={{ color: "var(--text)", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "6px", padding: "0.4rem", fontSize: "0.82rem" }} />
+            <div className="file-picker-row">
+              <button type="button" className="file-picker-button" onClick={() => cmnRef.current?.click()}>
+                <span className="file-picker-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24">
+                    <path d="M4 6.5h5l2 2h9v9.5a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8.5a2 2 0 0 1 2-2Z" />
+                    <path d="M12 12v5m-2-2 2 2 2-2" />
+                  </svg>
+                </span>
+                Select file
+              </button>
+              <span className="file-picker-name">{cmnName}</span>
+              <input
+                ref={cmnRef}
+                type="file"
+                accept=".Cmn,.cmn,.csv"
+                className="file-picker-input"
+                onChange={(e) => setCmnName(e.currentTarget.files?.[0]?.name ?? "No file selected")}
+              />
+            </div>
           </div>
         )}
 
         {tab === "rinex" && (
           <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
             <label style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>Observation files (.rnx, .o)</label>
-            <input ref={obsRef} type="file" multiple accept=".rnx,.o,.obs"
-              style={{ color: "var(--text)", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "6px", padding: "0.4rem", fontSize: "0.82rem" }} />
+            <div className="file-picker-row">
+              <button type="button" className="file-picker-button" onClick={() => obsRef.current?.click()}>
+                <span className="file-picker-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24">
+                    <path d="M4 6.5h5l2 2h9v9.5a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8.5a2 2 0 0 1 2-2Z" />
+                    <path d="M12 12v5m-2-2 2 2 2-2" />
+                  </svg>
+                </span>
+                Select files
+              </button>
+              <span className="file-picker-name">{obsName}</span>
+              <input
+                ref={obsRef}
+                type="file"
+                multiple
+                accept=".rnx,.o,.obs"
+                className="file-picker-input"
+                onChange={(e) => {
+                  const files = Array.from(e.currentTarget.files ?? []);
+                  setObsName(files.length ? files.map((file) => file.name).join(", ") : "No observation files selected");
+                }}
+              />
+            </div>
             <label style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>Navigation files (.nav, .n) — optional</label>
-            <input ref={navRef} type="file" multiple accept=".nav,.n,.gnav,.hnav"
-              style={{ color: "var(--text)", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "6px", padding: "0.4rem", fontSize: "0.82rem" }} />
+            <div className="file-picker-row">
+              <button type="button" className="file-picker-button" onClick={() => navRef.current?.click()}>
+                <span className="file-picker-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24">
+                    <path d="M4 6.5h5l2 2h9v9.5a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8.5a2 2 0 0 1 2-2Z" />
+                    <path d="M12 12v5m-2-2 2 2 2-2" />
+                  </svg>
+                </span>
+                Select files
+              </button>
+              <span className="file-picker-name">{navName}</span>
+              <input
+                ref={navRef}
+                type="file"
+                multiple
+                accept=".nav,.n,.gnav,.hnav"
+                className="file-picker-input"
+                onChange={(e) => {
+                  const files = Array.from(e.currentTarget.files ?? []);
+                  setNavName(files.length ? files.map((file) => file.name).join(", ") : "No navigation files selected");
+                }}
+              />
+            </div>
           </div>
         )}
       </div>

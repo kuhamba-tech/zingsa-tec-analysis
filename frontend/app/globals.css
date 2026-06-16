@@ -594,6 +594,63 @@ html, body {
   text-transform: uppercase;
 }
 
+/* Processing file picker */
+.file-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  min-height: 42px;
+  padding: 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: #07101c;
+}
+.file-picker-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex: 0 0 auto;
+  min-height: 32px;
+  padding: 0.38rem 0.85rem;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--accent);
+  color: #000000;
+  cursor: pointer;
+  font-size: 0.84rem;
+  font-weight: 900;
+}
+.file-picker-button:hover {
+  background: #1aa3f0;
+}
+.file-picker-icon {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+}
+.file-picker-icon svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.file-picker-name {
+  min-width: 0;
+  overflow: hidden;
+  color: #ffffff;
+  font-size: 0.84rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-picker-input {
+  display: none;
+}
+
 /* TEC anomaly workspace */
 .anomaly-page {
   display: flex;
@@ -723,5 +780,356 @@ html, body {
 @media (max-width: 560px) {
   .dashboard-metric-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+/* ── VTEC Theory page ── */
+.vtec-theory-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1.4rem;
+}
+.vtec-theory-hero {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 5px solid var(--accent);
+  border-radius: 14px;
+  padding: 1.75rem 2rem;
+}
+.vtec-theory-hero-kicker {
+  font-size: 0.72rem;
+  color: var(--accent);
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-bottom: 0.4rem;
+}
+.vtec-theory-freq-note {
+  margin-top: 0.75rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+.vtec-theory-reading-note {
+  font-size: 0.82rem;
+  line-height: 1.6;
+}
+.vtec-steps-journey-wrap {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.85rem 1rem;
+  overflow-x: auto;
+}
+.vtec-steps-journey-title {
+  color: var(--accent);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-bottom: 0.65rem;
+}
+.vtec-steps-journey {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: min-content;
+}
+.vtec-journey-pill {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 4.6rem;
+  padding: 0.45rem 0.35rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--pill-accent, var(--accent));
+  background: rgba(10, 22, 40, 0.9);
+}
+.vtec-journey-num {
+  color: var(--pill-accent, var(--accent));
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+.vtec-journey-label {
+  color: var(--text);
+  font-size: 0.58rem;
+  font-weight: 700;
+  text-align: center;
+  line-height: 1.2;
+  margin-top: 0.15rem;
+}
+.vtec-journey-arrow {
+  color: var(--accent);
+  font-weight: 800;
+  padding: 0 0.15rem;
+}
+.pipeline-overview-cards {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+.pipeline-overview-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  min-height: 4.5rem;
+  padding: 0.55rem 0.4rem;
+  text-align: center;
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1.25;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.pipeline-overview-icon {
+  font-size: 1.15rem;
+  line-height: 1;
+}
+.vtec-theory-step {
+  margin-top: 0.5rem;
+}
+.vtec-theory-step-header {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  margin-bottom: 0.75rem;
+}
+.vtec-theory-step-badge {
+  color: #000;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  padding: 0.3rem 0.65rem;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+.vtec-theory-step-title {
+  font-size: 1.15rem;
+  font-weight: 800;
+}
+.vtec-theory-step-grid {
+  display: grid;
+  grid-template-columns: 5fr 4fr;
+  gap: 1.25rem;
+  align-items: start;
+}
+.vtec-theory-body-card {
+  border-left-width: 4px;
+  border-left-style: solid;
+  line-height: 1.7;
+  font-size: 0.88rem;
+}
+.vtec-why-box {
+  background: var(--bg);
+  border-left: 3px solid var(--accent-warn);
+  border-radius: 6px;
+  padding: 0.7rem 1rem;
+  margin: 0.5rem 0 0.85rem;
+  font-size: 0.82rem;
+  line-height: 1.6;
+}
+.vtec-why-label {
+  color: var(--accent-warn);
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-size: 0.72rem;
+}
+.vtec-theory-step-figure {
+  position: sticky;
+  top: 1rem;
+}
+.vtec-figure-label {
+  font-size: 0.68rem;
+  color: var(--accent);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 0.35rem;
+}
+.vtec-illus-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.75rem 0.7rem 0.65rem;
+  overflow: hidden;
+}
+.vtec-illus-step-badge {
+  display: inline-block;
+  font-size: 0.65rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  padding: 0.22rem 0.55rem;
+  border-radius: 20px;
+  border: 1.5px solid var(--accent);
+  margin-bottom: 0.35rem;
+}
+.vtec-illus-step-title {
+  font-size: 0.82rem;
+  font-weight: 800;
+  margin-bottom: 0.35rem;
+}
+.vtec-illus-caption {
+  font-size: 0.78rem;
+  line-height: 1.45;
+  margin-bottom: 0.5rem;
+}
+.vtec-illus-svg-wrap svg {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+}
+.vtec-eq-wrap {
+  margin: 0.85rem 0 0.5rem;
+  padding: 1rem 1.2rem 0.85rem;
+  background: rgba(8, 18, 32, 0.92);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.vtec-eq-math {
+  text-align: center;
+  overflow-x: auto;
+}
+.vtec-eq-math .katex {
+  color: var(--text);
+  font-size: 1.1em;
+}
+.vtec-eq-math .tag {
+  color: #63c7ff;
+  font-weight: 700;
+}
+.vtec-eq-caption {
+  text-align: center;
+  color: #94a3b8;
+  font-size: 0.8rem;
+  font-style: italic;
+  margin-top: 0.55rem;
+  padding-top: 0.45rem;
+  border-top: 1px solid rgba(36, 77, 115, 0.55);
+}
+.vtec-vars-wrap {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.8rem 1rem;
+  margin-top: 0.5rem;
+}
+.vtec-vars-title {
+  font-size: 0.68rem;
+  color: var(--accent);
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 0.5rem;
+}
+.vtec-vars-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.vtec-vars-sym {
+  color: #63c7ff;
+  padding-right: 1rem;
+  white-space: nowrap;
+  font-family: "Times New Roman", Times, serif;
+  font-style: italic;
+  vertical-align: top;
+  font-size: 0.92rem;
+}
+.vtec-vars-meaning {
+  font-size: 0.8rem;
+  line-height: 1.5;
+  vertical-align: top;
+}
+.vtec-ipp-detail {
+  margin-top: 1.25rem;
+}
+.vtec-ipp-detail-title {
+  font-size: 0.72rem;
+  color: var(--accent-ok);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 0.5rem;
+}
+.vtec-ipp-detail-grid {
+  display: grid;
+  grid-template-columns: 3fr 2fr;
+  gap: 1rem;
+}
+.ipp-geom-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.65rem;
+  overflow: hidden;
+}
+.ipp-geom-svg-wrap svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.vtec-theory-citation {
+  font-size: 0.8rem;
+  font-style: italic;
+  line-height: 1.55;
+}
+.vtec-computation-pipeline {
+  margin-top: 0.5rem;
+}
+.vtec-computation-pipeline-title {
+  font-size: 0.72rem;
+  color: var(--accent);
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-bottom: 0.8rem;
+}
+.vtec-computation-pipeline-box {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.5rem;
+  font-family: ui-monospace, "Cascadia Code", monospace;
+  font-size: 0.82rem;
+  line-height: 2.1;
+}
+.vtec-pipeline-inputs strong,
+.vtec-pipeline-stage strong,
+.vtec-pipeline-output strong {
+  color: var(--text);
+}
+.vtec-pipeline-stage em {
+  color: var(--text-muted);
+  font-style: italic;
+  margin-left: 0.75rem;
+}
+.vtec-pipeline-connector {
+  color: var(--border);
+  padding-left: 1.25rem;
+}
+
+@media (max-width: 1100px) {
+  .pipeline-overview-cards {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .vtec-theory-step-grid {
+    grid-template-columns: 1fr;
+  }
+  .vtec-theory-step-figure {
+    position: static;
+  }
+  .vtec-ipp-detail-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .pipeline-overview-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

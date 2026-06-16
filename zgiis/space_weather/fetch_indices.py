@@ -523,7 +523,11 @@ def get_space_weather() -> Dict[str, Any]:
             kp_history = noaa_history
 
         gnss_risk_history = _build_gnss_risk_history(kp_history, s4=s4)
-        s4_history = _build_snapshot_history(kp_history, s4, field="s4")
+        s4_history = (
+            [{"time_tag": timestamp, "s4": float(s4)}]
+            if s4 is not None
+            else []
+        )
         stations_online_history = _build_snapshot_history(
             kp_history,
             float(stations_online) if stations_online is not None else None,

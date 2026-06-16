@@ -8,6 +8,7 @@ import type {
   ForecastPoint,
   ForecastStatus,
   LiveObservation,
+  LivePipelineStatus,
   PrnRow,
   ProcessingSession,
   SeasonalRow,
@@ -19,6 +20,7 @@ import type {
   StationLiveStatus,
   TecObservation,
   TecSummaryRow,
+  VtecTheoryPayload,
 } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -50,9 +52,9 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 }
 
 // ── Space Weather ─────────────────────────────────────────────────────────────
-export const getSpaceWeather = () => get<SpaceWeatherCurrent>("/space-weather/current");
+export const getSpaceWeather = () => get<SpaceWeatherCurrent>("/space-weather/current", { _ts: Date.now() });
 export const getSolarActivity = () => get<SolarActivityFull>("/space-weather/solar-activity");
-export const getTimelines = () => get<SpaceWeatherTimelines>("/space-weather/timelines");
+export const getTimelines = () => get<SpaceWeatherTimelines>("/space-weather/timelines", { _ts: Date.now() });
 export const refreshSpaceWeather = () =>
   fetch(BASE + "/space-weather/refresh", { method: "POST", headers: KEY ? { "X-API-Key": KEY } : {} });
 
@@ -104,12 +106,16 @@ export const getPrn = (constellation?: string) => get<PrnRow[]>("/tec/prn", { co
 // ── Live ──────────────────────────────────────────────────────────────────────
 export const getLiveVtec = (hours = 2) => get<LiveObservation[]>("/live/vtec", { hours });
 export const getLiveStations = () => get<StationLiveStatus[]>("/live/stations");
+export const getLivePipelineStatus = () => get<LivePipelineStatus>("/live/pipeline-status");
 
 // ── Forecast ──────────────────────────────────────────────────────────────────
 export const getForecastStatus = () => get<ForecastStatus>("/forecast/status");
 export const getStatisticalForecast = (horizon_days = 30) =>
   get<ForecastPoint[]>("/forecast/statistical", { horizon_days });
 export const getCnnGruForecast = () => get<ForecastPoint[]>("/forecast/cnn-gru");
+
+// ── Theory ────────────────────────────────────────────────────────────────────
+export const getVtecTheory = () => get<VtecTheoryPayload>("/theory/vtec");
 
 // ── Chat ──────────────────────────────────────────────────────────────────────
 export const sendChat = (messages: ChatMessage[], api_key?: string) =>
