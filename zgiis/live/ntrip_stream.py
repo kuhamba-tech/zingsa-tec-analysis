@@ -70,51 +70,75 @@ def _msm_field_set(msg_type: int) -> tuple[str, str, str]:
     return ("DF400", "DF401", "DF403")      # pseudorange, phaserange, CNR (MSM4/5)
 
 
+def _band_from_sigcode(sigcode) -> int:
+    """Map a pyrtcm CELLSIG value (e.g. '1C', '2W', 'L1', 'L2') to 1 or 2."""
+    s = str(sigcode)
+    if s.startswith(("1", "L1", "G1", "E1")):
+        return 1
+    if s.startswith(("2", "L2", "G2", "E2")):
+        return 2
+    return 0  # L5/E6/etc — unsupported by the dual-frequency STEC equations here
+
+
 def _extract_msm(msg, msg_type: int, constellation: str, station: str, epoch: datetime) -> list[dict]:
     """
     Pull per-signal L1/L2 observations from a pyrtcm MSM4-7 message.
     Returns a list of raw observation dicts.
+
+    NB: pyrtcm exposes group-count attributes as "NSat"/"NSig"/"NCell"
+    (mixed case — NOT "NSAT"/"NSIG"), and cells are indexed 1..NCell per
+    the GNSS cell mask (DF396), not a dense NSat*NSig grid — many
+    satellite/signal combinations are absent. Use CELLPRN_nn/CELLSIG_nn
+    (which pyrtcm derives from the cell mask) to identify each cell.
     """
     records: list[dict] = []
     try:
-        nsat = getattr(msg, "NSAT", 0) or 0
-        nsig = getattr(msg, "NSIG", 0) or 0
-        if nsat == 0 or nsig == 0:
+        nsat = getattr(msg, "NSat", 0) or 0
+        ncell = getattr(msg, "NCell", 0) or 0
+        if nsat == 0 or ncell == 0:
             return records
 
         pr_field, cp_field, cnr_field = _msm_field_set(msg_type)
+        lock_field = "DF407" if pr_field == "DF405" else "DF402"
         freq1 = _FREQ1.get(constellation, _FREQ1["GPS"])
         freq2 = _FREQ2.get(constellation, _FREQ2["GPS"])
 
-        # Rough range per satellite, in milliseconds (DF397 = integer ms,
-        # DF398 = fractional ms modulo 1ms). NOT DF399, which is a Doppler
-        # (phase-range-rate) term and unrelated to range reconstruction.
-        rough_ranges_ms: list[float] = []
+        # Rough range per satellite, in milliseconds, keyed by PRN string
+        # (DF397 = integer ms, DF398 = fractional ms modulo 1ms — NOT DF399,
+        # which is a Doppler/phase-range-rate term unrelated to range).
+        rough_ranges_ms: dict[str, float] = {}
         for i in range(1, nsat + 1):
+            prn_i = getattr(msg, f"PRN_{i:02d}", None)
+            if prn_i is None:
+                continue
             int_ms = getattr(msg, f"DF397_{i:02d}", 0) or 0
             mod_ms = getattr(msg, f"DF398_{i:02d}", 0.0) or 0.0
-            rough_ranges_ms.append(float(int_ms) + float(mod_ms))
+            rough_ranges_ms[str(prn_i)] = float(int_ms) + float(mod_ms)
 
-        # Iterate over cell (satellite × signal) grid
-        for cell in range(1, nsat * nsig + 1):
-            sat_idx = ((cell - 1) // nsig) + 1
-            sig_idx = ((cell - 1) % nsig) + 1
-
+        for cell in range(1, ncell + 1):
             fine_pr_ms = getattr(msg, f"{pr_field}_{cell:02d}", None)
             fine_cp_ms = getattr(msg, f"{cp_field}_{cell:02d}", None)
             if fine_pr_ms is None or fine_cp_ms is None:
                 continue
 
+            cell_prn = getattr(msg, f"CELLPRN_{cell:02d}", None)
+            cell_sig = getattr(msg, f"CELLSIG_{cell:02d}", None)
+            if cell_prn is None:
+                continue
+
+            sig_idx = _band_from_sigcode(cell_sig)
+            if sig_idx == 0:
+                continue  # not L1/L2 — can't use it for dual-frequency STEC
+
             cnr = getattr(msg, f"{cnr_field}_{cell:02d}", None)
-            lock_field = "DF407" if pr_field == "DF405" else "DF402"
             lock_time = getattr(msg, f"{lock_field}_{cell:02d}", None)
 
-            rough_ms = rough_ranges_ms[sat_idx - 1] if sat_idx <= len(rough_ranges_ms) else 0.0
+            rough_ms = rough_ranges_ms.get(str(cell_prn), 0.0)
+            sat_idx = int(cell_prn)
             prn = f"{constellation[0]}{sat_idx:02d}"
 
             pseudorange_m = (rough_ms + fine_pr_ms) * 1e-3 * _C_LIGHT
             phaserange_m = (rough_ms + fine_cp_ms) * 1e-3 * _C_LIGHT
-            # freq depends on sig_idx (L1 vs L2); cycles = distance / wavelength
             freq_hz = freq1 if sig_idx == 1 else freq2
             carrier_phase_cycles = phaserange_m * freq_hz / _C_LIGHT
 

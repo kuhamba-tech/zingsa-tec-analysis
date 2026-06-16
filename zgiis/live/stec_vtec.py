@@ -28,8 +28,10 @@ _PAIR_TIMEOUT_S = 2.0
 
 
 def _k_factor(f1: float, f2: float) -> float:
-    """TEC conversion constant K (TECU·m⁻¹) — Gopi Book Eq 4.7."""
-    return (f1 ** 2 * f2 ** 2) / (40.3e16 * (f1 ** 2 - f2 ** 2))
+    """TEC conversion constant K — Gopi Book Eq 4.7. Matches tec_core.py's
+    `_K`; the electrons/m² → TECU scaling (/1e16) is applied separately at
+    the point of use, not baked in here (see stec_from_phase)."""
+    return (f1 ** 2 * f2 ** 2) / (40.3 * (f1 ** 2 - f2 ** 2))
 
 
 def mapping_function(elevation_deg: float, ipp_height_km: float = _IPP_KM) -> float:

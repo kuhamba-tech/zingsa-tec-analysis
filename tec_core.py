@@ -48,6 +48,39 @@ _K  = (_F1**2 * _F2**2) / (40.3 * (_F1**2 - _F2**2))
 _NS_TO_TECU = _C_LIGHT * 1e-9 * _K / 1e16
 
 
+def _rinex_base_stem(path: Path) -> str:
+    """Original RINEX stem (strip FastAPI upload prefixes like uuid_obs_)."""
+    stem = path.stem
+    for marker in ("_obs_", "_nav_"):
+        if marker in stem:
+            return stem.split(marker, 1)[1]
+    return stem
+
+
+def _is_nav_suffix(suffix: str) -> bool:
+    s = suffix.lower()
+    return s in {".n", ".nav", ".gnav", ".hnav"} or (len(s) == 4 and s.endswith("n"))
+
+
+def _default_dcb_folder() -> Optional[Path]:
+    import os
+
+    env = os.getenv("TEC_DCB_FOLDER", "").strip()
+    if env:
+        p = Path(env)
+        if p.is_dir():
+            return p
+    root = Path(__file__).resolve().parent
+    for candidate in (
+        root.parent / "GPS_Gopi_v3.5" / "DCB",
+        root / "static" / "dcb",
+        root.parent.parent / "GPS_Gopi_v3.5" / "DCB",
+    ):
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
 def _find_nav_file(
     obs_path: Path,
     provided: list[Path] | None = None,
@@ -58,30 +91,48 @@ def _find_nav_file(
     by stem name in the same folder as the obs file.
     """
     stem = obs_path.stem
+    base = _rinex_base_stem(obs_path)
     ext = obs_path.suffix.lower()
 
-    # 1. Check explicitly provided nav files — match on stem (case-insensitive)
+    # 1. Match companion nav by original RINEX stem (handles upload_tmp prefixes)
     if provided:
         for p in provided:
-            if p.stem.lower() == stem.lower() and p.suffix.lower() not in {".o", ".g"}:
-                return p
-        # Fallback: any .n/.nav file from the provided list
-        for p in provided:
-            s = p.suffix.lower()
-            if s in {".n", ".nav"} or (len(s) == 4 and s.endswith("n")):
-                return p
+            nav_path = Path(p)
+            if not _is_nav_suffix(nav_path.suffix):
+                continue
+            if _rinex_base_stem(nav_path).lower() == base.lower():
+                return nav_path
+        nav_only = [Path(p) for p in provided if _is_nav_suffix(Path(p).suffix)]
+        if len(nav_only) == 1:
+            return nav_only[0]
 
-    # 2. Auto-discover beside the obs file
+    # 2. Auto-discover beside the obs file (original RINEX name, not upload prefix)
     folder = obs_path.parent
     candidates: list[Path] = []
     if len(ext) == 4 and ext.endswith("o"):
         yr = ext[1:3]
-        candidates += [folder / f"{stem}.{yr}n", folder / f"{stem}.{yr}N"]
-    candidates += [folder / f"{stem}.n", folder / f"{stem}.N",
-                   folder / f"{stem}.nav", folder / f"{stem}.NAV"]
+        candidates += [
+            folder / f"{base}.{yr}n",
+            folder / f"{base}.{yr}N",
+            folder / f"{stem}.{yr}n",
+            folder / f"{stem}.{yr}N",
+        ]
+    candidates += [
+        folder / f"{base}.n",
+        folder / f"{base}.N",
+        folder / f"{base}.nav",
+        folder / f"{base}.NAV",
+        folder / f"{stem}.n",
+        folder / f"{stem}.N",
+    ]
     for c in candidates:
         if c.exists():
             return c
+
+    # 3. Sibling upload_tmp nav files: * _nav _ * same base
+    for p in folder.iterdir():
+        if p.is_file() and _is_nav_suffix(p.suffix) and _rinex_base_stem(p).lower() == base.lower():
+            return p
     return None
 
 
@@ -252,6 +303,20 @@ class TecConfig:
     elevation_min_deg: float = 25.0
     ipp_height_km: float = 350.0
     dcb_folder: Optional[Path] = None   # folder containing P1C1/P1P2 .DCB files
+
+    def __post_init__(self) -> None:
+        if self.dcb_folder is None:
+            self.dcb_folder = _default_dcb_folder()
+        elif isinstance(self.dcb_folder, str):
+            self.dcb_folder = Path(self.dcb_folder)
+
+
+RINEX_EMPTY_HELP = (
+    "No observations were processed. For .o / .24o files you must also provide the "
+    "matching navigation file (.24n) so satellite elevations can be computed "
+    "(Gopi Ch.4, Sec 4.2). Ensure dual-frequency C1/P1, P2, L1, and L2 are present "
+    "and elevation exceeds the mask (default 25°)."
+)
 
 
 def _parse_station_and_date(path: Path) -> tuple[str, Optional[pd.Timestamp]]:
@@ -581,10 +646,12 @@ def read_rinex_folder(folder: Path, config: TecConfig) -> pd.DataFrame:
 
 
 def _read_rinex_files_impl(
-    rinex_files: Iterable[Path],
+    rinex_files: Iterable[Path | str],
     config: TecConfig,
-    nav_files: list[Path] | None = None,
+    nav_files: list[Path | str] | None = None,
 ) -> pd.DataFrame:
+    rinex_paths = [Path(p) for p in rinex_files]
+    nav_paths = [Path(p) for p in nav_files] if nav_files else None
     try:
         import georinex as gr
     except Exception as exc:
@@ -600,7 +667,7 @@ def _read_rinex_files_impl(
     # Cache DCB files per (year, month) to avoid re-reading per file
     _dcb_cache: dict[tuple[int, int], tuple[dict, dict]] = {}
 
-    for path in rinex_files:
+    for path in rinex_paths:
         try:
             _buf = io.StringIO()
             with contextlib.redirect_stderr(_buf), contextlib.redirect_stdout(_buf):
@@ -623,7 +690,7 @@ def _read_rinex_files_impl(
         # ── Elevation: compute from nav file if not already present ───────────
         need_elev = dfx["elevation"].isna().all()
         if need_elev:
-            nav_path = _find_nav_file(path, provided=nav_files)
+            nav_path = _find_nav_file(path, provided=nav_paths)
             rx_ecef  = None
             try:
                 # georinex stores APPROX POSITION XYZ as ds.position (direct
@@ -750,11 +817,15 @@ def _read_rinex_files_impl(
 
 
 def read_rinex_files(
-    rinex_files: Iterable[Path],
+    rinex_files: Iterable[Path | str],
     config: TecConfig,
-    nav_files: Iterable[Path] | None = None,
+    nav_files: Iterable[Path | str] | None = None,
 ) -> pd.DataFrame:
-    return _read_rinex_files_impl(rinex_files, config, nav_files=list(nav_files) if nav_files else None)
+    return _read_rinex_files_impl(
+        rinex_files,
+        config,
+        nav_files=list(nav_files) if nav_files else None,
+    )
 
 
 __all__ = [
@@ -767,6 +838,7 @@ __all__ = [
     "read_kp_csv",
     "read_rinex_files",
     "read_rinex_folder",
+    "RINEX_EMPTY_HELP",
     "summarize_daily",
     "summarize_daily_by_station",
     "summarize_monthly",

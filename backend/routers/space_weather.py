@@ -6,12 +6,18 @@ from fastapi import APIRouter, Depends
 
 from backend.deps import require_api_key
 from backend.schemas import (
+    CorrelationPair,
     SolarActivityFull,
     SolarWindDetail,
+    SpaceWeatherCorrelationResponse,
     SpaceWeatherCurrent,
+    SpaceWeatherHistoryResponse,
+    SpaceWeatherHistoryRow,
+    SpaceWeatherLogStatus,
     SpaceWeatherTimelines,
     TimelinePoint,
 )
+from backend.space_weather_logger import log_snapshot, status as log_status
 from backend.timeline_cache import merge_timeline
 
 router = APIRouter(prefix="/space-weather", tags=["space-weather"])
@@ -28,6 +34,7 @@ def _sw() -> dict:
 @router.get("/current", response_model=SpaceWeatherCurrent)
 async def current(_=Depends(require_api_key)):
     sw = _sw()
+    log_snapshot(source="dashboard", force=False)
     return SpaceWeatherCurrent(
         kp=sw.get("kp"),
         kp_condition=sw.get("kp_condition"),
@@ -183,3 +190,87 @@ async def timelines(_=Depends(require_api_key)):
 async def refresh(_=Depends(require_api_key)):
     from zgiis.space_weather.fetch_indices import clear_space_weather_cache
     clear_space_weather_cache()
+    log_snapshot(source="refresh", force=True)
+
+
+@router.get("/log/status", response_model=SpaceWeatherLogStatus)
+async def logging_status(_=Depends(require_api_key)):
+    s = log_status()
+    return SpaceWeatherLogStatus(**s)
+
+
+@router.get("/history", response_model=SpaceWeatherHistoryResponse)
+async def history(
+    hours: float = 24.0,
+    resample: str | None = None,
+    _=Depends(require_api_key),
+):
+    from backend.space_weather_logger import get_db
+
+    df = get_db().query_dataframe(hours=hours, resample=resample or None)
+    rows: list[SpaceWeatherHistoryRow] = []
+    if not df.empty:
+        for _, r in df.iterrows():
+            t = r["time"]
+            time_str = t.isoformat() if hasattr(t, "isoformat") else str(t)
+            rows.append(
+                SpaceWeatherHistoryRow(
+                    time=time_str,
+                    kp=_float_or_none(r.get("kp")),
+                    kp_condition=_str_or_none(r.get("kp_condition")),
+                    dst=_float_or_none(r.get("dst")),
+                    f107=_float_or_none(r.get("f107")),
+                    plasma_speed=_float_or_none(r.get("plasma_speed")),
+                    s4=_float_or_none(r.get("s4")),
+                    gnss_risk=_str_or_none(r.get("gnss_risk")),
+                    gnss_risk_score=_float_or_none(r.get("gnss_risk_score")),
+                    stations_online=_int_or_none(r.get("stations_online")),
+                    stations_total=_int_or_none(r.get("stations_total")),
+                    mean_vtec=_float_or_none(r.get("mean_vtec")),
+                )
+            )
+    return SpaceWeatherHistoryResponse(
+        hours=hours,
+        resample=resample,
+        count=len(rows),
+        rows=rows,
+    )
+
+
+@router.get("/correlations", response_model=SpaceWeatherCorrelationResponse)
+async def correlations(
+    hours: float = 168.0,
+    resample: str = "1h",
+    _=Depends(require_api_key),
+):
+    from backend.space_weather_logger import get_db
+
+    result = get_db().correlation_matrix(hours=hours, resample=resample)
+    pairs = [CorrelationPair(**p) for p in result.get("pairs", [])]
+    return SpaceWeatherCorrelationResponse(
+        hours=result["hours"],
+        resample=result["resample"],
+        sample_count=result["sample_count"],
+        from_time=result.get("from"),
+        to_time=result.get("to"),
+        matrix=result.get("matrix", {}),
+        pairs=pairs,
+    )
+
+
+def _float_or_none(value: object) -> float | None:
+    try:
+        return None if value is None or (isinstance(value, float) and value != value) else float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _int_or_none(value: object) -> int | None:
+    try:
+        return None if value is None else int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _str_or_none(value: object) -> str | None:
+    return None if value is None else str(value)

@@ -15,11 +15,18 @@ import type {
   SolarActivityFull,
   SolarCycleRow,
   SpaceWeatherCurrent,
+  SpaceWeatherCorrelationResponse,
+  SpaceWeatherHistoryResponse,
+  SpaceWeatherLogStatus,
   SpaceWeatherTimelines,
   Station,
   StationLiveStatus,
+  StationStatusEvent,
+  StationStatusLogStatus,
+  StationUptimeRow,
   TecObservation,
   TecSummaryRow,
+  TecPlotSeries,
   VtecTheoryPayload,
 } from "./types";
 
@@ -57,11 +64,20 @@ export const getSolarActivity = () => get<SolarActivityFull>("/space-weather/sol
 export const getTimelines = () => get<SpaceWeatherTimelines>("/space-weather/timelines", { _ts: Date.now() });
 export const refreshSpaceWeather = () =>
   fetch(BASE + "/space-weather/refresh", { method: "POST", headers: KEY ? { "X-API-Key": KEY } : {} });
+export const getSpaceWeatherLogStatus = () => get<SpaceWeatherLogStatus>("/space-weather/log/status");
+export const getSpaceWeatherHistory = (hours = 168, resample?: string) =>
+  get<SpaceWeatherHistoryResponse>("/space-weather/history", { hours, resample });
+export const getSpaceWeatherCorrelations = (hours = 168, resample = "1h") =>
+  get<SpaceWeatherCorrelationResponse>("/space-weather/correlations", { hours, resample });
 
 // ── CORS Network ──────────────────────────────────────────────────────────────
 export const getStations = () => get<Station[]>("/cors/stations");
 export const getStation = (code: string) => get<Station>(`/cors/stations/${code}`);
 export const getCorsHealth = () => get<CorsHealth>("/cors/health");
+export const getStationStatusLog = () => get<StationStatusLogStatus>("/cors/status/log");
+export const getStationStatusEvents = (hours = 168, station?: string, event_type?: string) =>
+  get<StationStatusEvent[]>("/cors/status/events", { hours, station, event_type });
+export const getStationUptime = (hours = 168) => get<StationUptimeRow[]>("/cors/status/uptime", { hours });
 
 // ── Processing ────────────────────────────────────────────────────────────────
 export async function uploadCmn(file: File): Promise<ProcessingSession> {
@@ -91,6 +107,9 @@ export async function uploadRinex(obs: File[], nav: File[]): Promise<ProcessingS
 
 export const getSessionSummary = (id: string, mode: "daily" | "monthly" | "yearly" = "daily") =>
   get<TecSummaryRow[]>(`/processing/${id}/summary`, { mode });
+
+export const getSessionTecPlot = (id: string, raw = false) =>
+  get<TecPlotSeries>(`/processing/${id}/tec-plot`, { raw: raw ? 1 : 0 });
 
 // ── TEC Analysis ──────────────────────────────────────────────────────────────
 export const getArchiveMeta = () => get<ArchiveMeta>("/tec/archive-meta");

@@ -1,9 +1,10 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
-import { getSpaceWeather, getTimelines, refreshSpaceWeather } from "@/lib/api";
-import MetricCard from "@/components/cards/MetricCard";
+import { getSpaceWeather, getTimelines, refreshSpaceWeather, getSpaceWeatherLogStatus, getSpaceWeatherCorrelations, getStationStatusLog, getStationStatusEvents, getStationUptime } from "@/lib/api";
+import ClickableMetricGrid from "@/components/spaceWeather/ClickableMetricGrid";
+import { DashboardHeaderClocks } from "@/components/dashboard/DashboardClocks";
 import LineChart from "@/components/charts/LineChart";
-import type { SpaceWeatherCurrent, SpaceWeatherTimelines, TimelinePoint } from "@/lib/types";
+import type { SpaceWeatherCurrent, SpaceWeatherTimelines, TimelinePoint, SpaceWeatherLogStatus, SpaceWeatherCorrelationResponse, StationStatusLogStatus, StationStatusEvent, StationUptimeRow } from "@/lib/types";
 
 const SCALE_ROWS = [
   {
@@ -175,12 +176,30 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState("");
   const [apiStatus, setApiStatus] = useState<"Live" | "Offline">("Live");
+  const [logStatus, setLogStatus] = useState<SpaceWeatherLogStatus | null>(null);
+  const [correlations, setCorrelations] = useState<SpaceWeatherCorrelationResponse | null>(null);
+  const [stationLog, setStationLog] = useState<StationStatusLogStatus | null>(null);
+  const [stationEvents, setStationEvents] = useState<StationStatusEvent[]>([]);
+  const [stationUptime, setStationUptime] = useState<StationUptimeRow[]>([]);
 
   const load = useCallback(async () => {
     try {
-      const [swData, tlData] = await Promise.all([getSpaceWeather(), getTimelines()]);
+      const [swData, tlData, logData, corrData, stLog, stEvents, stUptime] = await Promise.all([
+        getSpaceWeather(),
+        getTimelines(),
+        getSpaceWeatherLogStatus().catch(() => null),
+        getSpaceWeatherCorrelations(168, "1h").catch(() => null),
+        getStationStatusLog().catch(() => null),
+        getStationStatusEvents(168).catch(() => []),
+        getStationUptime(168).catch(() => []),
+      ]);
       setSw(swData);
       setTl(tlData);
+      setLogStatus(logData);
+      setCorrelations(corrData);
+      setStationLog(stLog);
+      setStationEvents(stEvents.slice(-12).reverse());
+      setStationUptime(stUptime);
       setLastUpdated(new Date().toUTCString().slice(0, 25));
       setApiStatus("Live");
     } catch {
@@ -196,7 +215,7 @@ export default function DashboardPage() {
     return () => window.clearInterval(id);
   }, [load]);
 
-  const kpColor = sw?.kp_color ?? "#168bd2";
+
   const kpPoints = safePoints(tl?.kp);
   const dstPoints = safePoints(tl?.dst);
   const f107Points = safePoints(tl?.f107);
@@ -207,13 +226,15 @@ export default function DashboardPage() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.4rem" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.6rem" }}>
-        <div>
+      <div className="dashboard-header">
+        <div className="dashboard-header-copy">
           <h1 className="page-title">Space Weather Operations Dashboard</h1>
           <p className="page-subtitle">Real-time monitoring of solar, geomagnetic, ionospheric, and Zimbabwe CORS network conditions.</p>
         </div>
-        <button
-          className="btn"
+        <div className="dashboard-header-aside">
+          <DashboardHeaderClocks />
+          <button
+          className="btn dashboard-refresh-btn"
           onClick={async () => {
             setLoading(true);
             await refreshSpaceWeather();
@@ -223,37 +244,55 @@ export default function DashboardPage() {
         >
           Refresh
         </button>
+        </div>
       </div>
 
       {lastUpdated && (
         <p style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
-          Updated {lastUpdated} UTC - API status: {apiStatus} - graphs refresh every 60 seconds
+          Updated {lastUpdated} UTC · API status: {apiStatus} · graphs refresh every 60 seconds
+          {logStatus ? (
+            <> · Archive: {logStatus.record_count.toLocaleString()} samples ({logStatus.db_backend})</>
+          ) : null}
+          {stationLog ? (
+            <> · Station log: {stationLog.event_count.toLocaleString()} events, {stationLog.snapshot_count.toLocaleString()} snapshots
+              {stationLog.api_reachable ? "" : " · CORS API unreachable"}</>
+          ) : null}
         </p>
       )}
 
-      <div className="dashboard-metric-grid">
-        <MetricCard label="Kp Index" value={sw?.kp?.toFixed(1) ?? null} sub="Planetary activity" color={kpColor} variant="ok" />
-        <MetricCard label="Geomagnetic" value={sw?.kp_condition ?? null} sub="Current state" color={kpColor} />
-        <MetricCard label="Dst Index" value={sw?.dst !== null && sw?.dst !== undefined ? `${sw.dst} nT` : null} sub="Storm index" />
-        <MetricCard label="Solar Flux" value={sw?.f107 ?? null} unit="sfu" sub="F10.7 index" />
-        <MetricCard label="Plasma Speed" value={sw?.plasma_speed ?? null} unit="km/s" sub="Solar wind" />
-        <MetricCard label="S4 Scintillation" value={sw?.s4 ?? null} sub="Signal quality" />
-        <MetricCard
-          label="GNSS Risk"
-          value={sw?.gnss_risk ?? null}
-          color={sw?.gnss_risk_color ?? undefined}
-          sub="Impact level"
-          variant={sw?.gnss_risk === "High" ? "alert" : sw?.gnss_risk === "Moderate" ? "warn" : "ok"}
-        />
-        <MetricCard
-          label="CORS Network"
-          value={sw?.stations_online !== null && sw?.stations_total ? `${sw.stations_online}/${sw.stations_total}` : null}
-          sub="Online stations"
-          variant="accent"
-        />
-      </div>
+      <ClickableMetricGrid sw={sw} updatedUtc={sw?.updated_utc} />
 
       <ScaleReference />
+
+      {correlations && correlations.pairs.length > 0 && (
+        <div className="card card-accent">
+          <div className="operations-chart-title">Metric Correlations (last {correlations.hours}h, {correlations.resample} bins)</div>
+          <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "0.75rem" }}>
+            Pearson <em>r</em> from the logged dashboard archive — stronger values suggest linked solar / ionospheric behaviour.
+            {correlations.sample_count < 24 ? " More samples will appear as logging continues." : ""}
+          </p>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.82rem" }}>
+            <thead>
+              <tr style={{ borderBottom: "1px solid var(--border)" }}>
+                <th style={{ textAlign: "left", padding: "0.35rem 0.5rem" }}>Metric A</th>
+                <th style={{ textAlign: "left", padding: "0.35rem 0.5rem" }}>Metric B</th>
+                <th style={{ textAlign: "right", padding: "0.35rem 0.5rem" }}>r</th>
+              </tr>
+            </thead>
+            <tbody>
+              {correlations.pairs.slice(0, 8).map((pair) => (
+                <tr key={`${pair.a}-${pair.b}`} style={{ borderBottom: "1px solid rgba(36,77,115,0.35)" }}>
+                  <td style={{ padding: "0.35rem 0.5rem" }}>{pair.a}</td>
+                  <td style={{ padding: "0.35rem 0.5rem" }}>{pair.b}</td>
+                  <td style={{ padding: "0.35rem 0.5rem", textAlign: "right", color: "var(--accent)" }}>
+                    {pair.r.toFixed(3)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {kpPoints.length > 0 && (
         <div className="card operations-chart-card">
@@ -313,6 +352,70 @@ export default function DashboardPage() {
           empty="Live CORS telemetry is unavailable - no station count timeline."
         />
       </section>
+
+      {(stationEvents.length > 0 || stationUptime.length > 0) && (
+        <div className="card card-accent">
+          <div className="operations-chart-title">
+            CORS Station Status Archive (last 7 days)
+            {stationUptime.length > 0 ? ` · ${stationUptime.length} stations` : ""}
+          </div>
+          <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "0.75rem" }}>
+            Online, degraded, and offline transitions are logged when station-health is polled for all 24 Zimbabwe CORS sites. If the CORS API connection is cut off, stations are marked unknown and a connection_lost event is recorded.
+          </p>
+          {stationUptime.length > 0 && (
+            <div style={{ overflowX: "auto", marginBottom: "1rem" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.82rem", minWidth: "640px" }}>
+              <thead>
+                <tr style={{ borderBottom: "1px solid var(--border)" }}>
+                  <th style={{ textAlign: "left", padding: "0.35rem 0.5rem" }}>Code</th>
+                  <th style={{ textAlign: "left", padding: "0.35rem 0.5rem" }}>Station</th>
+                  <th style={{ textAlign: "right", padding: "0.35rem 0.5rem" }}>Samples</th>
+                  <th style={{ textAlign: "right", padding: "0.35rem 0.5rem" }}>Online %</th>
+                  <th style={{ textAlign: "right", padding: "0.35rem 0.5rem" }}>Degraded %</th>
+                  <th style={{ textAlign: "right", padding: "0.35rem 0.5rem" }}>Offline %</th>
+                  <th style={{ textAlign: "right", padding: "0.35rem 0.5rem" }}>Unknown %</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stationUptime.map((row) => (
+                  <tr key={row.station_code} style={{ borderBottom: "1px solid rgba(36,77,115,0.35)" }}>
+                    <td style={{ padding: "0.35rem 0.5rem", fontWeight: 700 }}>{row.station_code.toUpperCase()}</td>
+                    <td style={{ padding: "0.35rem 0.5rem" }}>{row.station_name}</td>
+                    <td style={{ padding: "0.35rem 0.5rem", textAlign: "right", color: "var(--text-muted)" }}>{row.samples}</td>
+                    <td style={{ padding: "0.35rem 0.5rem", textAlign: "right", color: "#00ff88" }}>{row.online_pct}%</td>
+                    <td style={{ padding: "0.35rem 0.5rem", textAlign: "right", color: "#ffcc00" }}>{row.degraded_pct}%</td>
+                    <td style={{ padding: "0.35rem 0.5rem", textAlign: "right", color: "#ff7a00" }}>{row.offline_pct}%</td>
+                    <td style={{ padding: "0.35rem 0.5rem", textAlign: "right", color: "#94a3b8" }}>{row.unknown_pct}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            </div>
+          )}
+          {stationEvents.length > 0 && (
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.82rem" }}>
+              <thead>
+                <tr style={{ borderBottom: "1px solid var(--border)" }}>
+                  <th style={{ textAlign: "left", padding: "0.35rem 0.5rem" }}>Time (UTC)</th>
+                  <th style={{ textAlign: "left", padding: "0.35rem 0.5rem" }}>Station</th>
+                  <th style={{ textAlign: "left", padding: "0.35rem 0.5rem" }}>Event</th>
+                  <th style={{ textAlign: "left", padding: "0.35rem 0.5rem" }}>Detail</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stationEvents.map((ev, i) => (
+                  <tr key={`${ev.time}-${ev.station_code ?? "net"}-${i}`} style={{ borderBottom: "1px solid rgba(36,77,115,0.35)" }}>
+                    <td style={{ padding: "0.35rem 0.5rem", whiteSpace: "nowrap" }}>{ev.time.replace("T", " ").slice(0, 19)}</td>
+                    <td style={{ padding: "0.35rem 0.5rem" }}>{ev.station_code?.toUpperCase() ?? "—"}</td>
+                    <td style={{ padding: "0.35rem 0.5rem" }}>{ev.event_type.replace(/_/g, " ")}</td>
+                    <td style={{ padding: "0.35rem 0.5rem" }}>{ev.message ?? `${ev.previous_status ?? "?"} → ${ev.status}`}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
 
       {loading && <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>Loading live data...</p>}
     </div>

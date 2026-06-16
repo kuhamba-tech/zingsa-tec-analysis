@@ -77,3 +77,72 @@ SELECT create_hypertable('vtec_forecast', 'valid_at',
     chunk_time_interval => INTERVAL '7 days',
     if_not_exists       => TRUE
 );
+
+-- ── Space weather dashboard archive ───────────────────────────────────────────
+-- One row per dashboard sample (Kp, Dst, F10.7, wind, S4, GNSS risk, CORS).
+CREATE TABLE IF NOT EXISTS space_weather_log (
+    time              TIMESTAMPTZ      NOT NULL,
+    kp                DOUBLE PRECISION,
+    kp_condition      TEXT,
+    dst               DOUBLE PRECISION,
+    f107              DOUBLE PRECISION,
+    plasma_speed      DOUBLE PRECISION,
+    s4                DOUBLE PRECISION,
+    gnss_risk         TEXT,
+    gnss_risk_score   DOUBLE PRECISION,
+    stations_online   INTEGER,
+    stations_total    INTEGER,
+    mean_vtec         DOUBLE PRECISION,
+    source            TEXT
+);
+
+SELECT create_hypertable('space_weather_log', 'time',
+    chunk_time_interval => INTERVAL '7 days',
+    if_not_exists       => TRUE
+);
+
+CREATE INDEX IF NOT EXISTS sw_log_time_idx ON space_weather_log (time DESC);
+
+-- ── CORS station status archive ───────────────────────────────────────────────
+-- Transitions (online / degraded / offline / unknown) and periodic snapshots.
+CREATE TABLE IF NOT EXISTS station_status_events (
+    time              TIMESTAMPTZ      NOT NULL,
+    station_code      TEXT,
+    status            TEXT             NOT NULL,
+    previous_status   TEXT,
+    event_type        TEXT             NOT NULL,
+    online_count      INTEGER,
+    degraded_count    INTEGER,
+    offline_count     INTEGER,
+    unknown_count     INTEGER,
+    api_reachable     BOOLEAN          NOT NULL DEFAULT TRUE,
+    message           TEXT,
+    source            TEXT
+);
+
+SELECT create_hypertable('station_status_events', 'time',
+    chunk_time_interval => INTERVAL '7 days',
+    if_not_exists       => TRUE
+);
+
+CREATE TABLE IF NOT EXISTS station_status_snapshots (
+    time              TIMESTAMPTZ      NOT NULL,
+    station_code      TEXT             NOT NULL,
+    status            TEXT             NOT NULL,
+    api_reachable     BOOLEAN          NOT NULL DEFAULT TRUE,
+    source            TEXT
+);
+
+SELECT create_hypertable('station_status_snapshots', 'time',
+    chunk_time_interval => INTERVAL '7 days',
+    if_not_exists       => TRUE
+);
+
+CREATE INDEX IF NOT EXISTS st_status_events_time_idx
+    ON station_status_events (time DESC);
+CREATE INDEX IF NOT EXISTS st_status_events_code_time_idx
+    ON station_status_events (station_code, time DESC);
+CREATE INDEX IF NOT EXISTS st_status_snap_time_idx
+    ON station_status_snapshots (time DESC);
+CREATE INDEX IF NOT EXISTS st_status_snap_code_time_idx
+    ON station_status_snapshots (station_code, time DESC);

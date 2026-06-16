@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { getSpaceWeather, getSolarActivity, getTimelines, refreshSpaceWeather } from "@/lib/api";
+import ClickableMetricGrid from "@/components/spaceWeather/ClickableMetricGrid";
 import LineChart from "@/components/charts/LineChart";
 import type { SpaceWeatherCurrent, SolarActivityFull, SpaceWeatherTimelines, TimelinePoint } from "@/lib/types";
 
@@ -37,55 +38,6 @@ const KP_BANDS = [
   { range: "9",   label: "Extreme G5",     color: "#a855f7" },
 ];
 
-// ── Severity color helper ─────────────────────────────────────────────────────
-function kpSeverityColor(kp: number | null): string {
-  if (kp === null) return "#334155";
-  if (kp >= 7) return "#a855f7";
-  if (kp >= 5) return "#ef4444";
-  if (kp >= 3) return "#f97316";
-  return "#22c55e";
-}
-function dstColor(dst: number | null): string {
-  if (dst === null) return "#334155";
-  const v = Math.abs(dst);
-  if (v >= 200) return "#a855f7";
-  if (v >= 100) return "#ef4444";
-  if (v >= 50)  return "#f97316";
-  if (v >= 30)  return "#eab308";
-  return "#22c55e";
-}
-function f107Color(v: number | null): string {
-  if (v === null) return "#334155";
-  if (v >= 220) return "#a855f7";
-  if (v >= 170) return "#ef4444";
-  if (v >= 130) return "#f97316";
-  if (v >= 100) return "#eab308";
-  return "#22c55e";
-}
-function windColor(v: number | null): string {
-  if (v === null) return "#334155";
-  if (v >= 750) return "#a855f7";
-  if (v >= 650) return "#ef4444";
-  if (v >= 550) return "#f97316";
-  if (v >= 450) return "#eab308";
-  return "#22c55e";
-}
-function s4Color(v: number | null): string {
-  if (v === null) return "#334155";
-  if (v >= 0.7) return "#a855f7";
-  if (v >= 0.5) return "#ef4444";
-  if (v >= 0.3) return "#f97316";
-  if (v >= 0.1) return "#eab308";
-  return "#22c55e";
-}
-function riskColor(risk: string | null): string {
-  if (!risk) return "#334155";
-  if (risk === "Critical") return "#a855f7";
-  if (risk === "High")     return "#ef4444";
-  if (risk === "Moderate") return "#f97316";
-  return "#22c55e";
-}
-
 // ── GNSS Impact ───────────────────────────────────────────────────────────────
 function getGnssImpact(kp: number | null, s4: number | null, flare: string, level: string) {
   const k = kp ?? 0;
@@ -109,28 +61,6 @@ function getGnssImpact(kp: number | null, s4: number | null, flare: string, leve
     ? "Minor GNSS impact possible"
     : "Elevated ionospheric activity — monitor CORS accuracy";
   return { rtk, ppp, iono, scint, hf, cors };
-}
-
-// ── Sub-components ────────────────────────────────────────────────────────────
-function SWCard({
-  icon, label, value, sub, unit, barColor, barPct,
-}: {
-  icon: string; label: string; value: string | null; sub?: string;
-  unit?: string; barColor?: string; barPct?: number;
-}) {
-  return (
-    <div className="card" style={{ textAlign: "center", padding: "1rem 0.8rem 0", position: "relative", overflow: "hidden", display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: "120px" }}>
-      <div>
-        <div style={{ fontSize: "1.4rem", marginBottom: "0.2rem" }}>{icon}</div>
-        <div style={{ fontSize: "0.62rem", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "0.3rem" }}>{label}</div>
-        <div style={{ fontSize: "1.5rem", fontWeight: 800, lineHeight: 1.1, marginBottom: "0.2rem" }}>
-          {value ?? "N/A"}{value && unit ? <span style={{ fontSize: "0.75rem", fontWeight: 400, marginLeft: "3px" }}>{unit}</span> : null}
-        </div>
-        {sub && <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", marginBottom: "0.7rem" }}>{sub}</div>}
-      </div>
-      <div style={{ height: "4px", background: barColor ?? "#334155", borderRadius: "0 0 2px 2px", width: `${barPct ?? 100}%`, marginTop: "auto" }} />
-    </div>
-  );
 }
 
 function TimelineCard({
@@ -298,9 +228,6 @@ export default function SpaceWeatherPage() {
         <div>
           <h1 className="page-title">☀️ Space Weather Monitoring</h1>
           <p className="page-subtitle">Real-time solar and geomagnetic indices — NOAA SWPC data feed</p>
-          <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: "0.3rem" }}>
-            Click a card for an explanation of what the value means.
-          </p>
         </div>
         <button className="btn" onClick={handleRefresh} disabled={refreshing} style={{ flexShrink: 0, marginTop: "0.3rem" }}>
           {refreshing ? "Refreshing…" : "⟳ Refresh"}
@@ -323,17 +250,7 @@ export default function SpaceWeatherPage() {
         )}
       </div>
 
-      {/* ── 8 Metric Cards ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.8rem" }}>
-        <SWCard icon="🌍" label="Kp Index"        value={kp?.toFixed(1) ?? null}                                               sub="Planetary activity"        unit=""    barColor={kpSeverityColor(kp)}  barPct={kp !== null ? Math.min(100, (kp / 9) * 100) : 0} />
-        <SWCard icon="🧲" label="Geomagnetic"      value={sw?.kp_condition ?? null}                                             sub="Current state"             unit=""    barColor={sw?.kp_color ?? undefined} barPct={kp !== null ? Math.min(100, (kp / 9) * 100) : 0} />
-        <SWCard icon="🌡️" label="Dst Index"        value={dst !== null ? `${dst} nT` : null}                                   sub="Storm index"               unit=""    barColor={dstColor(dst)}  barPct={dst !== null ? Math.min(100, (Math.abs(dst) / 400) * 100) : 0} />
-        <SWCard icon="☀️" label="Solar Flux"       value={f107?.toFixed(1) ?? null}                                             sub="Solar flux units"          unit="sfu" barColor={f107Color(f107)} barPct={f107 !== null ? Math.min(100, ((f107 - 65) / 235) * 100) : 0} />
-        <SWCard icon="💨" label="Solar Wind"       value={wind?.toFixed(0) ?? null}                                             sub="Solar wind speed"          unit="km/s" barColor={windColor(wind)} barPct={wind !== null ? Math.min(100, ((wind - 250) / 650) * 100) : 0} />
-        <SWCard icon="〰️" label="Scintillation S4" value={s4?.toFixed(2) ?? null}                                               sub="Observed archive"          unit=""    barColor={s4Color(s4)}    barPct={s4 !== null ? Math.min(100, s4 * 100) : 0} />
-        <SWCard icon="🛰️" label="GNSS Risk"        value={risk ?? null}                                                          sub="Navigation impact"         unit=""    barColor={sw?.gnss_risk_color ?? riskColor(risk)} barPct={risk === "Critical" ? 100 : risk === "High" ? 75 : risk === "Moderate" ? 50 : 20} />
-        <SWCard icon="📡" label="Stations Online"  value={sw?.stations_total ? `${sw.stations_online ?? 0}/${sw.stations_total}` : "N/A"} sub="Live telemetry" unit="" barColor="#334155" barPct={sw?.stations_total ? ((sw.stations_online ?? 0) / sw.stations_total) * 100 : 0} />
-      </div>
+      <ClickableMetricGrid sw={sw} updatedUtc={sw?.updated_utc} />
 
       {/* ── Solar Activity Monitor section ── */}
       <div style={{ display: "flex", flexDirection: "column", gap: "0.8rem" }}>

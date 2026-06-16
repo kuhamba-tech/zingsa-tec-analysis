@@ -81,6 +81,52 @@ class SpaceWeatherTimelines(BaseModel):
     stations_online: list[TimelinePoint] = []
 
 
+class SpaceWeatherHistoryRow(BaseModel):
+    time: str
+    kp: float | None = None
+    kp_condition: str | None = None
+    dst: float | None = None
+    f107: float | None = None
+    plasma_speed: float | None = None
+    s4: float | None = None
+    gnss_risk: str | None = None
+    gnss_risk_score: float | None = None
+    stations_online: int | None = None
+    stations_total: int | None = None
+    mean_vtec: float | None = None
+
+
+class SpaceWeatherHistoryResponse(BaseModel):
+    hours: float
+    resample: str | None = None
+    count: int
+    rows: list[SpaceWeatherHistoryRow]
+
+
+class CorrelationPair(BaseModel):
+    a: str
+    b: str
+    r: float
+
+
+class SpaceWeatherCorrelationResponse(BaseModel):
+    hours: float
+    resample: str
+    sample_count: int
+    from_time: str | None = None
+    to_time: str | None = None
+    matrix: dict[str, dict[str, float | None]]
+    pairs: list[CorrelationPair]
+
+
+class SpaceWeatherLogStatus(BaseModel):
+    logging: bool
+    interval_sec: float
+    record_count: int
+    latest_time: str | None = None
+    db_backend: str
+
+
 # ── CORS Network ───────────────────────────────────────────────────────────────
 
 class StationOut(BaseModel):
@@ -101,6 +147,41 @@ class CorsHealthOut(BaseModel):
     total: int
 
 
+class StationStatusLogStatus(BaseModel):
+    logging: bool
+    poll_interval_sec: float
+    api_reachable: bool
+    event_count: int
+    snapshot_count: int
+    tracked_stations: int
+    db_backend: str
+
+
+class StationStatusEventOut(BaseModel):
+    time: str
+    station_code: str | None = None
+    status: str
+    previous_status: str | None = None
+    event_type: str
+    online_count: int | None = None
+    degraded_count: int | None = None
+    offline_count: int | None = None
+    unknown_count: int | None = None
+    api_reachable: bool = True
+    message: str | None = None
+    source: str | None = None
+
+
+class StationUptimeRow(BaseModel):
+    station_code: str
+    station_name: str
+    samples: int
+    online_pct: float
+    degraded_pct: float
+    offline_pct: float
+    unknown_pct: float
+
+
 # ── Processing ─────────────────────────────────────────────────────────────────
 
 class ProcessingSession(BaseModel):
@@ -116,6 +197,25 @@ class TecSummaryRow(BaseModel):
     max_vtec: float | None = None
     min_vtec: float | None = None
     samples: int | None = None
+
+
+class TecPlotPoint(BaseModel):
+    x: float | None = None
+    y: float | None = None
+
+
+class TecPlotDataset(BaseModel):
+    label: str
+    points: list[TecPlotPoint]
+
+
+class TecPlotSeries(BaseModel):
+    datasets: list[TecPlotDataset] = []
+    mean: list[TecPlotPoint] = []
+    xlabel: str = "UT (hrs)"
+    ylabel: str = "VTEC (TECU)"
+    y_min: float = -25.0
+    y_max: float = 75.0
 
 
 # ── TEC Analysis ───────────────────────────────────────────────────────────────

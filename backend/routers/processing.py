@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
 from backend.deps import require_api_key
-from backend.schemas import ProcessingSession, TecSummaryRow
+from backend.schemas import ProcessingSession, TecPlotSeries, TecSummaryRow
 
 router = APIRouter(prefix="/processing", tags=["processing"])
 
@@ -38,8 +38,11 @@ async def upload_cmn(file: UploadFile = File(...), _=Depends(require_api_key)):
         from tec_core import read_cmn_file, summarize_daily
         df = read_cmn_file(str(tmp_path))
         daily = summarize_daily(df)
-        _sessions[sid].update({"status": "done", "df": df, "daily": daily, "rows": len(df)})
+        _sessions[sid].update({"status": "done", "df": df, "daily": daily, "rows": len(df), "kind": "cmn"})
         return ProcessingSession(session_id=sid, status="done", rows=len(df))
+    except HTTPException:
+        _sessions[sid]["status"] = "error"
+        raise
     except Exception as exc:
         _sessions[sid]["status"] = "error"
         raise HTTPException(status_code=422, detail=str(exc))
@@ -65,12 +68,29 @@ async def upload_rinex(
     _sessions[sid] = {"status": "running", "df": None, "daily": None}
     try:
         import sys; sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-        from tec_core import TecConfig, read_rinex_files, summarize_daily
+        from tec_core import TecConfig, read_rinex_files, summarize_daily, RINEX_EMPTY_HELP
+        from zgiis.processing.goptec_plot import build_tec_plot_series
+
         cfg = TecConfig()
-        df = read_rinex_files(obs_paths, nav_paths, cfg)
+        df = read_rinex_files(obs_paths, cfg, nav_files=nav_paths or None)
+        if df.empty:
+            raise HTTPException(status_code=422, detail=RINEX_EMPTY_HELP)
         daily = summarize_daily(df)
-        _sessions[sid].update({"status": "done", "df": df, "daily": daily, "rows": len(df)})
+        plot = build_tec_plot_series(df, value_col="vtec")
+        plot_raw = build_tec_plot_series(df, value_col="vtec_raw")
+        _sessions[sid].update({
+            "status": "done",
+            "df": df,
+            "daily": daily,
+            "rows": len(df),
+            "plot": plot,
+            "plot_raw": plot_raw,
+            "kind": "rinex",
+        })
         return ProcessingSession(session_id=sid, status="done", rows=len(df))
+    except HTTPException:
+        _sessions[sid]["status"] = "error"
+        raise
     except Exception as exc:
         _sessions[sid]["status"] = "error"
         raise HTTPException(status_code=422, detail=str(exc))
@@ -104,13 +124,15 @@ async def session_summary(
     import sys; sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     from tec_core import summarize_daily, summarize_monthly, summarize_yearly
 
+    daily = s.get("daily")
+    if daily is None:
+        daily = summarize_daily(df)
+
     if mode == "daily":
-        out = s.get("daily") or summarize_daily(df)
+        out = daily
     elif mode == "monthly":
-        daily = s.get("daily") or summarize_daily(df)
         out = summarize_monthly(daily)
     else:
-        daily = s.get("daily") or summarize_daily(df)
         out = summarize_yearly(daily)
 
     rows = []
@@ -123,6 +145,22 @@ async def session_summary(
             samples=int(row["samples"]) if "samples" in row else None,
         ))
     return rows
+
+
+@router.get("/{session_id}/tec-plot", response_model=TecPlotSeries)
+async def session_tec_plot(
+    session_id: str,
+    raw: bool = False,
+    _=Depends(require_api_key),
+):
+    s = _get_session(session_id)
+    if s["status"] != "done":
+        raise HTTPException(status_code=409, detail="Processing not complete")
+    key = "plot_raw" if raw else "plot"
+    plot = s.get(key)
+    if not plot:
+        raise HTTPException(status_code=404, detail="No plot data for this session")
+    return TecPlotSeries(**plot)
 
 
 @router.get("/{session_id}/raw")

@@ -26,6 +26,52 @@ export interface SpaceWeatherTimelines {
   stations_online: TimelinePoint[];
 }
 
+export interface SpaceWeatherLogStatus {
+  logging: boolean;
+  interval_sec: number;
+  record_count: number;
+  latest_time: string | null;
+  db_backend: string;
+}
+
+export interface SpaceWeatherHistoryRow {
+  time: string;
+  kp: number | null;
+  kp_condition: string | null;
+  dst: number | null;
+  f107: number | null;
+  plasma_speed: number | null;
+  s4: number | null;
+  gnss_risk: string | null;
+  gnss_risk_score: number | null;
+  stations_online: number | null;
+  stations_total: number | null;
+  mean_vtec: number | null;
+}
+
+export interface SpaceWeatherHistoryResponse {
+  hours: number;
+  resample: string | null;
+  count: number;
+  rows: SpaceWeatherHistoryRow[];
+}
+
+export interface CorrelationPair {
+  a: string;
+  b: string;
+  r: number;
+}
+
+export interface SpaceWeatherCorrelationResponse {
+  hours: number;
+  resample: string;
+  sample_count: number;
+  from_time: string | null;
+  to_time: string | null;
+  matrix: Record<string, Record<string, number | null>>;
+  pairs: CorrelationPair[];
+}
+
 export interface SolarActivity {
   flare_count: number | null;
   cme_count: number | null;
@@ -89,6 +135,41 @@ export interface CorsHealth {
   total: number;
 }
 
+export interface StationStatusLogStatus {
+  logging: boolean;
+  poll_interval_sec: number;
+  api_reachable: boolean;
+  event_count: number;
+  snapshot_count: number;
+  tracked_stations: number;
+  db_backend: string;
+}
+
+export interface StationStatusEvent {
+  time: string;
+  station_code: string | null;
+  status: string;
+  previous_status: string | null;
+  event_type: string;
+  online_count: number | null;
+  degraded_count: number | null;
+  offline_count: number | null;
+  unknown_count: number | null;
+  api_reachable: boolean;
+  message: string | null;
+  source: string | null;
+}
+
+export interface StationUptimeRow {
+  station_code: string;
+  station_name: string;
+  samples: number;
+  online_pct: number;
+  degraded_pct: number;
+  offline_pct: number;
+  unknown_pct: number;
+}
+
 // ── Processing ────────────────────────────────────────────────────────────────
 export interface ProcessingSession {
   session_id: string;
@@ -103,6 +184,25 @@ export interface TecSummaryRow {
   max_vtec: number | null;
   min_vtec: number | null;
   samples: number | null;
+}
+
+export interface TecPlotPoint {
+  x: number | null;
+  y: number | null;
+}
+
+export interface TecPlotDataset {
+  label: string;
+  points: TecPlotPoint[];
+}
+
+export interface TecPlotSeries {
+  datasets: TecPlotDataset[];
+  mean: TecPlotPoint[];
+  xlabel: string;
+  ylabel: string;
+  y_min: number;
+  y_max: number;
 }
 
 // ── TEC Analysis ──────────────────────────────────────────────────────────────

@@ -15,7 +15,7 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend import live_manager
+from backend import live_manager, space_weather_logger, station_status_logger
 from backend.routers import (
     chat,
     cors_network,
@@ -32,7 +32,11 @@ from backend.routers import (
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     live_manager.start()
+    space_weather_logger.start()
+    station_status_logger.start()
     yield
+    station_status_logger.stop()
+    space_weather_logger.stop()
     live_manager.stop()
 
 

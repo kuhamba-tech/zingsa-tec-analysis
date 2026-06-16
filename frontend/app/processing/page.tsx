@@ -1,9 +1,9 @@
 "use client";
 import { useState, useRef } from "react";
 import dynamic from "next/dynamic";
-import { uploadCmn, uploadRinex, getSessionSummary } from "@/lib/api";
+import { uploadCmn, uploadRinex, getSessionSummary, getSessionTecPlot } from "@/lib/api";
 import LineChart from "@/components/charts/LineChart";
-import type { TecSummaryRow } from "@/lib/types";
+import type { TecSummaryRow, TecPlotSeries } from "@/lib/types";
 import type { MapLayer } from "@/components/maps/CorsMapWithLayers";
 
 const CorsMap = dynamic(() => import("@/components/maps/CorsMap"), { ssr: false });
@@ -27,6 +27,7 @@ export default function ProcessingPage() {
   const [rows, setRows]         = useState<TecSummaryRow[]>([]);
   const [mode, setMode]         = useState<Mode>("daily");
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [tecPlot, setTecPlot] = useState<TecPlotSeries | null>(null);
   const [loading, setLoading]   = useState(false);
   const [tab, setTab]           = useState<"cmn" | "rinex">("cmn");
   const [mapLayer, setMapLayer] = useState<MapLayer>("Hybrid");
@@ -50,6 +51,7 @@ export default function ProcessingPage() {
       try {
         const sess = await uploadCmn(file);
         setSessionId(sess.session_id);
+        setTecPlot(null);
         setStatus(`Done — ${sess.rows.toLocaleString()} observations`);
         await loadSummary(sess.session_id, mode);
       } catch (e) { setStatus(`Error: ${e}`); }
@@ -57,13 +59,18 @@ export default function ProcessingPage() {
       const obs = Array.from(obsRef.current?.files ?? []);
       const nav = Array.from(navRef.current?.files ?? []);
       if (!obs.length) return setStatus("Select at least one observation file.");
+      if (!nav.length) {
+        setStatus("Warning: no navigation file selected — upload the matching .24n file or processing may return zero rows.");
+      }
       setLoading(true); setStatus("Processing RINEX…");
       try {
         const sess = await uploadRinex(obs, nav);
         setSessionId(sess.session_id);
         setStatus(`Done — ${sess.rows.toLocaleString()} observations`);
         await loadSummary(sess.session_id, mode);
-      } catch (e) { setStatus(`Error: ${e}`); }
+        const plot = await getSessionTecPlot(sess.session_id);
+        setTecPlot(plot);
+      } catch (e) { setTecPlot(null); setStatus(`Error: ${e}`); }
     }
     setLoading(false);
   }
@@ -135,7 +142,7 @@ export default function ProcessingPage() {
                 ref={obsRef}
                 type="file"
                 multiple
-                accept=".rnx,.o,.obs"
+                accept=".rnx,.o,.obs,.24o,.25o,.26o"
                 className="file-picker-input"
                 onChange={(e) => {
                   const files = Array.from(e.currentTarget.files ?? []);
@@ -159,7 +166,7 @@ export default function ProcessingPage() {
                 ref={navRef}
                 type="file"
                 multiple
-                accept=".nav,.n,.gnav,.hnav"
+                accept=".nav,.n,.gnav,.hnav,.24n,.25n,.26n"
                 className="file-picker-input"
                 onChange={(e) => {
                   const files = Array.from(e.currentTarget.files ?? []);
@@ -273,6 +280,30 @@ export default function ProcessingPage() {
               </button>
             ))}
           </div>
+          {tecPlot && tecPlot.mean.length > 0 && (
+            <div className="card">
+              <div className="metric-label" style={{ marginBottom: "0.6rem" }}>
+                24-hour VTEC (GOP-style, bias removed) — {tecPlot.datasets.length} PRN arcs
+              </div>
+              <LineChart
+                labels={tecPlot.mean.map((p) => (p.x ?? 0).toFixed(1))}
+                datasets={[
+                  {
+                    label: "Mean VTEC",
+                    data: tecPlot.mean.map((p) => p.y ?? 0),
+                    color: "#00cc66",
+                    fill: true,
+                  },
+                ]}
+                yLabel={tecPlot.ylabel}
+                height={300}
+              />
+              <p style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>
+                Gopi Ch.4 pipeline: TECG/TECP (Eqs 4.10–4.12), leveling (4.14–4.15), DCB (4.16), mapping + VTEC (4.17).
+                Upload matching .24n navigation with every .24o file.
+              </p>
+            </div>
+          )}
           <div className="card">
             <div className="metric-label" style={{ marginBottom: "0.6rem" }}>Mean VTEC — {mode}</div>
             <LineChart labels={labels} datasets={[{ label: "Mean VTEC (TECU)", data: values, color: "#168bd2", fill: true }]} height={280} />
