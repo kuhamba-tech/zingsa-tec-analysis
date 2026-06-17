@@ -297,6 +297,44 @@ export interface AnomalyDay {
 export interface DiurnalPoint { hour: number; mean_vtec: number; std_vtec: number; }
 export interface SeasonalRow { season: string; mean: number; max: number; min: number; std: number; }
 export interface SolarCycleRow { year: number; mean_vtec: number; max_vtec: number; min_vtec: number; }
+
+export interface OmniDailyPoint {
+  date: string;
+  ssn: number | null;
+  kp: number | null;
+  kp_mean: number | null;
+  dst: number | null;
+  f107: number | null;
+  storm_flag: boolean;
+  storm_class: string;
+  mean_vtec: number | null;
+}
+
+export interface OmniStormDay {
+  date: string;
+  kp: number | null;
+  dst: number | null;
+  f107: number | null;
+  ssn: number | null;
+  storm_class: string;
+  mean_vtec: number | null;
+}
+
+export interface OmniAnalysisResponse {
+  source: string;
+  start_date: string | null;
+  end_date: string | null;
+  days: number;
+  storm_days: number;
+  max_kp: number | null;
+  min_dst: number | null;
+  mean_f107: number | null;
+  mean_vtec_storm: number | null;
+  mean_vtec_quiet: number | null;
+  series: OmniDailyPoint[];
+  storms: OmniStormDay[];
+  fetched_at: string | null;
+}
 export interface PrnRow {
   prn: string;
   constellation: string;

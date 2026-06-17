@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date
+
 import numpy as np
 import pandas as pd
 from fastapi import APIRouter, Depends, Query
@@ -9,6 +11,7 @@ from backend.schemas import (
     ArchiveMeta,
     AnomalyDay,
     DiurnalPoint,
+    OmniAnalysisResponse,
     PrnRow,
     SeasonalRow,
     SolarCycleRow,
@@ -84,6 +87,50 @@ async def time_series(
             elevation_deg=float(row["elevation_deg"]) if "elevation_deg" in row and pd.notna(row.get("elevation_deg")) else None,
         ))
     return result
+
+
+@router.get("/omni-analysis", response_model=OmniAnalysisResponse)
+async def omni_analysis(
+    start: str = Query(..., description="Start date YYYY-MM-DD"),
+    end: str = Query(..., description="End date YYYY-MM-DD"),
+    station: str | None = Query(None),
+    _=Depends(require_api_key),
+):
+    """Fetch NASA OMNIWeb indices (SSN, Kp, Dst, F10.7) and correlate with archived VTEC."""
+    try:
+        start_d = date.fromisoformat(start[:10])
+        end_d = date.fromisoformat(end[:10])
+    except ValueError as exc:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=422, detail="Invalid date format; use YYYY-MM-DD") from exc
+
+    from zgiis.space_weather.omniweb_client import build_analysis, fetch_omni_daily
+
+    try:
+        omni_rows = fetch_omni_daily(start_d, end_d)
+    except Exception as exc:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=502, detail=f"OMNIWeb fetch failed: {exc}") from exc
+
+    vtec_by_date: dict[str, float] = {}
+    df = _archive()
+    if not df.empty:
+        work = df.copy()
+        if "date" in work.columns:
+            work["timestamp"] = pd.to_datetime(work["date"])
+        if station and "station" in work.columns:
+            work = work[work["station"] == station]
+        work = work[
+            (work["timestamp"] >= pd.Timestamp(start))
+            & (work["timestamp"] <= pd.Timestamp(end))
+        ]
+        if not work.empty:
+            work["day"] = work["timestamp"].dt.strftime("%Y-%m-%d")
+            daily = work.groupby("day")["vtec"].mean()
+            vtec_by_date = {str(k): round(float(v), 2) for k, v in daily.items() if pd.notna(v)}
+
+    payload = build_analysis(omni_rows, vtec_by_date)
+    return OmniAnalysisResponse(**payload)
 
 
 @router.get("/anomalies", response_model=list[AnomalyDay])

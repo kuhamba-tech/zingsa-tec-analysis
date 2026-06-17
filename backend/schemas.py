@@ -322,6 +322,44 @@ class SolarCycleRow(BaseModel):
     min_vtec: float
 
 
+class OmniDailyPoint(BaseModel):
+    date: str
+    ssn: float | None = None
+    kp: float | None = None
+    kp_mean: float | None = None
+    dst: float | None = None
+    f107: float | None = None
+    storm_flag: bool = False
+    storm_class: str = "Quiet"
+    mean_vtec: float | None = None
+
+
+class OmniStormDay(BaseModel):
+    date: str
+    kp: float | None = None
+    dst: float | None = None
+    f107: float | None = None
+    ssn: float | None = None
+    storm_class: str
+    mean_vtec: float | None = None
+
+
+class OmniAnalysisResponse(BaseModel):
+    source: str
+    start_date: str | None = None
+    end_date: str | None = None
+    days: int = 0
+    storm_days: int = 0
+    max_kp: float | None = None
+    min_dst: float | None = None
+    mean_f107: float | None = None
+    mean_vtec_storm: float | None = None
+    mean_vtec_quiet: float | None = None
+    series: list[OmniDailyPoint] = []
+    storms: list[OmniStormDay] = []
+    fetched_at: str | None = None
+
+
 class PrnRow(BaseModel):
     prn: str
     constellation: str

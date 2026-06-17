@@ -757,6 +757,99 @@ html, body {
 .tec-heatmap-legend-green { color: #00ff88; }
 .tec-heatmap-legend-red { color: #ff4400; }
 
+.omni-range-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  padding: 1rem 1.1rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--accent);
+  background: rgba(0, 0, 0, 0.35);
+}
+.omni-range-title {
+  font-weight: 800;
+  font-size: 0.88rem;
+  letter-spacing: 0.04em;
+}
+.omni-range-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.85rem;
+  align-items: flex-end;
+}
+.omni-range-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+.omni-range-grid select {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.4rem 0.65rem;
+  color: var(--text);
+  min-width: 110px;
+}
+.omni-source-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 10px;
+  border: 1px solid #244d73;
+  border-left: 4px solid var(--accent);
+  background: rgba(0, 0, 0, 0.55);
+}
+.omni-source-scale {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.omni-source-gradient {
+  width: 160px;
+  height: 14px;
+  border-radius: 6px;
+  border: 1px solid #334155;
+  background: linear-gradient(to right, #000080, #0080ff, #00ff80, #ffcc00, #ff0000);
+}
+.omni-source-banner p {
+  margin: 0;
+  flex: 1 1 220px;
+  font-size: 0.8rem;
+  line-height: 1.55;
+  color: var(--text);
+}
+.omni-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.75rem;
+}
+.omni-stat-card {
+  padding: 0.75rem 0.9rem;
+}
+.omni-stat-value {
+  font-size: 1.15rem;
+  font-weight: 800;
+  margin: 0.25rem 0;
+}
+.omni-stat-note {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
 /* CORS hardware specification */
 .hardware-page {
   display: flex;

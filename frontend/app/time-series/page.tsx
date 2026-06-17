@@ -1,11 +1,33 @@
 "use client";
-import { useEffect, useState } from "react";
-import { getArchiveMeta, getTimeSeries, getDiurnal, getSeasonal, getSolarCycle } from "@/lib/api";
+import { useEffect, useState, useCallback } from "react";
+import { getArchiveMeta, getTimeSeries, getDiurnal, getSeasonal, getSolarCycle, getOmniAnalysis } from "@/lib/api";
 import LineChart from "@/components/charts/LineChart";
 import BarChart from "@/components/charts/BarChart";
-import type { ArchiveMeta, TecObservation, DiurnalPoint, SeasonalRow, SolarCycleRow } from "@/lib/types";
+import GeomagneticAnalysisPanel from "@/components/timeSeries/GeomagneticAnalysisPanel";
+import type { ArchiveMeta, TecObservation, DiurnalPoint, SeasonalRow, SolarCycleRow, OmniAnalysisResponse } from "@/lib/types";
 
 const STATION_COLORS = ["#168bd2","#ff4444","#00ff88","#ff8c00","#a78bfa","#ffcc00","#34d399","#f472b6"];
+const MONTHS = [
+  { value: 1, label: "January" }, { value: 2, label: "February" }, { value: 3, label: "March" },
+  { value: 4, label: "April" }, { value: 5, label: "May" }, { value: 6, label: "June" },
+  { value: 7, label: "July" }, { value: 8, label: "August" }, { value: 9, label: "September" },
+  { value: 10, label: "October" }, { value: 11, label: "November" }, { value: 12, label: "December" },
+];
+
+function lastDayOfMonth(year: number, month: number) {
+  return new Date(year, month, 0).getDate();
+}
+
+function rangeFromMonths(startYear: number, startMonth: number, endYear: number, endMonth: number) {
+  const start = `${startYear}-${String(startMonth).padStart(2, "0")}-01`;
+  const end = `${endYear}-${String(endMonth).padStart(2, "0")}-${String(lastDayOfMonth(endYear, endMonth)).padStart(2, "0")}`;
+  return { start, end };
+}
+
+function parseYm(iso: string | undefined, fallback: { y: number; m: number }) {
+  if (!iso || iso.length < 7) return fallback;
+  return { y: Number(iso.slice(0, 4)), m: Number(iso.slice(5, 7)) };
+}
 
 function rollingMean(arr: number[], window = 7): number[] {
   return arr.map((_, i) => {
@@ -20,7 +42,7 @@ function percentile(arr: number[], p: number): number {
   return sorted[Math.min(idx, sorted.length - 1)] ?? 0;
 }
 
-type Tab = "daily" | "monthly" | "seasonal" | "diurnal";
+type Tab = "daily" | "monthly" | "seasonal" | "diurnal" | "storms";
 
 export default function TimeSeriesPage() {
   const [meta, setMeta]       = useState<ArchiveMeta | null>(null);
@@ -31,11 +53,20 @@ export default function TimeSeriesPage() {
   const [tab, setTab]         = useState<Tab>("daily");
   const [loading, setLoading] = useState(true);
   const [coverageOpen, setCoverageOpen] = useState(false);
+  const [omni, setOmni] = useState<OmniAnalysisResponse | null>(null);
+  const [omniLoading, setOmniLoading] = useState(false);
+  const [omniError, setOmniError] = useState<string | null>(null);
 
   // filters
   const [station, setStation] = useState("");
   const [start, setStart]     = useState("");
   const [end, setEnd]         = useState("");
+  const [startYear, setStartYear] = useState(2024);
+  const [startMonth, setStartMonth] = useState(4);
+  const [endYear, setEndYear] = useState(2024);
+  const [endMonth, setEndMonth] = useState(6);
+
+  const yearOptions = Array.from({ length: 12 }, (_, i) => new Date().getFullYear() - 6 + i);
 
   async function loadAll(st?: string, s?: string, e?: string) {
     setLoading(true);
@@ -57,6 +88,37 @@ export default function TimeSeriesPage() {
   }
 
   useEffect(() => { loadAll(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!meta?.first_date || !meta?.last_date) return;
+    const s = parseYm(meta.first_date, { y: 2024, m: 4 });
+    const e = parseYm(meta.last_date, { y: 2024, m: 6 });
+    setStartYear(s.y);
+    setStartMonth(s.m);
+    setEndYear(e.y);
+    setEndMonth(e.m);
+    const r = rangeFromMonths(s.y, s.m, e.y, e.m);
+    setStart(r.start);
+    setEnd(r.end);
+  }, [meta?.first_date, meta?.last_date]);
+
+  const loadOmni = useCallback(async () => {
+    const r = rangeFromMonths(startYear, startMonth, endYear, endMonth);
+    setStart(r.start);
+    setEnd(r.end);
+    setOmniLoading(true);
+    setOmniError(null);
+    try {
+      await loadAll(station, r.start, r.end);
+      const data = await getOmniAnalysis(r.start, r.end, station || undefined);
+      setOmni(data);
+      setTab("storms");
+    } catch (err) {
+      setOmni(null);
+      setOmniError(err instanceof Error ? err.message : "Failed to load OMNIWeb data");
+    }
+    setOmniLoading(false);
+  }, [station, startYear, startMonth, endYear, endMonth]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Build daily mean per station ──────────────────────────────────────────
   const dailyByStation: Record<string, Record<string, number[]>> = {};
@@ -142,6 +204,70 @@ export default function TimeSeriesPage() {
         </div>
       )}
 
+      {/* OMNIWeb date range — NASA geomagnetic indices */}
+      <div className="omni-range-card">
+        <div className="omni-range-title">NASA OMNIWeb date range (SSN · Kp · F10.7 · Dst)</div>
+        <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", margin: 0 }}>
+          Pull daily space-weather indices from{" "}
+          <a href="https://omniweb.gsfc.nasa.gov/form/dx1.html" target="_blank" rel="noreferrer">
+            OMNIWeb
+          </a>{" "}
+          for the same interval as your TEC archive, then overlay geomagnetic storm days on VTEC.
+        </p>
+        <div className="omni-range-grid">
+          <label>
+            From month
+            <select value={startMonth} onChange={(e) => setStartMonth(Number(e.target.value))}>
+              {MONTHS.map((m) => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            From year
+            <select value={startYear} onChange={(e) => setStartYear(Number(e.target.value))}>
+              {yearOptions.map((y) => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            To month
+            <select value={endMonth} onChange={(e) => setEndMonth(Number(e.target.value))}>
+              {MONTHS.map((m) => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            To year
+            <select value={endYear} onChange={(e) => setEndYear(Number(e.target.value))}>
+              {yearOptions.map((y) => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Station (VTEC correlation)
+            <select value={station} onChange={(e) => setStation(e.target.value)}
+              style={{ minWidth: "140px" }}>
+              <option value="">All stations (network mean)</option>
+              {(meta?.stations ?? []).map((s) => (
+                <option key={s} value={s}>{s.toUpperCase()}</option>
+              ))}
+            </select>
+          </label>
+          <button className="btn btn-primary" onClick={loadOmni} disabled={omniLoading || loading}>
+            {omniLoading ? "Loading OMNI…" : "Load OMNI analysis"}
+          </button>
+        </div>
+        {start && end && (
+          <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+            Selected range: {start} → {end}
+          </div>
+        )}
+      </div>
+
       {/* Expandable coverage detail */}
       {meta?.available && (
         <div className="card" style={{ padding: "0.6rem 1rem", cursor: "pointer" }} onClick={() => setCoverageOpen((v) => !v)}>
@@ -192,7 +318,7 @@ export default function TimeSeriesPage() {
 
       {/* Tabs */}
       <div className="tabs">
-        {([["daily","Daily Variation"],["monthly","Monthly Averages"],["seasonal","Seasonal / Yearly"],["diurnal","Diurnal Pattern"]] as [Tab,string][]).map(([id, label]) => (
+        {([["daily","Daily Variation"],["monthly","Monthly Averages"],["seasonal","Seasonal / Yearly"],["diurnal","Diurnal Pattern"],["storms","Geomagnetic Storms"]] as [Tab,string][]).map(([id, label]) => (
           <button key={id} className={`tab${tab === id ? " active" : ""}`} onClick={() => setTab(id)}>{label}</button>
         ))}
       </div>
@@ -211,6 +337,7 @@ export default function TimeSeriesPage() {
                 yLabel="VTEC (TECU)"
                 height={340}
                 threshold={pct95 > 0 ? { value: pct95, label: `95th pct: ${pct95.toFixed(1)} TECU` } : undefined}
+                highlightDates={omni?.storms.map((s) => s.date).filter((d) => allDates.includes(d))}
               />
             </div>
           ) : (
@@ -296,6 +423,17 @@ export default function TimeSeriesPage() {
             <div className="banner banner-info">No diurnal data available.</div>
           )}
         </div>
+      )}
+
+      {/* ── Geomagnetic / OMNI analysis ── */}
+      {tab === "storms" && (
+        <GeomagneticAnalysisPanel
+          omni={omni}
+          vtecLabels={allDates}
+          vtecDatasets={dailyDatasets}
+          loading={omniLoading}
+          error={omniError}
+        />
       )}
 
     </div>

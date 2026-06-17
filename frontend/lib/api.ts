@@ -12,6 +12,7 @@ import type {
   ForecastStatus,
   LiveObservation,
   LivePipelineStatus,
+  OmniAnalysisResponse,
   PrnRow,
   ProcessingOptions,
   ProcessingSession,
@@ -155,6 +156,8 @@ export const getAnomalies = (threshold_pct = 95, station?: string) =>
 export const getDiurnal = () => get<DiurnalPoint[]>("/tec/diurnal");
 export const getSeasonal = () => get<SeasonalRow[]>("/tec/seasonal");
 export const getSolarCycle = () => get<SolarCycleRow[]>("/tec/solar-cycle");
+export const getOmniAnalysis = (start: string, end: string, station?: string) =>
+  get<OmniAnalysisResponse>("/tec/omni-analysis", { start, end, station, _ts: Date.now() });
 export const getPrn = (constellation?: string) => get<PrnRow[]>("/tec/prn", { constellation });
 
 // ── Live ──────────────────────────────────────────────────────────────────────

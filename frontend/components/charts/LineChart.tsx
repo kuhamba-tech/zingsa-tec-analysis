@@ -35,9 +35,10 @@ interface Props {
   yLabel?: string;
   height?: number;
   threshold?: { value: number; label: string };
+  highlightDates?: string[];
 }
 
-export default function LineChart({ labels, datasets, yLabel = "VTEC (TECU)", height = 300, threshold }: Props) {
+export default function LineChart({ labels, datasets, yLabel = "VTEC (TECU)", height = 300, threshold, highlightDates }: Props) {
   const COLORS = ["#168bd2", "#ff8c00", "#00ff88", "#ff4444", "#a78bfa", "#34d399"];
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -60,6 +61,28 @@ export default function LineChart({ labels, datasets, yLabel = "VTEC (TECU)", he
         ctx.fillStyle = "#ff8c00";
         ctx.font = "11px sans-serif";
         ctx.fillText(threshold.label, chart.chartArea.left + 4, yPx - 4);
+        ctx.restore();
+      },
+    });
+  }
+  if (highlightDates?.length) {
+    const dates = highlightDates;
+    plugins.push({
+      id: "stormHighlight",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      beforeDatasetsDraw(chart: any) {
+        const { ctx, chartArea, scales } = chart;
+        const x = scales.x;
+        if (!x || !chartArea) return;
+        ctx.save();
+        ctx.fillStyle = "rgba(255, 68, 68, 0.14)";
+        for (const d of dates) {
+          const idx = labels.indexOf(d);
+          if (idx < 0) continue;
+          const x0 = x.getPixelForValue(Math.max(0, idx - 0.5));
+          const x1 = x.getPixelForValue(Math.min(labels.length - 1, idx + 0.5));
+          ctx.fillRect(x0, chartArea.top, x1 - x0, chartArea.bottom - chartArea.top);
+        }
         ctx.restore();
       },
     });
