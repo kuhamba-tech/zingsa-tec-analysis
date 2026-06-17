@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 const NAV = [
   { href: "/",                  label: "Home",              icon: "🏠" },
@@ -20,95 +20,67 @@ const NAV = [
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const [open, setOpen] = useState(true);
+  const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  // Close the mobile drawer on route change.
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname]);
+
+  const closeMobile = () => setMobileOpen(false);
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh", background: "var(--bg)" }}>
+    <div className="app-shell">
+      {/* Mobile top bar */}
+      <header className="app-topbar">
+        <button className="app-hamburger" onClick={() => setMobileOpen(true)} aria-label="Open navigation">
+          <span /><span /><span />
+        </button>
+        <span className="app-topbar-title">GNSS-TEC</span>
+      </header>
+
+      {/* Backdrop (mobile only, shown while drawer is open) */}
+      {mobileOpen && <div className="app-overlay" onClick={closeMobile} />}
+
       {/* Sidebar */}
-      <aside style={{
-        width: open ? "var(--sidebar-w)" : "56px",
-        minWidth: open ? "var(--sidebar-w)" : "56px",
-        background: "#000",
-        borderRight: "1px solid var(--border)",
-        display: "flex",
-        flexDirection: "column",
-        transition: "width 0.2s, min-width 0.2s",
-        overflow: "hidden",
-        zIndex: 40,
-        position: "sticky",
-        top: 0,
-        height: "100vh",
-      }}>
-        {/* Logo + collapse */}
-        <div style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: open ? "space-between" : "center",
-          padding: "1rem 0.8rem 0.75rem",
-          borderBottom: "1px solid var(--border)",
-        }}>
-          {open && (
-            <span style={{ fontWeight: 800, fontSize: "0.95rem", color: "#ffffff", letterSpacing: "0.05em" }}>
-              GNSS-TEC
-            </span>
-          )}
+      <aside className={`app-sidebar${collapsed ? " is-collapsed" : ""}${mobileOpen ? " is-mobile-open" : ""}`}>
+        <div className="app-sidebar-head">
+          <span className="app-logo-text">GNSS-TEC</span>
           <button
-            onClick={() => setOpen(!open)}
-            style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: "1.1rem", lineHeight: 1 }}
-            title={open ? "Collapse sidebar" : "Expand sidebar"}
+            className="app-collapse-btn"
+            onClick={() => setCollapsed(!collapsed)}
+            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           >
-            {open ? "‹" : "›"}
+            {collapsed ? "›" : "‹"}
           </button>
+          <button className="app-mobile-close" onClick={closeMobile} aria-label="Close navigation">✕</button>
         </div>
 
-        {/* Nav links */}
-        <nav style={{ flex: 1, overflowY: "auto", padding: "0.5rem 0" }}>
+        <nav className="app-nav">
           {NAV.map(({ href, label, icon }) => {
             const active = pathname === href;
             return (
-              <Link key={href} href={href} style={{ textDecoration: "none" }}>
-                <div style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "0.65rem",
-                  padding: "0.55rem 0.8rem",
-                  margin: "1px 6px",
-                  borderRadius: "7px",
-                  background: active ? "#17367a" : "transparent",
-                  borderLeft: active ? "3px solid var(--accent)" : "3px solid transparent",
-                  color: active ? "#fff" : "var(--text-muted)",
-                  fontWeight: active ? 700 : 500,
-                  fontSize: "0.84rem",
-                  cursor: "pointer",
-                  transition: "background 0.12s, color 0.12s",
-                  whiteSpace: "nowrap",
-                  overflow: "hidden",
-                }}>
-                  <span style={{ fontSize: "1rem", flexShrink: 0 }}>{icon}</span>
-                  {open && <span>{label}</span>}
+              <Link key={href} href={href} className="app-nav-link">
+                <div className={`app-nav-item${active ? " is-active" : ""}`}>
+                  <span className="app-nav-icon">{icon}</span>
+                  <span className="app-nav-label">{label}</span>
                 </div>
               </Link>
             );
           })}
         </nav>
 
-        {open && (
-          <div className="sidebar-department">
-            <img src="/zingsa_logo.webp" alt="ZINGSA Space Science Department" />
-            <div>ZINGSA Space Science Department</div>
-          </div>
-        )}
+        <div className="sidebar-department">
+          <img src="/zingsa_logo.webp" alt="ZINGSA Space Science Department" />
+          <div>ZINGSA Space Science Department</div>
+        </div>
 
-        {/* Footer */}
-        {open && (
-          <div style={{ padding: "0.75rem 1rem", borderTop: "1px solid var(--border)", fontSize: "0.65rem", color: "var(--text-muted)" }}>
-            © 2026 ZINGSA
-          </div>
-        )}
+        <div className="app-sidebar-footer">© 2026 ZINGSA</div>
       </aside>
 
       {/* Main */}
-      <main style={{ flex: 1, overflowY: "auto", padding: "1.5rem 2rem", maxWidth: "1400px" }}>
+      <main className="app-main">
         {children}
       </main>
     </div>

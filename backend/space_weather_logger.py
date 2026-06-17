@@ -58,7 +58,7 @@ def log_snapshot(*, source: str = "scheduler", force: bool = False) -> bool:
         from zgiis.space_weather.fetch_indices import get_space_weather
         from zgiis.db.space_weather_db import snapshot_from_sw_dict
 
-        sw = get_space_weather()
+        sw = get_space_weather(use_third_party=False)
         row = snapshot_from_sw_dict(sw, source=source)
         _attach_mean_vtec(row)
         get_db().insert_snapshot(row)

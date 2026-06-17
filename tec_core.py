@@ -870,16 +870,18 @@ def summarize_daily(df: pd.DataFrame) -> pd.DataFrame:
     GOP/MATLAB-compatible daily metrics:
       1) For each day and time-of-day, compute mean VTEC across PRNs.
       2) Daily mean/max/min are computed over those per-time means.
+      3) daytime_mean_vtec is the mean restricted to the 06:00-18:00 UT window.
     """
+    cols = ["date", "mean_vtec", "max_vtec", "min_vtec", "samples", "daytime_mean_vtec"]
     if df.empty:
-        return pd.DataFrame(columns=["date", "mean_vtec", "max_vtec", "min_vtec", "samples"])
+        return pd.DataFrame(columns=cols)
 
     temp = df.copy()
     temp["timestamp"] = pd.to_datetime(temp["timestamp"], errors="coerce")
     temp["date"] = pd.to_datetime(temp["date"], errors="coerce").dt.floor("D")
     temp = temp.dropna(subset=["timestamp", "date", "vtec"])
     if temp.empty:
-        return pd.DataFrame(columns=["date", "mean_vtec", "max_vtec", "min_vtec", "samples"])
+        return pd.DataFrame(columns=cols)
 
     # Per (date, timestamp) mean across PRNs.
     time_means = (
@@ -887,6 +889,13 @@ def summarize_daily(df: pd.DataFrame) -> pd.DataFrame:
         .agg(mean_vtec_time=("vtec", "mean"))
         .sort_values(["date", "timestamp"])
     )
+    ut_hour = (
+        time_means["timestamp"].dt.hour
+        + time_means["timestamp"].dt.minute / 60.0
+        + time_means["timestamp"].dt.second / 3600.0
+    )
+    time_means["is_daytime"] = ut_hour.between(6.0, 18.0, inclusive="both")
+
     out = (
         time_means.groupby("date", as_index=False)
         .agg(
@@ -897,6 +906,13 @@ def summarize_daily(df: pd.DataFrame) -> pd.DataFrame:
         )
         .sort_values("date")
     )
+    daytime = (
+        time_means[time_means["is_daytime"]]
+        .groupby("date", as_index=False)
+        .agg(daytime_mean_vtec=("mean_vtec_time", "mean"))
+    )
+    out = out.merge(daytime, on="date", how="left")
+    out["daytime_mean_vtec"] = out["daytime_mean_vtec"].fillna(out["mean_vtec"])
     return out
 
 
@@ -1029,35 +1045,43 @@ def add_storm_intensity_index(daily_df: pd.DataFrame) -> pd.DataFrame:
 
 
 def summarize_monthly(df_daily: pd.DataFrame) -> pd.DataFrame:
+    cols = ["month", "mean_vtec", "max_vtec", "min_vtec", "days", "daytime_mean_vtec"]
     if df_daily.empty:
-        return pd.DataFrame(columns=["month", "mean_vtec", "max_vtec", "min_vtec", "days"])
+        return pd.DataFrame(columns=cols)
     temp = df_daily.copy()
     temp["month"] = pd.to_datetime(temp["date"]).dt.to_period("M").astype(str)
+    agg = {
+        "mean_vtec": ("mean_vtec", "mean"),
+        "max_vtec": ("max_vtec", "max"),
+        "min_vtec": ("min_vtec", "min"),
+        "days": ("date", "nunique"),
+    }
+    if "daytime_mean_vtec" in temp.columns:
+        agg["daytime_mean_vtec"] = ("daytime_mean_vtec", "mean")
     return (
         temp.groupby("month", as_index=False)
-        .agg(
-            mean_vtec=("mean_vtec", "mean"),
-            max_vtec=("max_vtec", "max"),
-            min_vtec=("min_vtec", "min"),
-            days=("date", "nunique"),
-        )
+        .agg(**agg)
         .sort_values("month")
     )
 
 
 def summarize_yearly(df_daily: pd.DataFrame) -> pd.DataFrame:
+    cols = ["year", "mean_vtec", "max_vtec", "min_vtec", "days", "daytime_mean_vtec"]
     if df_daily.empty:
-        return pd.DataFrame(columns=["year", "mean_vtec", "max_vtec", "min_vtec", "days"])
+        return pd.DataFrame(columns=cols)
     temp = df_daily.copy()
     temp["year"] = pd.to_datetime(temp["date"]).dt.year
+    agg = {
+        "mean_vtec": ("mean_vtec", "mean"),
+        "max_vtec": ("max_vtec", "max"),
+        "min_vtec": ("min_vtec", "min"),
+        "days": ("date", "nunique"),
+    }
+    if "daytime_mean_vtec" in temp.columns:
+        agg["daytime_mean_vtec"] = ("daytime_mean_vtec", "mean")
     return (
         temp.groupby("year", as_index=False)
-        .agg(
-            mean_vtec=("mean_vtec", "mean"),
-            max_vtec=("max_vtec", "max"),
-            min_vtec=("min_vtec", "min"),
-            days=("date", "nunique"),
-        )
+        .agg(**agg)
         .sort_values("year")
     )
 

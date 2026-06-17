@@ -1,15 +1,19 @@
 import type {
   ArchiveMeta,
   AnomalyDay,
+  BiasRow,
   ChatMessage,
   ChatResponse,
   CorsHealth,
   DiurnalPoint,
+  EkfAlert,
+  EkfStatus,
   ForecastPoint,
   ForecastStatus,
   LiveObservation,
   LivePipelineStatus,
   PrnRow,
+  ProcessingOptions,
   ProcessingSession,
   SeasonalRow,
   SolarActivityFull,
@@ -26,6 +30,7 @@ import type {
   StationUptimeRow,
   TecObservation,
   TecSummaryRow,
+  TecHourlyRow,
   TecPlotSeries,
   VtecTheoryPayload,
 } from "./types";
@@ -69,6 +74,13 @@ export const getSpaceWeatherHistory = (hours = 168, resample?: string) =>
   get<SpaceWeatherHistoryResponse>("/space-weather/history", { hours, resample });
 export const getSpaceWeatherCorrelations = (hours = 168, resample = "1h") =>
   get<SpaceWeatherCorrelationResponse>("/space-weather/correlations", { hours, resample });
+export const getEkfStatus = () => get<EkfStatus>("/space-weather/ekf", { _ts: Date.now() });
+export const getEkfAlertLog = (hours = 24) => get<EkfAlert[]>("/space-weather/ekf/alerts", { hours });
+export const ackEkfAlert = (alertId: string) =>
+  fetch(BASE + `/space-weather/ekf/alerts/${alertId}/ack`, {
+    method: "POST",
+    headers: KEY ? { "X-API-Key": KEY } : {},
+  });
 
 // ── CORS Network ──────────────────────────────────────────────────────────────
 export const getStations = () => get<Station[]>("/cors/stations");
@@ -80,9 +92,19 @@ export const getStationStatusEvents = (hours = 168, station?: string, event_type
 export const getStationUptime = (hours = 168) => get<StationUptimeRow[]>("/cors/status/uptime", { hours });
 
 // ── Processing ────────────────────────────────────────────────────────────────
-export async function uploadCmn(file: File): Promise<ProcessingSession> {
+function appendProcessingOptions(fd: FormData, opts?: ProcessingOptions) {
+  if (!opts) return;
+  if (opts.elevationMin !== undefined) fd.append("elevation_min", String(opts.elevationMin));
+  if (opts.ippHeight !== undefined) fd.append("ipp_height", String(opts.ippHeight));
+  if (opts.dcbFolder !== undefined) fd.append("dcb_folder", opts.dcbFolder);
+  if (opts.stations !== undefined) fd.append("stations", opts.stations.join(","));
+  if (opts.kpCsv !== undefined) fd.append("kp_csv", opts.kpCsv);
+}
+
+export async function uploadCmn(file: File, opts?: ProcessingOptions): Promise<ProcessingSession> {
   const fd = new FormData();
   fd.append("file", file);
+  appendProcessingOptions(fd, opts);
   const res = await fetch(BASE + "/processing/cmn", {
     method: "POST",
     headers: KEY ? { "X-API-Key": KEY } : {},
@@ -92,10 +114,11 @@ export async function uploadCmn(file: File): Promise<ProcessingSession> {
   return res.json();
 }
 
-export async function uploadRinex(obs: File[], nav: File[]): Promise<ProcessingSession> {
+export async function uploadRinex(obs: File[], nav: File[], opts?: ProcessingOptions): Promise<ProcessingSession> {
   const fd = new FormData();
   obs.forEach((f) => fd.append("obs", f));
   nav.forEach((f) => fd.append("nav", f));
+  appendProcessingOptions(fd, opts);
   const res = await fetch(BASE + "/processing/rinex", {
     method: "POST",
     headers: KEY ? { "X-API-Key": KEY } : {},
@@ -108,8 +131,20 @@ export async function uploadRinex(obs: File[], nav: File[]): Promise<ProcessingS
 export const getSessionSummary = (id: string, mode: "daily" | "monthly" | "yearly" = "daily") =>
   get<TecSummaryRow[]>(`/processing/${id}/summary`, { mode });
 
+export const getSessionHourly = (id: string) => get<TecHourlyRow[]>(`/processing/${id}/hourly`);
+
 export const getSessionTecPlot = (id: string, raw = false) =>
   get<TecPlotSeries>(`/processing/${id}/tec-plot`, { raw: raw ? 1 : 0 });
+
+export const getSessionBias = (id: string) => get<BiasRow[]>(`/processing/${id}/bias`);
+
+export async function downloadSessionRaw(id: string): Promise<Blob> {
+  const res = await fetch(BASE + `/processing/${id}/raw`, {
+    headers: KEY ? { "X-API-Key": KEY } : {},
+  });
+  if (!res.ok) throw new Error(`API /processing/${id}/raw → ${res.status}`);
+  return res.blob();
+}
 
 // ── TEC Analysis ──────────────────────────────────────────────────────────────
 export const getArchiveMeta = () => get<ArchiveMeta>("/tec/archive-meta");

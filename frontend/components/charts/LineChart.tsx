@@ -15,11 +15,18 @@ import { Line } from "react-chartjs-2";
 
 ChartJS.register(CategoryScale, LinearScale, TimeScale, PointElement, LineElement, Title, Tooltip, Legend, Filler);
 
+interface PointMeta {
+  error?: number | null;
+  confidence?: number | null;
+}
+
 interface Dataset {
   label: string;
-  data: number[];
+  data: (number | null)[];
   color?: string;
   fill?: boolean;
+  dashed?: boolean;
+  meta?: (PointMeta | null)[];
 }
 
 interface Props {
@@ -70,8 +77,12 @@ export default function LineChart({ labels, datasets, yLabel = "VTEC (TECU)", he
             backgroundColor: ds.fill ? `${ds.color ?? COLORS[i % COLORS.length]}22` : "transparent",
             fill: ds.fill ?? false,
             borderWidth: 2,
+            borderDash: ds.dashed ? [6, 4] : undefined,
             pointRadius: labels.length > 200 ? 0 : 2,
             tension: 0.3,
+            spanGaps: true,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            meta: ds.meta as any,
           })),
         }}
         options={{
@@ -79,7 +90,23 @@ export default function LineChart({ labels, datasets, yLabel = "VTEC (TECU)", he
           maintainAspectRatio: false,
           plugins: {
             legend: { labels: { color: "#fff", boxWidth: 12 } },
-            tooltip: { mode: "index", intersect: false },
+            tooltip: {
+              mode: "index",
+              intersect: false,
+              callbacks: {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                label: (ctx: any) => {
+                  const val = ctx.parsed.y;
+                  let line = `${ctx.dataset.label}: ${val ?? "N/A"}`;
+                  const meta = ctx.dataset.meta?.[ctx.dataIndex];
+                  if (meta) {
+                    if (meta.error != null) line += ` · error ${meta.error.toFixed(2)}`;
+                    if (meta.confidence != null) line += ` · confidence ${meta.confidence.toFixed(0)}%`;
+                  }
+                  return line;
+                },
+              },
+            },
           },
           scales: {
             x: { ticks: { color: "#ffffff", maxTicksLimit: 8 }, grid: { color: "#244d73" } },

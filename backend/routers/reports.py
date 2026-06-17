@@ -17,7 +17,7 @@ async def generate_pdf(
     try:
         from zgiis.reports.pdf_report import generate_report
         from zgiis.space_weather.fetch_indices import get_space_weather
-        sw = get_space_weather()
+        sw = get_space_weather(use_third_party=False)
         pdf_bytes = generate_report(station=station, period=period,
                                     daily_df=None, monthly_df=None, sw_info=sw)
         return Response(

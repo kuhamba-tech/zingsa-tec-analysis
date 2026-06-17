@@ -278,7 +278,7 @@ export default function SpaceWeatherPage() {
         </div>
 
         {/* Row 1: Solar Summary | Flare card | X-Ray chart */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.8rem" }}>
+        <div className="grid-3">
 
           {/* Solar Activity Summary */}
           <div className="card" style={{ textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.7rem" }}>

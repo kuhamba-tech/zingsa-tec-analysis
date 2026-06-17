@@ -127,6 +127,42 @@ class SpaceWeatherLogStatus(BaseModel):
     db_backend: str
 
 
+# ── Extended Kalman Filter (EKF) ──────────────────────────────────────────────
+
+class EkfPointOut(BaseModel):
+    t: str
+    observed: float | None = None
+    predicted: float | None = None
+    error: float | None = None
+    confidence: float | None = None
+
+
+class EkfSeriesOut(BaseModel):
+    parameter: str
+    points: list[EkfPointOut] = []
+
+
+class EkfAlertOut(BaseModel):
+    alert_id: str
+    timestamp: str
+    parameter: str
+    parameter_label: str
+    observed_value: float | None = None
+    ekf_predicted_value: float | None = None
+    prediction_error: float | None = None
+    threshold: float | None = None
+    severity: str
+    related_indicators: list[str] = []
+    alert_message: str
+    acknowledged_status: bool = False
+
+
+class EkfStatusOut(BaseModel):
+    series: dict[str, EkfSeriesOut] = {}
+    alerts: list[EkfAlertOut] = []
+    banner: str | None = None
+
+
 # ── CORS Network ───────────────────────────────────────────────────────────────
 
 class StationOut(BaseModel):
@@ -196,7 +232,25 @@ class TecSummaryRow(BaseModel):
     mean_vtec: float | None = None
     max_vtec: float | None = None
     min_vtec: float | None = None
+    daytime_mean_vtec: float | None = None
     samples: int | None = None
+    storm_flag: bool | None = None
+    kp_index: float | None = None
+
+
+class TecHourlyRow(BaseModel):
+    ut_hour: float
+    mean_vtec: float | None = None
+    max_vtec: float | None = None
+    min_vtec: float | None = None
+    days_used: int | None = None
+
+
+class BiasRow(BaseModel):
+    station: str
+    mean_stec: float | None = None
+    mean_vtec: float | None = None
+    dcb_folder: str
 
 
 class TecPlotPoint(BaseModel):

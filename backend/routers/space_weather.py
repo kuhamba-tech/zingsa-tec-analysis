@@ -7,6 +7,10 @@ from fastapi import APIRouter, Depends
 from backend.deps import require_api_key
 from backend.schemas import (
     CorrelationPair,
+    EkfAlertOut,
+    EkfPointOut,
+    EkfSeriesOut,
+    EkfStatusOut,
     SolarActivityFull,
     SolarWindDetail,
     SpaceWeatherCorrelationResponse,
@@ -28,7 +32,7 @@ def _sw() -> dict:
     from pathlib import Path
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     from zgiis.space_weather.fetch_indices import get_space_weather
-    return get_space_weather()
+    return get_space_weather(use_third_party=False)
 
 
 @router.get("/current", response_model=SpaceWeatherCurrent)
@@ -105,10 +109,8 @@ async def solar_activity(_=Depends(require_api_key)):
     )
 
 
-@router.get("/timelines", response_model=SpaceWeatherTimelines)
-async def timelines(_=Depends(require_api_key)):
+def _build_timelines(sw: dict) -> SpaceWeatherTimelines:
     from zgiis.space_weather.fetch_indices import _parse_kp_value
-    sw = _sw()
 
     def _pts_keyed(raw: list | None, value_key: str) -> list[TimelinePoint]:
         if not raw:
@@ -186,6 +188,11 @@ async def timelines(_=Depends(require_api_key)):
     )
 
 
+@router.get("/timelines", response_model=SpaceWeatherTimelines)
+async def timelines(_=Depends(require_api_key)):
+    return _build_timelines(_sw())
+
+
 @router.post("/refresh", status_code=204)
 async def refresh(_=Depends(require_api_key)):
     from zgiis.space_weather.fetch_indices import clear_space_weather_cache
@@ -256,6 +263,69 @@ async def correlations(
         matrix=result.get("matrix", {}),
         pairs=pairs,
     )
+
+
+_EKF_PARAMS = ("kp", "dst", "f107", "solar_wind", "s4", "gnss_risk", "stations_online")
+
+
+@router.get("/ekf", response_model=EkfStatusOut)
+async def ekf_status(_=Depends(require_api_key)):
+    """EKF-predicted overlay for every existing dashboard timeline, plus any
+    newly triggered deviation alerts (also persisted to the event log)."""
+    from zgiis.space_weather.ekf import run_ekf_series
+    from zgiis.space_weather.ekf_alerts import evaluate
+    from zgiis.db.ekf_alert_db import EkfAlertDB
+
+    tl = _build_timelines(_sw())
+    raw_series = {name: getattr(tl, name) for name in _EKF_PARAMS}
+
+    ekf_series = {
+        name: run_ekf_series([(p.t, p.v) for p in points], name)
+        for name, points in raw_series.items()
+        if points
+    }
+    result = evaluate(ekf_series)
+
+    db = EkfAlertDB()
+    stored_alerts = [db.insert_if_new(alert) for alert in result["alerts"]]
+
+    banner = None
+    if stored_alerts:
+        severity_rank = {"Low": 0, "Moderate": 1, "High": 2, "Severe": 3}
+        worst = max(stored_alerts, key=lambda a: severity_rank.get(a["severity"], 0))
+        banner = (
+            f"⚠ Possible geomagnetic disturbance detected: {worst['parameter_label']} "
+            "observed value differs significantly from EKF prediction. "
+            "Check Kp, Dst, TEC and solar wind conditions."
+        )
+
+    return EkfStatusOut(
+        series={
+            name: EkfSeriesOut(
+                parameter=name,
+                points=[
+                    EkfPointOut(t=p.t, observed=p.observed, predicted=p.predicted, error=p.error, confidence=p.confidence)
+                    for p in points
+                ],
+            )
+            for name, points in ekf_series.items()
+        },
+        alerts=[EkfAlertOut(**a) for a in stored_alerts],
+        banner=banner,
+    )
+
+
+@router.get("/ekf/alerts", response_model=list[EkfAlertOut])
+async def ekf_alert_log(hours: float = 24.0, _=Depends(require_api_key)):
+    from zgiis.db.ekf_alert_db import EkfAlertDB
+    rows = EkfAlertDB().list_alerts(hours=hours)
+    return [EkfAlertOut(**r) for r in rows]
+
+
+@router.post("/ekf/alerts/{alert_id}/ack", status_code=204)
+async def ekf_alert_ack(alert_id: str, _=Depends(require_api_key)):
+    from zgiis.db.ekf_alert_db import EkfAlertDB
+    EkfAlertDB().acknowledge(alert_id)
 
 
 def _float_or_none(value: object) -> float | None:

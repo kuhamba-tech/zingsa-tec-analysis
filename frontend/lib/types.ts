@@ -34,6 +34,41 @@ export interface SpaceWeatherLogStatus {
   db_backend: string;
 }
 
+// ── Extended Kalman Filter (EKF) ────────────────────────────────────────────
+export interface EkfPoint {
+  t: string;
+  observed: number | null;
+  predicted: number | null;
+  error: number | null;
+  confidence: number | null;
+}
+
+export interface EkfSeries {
+  parameter: string;
+  points: EkfPoint[];
+}
+
+export interface EkfAlert {
+  alert_id: string;
+  timestamp: string;
+  parameter: string;
+  parameter_label: string;
+  observed_value: number | null;
+  ekf_predicted_value: number | null;
+  prediction_error: number | null;
+  threshold: number | null;
+  severity: "Low" | "Moderate" | "High" | "Severe";
+  related_indicators: string[];
+  alert_message: string;
+  acknowledged_status: boolean;
+}
+
+export interface EkfStatus {
+  series: Record<string, EkfSeries>;
+  alerts: EkfAlert[];
+  banner: string | null;
+}
+
 export interface SpaceWeatherHistoryRow {
   time: string;
   kp: number | null;
@@ -183,7 +218,33 @@ export interface TecSummaryRow {
   mean_vtec: number | null;
   max_vtec: number | null;
   min_vtec: number | null;
+  daytime_mean_vtec?: number | null;
   samples: number | null;
+  storm_flag?: boolean | null;
+  kp_index?: number | null;
+}
+
+export interface TecHourlyRow {
+  ut_hour: number;
+  mean_vtec: number | null;
+  max_vtec: number | null;
+  min_vtec: number | null;
+  days_used: number | null;
+}
+
+export interface BiasRow {
+  station: string;
+  mean_stec: number | null;
+  mean_vtec: number | null;
+  dcb_folder: string;
+}
+
+export interface ProcessingOptions {
+  elevationMin?: number;
+  ippHeight?: number;
+  dcbFolder?: string;
+  stations?: string[];
+  kpCsv?: string;
 }
 
 export interface TecPlotPoint {

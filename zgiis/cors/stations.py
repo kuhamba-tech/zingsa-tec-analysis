@@ -1,6 +1,7 @@
 """Zimbabwe CORS network station registry."""
 from __future__ import annotations
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import List
 
 @dataclass
@@ -90,6 +91,57 @@ def stations_for_map(health: dict | None = None) -> List[CorsStation]:
         code = station.code.lower().rstrip("_")
         live = by_code.get(code)
         status = live if live else normalize_station_status(station.status)
+        merged.append(replace(station, status=status))
+    return merged
+
+
+def derive_status_from_stream(stream: dict | None, *, stale_after_sec: float = 90.0) -> str:
+    """Map one station's live NTRIP stream state to online/degraded/offline/unknown.
+
+    "unknown" means we have no stream entry at all (pipeline not configured for
+    this station). "offline" means the NTRIP handshake isn't connected.
+    "degraded" means connected but no RTCM data has arrived yet/recently —
+    this is the real state of most stations today (caster accepts the
+    connection but the physical receiver isn't transmitting).
+    """
+    if not stream:
+        return "unknown"
+    if not stream.get("connected"):
+        return "offline"
+    last_seen = stream.get("last_seen")
+    if not last_seen:
+        return "degraded"
+    if isinstance(last_seen, str):
+        try:
+            last_seen = datetime.fromisoformat(last_seen.replace("Z", "+00:00"))
+        except ValueError:
+            return "degraded"
+    if last_seen.tzinfo is None:
+        last_seen = last_seen.replace(tzinfo=timezone.utc)
+    age_sec = (datetime.now(timezone.utc) - last_seen).total_seconds()
+    return "online" if age_sec <= stale_after_sec else "degraded"
+
+
+def stations_for_map_live(live_status: dict | None = None) -> List[CorsStation]:
+    """Return CORS stations with status derived from the live NTRIP pipeline.
+
+    Unlike stations_for_map(), this never calls the third-party
+    zingsa-national-cors.vercel.app API — status comes solely from
+    backend.live_manager's real RTCM connection state.
+    """
+    from dataclasses import replace
+
+    if live_status is None:
+        try:
+            from backend import live_manager
+            live_status = live_manager.status().get("streams", {})
+        except Exception:
+            live_status = {}
+
+    merged: List[CorsStation] = []
+    for station in ZIMBABWE_CORS_STATIONS:
+        code = station.code.lower().rstrip("_")
+        status = derive_status_from_stream(live_status.get(code))
         merged.append(replace(station, status=status))
     return merged
 

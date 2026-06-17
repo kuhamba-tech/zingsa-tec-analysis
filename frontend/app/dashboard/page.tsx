@@ -1,10 +1,31 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
-import { getSpaceWeather, getTimelines, refreshSpaceWeather, getSpaceWeatherLogStatus, getSpaceWeatherCorrelations, getStationStatusLog, getStationStatusEvents, getStationUptime } from "@/lib/api";
+import { getSpaceWeather, getTimelines, refreshSpaceWeather, getSpaceWeatherLogStatus, getSpaceWeatherCorrelations, getStationStatusLog, getStationStatusEvents, getStationUptime, getEkfStatus, getEkfAlertLog, ackEkfAlert } from "@/lib/api";
 import ClickableMetricGrid from "@/components/spaceWeather/ClickableMetricGrid";
 import { DashboardHeaderClocks } from "@/components/dashboard/DashboardClocks";
 import LineChart from "@/components/charts/LineChart";
-import type { SpaceWeatherCurrent, SpaceWeatherTimelines, TimelinePoint, SpaceWeatherLogStatus, SpaceWeatherCorrelationResponse, StationStatusLogStatus, StationStatusEvent, StationUptimeRow } from "@/lib/types";
+import StationStatusBarChart from "@/components/charts/StationStatusBarChart";
+import type { SpaceWeatherCurrent, SpaceWeatherTimelines, TimelinePoint, SpaceWeatherLogStatus, SpaceWeatherCorrelationResponse, StationStatusLogStatus, StationStatusEvent, StationUptimeRow, EkfStatus, EkfPoint, EkfAlert } from "@/lib/types";
+
+const SEVERITY_COLOR: Record<string, string> = {
+  Low: "#00ff88",
+  Moderate: "#ffcc00",
+  High: "#ff7a00",
+  Severe: "#ff2e2e",
+};
+
+function alignEkfToPoints(points: TimelinePoint[], ekfPoints: EkfPoint[] | undefined) {
+  const byT = new Map<string, EkfPoint>();
+  (ekfPoints ?? []).forEach((p) => byT.set(p.t, p));
+  const data: (number | null)[] = [];
+  const meta: ({ error?: number | null; confidence?: number | null } | null)[] = [];
+  for (const pt of points) {
+    const m = byT.get(pt.t);
+    data.push(m?.predicted ?? null);
+    meta.push(m ? { error: m.error, confidence: m.confidence } : null);
+  }
+  return { data, meta };
+}
 
 const SCALE_ROWS = [
   {
@@ -119,6 +140,7 @@ function TimelinePanel({
   yLabel,
   source,
   empty,
+  ekfPoints,
 }: {
   title: string;
   points: TimelinePoint[];
@@ -126,8 +148,11 @@ function TimelinePanel({
   yLabel: string;
   source: string;
   empty: string;
+  ekfPoints?: EkfPoint[];
 }) {
   const hasData = points.length > 0;
+  const ekf = alignEkfToPoints(points, ekfPoints);
+  const hasEkf = ekf.data.some((v) => v !== null);
 
   return (
     <div className="card operations-chart-card">
@@ -136,7 +161,10 @@ function TimelinePanel({
         <>
           <LineChart
             labels={timelineLabels(points)}
-            datasets={[{ label: yLabel, data: timelineValues(points), color }]}
+            datasets={[
+              { label: "Observed", data: timelineValues(points), color },
+              ...(hasEkf ? [{ label: "EKF Predicted", data: ekf.data, color: "#ffffff", dashed: true, meta: ekf.meta }] : []),
+            ]}
             yLabel={yLabel}
             height={230}
           />
@@ -181,10 +209,12 @@ export default function DashboardPage() {
   const [stationLog, setStationLog] = useState<StationStatusLogStatus | null>(null);
   const [stationEvents, setStationEvents] = useState<StationStatusEvent[]>([]);
   const [stationUptime, setStationUptime] = useState<StationUptimeRow[]>([]);
+  const [ekf, setEkf] = useState<EkfStatus | null>(null);
+  const [alertLog, setAlertLog] = useState<EkfAlert[]>([]);
 
   const load = useCallback(async () => {
     try {
-      const [swData, tlData, logData, corrData, stLog, stEvents, stUptime] = await Promise.all([
+      const [swData, tlData, logData, corrData, stLog, stEvents, stUptime, ekfData, alertLogData] = await Promise.all([
         getSpaceWeather(),
         getTimelines(),
         getSpaceWeatherLogStatus().catch(() => null),
@@ -192,6 +222,8 @@ export default function DashboardPage() {
         getStationStatusLog().catch(() => null),
         getStationStatusEvents(168).catch(() => []),
         getStationUptime(168).catch(() => []),
+        getEkfStatus().catch(() => null),
+        getEkfAlertLog(168).catch(() => []),
       ]);
       setSw(swData);
       setTl(tlData);
@@ -200,6 +232,8 @@ export default function DashboardPage() {
       setStationLog(stLog);
       setStationEvents(stEvents.slice(-12).reverse());
       setStationUptime(stUptime);
+      setEkf(ekfData);
+      setAlertLog(alertLogData);
       setLastUpdated(new Date().toUTCString().slice(0, 25));
       setApiStatus("Live");
     } catch {
@@ -221,7 +255,6 @@ export default function DashboardPage() {
   const f107Points = safePoints(tl?.f107);
   const solarWindPoints = safePoints(tl?.solar_wind);
   const s4Points = safePoints(tl?.s4);
-  const gnssRiskPoints = safePoints(tl?.gnss_risk);
   const stationsOnlinePoints = safePoints(tl?.stations_online);
 
   return (
@@ -260,6 +293,12 @@ export default function DashboardPage() {
         </p>
       )}
 
+      {ekf?.banner && (
+        <div className="banner banner-alert" style={{ fontWeight: 600 }}>
+          {ekf.banner}
+        </div>
+      )}
+
       <ClickableMetricGrid sw={sw} updatedUtc={sw?.updated_utc} />
 
       <ScaleReference />
@@ -294,21 +333,29 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {kpPoints.length > 0 && (
-        <div className="card operations-chart-card">
-          <div className="operations-chart-title">7-Day Index Timelines</div>
-          <LineChart
-            labels={timelineLabels(kpPoints)}
-            datasets={[
-              { label: "Kp", data: timelineValues(kpPoints), color: "#168bd2" },
-              { label: "Dst (nT)", data: timelineValues(dstPoints), color: "#ff8c00" },
-            ]}
-            yLabel="Index value"
-            height={260}
-          />
-          <p className="operations-source">{liveSource("Source: /space-weather/timelines Kp and Dst API feed.", kpPoints)}</p>
-        </div>
-      )}
+      {kpPoints.length > 0 && (() => {
+        const kpEkf = alignEkfToPoints(kpPoints, ekf?.series.kp?.points);
+        const dstEkf = alignEkfToPoints(dstPoints, ekf?.series.dst?.points);
+        const hasKpEkf = kpEkf.data.some((v) => v !== null);
+        const hasDstEkf = dstEkf.data.some((v) => v !== null);
+        return (
+          <div className="card operations-chart-card">
+            <div className="operations-chart-title">7-Day Index Timelines</div>
+            <LineChart
+              labels={timelineLabels(kpPoints)}
+              datasets={[
+                { label: "Kp (Observed)", data: timelineValues(kpPoints), color: "#168bd2" },
+                { label: "Dst (Observed, nT)", data: timelineValues(dstPoints), color: "#ff8c00" },
+                ...(hasKpEkf ? [{ label: "Kp (EKF Predicted)", data: kpEkf.data, color: "#168bd2", dashed: true, meta: kpEkf.meta }] : []),
+                ...(hasDstEkf ? [{ label: "Dst (EKF Predicted)", data: dstEkf.data, color: "#ff8c00", dashed: true, meta: dstEkf.meta }] : []),
+              ]}
+              yLabel="Index value"
+              height={260}
+            />
+            <p className="operations-source">{liveSource("Source: /space-weather/timelines Kp and Dst API feed.", kpPoints)}</p>
+          </div>
+        );
+      })()}
 
       <section className="operations-timelines">
         <TimelinePanel
@@ -318,6 +365,7 @@ export default function DashboardPage() {
           yLabel="F10.7 (sfu)"
           source={liveSource("Source: /space-weather/timelines NOAA SWPC F10.7 cm flux API feed.", f107Points)}
           empty="Live NOAA F10.7 solar flux feed is unavailable."
+          ekfPoints={ekf?.series.f107?.points}
         />
         <TimelinePanel
           title="Live NOAA Solar Wind Timeline"
@@ -326,6 +374,7 @@ export default function DashboardPage() {
           yLabel="Speed (km/s)"
           source={liveSource("Source: /space-weather/timelines NOAA SWPC solar-wind plasma API feed.", solarWindPoints)}
           empty="Live NOAA solar-wind plasma feed is unavailable."
+          ekfPoints={ekf?.series.solar_wind?.points}
         />
         <TimelinePanel
           title="Live Scintillation S4 Timeline"
@@ -334,14 +383,7 @@ export default function DashboardPage() {
           yLabel="S4 Index"
           source={liveSource("Source: /space-weather/timelines ZINGSA CORS S4 live/backfilled API feed.", s4Points)}
           empty="Live scintillation S4 telemetry is unavailable."
-        />
-        <TimelinePanel
-          title="Live GNSS Risk Timeline"
-          points={gnssRiskPoints}
-          color="#168bd2"
-          yLabel="Risk Level"
-          source={liveSource("Source: /space-weather/timelines derived GNSS risk API feed.", gnssRiskPoints)}
-          empty="Live GNSS risk timeline is unavailable."
+          ekfPoints={ekf?.series.s4?.points}
         />
         <TimelinePanel
           title="Live CORS Stations Online Timeline"
@@ -350,6 +392,7 @@ export default function DashboardPage() {
           yLabel="Stations Online"
           source={liveSource("Source: /space-weather/timelines live ZINGSA CORS station-count API feed.", stationsOnlinePoints)}
           empty="Live CORS telemetry is unavailable - no station count timeline."
+          ekfPoints={ekf?.series.stations_online?.points}
         />
       </section>
 
@@ -363,37 +406,20 @@ export default function DashboardPage() {
             Online, degraded, and offline transitions are logged when station-health is polled for all 24 Zimbabwe CORS sites. If the CORS API connection is cut off, stations are marked unknown and a connection_lost event is recorded.
           </p>
           {stationUptime.length > 0 && (
-            <div style={{ overflowX: "auto", marginBottom: "1rem" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.82rem", minWidth: "640px" }}>
-              <thead>
-                <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                  <th style={{ textAlign: "left", padding: "0.35rem 0.5rem" }}>Code</th>
-                  <th style={{ textAlign: "left", padding: "0.35rem 0.5rem" }}>Station</th>
-                  <th style={{ textAlign: "right", padding: "0.35rem 0.5rem" }}>Samples</th>
-                  <th style={{ textAlign: "right", padding: "0.35rem 0.5rem" }}>Online %</th>
-                  <th style={{ textAlign: "right", padding: "0.35rem 0.5rem" }}>Degraded %</th>
-                  <th style={{ textAlign: "right", padding: "0.35rem 0.5rem" }}>Offline %</th>
-                  <th style={{ textAlign: "right", padding: "0.35rem 0.5rem" }}>Unknown %</th>
-                </tr>
-              </thead>
-              <tbody>
-                {stationUptime.map((row) => (
-                  <tr key={row.station_code} style={{ borderBottom: "1px solid rgba(36,77,115,0.35)" }}>
-                    <td style={{ padding: "0.35rem 0.5rem", fontWeight: 700 }}>{row.station_code.toUpperCase()}</td>
-                    <td style={{ padding: "0.35rem 0.5rem" }}>{row.station_name}</td>
-                    <td style={{ padding: "0.35rem 0.5rem", textAlign: "right", color: "var(--text-muted)" }}>{row.samples}</td>
-                    <td style={{ padding: "0.35rem 0.5rem", textAlign: "right", color: "#00ff88" }}>{row.online_pct}%</td>
-                    <td style={{ padding: "0.35rem 0.5rem", textAlign: "right", color: "#ffcc00" }}>{row.degraded_pct}%</td>
-                    <td style={{ padding: "0.35rem 0.5rem", textAlign: "right", color: "#ff7a00" }}>{row.offline_pct}%</td>
-                    <td style={{ padding: "0.35rem 0.5rem", textAlign: "right", color: "#94a3b8" }}>{row.unknown_pct}%</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            </div>
+            <StationStatusBarChart rows={stationUptime} height={440} />
           )}
           {stationEvents.length > 0 && (
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.82rem" }}>
+            <>
+              <div
+                className="operations-chart-title"
+                style={{ marginTop: stationUptime.length > 0 ? "1.25rem" : 0 }}
+              >
+                Recent station status events
+              </div>
+              <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "0.75rem" }}>
+                Latest logged transitions when a CORS site changes between online, degraded, offline, or unknown (NTRIP pipeline poll).
+              </p>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.82rem" }}>
               <thead>
                 <tr style={{ borderBottom: "1px solid var(--border)" }}>
                   <th style={{ textAlign: "left", padding: "0.35rem 0.5rem" }}>Time (UTC)</th>
@@ -413,7 +439,66 @@ export default function DashboardPage() {
                 ))}
               </tbody>
             </table>
+            </>
           )}
+        </div>
+      )}
+
+      {alertLog.length > 0 && (
+        <div className="card card-accent">
+          <div className="operations-chart-title">EKF Geomagnetic Disturbance Event Log (last 7 days)</div>
+          <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "0.75rem" }}>
+            Alerts fire when an observed value deviates from the Extended Kalman Filter&apos;s predicted value by more than
+            the dynamic threshold (mean + 3σ of recent prediction error). Severity escalates to Severe when two or more
+            other indicators are simultaneously abnormal.
+          </p>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.82rem" }}>
+            <thead>
+              <tr style={{ borderBottom: "1px solid var(--border)" }}>
+                <th style={{ textAlign: "left", padding: "0.35rem 0.5rem" }}>Time (UTC)</th>
+                <th style={{ textAlign: "left", padding: "0.35rem 0.5rem" }}>Parameter</th>
+                <th style={{ textAlign: "right", padding: "0.35rem 0.5rem" }}>Observed</th>
+                <th style={{ textAlign: "right", padding: "0.35rem 0.5rem" }}>EKF Predicted</th>
+                <th style={{ textAlign: "right", padding: "0.35rem 0.5rem" }}>Error</th>
+                <th style={{ textAlign: "right", padding: "0.35rem 0.5rem" }}>Threshold</th>
+                <th style={{ textAlign: "left", padding: "0.35rem 0.5rem" }}>Severity</th>
+                <th style={{ textAlign: "left", padding: "0.35rem 0.5rem" }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {alertLog.map((alert) => (
+                <tr key={alert.alert_id} style={{ borderBottom: "1px solid rgba(36,77,115,0.35)" }}>
+                  <td style={{ padding: "0.35rem 0.5rem", whiteSpace: "nowrap" }}>{alert.timestamp.replace("T", " ").slice(0, 19)}</td>
+                  <td style={{ padding: "0.35rem 0.5rem" }}>{alert.parameter_label}</td>
+                  <td style={{ padding: "0.35rem 0.5rem", textAlign: "right" }}>{alert.observed_value?.toFixed(2) ?? "N/A"}</td>
+                  <td style={{ padding: "0.35rem 0.5rem", textAlign: "right" }}>{alert.ekf_predicted_value?.toFixed(2) ?? "N/A"}</td>
+                  <td style={{ padding: "0.35rem 0.5rem", textAlign: "right" }}>{alert.prediction_error?.toFixed(2) ?? "N/A"}</td>
+                  <td style={{ padding: "0.35rem 0.5rem", textAlign: "right" }}>{alert.threshold?.toFixed(2) ?? "N/A"}</td>
+                  <td style={{ padding: "0.35rem 0.5rem", color: SEVERITY_COLOR[alert.severity] ?? "var(--text)", fontWeight: 600 }}>
+                    {alert.severity}
+                  </td>
+                  <td style={{ padding: "0.35rem 0.5rem" }}>
+                    {alert.acknowledged_status ? (
+                      <span style={{ color: "var(--text-muted)" }}>Acknowledged</span>
+                    ) : (
+                      <button
+                        className="btn"
+                        style={{ fontSize: "0.75rem", padding: "0.25rem 0.6rem" }}
+                        onClick={async () => {
+                          await ackEkfAlert(alert.alert_id);
+                          setAlertLog((prev) =>
+                            prev.map((a) => (a.alert_id === alert.alert_id ? { ...a, acknowledged_status: true } : a))
+                          );
+                        }}
+                      >
+                        Acknowledge
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 

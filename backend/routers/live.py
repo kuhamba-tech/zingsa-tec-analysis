@@ -58,9 +58,9 @@ async def live_vtec(
 
 @router.get("/stations", response_model=list[StationLiveStatus])
 async def live_stations(_=Depends(require_api_key)):
-    from zgiis.cors.stations import stations_for_map
+    from zgiis.cors.stations import stations_for_map_live
     mon = _monitor()
-    stations = stations_for_map()
+    stations = stations_for_map_live()
     result = []
     for s in stations:
         lat_ms = None

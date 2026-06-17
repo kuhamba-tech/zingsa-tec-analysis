@@ -12,8 +12,8 @@ router = APIRouter(prefix="/cors", tags=["cors"])
 
 
 def _stations() -> list:
-    from zgiis.cors.stations import stations_for_map
-    return stations_for_map()
+    from zgiis.cors.stations import stations_for_map_live
+    return stations_for_map_live()
 
 
 @router.get("/stations", response_model=list[StationOut])

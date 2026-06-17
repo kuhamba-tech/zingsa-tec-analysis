@@ -375,15 +375,49 @@ def _normalize_gnss_risk(raw: Optional[str]) -> str:
     return mapping.get(raw, raw)
 
 
-def get_space_weather() -> Dict[str, Any]:
-    """Return consolidated dashboard space-weather metrics."""
+def _live_ntrip_health() -> Dict[str, Any]:
+    """Build a health-summary dict shaped like the legacy CORS API response,
+    but derived entirely from the live NTRIP pipeline (no third-party API)."""
+    try:
+        from zgiis.cors.stations import stations_for_map_live
+        stations = stations_for_map_live()
+    except Exception:
+        stations = []
+
+    counts = {"online": 0, "degraded": 0, "offline": 0, "unknown": 0}
+    rows = []
+    for s in stations:
+        key = s.status if s.status in counts else "unknown"
+        counts[key] += 1
+        rows.append({"station_id": s.code, "status": s.status.upper()})
+
+    return {
+        "health_summary": {
+            "telemetry_live": counts["online"],
+            "online": counts["online"],
+            "degraded": counts["degraded"],
+            "offline": counts["offline"],
+        },
+        "stations": rows,
+        "_api_base": None,
+    }
+
+
+def get_space_weather(*, use_third_party: bool = True) -> Dict[str, Any]:
+    """Return consolidated dashboard space-weather metrics.
+
+    use_third_party=False skips Africa-Kp enrichment and the production
+    station-health API; station counts come from the live NTRIP pipeline
+    instead. The archived ionosphere/S4 endpoint is still fetched so the
+    dashboard can show observed scintillation when available.
+    """
 
     def _fetch() -> Dict[str, Any]:
         with ThreadPoolExecutor(max_workers=7) as executor:
             futures = {
-                "africa": executor.submit(fetch_space_weather_africa),
+                "africa": executor.submit(fetch_space_weather_africa) if use_third_party else None,
                 "iono": executor.submit(fetch_ionosphere_status, station="HARA"),
-                "health": executor.submit(fetch_station_health, country="Zimbabwe"),
+                "health": executor.submit(fetch_station_health, country="Zimbabwe") if use_third_party else None,
                 "kp_history": executor.submit(_fetch_noaa_kp_history),
                 "f107_history": executor.submit(_fetch_noaa_f107_history),
                 "dst_history": executor.submit(_fetch_noaa_dst_history),
@@ -391,11 +425,14 @@ def get_space_weather() -> Dict[str, Any]:
                     _fetch_noaa_solar_wind_history
                 ),
             }
-            fetched = {name: future.result() for name, future in futures.items()}
+            fetched = {
+                name: (future.result() if future is not None else None)
+                for name, future in futures.items()
+            }
 
         africa = fetched["africa"]
         iono = fetched["iono"]
-        health = fetched["health"]
+        health = fetched["health"] if use_third_party else _live_ntrip_health()
         noaa_history = fetched["kp_history"] or []
         f107_history = fetched["f107_history"] or []
         dst_history = fetched["dst_history"] or []
@@ -502,18 +539,30 @@ def get_space_weather() -> Dict[str, Any]:
             stations_total = len(stations) if stations else None
             api_base = api_base or health.get("_api_base")
             telemetry_live = int(summary.get("telemetry_live") or 0)
-            if telemetry_live > 0:
+            if use_third_party:
+                if telemetry_live > 0:
+                    stations_online = summary.get("online")
+                    stations_degraded = summary.get("degraded")
+                    stations_offline = summary.get("offline")
+                    station_data_status = "live"
+                    station_data_note = f"{telemetry_live} stations have live telemetry."
+                    source = f"{source} · CORS live telemetry"
+                else:
+                    station_data_note = (
+                        "Production CORS API reports zero live telemetry; archive/catalog "
+                        "statuses are not presented as live station availability."
+                    )
+            else:
                 stations_online = summary.get("online")
                 stations_degraded = summary.get("degraded")
                 stations_offline = summary.get("offline")
-                station_data_status = "live"
-                station_data_note = f"{telemetry_live} stations have live telemetry."
-                source = f"{source} · CORS live telemetry"
-            else:
+                station_data_status = "live" if telemetry_live > 0 else "degraded"
                 station_data_note = (
-                    "Production CORS API reports zero live telemetry; archive/catalog "
-                    "statuses are not presented as live station availability."
+                    f"{telemetry_live} station(s) actively streaming RTCM data; "
+                    f"{stations_degraded or 0} connected but idle, "
+                    f"{stations_offline or 0} offline (live NTRIP pipeline)."
                 )
+                source = f"{source} · Live NTRIP pipeline"
 
         africa_impacts = africa.get("africa_impacts") if africa else None
         kp_history = africa.get("history") if africa else []
@@ -570,7 +619,8 @@ def get_space_weather() -> Dict[str, Any]:
             "ionosphere_data_note": ionosphere_note,
         }
 
-    return _cached("space_weather", _fetch)
+    cache_key = "space_weather" if use_third_party else "space_weather_live_only"
+    return _cached(cache_key, _fetch)
 
 
 def get_warning_messages(sw: Dict[str, Any]) -> list[str]:

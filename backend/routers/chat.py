@@ -13,7 +13,7 @@ async def chat(body: ChatRequest, _=Depends(require_api_key)):
     try:
         from zgiis.ai.assistant import chat as ai_chat
         from zgiis.space_weather.fetch_indices import get_space_weather
-        sw = get_space_weather()
+        sw = get_space_weather(use_third_party=False)
         messages = [{"role": m.role, "content": m.content} for m in body.messages]
         reply = ai_chat(messages=messages, tec_summary=None, sw=sw, api_key=body.api_key)
         return ChatResponse(reply=reply, context_injected=True)
