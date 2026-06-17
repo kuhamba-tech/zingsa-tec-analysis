@@ -45,3 +45,5 @@ Thumbs.db
 *.Bias
 *_page?.png
 *-wbias.png
+
+.vercel

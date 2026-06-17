@@ -165,7 +165,10 @@ def start() -> None:
     if _thread and _thread.is_alive():
         return
     _stop.clear()
-    poll_and_log(source="startup", force=True)
+    try:
+        poll_and_log(source="startup", force=True)
+    except Exception as exc:
+        log.warning("station status startup poll failed: %s", exc)
     _thread = threading.Thread(target=_loop, name="station-status-logger", daemon=True)
     _thread.start()
 

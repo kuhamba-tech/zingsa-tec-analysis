@@ -1,8 +1,6 @@
 """Horizontal Kp and geomagnetic condition scale references."""
 from __future__ import annotations
 
-import streamlit as st
-
 KP_SCALE_BANDS: list[tuple[str, str, str, float, float]] = [
     # kp_label, condition, color, kp_min (inclusive), kp_max (exclusive)
     ("0-2", "Quiet", "#00ff88", 0.0, 3.0),
@@ -186,11 +184,15 @@ def build_synchronized_kp_scales_html(kp: float | None) -> str:
 
 def render_synchronized_kp_scales(kp: float) -> None:
     """Render Kp and geomagnetic scales with aligned columns."""
+    import streamlit as st
+
     st.markdown(build_synchronized_kp_scales_html(kp), unsafe_allow_html=True)
 
 
 def render_horizontal_kp_scale(kp: float, *, title: str = "Kp Scale Reference") -> None:
     """Render a horizontal Kp reference scale with the current Kp band highlighted."""
+    import streamlit as st
+
     active_idx = active_kp_band_index(kp)
     band_html = "".join(
         _band_cell(
@@ -217,6 +219,8 @@ def render_horizontal_geomagnetic_scale(
     title: str = "Geomagnetic Condition Scale",
 ) -> None:
     """Render a horizontal geomagnetic-condition scale with the active level highlighted."""
+    import streamlit as st
+
     active_idx = active_kp_band_index(kp)
     band_html = "".join(
         _band_cell(
