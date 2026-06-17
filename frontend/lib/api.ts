@@ -36,8 +36,26 @@ import type {
   VtecTheoryPayload,
 } from "./types";
 
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+function apiBase(): string {
+  const configured = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "");
+  if (configured) return configured;
+  if (typeof window !== "undefined") return window.location.origin;
+  return "http://localhost:8000";
+}
+
+const BASE = apiBase();
 const KEY = process.env.NEXT_PUBLIC_API_KEY ?? "";
+const FETCH_TIMEOUT_MS = 12_000;
+
+async function fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 async function get<T>(path: string, params?: Record<string, string | number | undefined>): Promise<T> {
   const url = new URL(BASE + path);
@@ -46,7 +64,7 @@ async function get<T>(path: string, params?: Record<string, string | number | un
       if (v !== undefined) url.searchParams.set(k, String(v));
     });
   }
-  const res = await fetch(url.toString(), {
+  const res = await fetchWithTimeout(url.toString(), {
     headers: KEY ? { "X-API-Key": KEY } : {},
     next: { revalidate: 60 },
   });
@@ -55,7 +73,7 @@ async function get<T>(path: string, params?: Record<string, string | number | un
 }
 
 async function post<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(BASE + path, {
+  const res = await fetchWithTimeout(BASE + path, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...(KEY ? { "X-API-Key": KEY } : {}) },
     body: JSON.stringify(body),

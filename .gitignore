@@ -14,6 +14,7 @@ secrets.toml
 *.env
 !.env.example
 !*/.env.example
+!frontend/.env.production
 
 # Local runtime databases
 static/data/*.db
@@ -47,3 +48,9 @@ Thumbs.db
 *-wbias.png
 
 .vercel
+
+# Next.js static export copied for Vercel (built in CI)
+/public/
+!/public/.gitkeep
+.env*
+!frontend/.env.production

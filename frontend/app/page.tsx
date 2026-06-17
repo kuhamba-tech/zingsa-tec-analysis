@@ -1,7 +1,11 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import { getStations, getSpaceWeather } from "@/lib/api";
-import MetricCard from "@/components/cards/MetricCard";
+import { buildMetricCards } from "@/lib/spaceWeatherMetrics";
 import CorsMapWithLayers from "@/components/maps/CorsMapWithLayers";
 import type { Station, SpaceWeatherCurrent } from "@/lib/types";
+import type { MetricKey } from "@/lib/spaceWeatherMetrics";
 import Link from "next/link";
 import Image from "next/image";
 
@@ -14,66 +18,111 @@ const MODULES = [
   { href: "/ai-assistant",      icon: "🤖",  title: "AI Assistant",      desc: "Ask questions about TEC and ionosphere" },
 ];
 
-export default async function HomePage() {
-  let stations: Station[] = [];
-  let sw: SpaceWeatherCurrent | null = null;
+const HOME_METRIC_KEYS: MetricKey[] = ["kp", "geomagnetic", "gnss_risk", "stations"];
 
-  try { stations = await getStations(); } catch { /* offline */ }
-  try { sw = await getSpaceWeather(); } catch { /* offline */ }
+const HOME_LABELS: Partial<Record<MetricKey, string>> = {
+  geomagnetic: "Geomagnetic condition",
+};
 
-  const kpColor = sw?.kp_color ?? "#168bd2";
+function HomeMetricCard({
+  icon,
+  label,
+  value,
+  note,
+  valueColor,
+}: {
+  icon: string;
+  label: string;
+  value: string;
+  note: string;
+  valueColor: string;
+}) {
+  return (
+    <div className="sw-metric-card home-metric-card">
+      <span className="sw-metric-icon">{icon}</span>
+      <div className="sw-metric-label">{label}</div>
+      <div className="sw-metric-value" style={{ color: valueColor }}>
+        {value}
+      </div>
+      <div className="sw-metric-note">{note}</div>
+    </div>
+  );
+}
+
+export default function HomePage() {
+  const [stations, setStations] = useState<Station[]>([]);
+  const [sw, setSw] = useState<SpaceWeatherCurrent | null>(null);
+
+  useEffect(() => {
+    getStations().then(setStations).catch(() => setStations([]));
+    getSpaceWeather().then(setSw).catch(() => setSw(null));
+  }, []);
+
   const gnssRisk = sw?.gnss_risk ?? "N/A";
+  const homeCards = buildMetricCards(sw)
+    .filter((card) => HOME_METRIC_KEYS.includes(card.key))
+    .map((card) => ({
+      ...card,
+      label: HOME_LABELS[card.key] ?? card.label,
+      value: card.key === "kp" && sw?.kp != null ? sw.kp.toFixed(1) : card.value,
+    }));
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-      {/* Title + ZINGSA logo */}
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "1rem" }}>
-        <div>
-          <h1 className="page-title" style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-            🛰️ GNSS Based TEC Analysis Using Zimbabwe CORS Network
-          </h1>
-          <p className="page-subtitle">
-            Dual-frequency GPS/GNSS Total Electron Content (TEC) computation from Zimbabwe CORS RINEX observations
-          </p>
+    <div className="home-page">
+      <div className="home-top-intro">
+        <h1 className="page-title home-page-title">
+          🛰️ GNSS Based TEC Analysis Using Zimbabwe CORS Network
+        </h1>
+        <p className="page-subtitle">
+          Dual-frequency GPS/GNSS Total Electron Content (TEC) computation from Zimbabwe CORS RINEX observations
+        </p>
+      </div>
+
+      <div className="home-sw-row">
+        <section className="home-sw-panel" aria-label="Live space weather">
+          <h2 className="home-sw-heading">Live Space Weather · Zimbabwe CORS Network</h2>
+          <div className="dashboard-metric-grid home-metric-grid">
+            {homeCards.map((card) => (
+              <HomeMetricCard
+                key={card.key}
+                icon={card.icon}
+                label={card.label}
+                value={card.value}
+                note={card.note}
+                valueColor={card.valueColor}
+              />
+            ))}
+          </div>
+        </section>
+
+        <div className="home-hero-logo-wrap">
+          <Image
+            src="/zingsa_logo.webp"
+            alt="ZINGSA — Zimbabwe National Geospatial and Space Agency"
+            width={64}
+            height={64}
+            className="home-hero-logo"
+            priority
+          />
         </div>
-        <Image
-          src="/zingsa_logo.webp"
-          alt="ZINGSA — Zimbabwe National Geospatial and Space Agency"
-          width={120}
-          height={120}
-          style={{ borderRadius: "12px", flexShrink: 0 }}
-          priority
-        />
       </div>
 
-      {/* Live space weather metrics */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "0.8rem" }}>
-        <MetricCard label="Kp Index"    value={sw?.kp?.toFixed(1) ?? null}  sub={sw?.kp_condition ?? "Planetary activity"} color={kpColor} variant={sw?.kp && sw.kp >= 5 ? "alert" : "ok"} />
-        <MetricCard label="Geomagnetic condition" value={sw?.kp_condition ?? null} sub="Current state" color={kpColor} />
-        <MetricCard label="GNSS Risk"   value={gnssRisk} color={sw?.gnss_risk_color ?? undefined} sub="Navigation impact" variant={gnssRisk === "High" ? "alert" : gnssRisk === "Moderate" ? "warn" : "ok"} />
-        <MetricCard label="Stations Online" value={sw?.stations_online !== null && sw?.stations_total ? `${sw.stations_online}/${sw.stations_total}` : "N/A"} sub="Live telemetry unavailable" variant="accent" />
-      </div>
-
-      {/* Map with layer switcher */}
       <CorsMapWithLayers stations={stations} height={480} riskLevel={gnssRisk} />
 
-      {/* Module cards */}
-      <div>
-        <h2 style={{ fontSize: "0.78rem", fontWeight: 700, marginBottom: "0.8rem", color: "var(--text-muted)", letterSpacing: "0.08em", textTransform: "uppercase" }}>
-          Analysis Modules
-        </h2>
+      <section className="home-modules">
+        <h2 className="home-section-heading">Analysis Modules</h2>
         <div className="analysis-modules-grid">
           {MODULES.map(({ href, icon, title, desc }) => (
-            <Link key={href} href={href} style={{ textDecoration: "none" }}>
-              <div className="card card-accent" style={{ cursor: "pointer" }}>
-                <div style={{ fontSize: "1.4rem", marginBottom: "0.4rem" }}>{icon}</div>
-                <div style={{ fontWeight: 700, marginBottom: "0.2rem" }}>{title}</div>
-                <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>{desc}</div>
+            <Link key={href} href={href} className="home-module-link">
+              <div className="card card-accent home-module-card">
+                <div className="home-module-icon">{icon}</div>
+                <div className="home-module-title">{title}</div>
+                <div className="home-module-desc">{desc}</div>
               </div>
             </Link>
           ))}
         </div>
-      </div>
+      </section>
     </div>
   );
 }

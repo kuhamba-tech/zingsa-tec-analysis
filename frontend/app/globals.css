@@ -320,6 +320,216 @@ html, body {
   margin-top: 0.2rem;
 }
 
+/* ── Home page ── */
+.home-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+.home-top-intro {
+  margin-bottom: 0.15rem;
+}
+.home-page-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.home-sw-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0.85rem;
+}
+.home-sw-panel {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.95rem 1rem 1rem;
+  background: rgba(10, 15, 26, 0.65);
+}
+.home-sw-heading {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 0.8rem;
+}
+.home-metric-grid {
+  gap: 0.65rem;
+}
+.home-metric-card {
+  cursor: default;
+  min-height: 8.5rem;
+  padding: 0.85rem 0.55rem 0.7rem;
+}
+.home-metric-card:hover {
+  border-color: #244d73;
+  box-shadow: none;
+}
+.home-hero-logo-wrap {
+  flex-shrink: 0;
+  width: 76px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(10, 15, 26, 0.65);
+  align-self: stretch;
+}
+.home-hero-logo {
+  display: block;
+  height: 48px;
+  width: auto;
+  max-width: 56px;
+  object-fit: contain;
+  border-radius: 6px;
+}
+.home-section-heading {
+  font-size: 0.78rem;
+  font-weight: 700;
+  margin-bottom: 0.8rem;
+  color: var(--text-muted);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.home-module-link {
+  text-decoration: none;
+}
+.home-module-card {
+  cursor: pointer;
+  height: 100%;
+}
+.home-module-icon {
+  font-size: 1.4rem;
+  margin-bottom: 0.4rem;
+}
+.home-module-title {
+  font-weight: 700;
+  margin-bottom: 0.2rem;
+}
+.home-module-desc {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+/* Home map toolbar (single row) */
+.home-map-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.65rem;
+}
+.home-map-toolbar-left {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+.home-map-toolbar-title {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+.home-map-toolbar-summary {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+.home-map-toolbar-center {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.home-map-layer-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-right: 0.15rem;
+}
+.home-map-layer-btn {
+  padding: 0.35rem 0.9rem;
+  border-radius: 6px;
+  font-size: 0.83rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  transition: background 0.12s, border-color 0.12s;
+}
+.home-map-layer-btn.is-active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #000;
+}
+.home-map-toolbar-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.1rem;
+  flex-shrink: 0;
+}
+.home-map-risk-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.home-map-risk-value {
+  font-weight: 800;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+@media (max-width: 900px) {
+  .home-sw-row {
+    flex-direction: column;
+  }
+  .home-hero-logo-wrap {
+    width: auto;
+    align-self: flex-end;
+    padding: 0.45rem 0.65rem;
+  }
+  .home-map-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .home-map-toolbar-center,
+  .home-map-toolbar-right {
+    justify-content: flex-start;
+    align-items: flex-start;
+  }
+}
+
+@media (max-width: 720px) {
+  .home-metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* ── Home hero (legacy alias) ── */
+.home-hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.home-hero-text {
+  flex: 1;
+  min-width: 0;
+}
+
 /* ── Status dot ── */
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 .dot-ok    { background: var(--accent-ok); }
