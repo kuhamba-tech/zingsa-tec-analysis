@@ -142,7 +142,7 @@ class StationStatusDB:
         try:
             _SQLITE_PATH.parent.mkdir(parents=True, exist_ok=True)
             self._conn = sqlite3.connect(str(_SQLITE_PATH), check_same_thread=False)
-        except OSError:
+        except (OSError, sqlite3.OperationalError):
             # Read-only filesystem (e.g. Vercel) — fall back to an ephemeral
             # temp-dir database rather than crashing the request.
             fallback = Path(tempfile.gettempdir()) / _SQLITE_PATH.name
