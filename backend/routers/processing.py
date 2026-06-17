@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import tempfile
 import uuid
 from pathlib import Path
 from typing import Literal
@@ -14,7 +15,9 @@ router = APIRouter(prefix="/processing", tags=["processing"])
 
 # In-memory session store (replace with Redis/DB for multi-worker deployments)
 _sessions: dict[str, dict] = {}
-_TMP = Path("static/data/upload_tmp")
+# OS temp dir, not a project-relative path — Vercel's filesystem is read-only
+# outside of /tmp.
+_TMP = Path(tempfile.gettempdir()) / "zgiis_upload_tmp"
 _TMP.mkdir(parents=True, exist_ok=True)
 
 
