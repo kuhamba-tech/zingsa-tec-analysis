@@ -77,7 +77,7 @@ export default function LivePipelinePage() {
         <div className="card">
           <div className="metric-label" style={{ marginBottom: "0.6rem" }}>CNN-GRU Forecast (next 6 h)</div>
           {fcStatus && !fcStatus.torch_ok && (
-            <div className="banner banner-info">CNN-GRU forecasting requires PyTorch. See requirements.txt.</div>
+            <div className="banner banner-info">CNN-GRU forecasting requires PyTorch. See backend/requirements.txt.</div>
           )}
           {fcStatus && fcStatus.torch_ok && !fcStatus.model_exists && (
             <div className="banner banner-info">No trained model yet. Collect 30 days of data, then use Train below.</div>

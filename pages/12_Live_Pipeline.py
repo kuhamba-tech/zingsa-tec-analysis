@@ -277,7 +277,7 @@ with col_fc:
     elif not model_ok and ml.get("torch_ok"):
         st.info("No trained model yet. Use **Train Model** below once 30 days of data are collected.")
     elif not ml.get("torch_ok"):
-        st.info("CNN-GRU forecasting requires PyTorch. See **requirements.txt** for installation instructions.")
+        st.info("CNN-GRU forecasting requires PyTorch. See **requirements-streamlit.txt** for installation instructions.")
     else:
         st.info("Database required for forecast.")
 

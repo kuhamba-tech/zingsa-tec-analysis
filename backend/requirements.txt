@@ -5,3 +5,11 @@ pydantic>=2.7.0
 python-dotenv>=1.0.0
 pyrtcm>=1.0.0
 psycopg2-binary>=2.9.0
+numpy>=1.26.0
+pandas>=2.2.0
+requests>=2.31.0
+# ── CNN-GRU forecast (optional, lazy-imported) ─────────────────────────────────
+# CPU-only PyTorch (lightweight):
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+# GPU (CUDA 12.x):
+#   pip install torch --index-url https://download.pytorch.org/whl/cu121

@@ -1,18 +1,14 @@
-pandas>=2.2.0
+fastapi>=0.111.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9
+pydantic>=2.7.0
+python-dotenv>=1.0.0
+pyrtcm>=1.0.0
+psycopg2-binary>=2.9.0
 numpy>=1.26.0
-streamlit>=1.35.0
-plotly>=5.22.0
-statsmodels>=0.14.0
-georinex>=1.16.2
-scipy>=1.13.0
-fpdf2>=2.7.9
-anthropic>=0.25.0
-folium>=0.16.0
-streamlit-folium>=0.18.0
-# ── Live pipeline ────────────────────────────────────────────────────────────
-pyrtcm>=1.0.0            # RTCM MSM4/MSM7 decode from NTRIP stream
-psycopg2-binary>=2.9.0   # TimescaleDB/PostgreSQL driver (optional, SQLite fallback)
-# ── CNN-GRU forecast ─────────────────────────────────────────────────────────
+pandas>=2.2.0
+requests>=2.31.0
+# ── CNN-GRU forecast (optional, lazy-imported) ─────────────────────────────────
 # CPU-only PyTorch (lightweight):
 #   pip install torch --index-url https://download.pytorch.org/whl/cpu
 # GPU (CUDA 12.x):

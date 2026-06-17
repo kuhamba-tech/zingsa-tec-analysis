@@ -16,7 +16,7 @@ if (-not (Test-Path $venvPython)) {
 
 Write-Host "Installing/updating requirements..."
 & $venvPython -m pip install --upgrade pip -q
-& $venvPython -m pip install -r requirements.txt -q
+& $venvPython -m pip install -r requirements-streamlit.txt -q
 
 $env:STREAMLIT_BROWSER_GATHER_USAGE_STATS = "false"
 

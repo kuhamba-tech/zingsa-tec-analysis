@@ -24,7 +24,7 @@ Depending on notation, this is equivalent to `VTEC = STEC * S(E)` when `S(E)=1/M
 ## Run
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements-streamlit.txt
 streamlit run app.py
 ```
 

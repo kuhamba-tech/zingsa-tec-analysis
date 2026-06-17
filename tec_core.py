@@ -656,7 +656,7 @@ def _read_rinex_files_impl(
         import georinex as gr
     except Exception as exc:
         raise RuntimeError(
-            "Reading RINEX requires georinex. Install dependencies from requirements.txt."
+            "Reading RINEX requires georinex. Install dependencies from requirements-streamlit.txt."
         ) from exc
 
     frames: list[pd.DataFrame] = []

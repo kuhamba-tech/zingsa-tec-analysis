@@ -3,8 +3,6 @@ from __future__ import annotations
 
 from typing import Iterable, TypedDict
 
-import streamlit as st
-
 BOOK_CITATION = (
     "Gopi K. Seemala, *Estimation of ionospheric total electron content (TEC) "
     "from GNSS observations*, Ch. 4 in Singh & Tiwari (eds.), "
@@ -26,6 +24,8 @@ def render_pipeline_overview_cards(
     stages: Iterable[tuple[str, str]] = PROCESSING_STAGE_OVERVIEW,
 ) -> None:
     """Render the compact seven-stage processing overview."""
+    import streamlit as st
+
     cards = "".join(
         (
             "<div class='pipeline-overview-card'>"
