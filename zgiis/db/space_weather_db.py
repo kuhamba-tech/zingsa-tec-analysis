@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import os
 import sqlite3
+import tempfile
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -150,8 +151,14 @@ class SpaceWeatherDB:
             self._init_sqlite()
 
     def _init_sqlite(self) -> None:
-        _SQLITE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(str(_SQLITE_PATH), check_same_thread=False)
+        try:
+            _SQLITE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            self._conn = sqlite3.connect(str(_SQLITE_PATH), check_same_thread=False)
+        except OSError:
+            # Read-only filesystem (e.g. Vercel) — fall back to an ephemeral
+            # temp-dir database rather than crashing the request.
+            fallback = Path(tempfile.gettempdir()) / _SQLITE_PATH.name
+            self._conn = sqlite3.connect(str(fallback), check_same_thread=False)
         self._conn.executescript(_SQLITE_DDL)
         self._conn.commit()
 
