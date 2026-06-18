@@ -35,6 +35,43 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid" }: Pr
   const baseTileRef  = useRef<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const labelTileRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const vectorSourceRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const olHelpersRef = useRef<any>(null);
+  const stationsRef = useRef(stations);
+  stationsRef.current = stations;
+
+  const buildFeatures = (list: Station[]) => {
+    const helpers = olHelpersRef.current;
+    if (!helpers) return [];
+    const { fromLonLat, Feature, Point, Style, Circle, Fill, Stroke, Text } = helpers;
+    return list.map((s) => {
+      const f = new Feature({ geometry: new Point(fromLonLat([s.lon, s.lat])), station: s });
+      f.setStyle(new Style({
+        image: new Circle({
+          radius: 7,
+          fill: new Fill({ color: STATUS_COLOR[s.status] ?? "#666" }),
+          stroke: new Stroke({ color: "#fff", width: 1.5 }),
+        }),
+        text: new Text({
+          text: s.code.toUpperCase(),
+          offsetY: -14,
+          fill: new Fill({ color: "#fff" }),
+          stroke: new Stroke({ color: "#000", width: 3 }),
+          font: "bold 10px sans-serif",
+        }),
+      }));
+      return f;
+    });
+  };
+
+  const syncStationFeatures = (list: Station[]) => {
+    const source = vectorSourceRef.current;
+    if (!source) return;
+    source.clear();
+    source.addFeatures(buildFeatures(list));
+  };
 
   // ── Initial map creation ──────────────────────────────────────────────────
   useEffect(() => {
@@ -59,6 +96,8 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid" }: Pr
 
       if (disposed || olMapRef.current) return;
 
+      olHelpersRef.current = { fromLonLat, Feature, Point, Style, Circle, Fill, Stroke, Text };
+
       const baseTile = new TileLayer({
         source: new XYZ({ url: TILE_URLS[layer], attributions: "Esri / OSM" }),
         zIndex: 0,
@@ -69,30 +108,15 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid" }: Pr
         zIndex: 1,
       });
 
-      const features = stations.map((s) => {
-        const f = new Feature({ geometry: new Point(fromLonLat([s.lon, s.lat])), station: s });
-        f.setStyle(new Style({
-          image: new Circle({
-            radius: 7,
-            fill: new Fill({ color: STATUS_COLOR[s.status] ?? "#666" }),
-            stroke: new Stroke({ color: "#fff", width: 1.5 }),
-          }),
-          text: new Text({
-            text: s.code.toUpperCase(),
-            offsetY: -14,
-            fill: new Fill({ color: "#fff" }),
-            stroke: new Stroke({ color: "#000", width: 3 }),
-            font: "bold 10px sans-serif",
-          }),
-        }));
-        return f;
-      });
+      const vectorSource = new VectorSource();
+      vectorSourceRef.current = vectorSource;
+      syncStationFeatures(stationsRef.current);
 
       const popup = new Overlay({ element: popupEl, positioning: "bottom-center", offset: [0, -14] });
 
       const map = new ol.Map({
         target: container,
-        layers: [baseTile, labelTile, new VectorLayer({ source: new VectorSource({ features }), zIndex: 2 })],
+        layers: [baseTile, labelTile, new VectorLayer({ source: vectorSource, zIndex: 2 })],
         view: new View({ center: fromLonLat([29.5, -19.0]), zoom: 6 }),
         overlays: [popup],
         controls: [],
@@ -124,10 +148,17 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid" }: Pr
       if (olMapRef.current) { olMapRef.current.dispose(); olMapRef.current = null; }
       baseTileRef.current  = null;
       labelTileRef.current = null;
+      vectorSourceRef.current = null;
+      olHelpersRef.current = null;
       if (popupEl) { popupEl.style.display = "none"; popupEl.innerHTML = ""; }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // mount once
+
+  // ── Refresh markers when station data arrives or status changes ─────────
+  useEffect(() => {
+    syncStationFeatures(stations);
+  }, [stations]);
 
   // ── Swap tile layer when `layer` prop changes ────────────────────────────
   useEffect(() => {
