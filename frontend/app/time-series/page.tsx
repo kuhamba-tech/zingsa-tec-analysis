@@ -1,10 +1,11 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
-import { getArchiveMeta, getTimeSeries, getDiurnal, getSeasonal, getSolarCycle, getOmniAnalysis } from "@/lib/api";
+import { getArchiveMeta, getTimeSeries, getDiurnal, getSeasonal, getSolarCycle, getOmniAnalysis, getCelestrakAnalysis } from "@/lib/api";
 import LineChart from "@/components/charts/LineChart";
 import BarChart from "@/components/charts/BarChart";
 import GeomagneticAnalysisPanel from "@/components/timeSeries/GeomagneticAnalysisPanel";
-import type { ArchiveMeta, TecObservation, DiurnalPoint, SeasonalRow, SolarCycleRow, OmniAnalysisResponse } from "@/lib/types";
+import CelestrakAnalysisPanel from "@/components/timeSeries/CelestrakAnalysisPanel";
+import type { ArchiveMeta, TecObservation, DiurnalPoint, SeasonalRow, SolarCycleRow, OmniAnalysisResponse, CelestrakAnalysisResponse } from "@/lib/types";
 
 const STATION_COLORS = ["#168bd2","#ff4444","#00ff88","#ff8c00","#a78bfa","#ffcc00","#34d399","#f472b6"];
 const MONTHS = [
@@ -42,7 +43,7 @@ function percentile(arr: number[], p: number): number {
   return sorted[Math.min(idx, sorted.length - 1)] ?? 0;
 }
 
-type Tab = "daily" | "monthly" | "seasonal" | "diurnal" | "storms";
+type Tab = "daily" | "monthly" | "seasonal" | "diurnal" | "storms" | "celestrak";
 
 export default function TimeSeriesPage() {
   const [meta, setMeta]       = useState<ArchiveMeta | null>(null);
@@ -56,6 +57,9 @@ export default function TimeSeriesPage() {
   const [omni, setOmni] = useState<OmniAnalysisResponse | null>(null);
   const [omniLoading, setOmniLoading] = useState(false);
   const [omniError, setOmniError] = useState<string | null>(null);
+  const [celestrak, setCelestrak] = useState<CelestrakAnalysisResponse | null>(null);
+  const [celestrakLoading, setCelestrakLoading] = useState(false);
+  const [celestrakError, setCelestrakError] = useState<string | null>(null);
 
   // filters
   const [station, setStation] = useState("");
@@ -65,6 +69,10 @@ export default function TimeSeriesPage() {
   const [startMonth, setStartMonth] = useState(4);
   const [endYear, setEndYear] = useState(2024);
   const [endMonth, setEndMonth] = useState(6);
+  const [celestrakStartYear, setCelestrakStartYear] = useState(2024);
+  const [celestrakStartMonth, setCelestrakStartMonth] = useState(4);
+  const [celestrakEndYear, setCelestrakEndYear] = useState(2024);
+  const [celestrakEndMonth, setCelestrakEndMonth] = useState(6);
 
   const yearOptions = Array.from({ length: 12 }, (_, i) => new Date().getFullYear() - 6 + i);
 
@@ -97,6 +105,10 @@ export default function TimeSeriesPage() {
     setStartMonth(s.m);
     setEndYear(e.y);
     setEndMonth(e.m);
+    setCelestrakStartYear(s.y);
+    setCelestrakStartMonth(s.m);
+    setCelestrakEndYear(e.y);
+    setCelestrakEndMonth(e.m);
     const r = rangeFromMonths(s.y, s.m, e.y, e.m);
     setStart(r.start);
     setEnd(r.end);
@@ -119,6 +131,22 @@ export default function TimeSeriesPage() {
     }
     setOmniLoading(false);
   }, [station, startYear, startMonth, endYear, endMonth]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const loadCelestrak = useCallback(async () => {
+    const r = rangeFromMonths(celestrakStartYear, celestrakStartMonth, celestrakEndYear, celestrakEndMonth);
+    setCelestrakLoading(true);
+    setCelestrakError(null);
+    try {
+      await loadAll(station, r.start, r.end);
+      const data = await getCelestrakAnalysis(r.start, r.end, station || undefined);
+      setCelestrak(data);
+      setTab("celestrak");
+    } catch (err) {
+      setCelestrak(null);
+      setCelestrakError(err instanceof Error ? err.message : "Failed to load CelesTrak data");
+    }
+    setCelestrakLoading(false);
+  }, [station, celestrakStartYear, celestrakStartMonth, celestrakEndYear, celestrakEndMonth]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Build daily mean per station ──────────────────────────────────────────
   const dailyByStation: Record<string, Record<string, number[]>> = {};
@@ -268,6 +296,74 @@ export default function TimeSeriesPage() {
         )}
       </div>
 
+      {/* CelesTrak date range — SSN / Kp / F10.7 / Ap */}
+      <div className="omni-range-card">
+        <div className="omni-range-title">CelesTrak date range (SSN · Kp · F10.7 · Ap)</div>
+        <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", margin: 0 }}>
+          Pull daily space-weather indices from{" "}
+          <a href="https://celestrak.org/SpaceData/" target="_blank" rel="noreferrer">
+            CelesTrak
+          </a>{" "}
+          for the same interval as your TEC archive, then overlay storm days on VTEC. CelesTrak has no Dst, so
+          storms are classified from Kp/Ap.
+        </p>
+        <div className="omni-range-grid">
+          <label>
+            From month
+            <select value={celestrakStartMonth} onChange={(e) => setCelestrakStartMonth(Number(e.target.value))}>
+              {MONTHS.map((m) => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            From year
+            <select value={celestrakStartYear} onChange={(e) => setCelestrakStartYear(Number(e.target.value))}>
+              {yearOptions.map((y) => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            To month
+            <select value={celestrakEndMonth} onChange={(e) => setCelestrakEndMonth(Number(e.target.value))}>
+              {MONTHS.map((m) => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            To year
+            <select value={celestrakEndYear} onChange={(e) => setCelestrakEndYear(Number(e.target.value))}>
+              {yearOptions.map((y) => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Station (VTEC correlation)
+            <select value={station} onChange={(e) => setStation(e.target.value)}
+              style={{ minWidth: "140px" }}>
+              <option value="">All stations (network mean)</option>
+              {(meta?.stations ?? []).map((s) => (
+                <option key={s} value={s}>{s.toUpperCase()}</option>
+              ))}
+            </select>
+          </label>
+          <button className="btn btn-primary" onClick={loadCelestrak} disabled={celestrakLoading || loading}>
+            {celestrakLoading ? "Loading CelesTrak…" : "Load CelesTrak analysis"}
+          </button>
+        </div>
+        {(() => {
+          const r = rangeFromMonths(celestrakStartYear, celestrakStartMonth, celestrakEndYear, celestrakEndMonth);
+          return (
+            <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+              Selected range: {r.start} → {r.end}
+            </div>
+          );
+        })()}
+      </div>
+
       {/* Expandable coverage detail */}
       {meta?.available && (
         <div className="card" style={{ padding: "0.6rem 1rem", cursor: "pointer" }} onClick={() => setCoverageOpen((v) => !v)}>
@@ -318,7 +414,7 @@ export default function TimeSeriesPage() {
 
       {/* Tabs */}
       <div className="tabs">
-        {([["daily","Daily Variation"],["monthly","Monthly Averages"],["seasonal","Seasonal / Yearly"],["diurnal","Diurnal Pattern"],["storms","Geomagnetic Storms"]] as [Tab,string][]).map(([id, label]) => (
+        {([["daily","Daily Variation"],["monthly","Monthly Averages"],["seasonal","Seasonal / Yearly"],["diurnal","Diurnal Pattern"],["storms","Geomagnetic Storms"],["celestrak","CelesTrak Storms"]] as [Tab,string][]).map(([id, label]) => (
           <button key={id} className={`tab${tab === id ? " active" : ""}`} onClick={() => setTab(id)}>{label}</button>
         ))}
       </div>
@@ -433,6 +529,17 @@ export default function TimeSeriesPage() {
           vtecDatasets={dailyDatasets}
           loading={omniLoading}
           error={omniError}
+        />
+      )}
+
+      {/* ── CelesTrak analysis ── */}
+      {tab === "celestrak" && (
+        <CelestrakAnalysisPanel
+          celestrak={celestrak}
+          vtecLabels={allDates}
+          vtecDatasets={dailyDatasets}
+          loading={celestrakLoading}
+          error={celestrakError}
         />
       )}
 

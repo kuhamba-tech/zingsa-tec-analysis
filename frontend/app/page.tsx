@@ -99,8 +99,8 @@ export default function HomePage() {
           <Image
             src="/zingsa_logo.webp"
             alt="ZINGSA — Zimbabwe National Geospatial and Space Agency"
-            width={64}
-            height={64}
+            width={168}
+            height={168}
             className="home-hero-logo"
             priority
           />

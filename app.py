@@ -72,7 +72,8 @@ def parse_cmn_date(path: Path) -> pd.Timestamp | None:
     match = re.search(r"(\d{4}-\d{2}-\d{2})", path.stem)
     if not match:
         return None
-    return pd.to_datetime(match.group(1), errors="coerce")
+    ts = pd.to_datetime(match.group(1), errors="coerce")
+    return None if pd.isna(ts) else pd.Timestamp(ts)
 
 
 def parse_rinex_obs_date(path: Path) -> pd.Timestamp | None:
@@ -83,7 +84,8 @@ def parse_rinex_obs_date(path: Path) -> pd.Timestamp | None:
         return None
     doy = int(match.group(2))
     year = 2000 + int(match.group(3))
-    return pd.Timestamp(year=year, month=1, day=1) + pd.to_timedelta(doy - 1, unit="D")
+    ts = pd.Timestamp(year=year, month=1, day=1) + pd.to_timedelta(doy - 1, unit="D")
+    return None if pd.isna(ts) else pd.Timestamp(ts)
 
 
 def keep_by_mode(

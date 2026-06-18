@@ -1,10 +1,29 @@
 {
   "venvPath": ".",
   "venv": ".venv",
-  "include": ["app.py", "tec_core.py"],
+  "pythonVersion": "3.11",
+  "pythonPlatform": "Windows",
+  "typeCheckingMode": "basic",
+  "include": [
+    "app.py",
+    "tec_core.py",
+    "backend",
+    "zgiis",
+    "pages",
+    "scripts",
+    "tests"
+  ],
+  "exclude": [
+    "**/node_modules",
+    "**/__pycache__",
+    "frontend",
+    "public",
+    ".venv"
+  ],
   "executionEnvironments": [
     {
       "root": ".",
+      "pythonVersion": "3.11",
       "extraPaths": ["."]
     }
   ]

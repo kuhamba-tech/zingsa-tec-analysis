@@ -25,8 +25,8 @@ static/data/*.sqlite3
 .pytest_cache/
 .ruff_cache/
 .idea/
-.vscode/
-pyrightconfig.json
+!.vscode/
+!.vscode/settings.json
 *.log
 *.tmp
 *.bak
@@ -49,8 +49,7 @@ Thumbs.db
 
 .vercel
 
-# Next.js static export copied for Vercel (built in CI)
-/public/
-!/public/.gitkeep
+# Next.js static export copied for Vercel (built in CI), self-served by FastAPI
+/static_export/
 .env*
 !frontend/.env.production

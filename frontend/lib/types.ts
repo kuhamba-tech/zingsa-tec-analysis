@@ -335,6 +335,45 @@ export interface OmniAnalysisResponse {
   storms: OmniStormDay[];
   fetched_at: string | null;
 }
+export interface CelestrakDailyPoint {
+  date: string;
+  ssn: number | null;
+  kp: number | null;
+  kp_mean: number | null;
+  ap: number | null;
+  f107: number | null;
+  data_type: string | null;
+  storm_flag: boolean;
+  storm_class: string;
+  mean_vtec: number | null;
+}
+
+export interface CelestrakStormDay {
+  date: string;
+  kp: number | null;
+  ap: number | null;
+  f107: number | null;
+  ssn: number | null;
+  storm_class: string;
+  mean_vtec: number | null;
+}
+
+export interface CelestrakAnalysisResponse {
+  source: string;
+  start_date: string | null;
+  end_date: string | null;
+  days: number;
+  storm_days: number;
+  max_kp: number | null;
+  max_ap: number | null;
+  mean_f107: number | null;
+  mean_vtec_storm: number | null;
+  mean_vtec_quiet: number | null;
+  series: CelestrakDailyPoint[];
+  storms: CelestrakStormDay[];
+  fetched_at: string | null;
+}
+
 export interface PrnRow {
   prn: string;
   constellation: string;

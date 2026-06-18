@@ -2,6 +2,7 @@ import type {
   ArchiveMeta,
   AnomalyDay,
   BiasRow,
+  CelestrakAnalysisResponse,
   ChatMessage,
   ChatResponse,
   CorsHealth,
@@ -176,6 +177,8 @@ export const getSeasonal = () => get<SeasonalRow[]>("/tec/seasonal");
 export const getSolarCycle = () => get<SolarCycleRow[]>("/tec/solar-cycle");
 export const getOmniAnalysis = (start: string, end: string, station?: string) =>
   get<OmniAnalysisResponse>("/tec/omni-analysis", { start, end, station, _ts: Date.now() });
+export const getCelestrakAnalysis = (start: string, end: string, station?: string) =>
+  get<CelestrakAnalysisResponse>("/tec/celestrak-analysis", { start, end, station, _ts: Date.now() });
 export const getPrn = (constellation?: string) => get<PrnRow[]>("/tec/prn", { constellation });
 
 // ── Live ──────────────────────────────────────────────────────────────────────

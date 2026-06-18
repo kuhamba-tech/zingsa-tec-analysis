@@ -360,6 +360,45 @@ class OmniAnalysisResponse(BaseModel):
     fetched_at: str | None = None
 
 
+class CelestrakDailyPoint(BaseModel):
+    date: str
+    ssn: float | None = None
+    kp: float | None = None
+    kp_mean: float | None = None
+    ap: float | None = None
+    f107: float | None = None
+    data_type: str | None = None
+    storm_flag: bool = False
+    storm_class: str = "Quiet"
+    mean_vtec: float | None = None
+
+
+class CelestrakStormDay(BaseModel):
+    date: str
+    kp: float | None = None
+    ap: float | None = None
+    f107: float | None = None
+    ssn: float | None = None
+    storm_class: str
+    mean_vtec: float | None = None
+
+
+class CelestrakAnalysisResponse(BaseModel):
+    source: str
+    start_date: str | None = None
+    end_date: str | None = None
+    days: int = 0
+    storm_days: int = 0
+    max_kp: float | None = None
+    max_ap: float | None = None
+    mean_f107: float | None = None
+    mean_vtec_storm: float | None = None
+    mean_vtec_quiet: float | None = None
+    series: list[CelestrakDailyPoint] = []
+    storms: list[CelestrakStormDay] = []
+    fetched_at: str | None = None
+
+
 class PrnRow(BaseModel):
     prn: str
     constellation: str

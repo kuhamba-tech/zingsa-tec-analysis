@@ -1,4 +1,12 @@
-"""Build Next.js static export into repo-root public/ for Vercel CDN + FastAPI."""
+"""Build Next.js static export into repo-root static_export/, served by FastAPI itself.
+
+Deliberately NOT named "public" -- Vercel treats a root-level public/ directory as a
+reserved CDN-static bucket, and in practice files copied there mid-build (rather than
+committed ahead of time) were neither promoted to that CDN bucket nor included in the
+Python function bundle, so requests for them (including "/") fell through to FastAPI's
+404/fallback handler. Using a non-reserved name and having backend/main.py mount it
+directly with StaticFiles sidesteps that ambiguity entirely.
+"""
 from __future__ import annotations
 
 import shutil
@@ -9,7 +17,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "frontend"
 OUT = FRONTEND / "out"
-PUBLIC = ROOT / "public"
+STATIC_EXPORT = ROOT / "static_export"
 
 
 def run(cmd: list[str], cwd: Path) -> None:
@@ -25,10 +33,10 @@ def main() -> None:
     if not OUT.is_dir():
         raise SystemExit(f"Next.js export missing: {OUT}")
 
-    if PUBLIC.exists():
-        shutil.rmtree(PUBLIC)
-    shutil.copytree(OUT, PUBLIC)
-    print(f"Copied {OUT} -> {PUBLIC}")
+    if STATIC_EXPORT.exists():
+        shutil.rmtree(STATIC_EXPORT)
+    shutil.copytree(OUT, STATIC_EXPORT)
+    print(f"Copied {OUT} -> {STATIC_EXPORT}")
 
 
 if __name__ == "__main__":

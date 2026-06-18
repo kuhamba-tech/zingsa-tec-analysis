@@ -14,7 +14,7 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from backend import live_manager, space_weather_logger, station_status_logger
 from backend.routers import (
@@ -67,7 +67,7 @@ app.include_router(chat.router)
 app.include_router(theory.router)
 
 
-PUBLIC_DIR = Path(__file__).resolve().parents[1] / "public"
+STATIC_EXPORT_DIR = Path(__file__).resolve().parents[1] / "static_export"
 
 
 @app.get("/health")
@@ -75,15 +75,16 @@ async def health():
     return {"status": "ok", "service": "ZGIIS API"}
 
 
-@app.get("/")
-async def root():
-    """Serve the exported Next.js home page when static assets are bundled."""
-    index = PUBLIC_DIR / "index.html"
-    if index.is_file():
-        return FileResponse(index)
-    return {
-        "service": "ZGIIS API",
-        "docs": "/docs",
-        "health": "/health",
-        "ui": "Run scripts/vercel_build.py to export the frontend into public/",
-    }
+if STATIC_EXPORT_DIR.is_dir():
+    # Serve the exported Next.js site ourselves rather than relying on Vercel's
+    # public/ CDN convention, which did not pick up files generated mid-build.
+    app.mount("/", StaticFiles(directory=STATIC_EXPORT_DIR, html=True), name="static")
+else:
+    @app.get("/")
+    async def root():
+        return {
+            "service": "ZGIIS API",
+            "docs": "/docs",
+            "health": "/health",
+            "ui": "Run scripts/vercel_build.py to export the frontend into static_export/",
+        }

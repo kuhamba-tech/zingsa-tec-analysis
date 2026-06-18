@@ -10,6 +10,7 @@ from backend.deps import require_api_key
 from backend.schemas import (
     ArchiveMeta,
     AnomalyDay,
+    CelestrakAnalysisResponse,
     DiurnalPoint,
     OmniAnalysisResponse,
     PrnRow,
@@ -37,6 +38,26 @@ def _archive_meta() -> dict:
         return meta
     except Exception:
         return {}
+
+
+def _vtec_by_date(start: str, end: str, station: str | None) -> dict[str, float]:
+    df = _archive()
+    if df.empty:
+        return {}
+    work = df.copy()
+    if "date" in work.columns:
+        work["timestamp"] = pd.to_datetime(work["date"])
+    if station and "station" in work.columns:
+        work = work[work["station"] == station]
+    work = work[
+        (work["timestamp"] >= pd.Timestamp(start))
+        & (work["timestamp"] <= pd.Timestamp(end))
+    ]
+    if work.empty:
+        return {}
+    work["day"] = work["timestamp"].dt.strftime("%Y-%m-%d")
+    daily = work.groupby("day")["vtec"].mean()
+    return {str(k): round(float(v), 2) for k, v in daily.items() if pd.notna(v)}
 
 
 @router.get("/archive-meta", response_model=ArchiveMeta)
@@ -112,25 +133,37 @@ async def omni_analysis(
         from fastapi import HTTPException
         raise HTTPException(status_code=502, detail=f"OMNIWeb fetch failed: {exc}") from exc
 
-    vtec_by_date: dict[str, float] = {}
-    df = _archive()
-    if not df.empty:
-        work = df.copy()
-        if "date" in work.columns:
-            work["timestamp"] = pd.to_datetime(work["date"])
-        if station and "station" in work.columns:
-            work = work[work["station"] == station]
-        work = work[
-            (work["timestamp"] >= pd.Timestamp(start))
-            & (work["timestamp"] <= pd.Timestamp(end))
-        ]
-        if not work.empty:
-            work["day"] = work["timestamp"].dt.strftime("%Y-%m-%d")
-            daily = work.groupby("day")["vtec"].mean()
-            vtec_by_date = {str(k): round(float(v), 2) for k, v in daily.items() if pd.notna(v)}
-
+    vtec_by_date = _vtec_by_date(start, end, station)
     payload = build_analysis(omni_rows, vtec_by_date)
     return OmniAnalysisResponse(**payload)
+
+
+@router.get("/celestrak-analysis", response_model=CelestrakAnalysisResponse)
+async def celestrak_analysis(
+    start: str = Query(..., description="Start date YYYY-MM-DD"),
+    end: str = Query(..., description="End date YYYY-MM-DD"),
+    station: str | None = Query(None),
+    _=Depends(require_api_key),
+):
+    """Fetch CelesTrak space-weather indices (SSN, Kp, Ap, F10.7) and correlate with archived VTEC."""
+    try:
+        start_d = date.fromisoformat(start[:10])
+        end_d = date.fromisoformat(end[:10])
+    except ValueError as exc:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=422, detail="Invalid date format; use YYYY-MM-DD") from exc
+
+    from zgiis.space_weather.celestrak_client import build_analysis as build_celestrak_analysis, fetch_celestrak_daily
+
+    try:
+        celestrak_rows = fetch_celestrak_daily(start_d, end_d)
+    except Exception as exc:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=502, detail=f"CelesTrak fetch failed: {exc}") from exc
+
+    vtec_by_date = _vtec_by_date(start, end, station)
+    payload = build_celestrak_analysis(celestrak_rows, vtec_by_date)
+    return CelestrakAnalysisResponse(**payload)
 
 
 @router.get("/anomalies", response_model=list[AnomalyDay])
