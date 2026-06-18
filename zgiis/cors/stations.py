@@ -76,7 +76,7 @@ def stations_for_map(health: dict | None = None) -> List[CorsStation]:
     rows = (health or {}).get("stations") or []
     if not rows or int(summary.get("telemetry_live") or 0) <= 0:
         return [
-            replace(s, status="unknown", current_tec=0.0)
+            replace(s, status=normalize_station_status(s.status), current_tec=0.0)
             for s in ZIMBABWE_CORS_STATIONS
         ]
 
@@ -128,21 +128,36 @@ def stations_for_map_live(live_status: dict | None = None) -> List[CorsStation]:
     Unlike stations_for_map(), this never calls the third-party
     zingsa-national-cors.vercel.app API — status comes solely from
     backend.live_manager's real RTCM connection state.
+
+    When the live pipeline is not running, falls back to stations_for_map()
+    so the UI still shows offline/degraded/online instead of all unknown.
     """
     from dataclasses import replace
 
-    if live_status is None:
-        try:
-            from backend import live_manager
-            live_status = live_manager.status().get("streams", {})
-        except Exception:
-            live_status = {}
+    pipeline_configured = False
+    try:
+        from backend import live_manager
+
+        mgr_status = live_manager.status()
+        if live_status is None:
+            live_status = mgr_status.get("streams") or {}
+        pipeline_configured = bool(mgr_status.get("configured"))
+    except Exception:
+        live_status = live_status or {}
 
     merged: List[CorsStation] = []
     for station in ZIMBABWE_CORS_STATIONS:
         code = station.code.lower().rstrip("_")
-        status = derive_status_from_stream(live_status.get(code))
+        stream = live_status.get(code) if live_status else None
+        if stream is None:
+            # Pipeline active but no stream row → treat as not connected.
+            status = "offline" if pipeline_configured else "unknown"
+        else:
+            status = derive_status_from_stream(stream)
         merged.append(replace(station, status=status))
+
+    if all(s.status == "unknown" for s in merged):
+        return stations_for_map()
     return merged
 
 ZIMBABWE_CORS_STATIONS: List[CorsStation] = [
