@@ -128,15 +128,28 @@ async def pipeline_status(_=Depends(require_api_key)):
     )
 
 
+@router.get("/ntrip-status", response_model=NtripProbeResponse)
+async def ntrip_status(
+    refresh: bool = Query(False),
+    listen_sec: float = Query(4.0, ge=2.0, le=12.0),
+    _=Depends(require_api_key),
+):
+    """Cached live NTRIP probe — real caster TCP/RTCM decode, refreshed every ~2 min."""
+    from zgiis.live.ntrip_status_cache import get_cached_ntrip_probe
+
+    payload = get_cached_ntrip_probe(refresh=refresh, listen_sec=listen_sec)
+    return NtripProbeResponse(**payload)
+
+
 @router.post("/ntrip-probe", response_model=NtripProbeResponse)
 async def ntrip_probe(
     listen_sec: float = Query(6.0, ge=2.0, le=20.0),
     _=Depends(require_api_key),
 ):
     """Probe each configured NTRIP mountpoint without stopping the live collector."""
-    from zgiis.live.ntrip_probe import probe_all_mountpoints
+    from zgiis.live.ntrip_status_cache import get_cached_ntrip_probe
 
-    payload = probe_all_mountpoints(listen_sec=listen_sec)
+    payload = get_cached_ntrip_probe(refresh=True, listen_sec=listen_sec)
     return NtripProbeResponse(**payload)
 
 

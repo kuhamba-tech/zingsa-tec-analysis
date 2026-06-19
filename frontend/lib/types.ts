@@ -169,6 +169,9 @@ export interface Station {
   site_server?: string | null;
   last_update?: string | null;
   site_status_label?: string | null;
+  catalog_status?: string | null;
+  ntrip_verdict?: string | null;
+  ntrip_probed_at?: string | null;
 }
 
 export interface CorsHealth {

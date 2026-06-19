@@ -24,7 +24,7 @@ const HOME_METRIC_KEYS: MetricKey[] = ["kp", "geomagnetic", "gnss_risk", "statio
 
 const HOME_LABELS: Partial<Record<MetricKey, string>> = {
   geomagnetic: "Geomagnetic condition",
-  stations: "CORS catalog online",
+  stations: "Live NTRIP MSM",
 };
 
 function HomeMetricCard({
@@ -54,9 +54,12 @@ function HomeMetricCard({
   );
 }
 
-function countLiveMsm(streams: Record<string, { msg_count?: number; last_seen?: string | null }> | undefined): number {
-  if (!streams) return 0;
-  return Object.values(streams).filter((s) => (s.msg_count ?? 0) > 0 && s.last_seen).length;
+function countMsmFromStations(stations: Station[]): number {
+  return stations.filter((s) => s.ntrip_verdict === "msm_streaming").length;
+}
+
+function countCatalogOnline(stations: Station[]): number {
+  return stations.filter((s) => (s.catalog_status ?? s.status) === "online").length;
 }
 
 export default function HomePage() {
@@ -66,7 +69,9 @@ export default function HomePage() {
   const [swStatus, setSwStatus] = useState<FeedStatus>("pending");
   const [loadError, setLoadError] = useState<string | null>(null);
   const [liveMsmOnline, setLiveMsmOnline] = useState<number | null>(null);
+  const [ntripProbedAt, setNtripProbedAt] = useState<string | null>(null);
   const [pipelineNote, setPipelineNote] = useState<string | null>(null);
+  const [stationsLoading, setStationsLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -75,10 +80,9 @@ export default function HomePage() {
       setSwStatus("pending");
       setLoadError(null);
 
-      const [swResult, ekfResult, stationsResult, pipelineResult] = await Promise.allSettled([
+      const [swResult, ekfResult, pipelineResult] = await Promise.allSettled([
         getSpaceWeather(),
         getEkfStatus(),
-        getStations(),
         getLivePipelineStatus(),
       ]);
 
@@ -107,20 +111,35 @@ export default function HomePage() {
         );
       }
 
-      if (stationsResult.status === "fulfilled") {
-        setStations(stationsResult.value);
-      } else {
-        setStations([]);
-      }
-
       if (pipelineResult.status === "fulfilled") {
         const p = pipelineResult.value;
         setPipelineNote(p.message);
         if (p.ingest_enabled && p.streams) {
-          setLiveMsmOnline(countLiveMsm(p.streams as Record<string, { msg_count?: number; last_seen?: string | null }>));
-        } else {
-          setLiveMsmOnline(null);
+          const msm = Object.values(p.streams as Record<string, { msg_count?: number; last_seen?: string | null }>)
+            .filter((s) => (s.msg_count ?? 0) > 0 && s.last_seen).length;
+          setLiveMsmOnline(msm);
         }
+      }
+
+      setStationsLoading(true);
+      try {
+        const stationsResult = await getStations(true);
+        if (cancelled) return;
+
+        setStations(stationsResult);
+        const msm = countMsmFromStations(stationsResult);
+        setLiveMsmOnline(msm);
+        const probed = stationsResult.find((s) => s.ntrip_probed_at)?.ntrip_probed_at;
+        if (probed) setNtripProbedAt(probed);
+        setDisplaySw((prev) =>
+          prev && stationsResult.some((s) => s.ntrip_verdict)
+            ? { ...prev, stations_online: msm, stations_total: stationsResult.length || 24 }
+            : prev,
+        );
+      } catch {
+        if (!cancelled) setStations([]);
+      } finally {
+        if (!cancelled) setStationsLoading(false);
       }
     }
 
@@ -132,16 +151,17 @@ export default function HomePage() {
   const loading = swStatus === "pending";
   const gnssRisk = displaySw?.gnss_risk ?? (loading ? "…" : "N/A");
 
-  const homeCards = buildMetricCards(displaySw, { liveMsmOnline, ekfFilled })
+  const catalogOnline = countCatalogOnline(stations);
+  const catalogTotal = stations.length > 0 ? stations.length : 24;
+  const ntripDegraded = stations.filter((s) => s.ntrip_verdict === "rtcm_no_msm").length;
+
+  const homeCards = buildMetricCards(displaySw, { liveMsmOnline, catalogOnline, ekfFilled })
     .filter((card) => HOME_METRIC_KEYS.includes(card.key))
     .map((card) => ({
       ...card,
       label: HOME_LABELS[card.key] ?? card.label,
       value: card.key === "kp" && displaySw?.kp != null ? displaySw.kp.toFixed(1) : card.value,
     }));
-
-  const catalogOnline = stations.filter((s) => s.status === "online").length;
-  const catalogTotal = stations.length > 0 ? stations.length : 24;
 
   return (
     <div className="home-page">
@@ -170,6 +190,17 @@ export default function HomePage() {
           {pipelineNote && !pipelineNote.includes("started") && (
             <div className="banner banner-info" style={{ fontSize: "0.78rem" }}>
               {pipelineNote}
+            </div>
+          )}
+          {stationsLoading && (
+            <div className="banner banner-info" style={{ fontSize: "0.78rem" }}>
+              Probing NTRIP caster for live RTCM/MSM on all 24 mountpoints…
+            </div>
+          )}
+          {ntripProbedAt && !stationsLoading && (
+            <div className="banner banner-info" style={{ fontSize: "0.72rem" }}>
+              NTRIP probe at {ntripProbedAt.replace("T", " ").replace("Z", " UTC")} — map markers reflect live caster
+              decode (MSM = online, RTCM-only = degraded). Catalog archive: {catalogOnline}/{catalogTotal} online.
             </div>
           )}
           <div className="dashboard-metric-grid home-metric-grid">
@@ -206,6 +237,9 @@ export default function HomePage() {
         catalogOnline={catalogOnline}
         catalogTotal={catalogTotal}
         liveMsmOnline={liveMsmOnline}
+        ntripDegraded={ntripDegraded}
+        ntripProbedAt={ntripProbedAt}
+        stationsLoading={stationsLoading}
       />
 
       <section className="home-modules">

@@ -182,6 +182,9 @@ class StationOut(BaseModel):
     site_server: str | None = None
     last_update: str | None = None
     site_status_label: str | None = None
+    catalog_status: str | None = None
+    ntrip_verdict: str | None = None
+    ntrip_probed_at: str | None = None
 
 
 class CorsHealthOut(BaseModel):

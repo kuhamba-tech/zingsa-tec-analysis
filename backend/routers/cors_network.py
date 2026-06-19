@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 import time
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from backend.deps import require_api_key
 from backend.schemas import CorsHealthOut, StationOut, StationStatusEventOut, StationStatusLogStatus, StationUptimeRow
@@ -15,13 +15,14 @@ _STATIONS_CACHE_TTL_SEC = 45.0
 _stations_cache: dict[str, object] = {"rows": None, "ts": 0.0}
 
 
-def _stations_impl() -> list:
+def _stations_impl(*, refresh_ntrip: bool = False) -> list:
     from dataclasses import replace
 
     from backend.live_manager import status as live_status, get_db
     from zgiis.api.cors_client import fetch_station_health
-    from zgiis.cors.site_details import enrich_station
+    from zgiis.cors.site_details import enrich_station, enrich_station_from_probe
     from zgiis.cors.stations import stations_for_map, stations_for_map_live
+    from zgiis.live.ntrip_status_cache import get_cached_ntrip_probe, probe_rows_by_station
 
     try:
         health = fetch_station_health(country="Zimbabwe")
@@ -31,48 +32,72 @@ def _stations_impl() -> list:
     stations = stations_for_map(health, require_live_telemetry=False)
 
     live_streams: dict = {}
+    pipeline_configured = False
     try:
         live = stations_for_map_live()
         live_by_code = {s.code.lower(): s for s in live}
-        live_streams = live_status().get("streams") or {}
-        stations = [
-            replace(s, status="online", status_source="ntrip")
-            if live_by_code.get(s.code.lower()) and live_by_code[s.code.lower()].status == "online"
-            else s
-            for s in stations
-        ]
+        mgr = live_status()
+        pipeline_configured = bool(mgr.get("configured"))
+        live_streams = mgr.get("streams") or {}
+        if pipeline_configured:
+            stations = [
+                replace(s, status="online", status_source="ntrip")
+                if live_by_code.get(s.code.lower()) and live_by_code[s.code.lower()].status == "online"
+                else s
+                for s in stations
+            ]
     except Exception:
         pass
+
+    probe_payload = None
+    probe_by: dict = {}
+    if not pipeline_configured:
+        try:
+            probe_payload = get_cached_ntrip_probe(refresh=refresh_ntrip, listen_sec=4.0)
+            if not probe_payload.get("error"):
+                probe_by = probe_rows_by_station(probe_payload)
+        except Exception:
+            probe_payload = None
+            probe_by = {}
 
     try:
         df = get_db().query_recent(hours=0.25)
     except Exception:
         df = None
 
+    probed_at = str(probe_payload.get("probed_at") or "") if probe_payload else ""
     merged = []
     for station in stations:
         code = station.code.lower()
         stream = live_streams.get(code) if live_streams else None
         s = enrich_station(station, stream=stream)
-        if df is not None and not df.empty and "station" in df.columns:
+        if code in probe_by:
+            s = enrich_station_from_probe(s, probe_by[code], probed_at=probed_at or None)
+        elif df is not None and not df.empty and "station" in df.columns:
             latest = df.sort_values("time").groupby("station").tail(1).set_index("station")
             means = df.groupby("station")["vtec_tecu"].mean() if "vtec_tecu" in df.columns else {}
             if code in latest.index:
                 current_tec = float(means.get(code, 0.0) or 0.0)
                 s = replace(s, status="online", status_source="ntrip", current_tec=round(current_tec, 2))
-                s = enrich_station(s, stream=stream)
+                s = enrich_station(station, stream=stream)
         merged.append(s)
     return merged
 
 
-def _stations() -> list:
+def _stations(*, refresh_ntrip: bool = False) -> list:
     now = time.monotonic()
     cached = _stations_cache.get("rows")
-    if cached is not None and (now - float(_stations_cache["ts"])) < _STATIONS_CACHE_TTL_SEC:
+    cache_key = f"ntrip:{refresh_ntrip}"
+    if (
+        cached is not None
+        and (now - float(_stations_cache["ts"])) < _STATIONS_CACHE_TTL_SEC
+        and _stations_cache.get("key") == cache_key
+    ):
         return cached  # type: ignore[return-value]
-    rows = _stations_impl()
+    rows = _stations_impl(refresh_ntrip=refresh_ntrip)
     _stations_cache["rows"] = rows
     _stations_cache["ts"] = now
+    _stations_cache["key"] = cache_key
     return rows
 
 
@@ -94,13 +119,19 @@ def _station_out(s) -> StationOut:
         site_server=getattr(s, "site_server", None) or None,
         last_update=getattr(s, "last_update", None) or None,
         site_status_label=getattr(s, "site_status_label", None) or None,
+        catalog_status=getattr(s, "catalog_status", None) or None,
+        ntrip_verdict=getattr(s, "ntrip_verdict", None) or None,
+        ntrip_probed_at=getattr(s, "ntrip_probed_at", None) or None,
     )
 
 
 @router.get("/stations", response_model=list[StationOut])
-async def stations(_=Depends(require_api_key)):
+async def stations(
+    refresh_ntrip: bool = Query(False),
+    _=Depends(require_api_key),
+):
     poll_and_log(source="cors_stations", force=False)
-    return [_station_out(s) for s in _stations()]
+    return [_station_out(s) for s in _stations(refresh_ntrip=refresh_ntrip)]
 
 
 @router.get("/stations/{code}", response_model=StationOut)

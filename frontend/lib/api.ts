@@ -13,6 +13,7 @@ import type {
   ForecastStatus,
   LiveObservation,
   LivePipelineStatus,
+  NtripProbeResponse,
   OmniAnalysisResponse,
   PrnRow,
   ProcessingOptions,
@@ -116,7 +117,11 @@ export const ackEkfAlert = (alertId: string) =>
   });
 
 // ── CORS Network ──────────────────────────────────────────────────────────────
-export const getStations = () => getWithRetry<Station[]>("/cors/stations", { _ts: Date.now() });
+export const getStations = (refreshNtrip = false) =>
+  getWithRetry<Station[]>("/cors/stations", {
+    _ts: Date.now(),
+    ...(refreshNtrip ? { refresh_ntrip: "true" } : {}),
+  });
 export const getStation = (code: string) => get<Station>(`/cors/stations/${code}`);
 export const getCorsHealth = () => get<CorsHealth>("/cors/health");
 export const getStationStatusLog = () => get<StationStatusLogStatus>("/cors/status/log");
@@ -198,6 +203,12 @@ export const getPrn = (constellation?: string) => get<PrnRow[]>("/tec/prn", { co
 export const getLiveVtec = (hours = 2) => get<LiveObservation[]>("/live/vtec", { hours });
 export const getLiveStations = () => get<StationLiveStatus[]>("/live/stations");
 export const getLivePipelineStatus = () => get<LivePipelineStatus>("/live/pipeline-status");
+export const getNtripStatus = (refresh = false, listen_sec = 4) =>
+  getWithRetry<NtripProbeResponse>("/live/ntrip-status", {
+    _ts: Date.now(),
+    ...(refresh ? { refresh: "true" } : {}),
+    listen_sec,
+  });
 export async function runNtripProbe(listen_sec = 6) {
   const url = new URL(BASE + "/live/ntrip-probe");
   url.searchParams.set("listen_sec", String(listen_sec));

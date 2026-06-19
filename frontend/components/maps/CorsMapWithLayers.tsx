@@ -13,6 +13,9 @@ interface Props {
   catalogOnline?: number;
   catalogTotal?: number;
   liveMsmOnline?: number | null;
+  ntripDegraded?: number;
+  ntripProbedAt?: string | null;
+  stationsLoading?: boolean;
 }
 
 const LAYERS: MapLayer[] = ["Hybrid", "Satellite", "Street", "TEC Heat Map"];
@@ -30,14 +33,21 @@ export default function CorsMapWithLayers({
   catalogOnline,
   catalogTotal = 24,
   liveMsmOnline = null,
+  ntripDegraded = 0,
+  ntripProbedAt = null,
+  stationsLoading = false,
 }: Props) {
   const [layer, setLayer] = useState<MapLayer>("Hybrid");
 
-  const online = catalogOnline ?? stations.filter((s) => s.status === "online").length;
   const total = stations.length > 0 ? stations.length : catalogTotal;
-  const catalogLabel = `${online}/${total} catalog online`;
-  const msmLabel =
-    liveMsmOnline != null ? `${liveMsmOnline}/${total} live MSM` : "MSM N/A (no NTRIP worker)";
+  const catalogCount = catalogOnline ?? stations.filter((s) => (s.catalog_status ?? s.status) === "online").length;
+  const msmCount = liveMsmOnline ?? stations.filter((s) => s.ntrip_verdict === "msm_streaming").length;
+  const catalogLabel = `${catalogCount}/${total} catalog archive`;
+  const msmLabel = stationsLoading
+    ? "NTRIP probe running…"
+    : liveMsmOnline != null || ntripProbedAt
+      ? `${msmCount}/${total} live MSM · ${ntripDegraded}/${total} RTCM-only`
+      : "MSM N/A (NTRIP probe pending)";
 
   return (
     <div>
@@ -116,18 +126,18 @@ export default function CorsMapWithLayers({
               Station Status
             </div>
             {[
-              { color: "#00ff88", label: "Online" },
-              { color: "#ff8c00", label: "Degraded" },
+              { color: "#00ff88", label: "Online (NTRIP MSM streaming)" },
+              { color: "#ff8c00", label: "Degraded (connected, no MSM)" },
               { color: "#ff4444", label: "Offline" },
-              { color: "#666", label: "Telemetry Unavailable" },
+              { color: "#666", label: "Status unavailable" },
             ].map(({ color, label }) => (
               <div key={label} style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
                 <span className="dot" style={{ background: color }} />
                 <span>{label}</span>
               </div>
             ))}
-            <div style={{ fontSize: "0.62rem", fontWeight: 400, color: "var(--text-muted)", marginTop: "0.15rem", maxWidth: "190px" }}>
-              Click a station marker to open the Details panel (site code, RTCM ID, coordinates, status).
+            <div style={{ fontSize: "0.62rem", fontWeight: 400, color: "var(--text-muted)", marginTop: "0.15rem", maxWidth: "210px" }}>
+              Markers use live NTRIP probe when the persistent collector is off. Click a marker for site Details.
             </div>
           </div>
           {layer === "TEC Heat Map" && <TecHeatMapLegend />}

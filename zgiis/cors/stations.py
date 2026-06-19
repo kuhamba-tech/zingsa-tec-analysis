@@ -31,6 +31,9 @@ class CorsStation:
     # archive/health API (real data, but not live telemetry); "unknown" = neither
     # source has anything for this station right now.
     status_source: str = "unknown"
+    catalog_status: str = ""
+    ntrip_verdict: str = ""
+    ntrip_probed_at: str = ""
 
     @property
     def status_color(self) -> str:
@@ -145,7 +148,7 @@ def stations_for_map(
         live = by_code.get(code)
         status = live if live else normalize_station_status(station.status)
         source = "catalog" if live else "unknown"
-        merged.append(replace(station, status=status, status_source=source))
+        merged.append(replace(station, status=status, status_source=source, catalog_status=status))
     return merged
 
 

@@ -58,6 +58,39 @@ def vendor_status_label(status: str, *, connected: bool = False, receiving: bool
     return "Disconnected"
 
 
+def enrich_station_from_probe(
+    station: CorsStation,
+    probe_row: dict,
+    *,
+    probed_at: str | None = None,
+) -> CorsStation:
+    """Apply a one-shot NTRIP probe row (real caster decode) to site metadata."""
+    from zgiis.live.ntrip_status_cache import verdict_map_status, verdict_site_label
+
+    verdict = str(probe_row.get("verdict") or "offline")
+    status = verdict_map_status(verdict)
+    mountpoint = str(probe_row.get("mountpoint") or station.mountpoint or station.code.upper())
+    last_update = (probed_at or "").replace("T", " ").replace("Z", " UTC")[:22]
+    catalog = getattr(station, "catalog_status", "") or station.status
+
+    meta = site_meta(station.code)
+    return replace(
+        station,
+        status=status,
+        status_source="ntrip",
+        mountpoint=mountpoint,
+        marker_name=meta["marker_name"],
+        marker_number=meta["marker_number"],
+        rtcm_id=meta["rtcm_id"],
+        site_server="NTRIP Caster (live probe)",
+        last_update=last_update,
+        site_status_label=verdict_site_label(verdict),
+        catalog_status=catalog,
+        ntrip_verdict=verdict,
+        ntrip_probed_at=probed_at or "",
+    )
+
+
 def enrich_station(station: CorsStation, *, stream: dict | None = None) -> CorsStation:
     meta = site_meta(station.code)
     mountpoint = meta["mountpoint"]

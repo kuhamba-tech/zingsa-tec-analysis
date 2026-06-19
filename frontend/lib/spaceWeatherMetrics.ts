@@ -63,6 +63,7 @@ function solarWindColor(speed: number | null): string {
 
 export interface MetricCardOptions {
   liveMsmOnline?: number | null;
+  catalogOnline?: number | null;
   ekfFilled?: Set<string>;
 }
 
@@ -81,22 +82,21 @@ export function buildMetricCards(
   const riskColor = sw?.gnss_risk_color ?? "#1D9E75";
   const ekfFilled = opts?.ekfFilled ?? new Set<string>();
   const liveMsm = opts?.liveMsmOnline;
+  const catalogOnline = opts?.catalogOnline;
 
   const ekfSuffix = (key: string) => (ekfFilled.has(key) ? " · EKF predicted" : "");
 
   const dstValue = dst !== null ? `${dst >= 0 ? "+" : ""}${dst} nT` : "N/A";
+  const stationsOnlineCount = liveMsm != null ? liveMsm : online;
   const stationsLabel =
-    online !== null && total ? `${online}/${total}` : "N/A";
+    stationsOnlineCount !== null && total ? `${stationsOnlineCount}/${total}` : "N/A";
   const windValue = wind !== null ? `${wind} km/s` : "N/A";
 
-  let stationsNote = "Zimbabwe CORS catalog";
-  if (online === null && !ekfFilled.has("stations_online")) {
-    stationsNote = "Catalog feed unavailable";
-  }
-  if (liveMsm != null) {
-    stationsNote += ` · Live MSM: ${liveMsm}/${total ?? 24}`;
-  } else if (liveMsm === null && online !== null) {
-    stationsNote += " · Live MSM: N/A on this host";
+  let stationsNote = "Live NTRIP MSM probe (VTEC-usable RTCM)";
+  if (liveMsm == null && online === null && !ekfFilled.has("stations_online")) {
+    stationsNote = "NTRIP probe unavailable";
+  } else if (catalogOnline != null) {
+    stationsNote += ` · Catalog archive: ${catalogOnline}/${total ?? 24}`;
   }
 
   return [
