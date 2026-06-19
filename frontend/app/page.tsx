@@ -151,11 +151,15 @@ export default function HomePage() {
   const loading = swStatus === "pending";
   const gnssRisk = displaySw?.gnss_risk ?? (loading ? "…" : "N/A");
 
-  const catalogOnline = countCatalogOnline(stations);
+  const catalogOnlineCount = countCatalogOnline(stations);
   const catalogTotal = stations.length > 0 ? stations.length : 24;
   const ntripDegraded = stations.filter((s) => s.ntrip_verdict === "rtcm_no_msm").length;
 
-  const homeCards = buildMetricCards(displaySw, { liveMsmOnline, catalogOnline, ekfFilled })
+  const homeCards = buildMetricCards(displaySw, {
+    liveMsmOnline,
+    catalogOnline: catalogOnlineCount,
+    ekfFilled,
+  })
     .filter((card) => HOME_METRIC_KEYS.includes(card.key))
     .map((card) => ({
       ...card,
@@ -200,7 +204,7 @@ export default function HomePage() {
           {ntripProbedAt && !stationsLoading && (
             <div className="banner banner-info" style={{ fontSize: "0.72rem" }}>
               NTRIP probe at {ntripProbedAt.replace("T", " ").replace("Z", " UTC")} — map markers reflect live caster
-              decode (MSM = online, RTCM-only = degraded). Catalog archive: {catalogOnline}/{catalogTotal} online.
+              decode (MSM = online, RTCM-only = degraded). Catalog archive: {catalogOnlineCount}/{catalogTotal} online.
             </div>
           )}
           <div className="dashboard-metric-grid home-metric-grid">
@@ -234,7 +238,7 @@ export default function HomePage() {
         stations={stations}
         height={480}
         riskLevel={gnssRisk}
-        catalogOnline={catalogOnline}
+        catalogOnline={catalogOnlineCount}
         catalogTotal={catalogTotal}
         liveMsmOnline={liveMsmOnline}
         ntripDegraded={ntripDegraded}
