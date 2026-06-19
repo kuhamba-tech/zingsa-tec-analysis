@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import re
 import sys
+from datetime import date
 from pathlib import Path
+from typing import cast
 
 import pandas as pd
 import plotly.express as px
@@ -73,7 +75,9 @@ def parse_cmn_date(path: Path) -> pd.Timestamp | None:
     if not match:
         return None
     ts = pd.to_datetime(match.group(1), errors="coerce")
-    return None if pd.isna(ts) else pd.Timestamp(ts)
+    if not isinstance(ts, pd.Timestamp):
+        return None
+    return ts
 
 
 def parse_rinex_obs_date(path: Path) -> pd.Timestamp | None:
@@ -85,23 +89,48 @@ def parse_rinex_obs_date(path: Path) -> pd.Timestamp | None:
     doy = int(match.group(2))
     year = 2000 + int(match.group(3))
     ts = pd.Timestamp(year=year, month=1, day=1) + pd.to_timedelta(doy - 1, unit="D")
-    return None if pd.isna(ts) else pd.Timestamp(ts)
+    if not isinstance(ts, pd.Timestamp):
+        return None
+    return ts
+
+
+def _as_timestamp(value: object) -> pd.Timestamp | None:
+    if value is None:
+        return None
+    try:
+        ts = pd.Timestamp(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError, pd.errors.OutOfBoundsDatetime):
+        return None
+    if not isinstance(ts, pd.Timestamp) or ts is pd.NaT:
+        return None
+    return ts
+
+
+def _filter_df(df: pd.DataFrame, mask: object) -> pd.DataFrame:
+    return cast(pd.DataFrame, df.loc[mask].copy())
 
 
 def keep_by_mode(
     file_date: pd.Timestamp | None,
     mode: str,
-    day_value,
-    month_value,
+    day_value: date | None,
+    month_value: date | None,
     year_value: int,
 ) -> bool:
-    if file_date is None or pd.isna(file_date):
+    if file_date is None:
         return mode == "Directory"
-    fdate = pd.Timestamp(file_date).floor("D")
+    fdate = _as_timestamp(file_date)
+    if fdate is None:
+        return mode == "Directory"
+    fdate = fdate.floor("D")
     if mode == "This Day only":
-        return fdate == pd.Timestamp(day_value)
+        day_ts = _as_timestamp(day_value)
+        return day_ts is not None and fdate == day_ts.floor("D")
     if mode == "This Month":
-        return fdate.to_period("M") == pd.Timestamp(month_value).to_period("M")
+        month_ts = _as_timestamp(month_value)
+        if month_ts is None:
+            return False
+        return fdate.to_period("M") == month_ts.to_period("M")
     if mode == "This Year":
         return int(fdate.year) == int(year_value)
     return True
@@ -406,7 +435,7 @@ with st.spinner("Loading and processing data..."):
         except Exception as exc:
             st.warning(f"RINEX parsing skipped: {exc}")
 
-    all_df = combine_sources(cmn_df=cmn_df, rinex_df=rinex_df)
+    all_df: pd.DataFrame = combine_sources(cmn_df=cmn_df, rinex_df=rinex_df)
 
 if all_df.empty:
     st.warning("No valid TEC rows found. Check files and filters.")
@@ -418,7 +447,7 @@ stations = sorted(x for x in all_df["station"].dropna().unique())
 
 selected_cors_codes = [label.split(" - ")[0].strip().lower() for label in selected_cors_labels]
 if selected_cors_codes:
-    all_df = all_df[all_df["station"].isin(selected_cors_codes)].copy()
+    all_df = _filter_df(all_df, all_df["station"].isin(selected_cors_codes))
     if all_df.empty:
         st.warning("No rows found for selected Zimbabwe CORS stations.")
         st.stop()
@@ -435,41 +464,44 @@ with col2:
     granularity = st.selectbox("Analysis window", options=["Day", "Month", "Year"], index=1)
 
 if station_sel and not all_stations:
-    all_df = all_df[all_df["station"].isin(station_sel)].copy()
+    all_df = _filter_df(all_df, all_df["station"].isin(station_sel))
 
-min_date = all_df["date"].min().date()
-max_date = all_df["date"].max().date()
+min_date = cast(date, all_df["date"].min().date())
+max_date = cast(date, all_df["date"].max().date())
 
 if processing_mode == "This Day only":
     one_day = st.date_input("Select day", value=min_date, min_value=min_date, max_value=max_date)
-    all_df = all_df[all_df["date"] == pd.Timestamp(one_day)]
+    all_df = _filter_df(all_df, all_df["date"] == pd.Timestamp(one_day))
 elif processing_mode == "This Month":
-    all_df["month"] = pd.to_datetime(all_df["date"]).dt.to_period("M").astype(str)
+    all_df["month"] = all_df["date"].dt.to_period("M").astype(str)
     month_options = sorted(all_df["month"].unique())
     selected_month = st.selectbox("Select month", options=month_options, index=len(month_options) - 1)
-    all_df = all_df[all_df["month"] == selected_month]
+    all_df = _filter_df(all_df, all_df["month"] == selected_month)
 elif processing_mode == "This Year":
-    all_df["year"] = pd.to_datetime(all_df["date"]).dt.year
+    all_df["year"] = all_df["date"].dt.year
     year_options = sorted(all_df["year"].unique())
     selected_year = st.selectbox("Select year", options=year_options, index=len(year_options) - 1)
-    all_df = all_df[all_df["year"] == selected_year]
+    all_df = _filter_df(all_df, all_df["year"] == selected_year)
 else:
     date_range = st.date_input("Directory date range", value=(min_date, max_date), min_value=min_date, max_value=max_date)
     if isinstance(date_range, tuple) and len(date_range) == 2:
         start_d, end_d = date_range
-        all_df = all_df[(all_df["date"] >= pd.Timestamp(start_d)) & (all_df["date"] <= pd.Timestamp(end_d))]
+        all_df = _filter_df(
+            all_df,
+            (all_df["date"] >= pd.Timestamp(start_d)) & (all_df["date"] <= pd.Timestamp(end_d)),
+        )
 
-all_df["month"] = pd.to_datetime(all_df["date"]).dt.to_period("M").astype(str)
+all_df["month"] = all_df["date"].dt.to_period("M").astype(str)
 month_options = sorted(all_df["month"].unique())
 selected_months = st.multiselect("Month selector (quick filter)", options=month_options, default=month_options)
 if selected_months:
-    all_df = all_df[all_df["month"].isin(selected_months)].copy()
+    all_df = _filter_df(all_df, all_df["month"].isin(selected_months))
 
-all_df["year"] = pd.to_datetime(all_df["date"]).dt.year
+all_df["year"] = all_df["date"].dt.year
 year_options = sorted(all_df["year"].unique())
 selected_years = st.multiselect("Year selector (quick filter)", options=year_options, default=year_options)
 if selected_years:
-    all_df = all_df[all_df["year"].isin(selected_years)].copy()
+    all_df = _filter_df(all_df, all_df["year"].isin(selected_years))
 
 if all_df.empty:
     st.warning("No rows left after month/year/station filtering.")
@@ -494,7 +526,7 @@ m1, m2, m3, m4 = st.columns(4)
 m1.metric("Filtered rows", f"{len(all_df):,}")
 m2.metric("Mean VTEC", f"{all_df['vtec'].mean():.2f}")
 m3.metric("Max VTEC", f"{all_df['vtec'].max():.2f}")
-m4.metric("Storm days", int(daily_storm["storm_flag"].sum()))
+m4.metric("Storm days", int(cast(int, daily_storm["storm_flag"].sum())))
 
 st.subheader("Daily TEC and storm signatures")
 st.caption(
@@ -530,13 +562,13 @@ g1, g2 = st.columns(2)
 with g1:
     gop_station = st.selectbox("GOP plot station", options=sorted(all_df["station"].unique()))
 with g2:
-    gop_date_options = sorted(pd.to_datetime(all_df["date"]).dt.date.unique())
+    gop_date_options = sorted(all_df["date"].dt.date.unique())
     gop_date = st.selectbox("GOP plot date", options=gop_date_options, index=len(gop_date_options) - 1)
 
-gop_df = all_df[
-    (all_df["station"] == gop_station)
-    & (pd.to_datetime(all_df["date"]).dt.date == gop_date)
-].copy()
+gop_df = _filter_df(
+    all_df,
+    (all_df["station"] == gop_station) & (all_df["date"].dt.date == gop_date),
+)
 
 if gop_df.empty:
     st.info("No data for selected station/date to draw GOP-style plots.")
@@ -559,11 +591,11 @@ else:
     fig_left.update_layout(xaxis_title="UT (hrs)", yaxis_title="TEC units")
 
     # Right plot: mean profile across PRNs (used as bias-removed style summary view).
-    prof = (
-        gop_df.groupby("ut_hour", as_index=False)
-        .agg(vtec_mean=("vtec", "mean"))
-        .sort_values("ut_hour")
+    prof = cast(
+        pd.DataFrame,
+        gop_df.groupby("ut_hour", as_index=False).agg(vtec_mean=("vtec", "mean")),
     )
+    prof = prof.sort_values(by="ut_hour")
     fig_right = px.line(
         prof,
         x="ut_hour",
@@ -593,7 +625,7 @@ else:
     st.dataframe(yearly, use_container_width=True)
 
 st.subheader("KP relationship (if KP provided)")
-if daily_storm["kp_index"].notna().any():
+if bool(daily_storm["kp_index"].notna().any()):
     fig_kp = px.scatter(
         daily_storm.dropna(subset=["kp_index"]),
         x="kp_index",
@@ -612,11 +644,13 @@ else:
     month_choices = sorted(pd.to_datetime(daily_station["date"]).dt.to_period("M").astype(str).unique())
     report_month = st.selectbox("Report month", options=month_choices, index=len(month_choices) - 1)
     report_station = st.selectbox("Report station", options=sorted(daily_station["station"].unique()))
-    report_df = daily_station[
+    report_station_code = str(report_station).lower()
+    report_df = _filter_df(
+        daily_station,
         (daily_station["station"] == report_station)
-        & (pd.to_datetime(daily_station["date"]).dt.to_period("M").astype(str) == report_month)
-    ].copy()
-    report_df = report_df.sort_values("date")
+        & (pd.to_datetime(daily_station["date"]).dt.to_period("M").astype(str) == report_month),
+    )
+    report_df = cast(pd.DataFrame, report_df.sort_values("date"))
 
     if report_df.empty:
         st.warning("No records for selected station/month.")
@@ -666,12 +700,12 @@ else:
             index=0,
         )
         if profile_scope == "Selected month":
-            df_profile_src = all_df[
-                (all_df["station"] == report_station.lower())
-                & (all_df["month"] == report_month)
-            ].copy()
+            df_profile_src = _filter_df(
+                all_df,
+                (all_df["station"] == report_station_code) & (all_df["month"] == report_month),
+            )
         else:
-            df_profile_src = all_df[all_df["station"] == report_station.lower()].copy()
+            df_profile_src = _filter_df(all_df, all_df["station"] == report_station_code)
         if df_profile_src.empty:
             st.info("Not enough CMN data for this station/month to build a 24-hour profile.")
         else:
@@ -711,7 +745,8 @@ daily_storm.to_csv(daily_path, index=False)
 monthly.to_csv(monthly_path, index=False)
 yearly.to_csv(yearly_path, index=False)
 all_df.to_csv(filtered_path, index=False)
-all_df[["timestamp", "station", "prn", "elevation", "vtec", "source_file"]].to_csv(time_elev_vtec_path, index=False)
+export_cols = cast(pd.DataFrame, all_df[["timestamp", "station", "prn", "elevation", "vtec", "source_file"]])
+export_cols.to_csv(time_elev_vtec_path, index=False)
 daily_station.to_csv(daily_station_path, index=False)
 st.success(f"Saved outputs to: {out_dir}")
 st.write(
