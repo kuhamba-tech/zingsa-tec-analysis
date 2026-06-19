@@ -65,7 +65,7 @@ async def statistical_forecast(
     from scipy.optimize import curve_fit
     try:
         from zgiis.data.tec_archive import load_historical_tec
-        df = load_historical_tec()
+        df, _ = load_historical_tec()
     except Exception:
         raise HTTPException(status_code=503, detail="No historical data available")
 

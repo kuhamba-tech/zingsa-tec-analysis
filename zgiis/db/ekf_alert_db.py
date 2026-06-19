@@ -71,9 +71,13 @@ def _row_to_alert(row: dict[str, Any]) -> dict[str, Any]:
         related = json.loads(related) if isinstance(related, str) else (related or [])
     except (TypeError, ValueError):
         related = []
+    # On Postgres/TimescaleDB pandas reads a TIMESTAMPTZ column back as a
+    # pandas.Timestamp, not a str (SQLite's TEXT column already comes back
+    # as a str) — normalize so EkfAlertOut.timestamp: str always validates.
+    time_value = row.get("time")
     return {
         "alert_id": row.get("alert_id"),
-        "timestamp": row.get("time"),
+        "timestamp": str(time_value) if time_value is not None else None,
         "parameter": row.get("parameter"),
         "parameter_label": row.get("parameter_label"),
         "observed_value": row.get("observed_value"),
