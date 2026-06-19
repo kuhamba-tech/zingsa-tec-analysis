@@ -20,6 +20,13 @@ class CorsStation:
     observation_count: int = 0
     data_start: str = ""
     data_end: str = ""
+    mountpoint: str = ""
+    marker_name: str = ""
+    marker_number: str = ""
+    rtcm_id: str = "0000"
+    site_server: str = "Local Site Server"
+    last_update: str = ""
+    site_status_label: str = ""
     # "ntrip" = live RTCM connection state; "catalog" = ZINGSA CORS_Program
     # archive/health API (real data, but not live telemetry); "unknown" = neither
     # source has anything for this station right now.

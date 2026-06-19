@@ -10,6 +10,9 @@ interface Props {
   stations: Station[];
   height?: number;
   riskLevel?: string;
+  catalogOnline?: number;
+  catalogTotal?: number;
+  liveMsmOnline?: number | null;
 }
 
 const LAYERS: MapLayer[] = ["Hybrid", "Satellite", "Street", "TEC Heat Map"];
@@ -20,12 +23,21 @@ function riskColor(level: string): string {
   return "#00ff88";
 }
 
-export default function CorsMapWithLayers({ stations, height = 480, riskLevel = "N/A" }: Props) {
+export default function CorsMapWithLayers({
+  stations,
+  height = 480,
+  riskLevel = "N/A",
+  catalogOnline,
+  catalogTotal = 24,
+  liveMsmOnline = null,
+}: Props) {
   const [layer, setLayer] = useState<MapLayer>("Hybrid");
 
-  const online = stations.filter((s) => s.status === "online").length;
-  const total = stations.length > 0 ? stations.length : 24;
-  const liveLabel = online > 0 ? `${online} live online` : "N/A live online";
+  const online = catalogOnline ?? stations.filter((s) => s.status === "online").length;
+  const total = stations.length > 0 ? stations.length : catalogTotal;
+  const catalogLabel = `${online}/${total} catalog online`;
+  const msmLabel =
+    liveMsmOnline != null ? `${liveMsmOnline}/${total} live MSM` : "MSM N/A (no NTRIP worker)";
 
   return (
     <div>
@@ -36,7 +48,7 @@ export default function CorsMapWithLayers({ stations, height = 480, riskLevel = 
             <span>Zimbabwe CORS Network</span>
           </div>
           <div className="home-map-toolbar-summary">
-            Zimbabwe CORS network · {total} stations · {liveLabel} · {riskLevel} risk
+            {total} stations · {catalogLabel} · {msmLabel} · {riskLevel} GNSS risk
           </div>
         </div>
 
@@ -115,7 +127,7 @@ export default function CorsMapWithLayers({ stations, height = 480, riskLevel = 
               </div>
             ))}
             <div style={{ fontSize: "0.62rem", fontWeight: 400, color: "var(--text-muted)", marginTop: "0.15rem", maxWidth: "190px" }}>
-              Hover a station for its status source — live NTRIP vs. CORS catalog (not live RTCM).
+              Click a station marker to open the Details panel (site code, RTCM ID, coordinates, status).
             </div>
           </div>
           {layer === "TEC Heat Map" && <TecHeatMapLegend />}

@@ -46,13 +46,13 @@ function apiBase(): string {
 
 const BASE = apiBase();
 const KEY = process.env.NEXT_PUBLIC_API_KEY ?? "";
-const FETCH_TIMEOUT_MS = 12_000;
+const FETCH_TIMEOUT_MS = 28_000;
 
-async function fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
+async function fetchWithTimeout(url: string, init?: RequestInit, timeoutMs = FETCH_TIMEOUT_MS): Promise<Response> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(url, { ...init, signal: controller.signal });
+    return await fetch(url, { ...init, signal: controller.signal, cache: "no-store" });
   } finally {
     clearTimeout(timer);
   }
@@ -67,10 +67,22 @@ async function get<T>(path: string, params?: Record<string, string | number | un
   }
   const res = await fetchWithTimeout(url.toString(), {
     headers: KEY ? { "X-API-Key": KEY } : {},
-    next: { revalidate: 60 },
   });
   if (!res.ok) throw new Error(`API ${path} → ${res.status}`);
   return res.json();
+}
+
+/** GET with one retry — helps Vercel cold starts on the home page. */
+export async function getWithRetry<T>(
+  path: string,
+  params?: Record<string, string | number | undefined>,
+): Promise<T> {
+  try {
+    return await get<T>(path, params);
+  } catch {
+    await new Promise((r) => setTimeout(r, 800));
+    return get<T>(path, params);
+  }
 }
 
 async function post<T>(path: string, body: unknown): Promise<T> {
@@ -84,7 +96,8 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 }
 
 // ── Space Weather ─────────────────────────────────────────────────────────────
-export const getSpaceWeather = () => get<SpaceWeatherCurrent>("/space-weather/current", { _ts: Date.now() });
+export const getSpaceWeather = () =>
+  getWithRetry<SpaceWeatherCurrent>("/space-weather/current", { _ts: Date.now() });
 export const getSolarActivity = () => get<SolarActivityFull>("/space-weather/solar-activity");
 export const getTimelines = () => get<SpaceWeatherTimelines>("/space-weather/timelines", { _ts: Date.now() });
 export const refreshSpaceWeather = () =>
@@ -94,7 +107,7 @@ export const getSpaceWeatherHistory = (hours = 168, resample?: string) =>
   get<SpaceWeatherHistoryResponse>("/space-weather/history", { hours, resample });
 export const getSpaceWeatherCorrelations = (hours = 168, resample = "1h") =>
   get<SpaceWeatherCorrelationResponse>("/space-weather/correlations", { hours, resample });
-export const getEkfStatus = () => get<EkfStatus>("/space-weather/ekf", { _ts: Date.now() });
+export const getEkfStatus = () => getWithRetry<EkfStatus>("/space-weather/ekf", { _ts: Date.now() });
 export const getEkfAlertLog = (hours = 24) => get<EkfAlert[]>("/space-weather/ekf/alerts", { hours });
 export const ackEkfAlert = (alertId: string) =>
   fetch(BASE + `/space-weather/ekf/alerts/${alertId}/ack`, {
@@ -103,7 +116,7 @@ export const ackEkfAlert = (alertId: string) =>
   });
 
 // ── CORS Network ──────────────────────────────────────────────────────────────
-export const getStations = () => get<Station[]>("/cors/stations");
+export const getStations = () => getWithRetry<Station[]>("/cors/stations", { _ts: Date.now() });
 export const getStation = (code: string) => get<Station>(`/cors/stations/${code}`);
 export const getCorsHealth = () => get<CorsHealth>("/cors/health");
 export const getStationStatusLog = () => get<StationStatusLogStatus>("/cors/status/log");

@@ -61,7 +61,15 @@ function solarWindColor(speed: number | null): string {
   return "#00ff88";
 }
 
-export function buildMetricCards(sw: SpaceWeatherCurrent | null): MetricCardSpec[] {
+export interface MetricCardOptions {
+  liveMsmOnline?: number | null;
+  ekfFilled?: Set<string>;
+}
+
+export function buildMetricCards(
+  sw: SpaceWeatherCurrent | null,
+  opts?: MetricCardOptions,
+): MetricCardSpec[] {
   const kp = sw?.kp ?? null;
   const dst = sw?.dst ?? null;
   const f107 = sw?.f107 ?? null;
@@ -71,11 +79,25 @@ export function buildMetricCards(sw: SpaceWeatherCurrent | null): MetricCardSpec
   const total = sw?.stations_total ?? null;
   const kpColor = sw?.kp_color ?? "#168bd2";
   const riskColor = sw?.gnss_risk_color ?? "#1D9E75";
+  const ekfFilled = opts?.ekfFilled ?? new Set<string>();
+  const liveMsm = opts?.liveMsmOnline;
+
+  const ekfSuffix = (key: string) => (ekfFilled.has(key) ? " · EKF predicted" : "");
 
   const dstValue = dst !== null ? `${dst >= 0 ? "+" : ""}${dst} nT` : "N/A";
   const stationsLabel =
     online !== null && total ? `${online}/${total}` : "N/A";
   const windValue = wind !== null ? `${wind} km/s` : "N/A";
+
+  let stationsNote = "Zimbabwe CORS catalog";
+  if (online === null && !ekfFilled.has("stations_online")) {
+    stationsNote = "Catalog feed unavailable";
+  }
+  if (liveMsm != null) {
+    stationsNote += ` · Live MSM: ${liveMsm}/${total ?? 24}`;
+  } else if (liveMsm === null && online !== null) {
+    stationsNote += " · Live MSM: N/A on this host";
+  }
 
   return [
     {
@@ -83,7 +105,7 @@ export function buildMetricCards(sw: SpaceWeatherCurrent | null): MetricCardSpec
       icon: "🧭",
       label: "Kp Index",
       value: kp !== null ? String(kp) : "N/A",
-      note: "Planetary activity",
+      note: `Planetary activity${ekfSuffix("kp")}`,
       valueColor: kp !== null ? "#168bd2" : "#ffffff",
     },
     {
@@ -91,7 +113,7 @@ export function buildMetricCards(sw: SpaceWeatherCurrent | null): MetricCardSpec
       icon: "🌌",
       label: "Geomagnetic",
       value: sw?.kp_condition ?? "N/A",
-      note: "Current state",
+      note: `Current state${ekfSuffix("kp_condition") || ekfSuffix("kp")}`,
       valueColor: kpColor,
     },
     {
@@ -139,7 +161,7 @@ export function buildMetricCards(sw: SpaceWeatherCurrent | null): MetricCardSpec
       icon: "📡",
       label: "Stations Online",
       value: stationsLabel,
-      note: online === null ? "Live telemetry unavailable" : "Zimbabwe CORS",
+      note: stationsNote,
       valueColor: "#168bd2",
     },
   ];

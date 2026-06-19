@@ -3,7 +3,7 @@ import { useState, useRef, useEffect } from "react";
 import dynamic from "next/dynamic";
 import {
   uploadCmn, uploadRinex, getSessionSummary, getSessionHourly, getSessionTecPlot, getSessionBias,
-  getStations, downloadSessionRaw,
+  getStations, downloadSessionRaw, getLivePipelineStatus,
 } from "@/lib/api";
 import LineChart from "@/components/charts/LineChart";
 import type { TecSummaryRow, TecHourlyRow, TecPlotSeries, BiasRow, Station } from "@/lib/types";
@@ -71,12 +71,15 @@ export default function ProcessingPage() {
   const [cmnName, setCmnName]   = useState("No file selected");
   const [obsFiles, setObsFiles] = useState<File[]>([]);
   const [navFiles, setNavFiles] = useState<File[]>([]);
+  const [filePool, setFilePool] = useState<File[]>([]);
+  const [missingNavFor, setMissingNavFor] = useState<string[]>([]);
   const [unmatchedNames, setUnmatchedNames] = useState<string[]>([]);
   const [browseObs, setBrowseObs] = useState(true);
   const [browseN, setBrowseN] = useState(true);
   const [browseG, setBrowseG] = useState(true);
   const [folderLabel, setFolderLabel] = useState("No folder selected");
   const [processingMode, setProcessingMode] = useState<"day" | "month" | "year" | "directory">("directory");
+  // When user picks obs+nav in separate dialogs, keep merged pool (browser cannot read paths).
   const todayIso = new Date().toISOString().slice(0, 10);
   const [targetDay, setTargetDay] = useState(todayIso);
   const [targetMonth, setTargetMonth] = useState(todayIso.slice(0, 7));
@@ -101,10 +104,26 @@ export default function ProcessingPage() {
   const [outUnbias, setOutUnbias] = useState(true);
   const [biasRows, setBiasRows] = useState<BiasRow[]>([]);
   const [tecPlotRaw, setTecPlotRaw] = useState<TecPlotSeries | null>(null);
+  const [processingHostNote, setProcessingHostNote] = useState<string | null>(null);
 
   useEffect(() => {
     getStations().then(setStationsList).catch(() => setStationsList([]));
+    getLivePipelineStatus()
+      .then((p) => {
+        if (p.runtime_mode === "vercel-serverless" || !p.ingest_enabled) {
+          setProcessingHostNote(
+            "Large RINEX jobs may time out on Vercel serverless. For full processing and graphs, run locally with .\\dev.ps1 or use a dedicated compute host.",
+          );
+        }
+      })
+      .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (filePool.length === 0) return;
+    classifyAndSetRinexFiles(filePool, processingMode !== "directory");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [processingMode, targetDay, targetMonth, targetYear, browseObs, browseN, browseG]);
 
   const imgLabel = {
     day: "TEC Image (24 hrs)",
@@ -149,6 +168,59 @@ export default function ProcessingPage() {
     return parts.join(",");
   }
 
+  function rinexBaseStem(name: string): string {
+    const lower = name.toLowerCase();
+    const yr = /^(.+)\.\d{2}[ong]$/i.exec(name);
+    if (yr) return yr[1].toLowerCase();
+    const plain = /^(.+)\.(o|obs|rnx|n|nav|g|gnav|hnav)$/i.exec(lower);
+    if (plain) return plain[1].toLowerCase();
+    return lower.replace(/\.[^.]+$/, "");
+  }
+
+  function expectedNavNames(obsName: string): string[] {
+    const m = /^(.+\.)(\d{2})o$/i.exec(obsName);
+    if (m) return [`${m[1]}${m[2]}n`, `${m[1]}${m[2]}N`, `${m[1]}${m[2]}g`, `${m[1]}${m[2]}G`];
+    const m2 = /^(.+)\.(o|obs|rnx)$/i.exec(obsName);
+    if (m2) return [`${m2[1]}.n`, `${m2[1]}.N`, `${m2[1]}.nav`, `${m2[1]}.24n`];
+    return [];
+  }
+
+  function autoPairNavigation(obs: File[], nav: File[], pool: File[]): { nav: File[]; missing: string[] } {
+    const navByStem = new Map<string, File>();
+    for (const f of nav) navByStem.set(rinexBaseStem(f.name), f);
+    for (const f of pool) {
+      const kind = classifyRinexFile(f.name);
+      if (kind === "nav-n" && browseN) navByStem.set(rinexBaseStem(f.name), f);
+      if (kind === "nav-g" && browseG) navByStem.set(rinexBaseStem(f.name), f);
+    }
+    const paired: File[] = [];
+    const seen = new Set<string>();
+    const missing: string[] = [];
+    for (const o of obs) {
+      const stem = rinexBaseStem(o.name);
+      const match = navByStem.get(stem);
+      if (match) {
+        if (!seen.has(match.name)) {
+          paired.push(match);
+          seen.add(match.name);
+        }
+      } else {
+        missing.push(o.name);
+      }
+    }
+    return { nav: paired, missing };
+  }
+
+  function syncTargetDateFromObs(obs: File[]) {
+    if (obs.length === 0) return;
+    const d = parseRinexObsDate(obs[0].name);
+    if (!d) return;
+    const iso = d.toISOString().slice(0, 10);
+    setTargetDay(iso);
+    setTargetMonth(iso.slice(0, 7));
+    setTargetYear(d.getUTCFullYear());
+  }
+
   function classifyAndSetRinexFiles(files: File[], applyDateFilter: boolean) {
     const obs: File[] = [];
     const nav: File[] = [];
@@ -167,9 +239,25 @@ export default function ProcessingPage() {
         unmatched.push(f.name);
       }
     }
-    setObsFiles(obs);
-    setNavFiles(nav);
+
+    let finalObs = obs;
+    if (applyDateFilter && obs.length === 0 && files.length > 0) {
+      // Folder scan with day/month/year filter found no obs — fall back to all obs in folder.
+      finalObs = files.filter((f) => classifyRinexFile(f.name) === "obs" && browseObs);
+    }
+
+    const paired = autoPairNavigation(finalObs, nav, files);
+    setObsFiles(finalObs);
+    setNavFiles(paired.nav);
+    setMissingNavFor(paired.missing);
     setUnmatchedNames(unmatched);
+    if (finalObs.length > 0) syncTargetDateFromObs(finalObs);
+  }
+
+  function mergeIntoPool(incoming: File[]): File[] {
+    const byName = new Map(filePool.map((f) => [f.name, f]));
+    for (const f of incoming) byName.set(f.name, f);
+    return Array.from(byName.values());
   }
 
   function handleFolderBrowse(e: React.ChangeEvent<HTMLInputElement>) {
@@ -177,14 +265,23 @@ export default function ProcessingPage() {
     if (files.length === 0) return;
     const relPath = (files[0] as File & { webkitRelativePath?: string }).webkitRelativePath;
     setFolderLabel(relPath ? relPath.split("/")[0] : `${files.length} file(s)`);
-    classifyAndSetRinexFiles(files, true);
+    setFilePool(files);
+    classifyAndSetRinexFiles(files, processingMode !== "directory");
+    e.currentTarget.value = "";
   }
 
   function handleFilesBrowse(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(e.currentTarget.files ?? []);
-    if (files.length === 0) return;
-    setFolderLabel(files.length === 1 ? files[0].name : `${files.length} files selected`);
-    classifyAndSetRinexFiles(files, false);
+    const picked = Array.from(e.currentTarget.files ?? []);
+    if (picked.length === 0) return;
+    const merged = mergeIntoPool(picked);
+    setFilePool(merged);
+    setFolderLabel(
+      merged.length === 1
+        ? merged[0].name
+        : `${merged.length} files (${merged.map((f) => f.name).join(", ")})`,
+    );
+    classifyAndSetRinexFiles(merged, false);
+    e.currentTarget.value = "";
   }
 
   async function loadSummary(id: string, m: Mode) {
@@ -228,8 +325,11 @@ export default function ProcessingPage() {
       } catch (e) { setStatus(`Error: ${e}`); }
     } else {
       if (!obsFiles.length) return setStatus("Select at least one observation file.");
-      if (!navFiles.length) {
-        return setStatus("Select the matching navigation file (.24n/.n) together with the observation file before processing.");
+      if (missingNavFor.length > 0) {
+        const expected = missingNavFor.flatMap(expectedNavNames).slice(0, 4).join(" or ");
+        return setStatus(
+          `Missing navigation file for ${missingNavFor.join(", ")}. Also select ${expected || "the matching .24n file"} (Ctrl/Cmd-click both files, or use Browse folder…).`,
+        );
       }
       setLoading(true); setStatus("Processing RINEX…");
       try {
@@ -286,7 +386,7 @@ export default function ProcessingPage() {
   const daytimeVtecValues = rows.map((r) => r.daytime_mean_vtec ?? r.mean_vtec ?? 0);
   const processDisabled =
     loading ||
-    (tab === "rinex" && (obsFiles.length === 0 || navFiles.length === 0)) ||
+    (tab === "rinex" && (obsFiles.length === 0 || missingNavFor.length > 0)) ||
     (tab === "cmn" && cmnName === "No file selected");
 
   return (
@@ -297,6 +397,12 @@ export default function ProcessingPage() {
         <h1 className="page-title">⚙️ RINEX / CMN Processing</h1>
         <p className="page-subtitle">GOP-compatible CMN and RINEX observation file processor with VTEC computation</p>
       </div>
+
+      {processingHostNote && (
+        <div className="banner banner-info" style={{ fontSize: "0.82rem" }}>
+          {processingHostNote}
+        </div>
+      )}
 
       {/* File selection */}
       <div className="card" style={{ display: "flex", flexDirection: "column", gap: "0.8rem" }}>
@@ -415,21 +521,29 @@ export default function ProcessingPage() {
             <p style={{ fontSize: "0.72rem", color: "var(--text-muted)", margin: 0 }}>
               {obsFiles.length === 0 && navFiles.length === 0
                 ? "No files selected"
-                : `RINEX · Selected: ${obsFiles.length} obs · ${navFiles.length} nav (.n/.g) — ${obsFiles.length ? obsFiles.map((f) => f.name).join(", ") : "none"}`}
+                : `RINEX · Selected: ${obsFiles.length} obs · ${navFiles.length} nav (.n/.g) — ${obsFiles.length ? obsFiles.map((f) => f.name).join(", ") : "none"}${navFiles.length ? ` + ${navFiles.map((f) => f.name).join(", ")}` : ""}`}
             </p>
             {(obsFiles.length > 0 || navFiles.length > 0) && (
               <div className="card" style={{ padding: "0.6rem 0.9rem", fontSize: "0.78rem", display: "flex", flexDirection: "column", gap: "0.15rem" }}>
                 <div><strong>Type:</strong> Rinex</div>
                 <div><strong>Total file(s) found#</strong> {obsFiles.length + navFiles.length}</div>
-                <div style={{ color: "var(--text-muted)" }}>{obsFiles.length} observation · {navFiles.length} navigation</div>
+                <div style={{ color: "var(--text-muted)" }}>{obsFiles.length} observation · {navFiles.length} navigation (auto-paired by filename)</div>
+                {navFiles.length > 0 && (
+                  <div style={{ color: "#00cc88", fontSize: "0.72rem" }}>
+                    Paired: {obsFiles.map((o, i) => `${o.name} → ${navFiles.find((n) => rinexBaseStem(n.name) === rinexBaseStem(o.name))?.name ?? "?"}`).join("; ")}
+                  </div>
+                )}
               </div>
             )}
             <p style={{ fontSize: "0.72rem", color: "var(--text-muted)", margin: 0 }}>
-              Ctrl/Cmd-click to pick both files in one dialog (e.g. karo1210.24o + karo1210.24n) — files are sorted into observation/navigation automatically by extension. Use Browse folder… to scan a whole directory at once.
+              Use <strong>Browse folder…</strong> to scan a directory — matching .24n/.24g files are paired automatically.
+              Or Ctrl/Cmd-click both files in one dialog. You can also pick the .o file first, then browse again to add the .24n.
             </p>
-            {obsFiles.length > 0 && navFiles.length === 0 && (
+            {missingNavFor.length > 0 && (
               <div className="banner banner-alert">
-                No matching navigation file detected — select the .24n file alongside the .24o file, or elevations can&apos;t be computed and processing will return zero rows.
+                No matching navigation file for: {missingNavFor.join(", ")}.
+                Expected companion: {missingNavFor.flatMap(expectedNavNames).slice(0, 3).join(" or ")}.
+                Elevations cannot be computed without the .24n file.
               </div>
             )}
             {unmatchedNames.length > 0 && (

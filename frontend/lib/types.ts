@@ -162,6 +162,13 @@ export interface Station {
   constellations: string[];
   current_tec: number | null;
   height_m: number | null;
+  mountpoint?: string | null;
+  marker_name?: string | null;
+  marker_number?: string | null;
+  rtcm_id?: string | null;
+  site_server?: string | null;
+  last_update?: string | null;
+  site_status_label?: string | null;
 }
 
 export interface CorsHealth {

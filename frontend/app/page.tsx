@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getStations, getSpaceWeather } from "@/lib/api";
+import { getEkfStatus, getLivePipelineStatus, getSpaceWeather, getStations } from "@/lib/api";
+import { mergeSpaceWeatherWithEkf } from "@/lib/homeSpaceWeather";
 import { buildMetricCards } from "@/lib/spaceWeatherMetrics";
 import CorsMapWithLayers from "@/components/maps/CorsMapWithLayers";
 import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
@@ -23,6 +24,7 @@ const HOME_METRIC_KEYS: MetricKey[] = ["kp", "geomagnetic", "gnss_risk", "statio
 
 const HOME_LABELS: Partial<Record<MetricKey, string>> = {
   geomagnetic: "Geomagnetic condition",
+  stations: "CORS catalog online",
 };
 
 function HomeMetricCard({
@@ -31,46 +33,115 @@ function HomeMetricCard({
   value,
   note,
   valueColor,
+  loading,
 }: {
   icon: string;
   label: string;
   value: string;
   note: string;
   valueColor: string;
+  loading?: boolean;
 }) {
   return (
     <div className="sw-metric-card home-metric-card">
       <span className="sw-metric-icon">{icon}</span>
       <div className="sw-metric-label">{label}</div>
-      <div className="sw-metric-value" style={{ color: valueColor }}>
-        {value}
+      <div className="sw-metric-value" style={{ color: loading ? "var(--text-muted)" : valueColor }}>
+        {loading ? "…" : value}
       </div>
-      <div className="sw-metric-note">{note}</div>
+      <div className="sw-metric-note">{loading ? "Loading live feed…" : note}</div>
     </div>
   );
 }
 
+function countLiveMsm(streams: Record<string, { msg_count?: number; last_seen?: string | null }> | undefined): number {
+  if (!streams) return 0;
+  return Object.values(streams).filter((s) => (s.msg_count ?? 0) > 0 && s.last_seen).length;
+}
+
 export default function HomePage() {
   const [stations, setStations] = useState<Station[]>([]);
-  const [sw, setSw] = useState<SpaceWeatherCurrent | null>(null);
+  const [displaySw, setDisplaySw] = useState<SpaceWeatherCurrent | null>(null);
+  const [ekfFilled, setEkfFilled] = useState<Set<string>>(new Set());
   const [swStatus, setSwStatus] = useState<FeedStatus>("pending");
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [liveMsmOnline, setLiveMsmOnline] = useState<number | null>(null);
+  const [pipelineNote, setPipelineNote] = useState<string | null>(null);
 
   useEffect(() => {
-    getStations().then(setStations).catch(() => setStations([]));
-    getSpaceWeather()
-      .then((data) => { setSw(data); setSwStatus("ok"); })
-      .catch(() => { setSw(null); setSwStatus("down"); });
+    let cancelled = false;
+
+    async function load() {
+      setSwStatus("pending");
+      setLoadError(null);
+
+      const [swResult, ekfResult, stationsResult, pipelineResult] = await Promise.allSettled([
+        getSpaceWeather(),
+        getEkfStatus(),
+        getStations(),
+        getLivePipelineStatus(),
+      ]);
+
+      if (cancelled) return;
+
+      const sw = swResult.status === "fulfilled" ? swResult.value : null;
+      const ekf = ekfResult.status === "fulfilled" ? ekfResult.value : null;
+      const merged = mergeSpaceWeatherWithEkf(sw, ekf);
+
+      if (merged) {
+        setDisplaySw(merged.data);
+        setEkfFilled(merged.ekfFilled);
+        setSwStatus("ok");
+      } else if (swResult.status === "fulfilled") {
+        setDisplaySw(swResult.value);
+        setEkfFilled(new Set());
+        setSwStatus("ok");
+      } else {
+        setDisplaySw(null);
+        setEkfFilled(new Set());
+        setSwStatus("down");
+        setLoadError(
+          swResult.reason instanceof Error
+            ? swResult.reason.message
+            : "Could not reach the space-weather API.",
+        );
+      }
+
+      if (stationsResult.status === "fulfilled") {
+        setStations(stationsResult.value);
+      } else {
+        setStations([]);
+      }
+
+      if (pipelineResult.status === "fulfilled") {
+        const p = pipelineResult.value;
+        setPipelineNote(p.message);
+        if (p.ingest_enabled && p.streams) {
+          setLiveMsmOnline(countLiveMsm(p.streams as Record<string, { msg_count?: number; last_seen?: string | null }>));
+        } else {
+          setLiveMsmOnline(null);
+        }
+      }
+    }
+
+    load();
+    return () => { cancelled = true; };
   }, []);
 
   const freshnessMsg = useFeedFreshness("space-weather", swStatus);
-  const gnssRisk = sw?.gnss_risk ?? "N/A";
-  const homeCards = buildMetricCards(sw)
+  const loading = swStatus === "pending";
+  const gnssRisk = displaySw?.gnss_risk ?? (loading ? "…" : "N/A");
+
+  const homeCards = buildMetricCards(displaySw, { liveMsmOnline, ekfFilled })
     .filter((card) => HOME_METRIC_KEYS.includes(card.key))
     .map((card) => ({
       ...card,
       label: HOME_LABELS[card.key] ?? card.label,
-      value: card.key === "kp" && sw?.kp != null ? sw.kp.toFixed(1) : card.value,
+      value: card.key === "kp" && displaySw?.kp != null ? displaySw.kp.toFixed(1) : card.value,
     }));
+
+  const catalogOnline = stations.filter((s) => s.status === "online").length;
+  const catalogTotal = stations.length > 0 ? stations.length : 24;
 
   return (
     <div className="home-page">
@@ -87,9 +158,20 @@ export default function HomePage() {
         <section className="home-sw-panel" aria-label="Live space weather">
           <h2 className="home-sw-heading">Live Space Weather · Zimbabwe CORS Network</h2>
           <p className="page-subtitle" style={{ fontSize: "0.78rem", margin: "-0.3rem 0 0.6rem" }}>
-            Headline indices only — see the <Link href="/dashboard">Operations Dashboard</Link> for the full metric set, timelines, and alert log.
+            Headline indices use live feeds where available; gaps are filled from the{" "}
+            <Link href="/dashboard">EKF predictor</Link> on the Operations Dashboard.
           </p>
           {freshnessMsg && <div className="banner banner-warn" style={{ fontSize: "0.8rem" }}>{freshnessMsg}</div>}
+          {loadError && swStatus === "down" && (
+            <div className="banner banner-alert" style={{ fontSize: "0.8rem" }}>
+              {loadError} — retry by refreshing the page.
+            </div>
+          )}
+          {pipelineNote && !pipelineNote.includes("started") && (
+            <div className="banner banner-info" style={{ fontSize: "0.78rem" }}>
+              {pipelineNote}
+            </div>
+          )}
           <div className="dashboard-metric-grid home-metric-grid">
             {homeCards.map((card) => (
               <HomeMetricCard
@@ -99,6 +181,7 @@ export default function HomePage() {
                 value={card.value}
                 note={card.note}
                 valueColor={card.valueColor}
+                loading={loading && card.value === "N/A"}
               />
             ))}
           </div>
@@ -116,7 +199,14 @@ export default function HomePage() {
         </div>
       </div>
 
-      <CorsMapWithLayers stations={stations} height={480} riskLevel={gnssRisk} />
+      <CorsMapWithLayers
+        stations={stations}
+        height={480}
+        riskLevel={gnssRisk}
+        catalogOnline={catalogOnline}
+        catalogTotal={catalogTotal}
+        liveMsmOnline={liveMsmOnline}
+      />
 
       <section className="home-modules">
         <h2 className="home-section-heading">Analysis Modules</h2>

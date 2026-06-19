@@ -175,6 +175,13 @@ class StationOut(BaseModel):
     constellations: list[str] = []
     current_tec: float | None = None
     height_m: float | None = None
+    mountpoint: str | None = None
+    marker_name: str | None = None
+    marker_number: str | None = None
+    rtcm_id: str | None = None
+    site_server: str | None = None
+    last_update: str | None = None
+    site_status_label: str | None = None
 
 
 class CorsHealthOut(BaseModel):

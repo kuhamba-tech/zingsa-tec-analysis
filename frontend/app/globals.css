@@ -91,6 +91,17 @@ html, body {
 .app-mobile-close { display: none; }
 
 .app-nav { flex: 1; overflow-y: auto; padding: 0.5rem 0; }
+.app-nav-group + .app-nav-group { margin-top: 0.5rem; }
+.app-nav-section {
+  padding: 0.4rem 1rem 0.3rem;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+}
 .app-nav-link { text-decoration: none; }
 .app-nav-item {
   display: flex;
@@ -139,6 +150,7 @@ html, body {
   .app-sidebar.is-collapsed .app-sidebar-head { justify-content: center; }
   .app-sidebar.is-collapsed .app-logo-text,
   .app-sidebar.is-collapsed .app-nav-label,
+  .app-sidebar.is-collapsed .app-nav-section,
   .app-sidebar.is-collapsed .sidebar-department,
   .app-sidebar.is-collapsed .app-sidebar-footer {
     display: none;

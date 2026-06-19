@@ -3,19 +3,44 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
-const NAV = [
-  { href: "/",                  label: "Home",              icon: "🏠" },
-  { href: "/dashboard",         label: "Dashboard",         icon: "📊" },
-  { href: "/processing",        label: "Processing",        icon: "⚙️" },
-  { href: "/time-series",       label: "Time Series",       icon: "📈" },
-  { href: "/prn-explorer",      label: "PRN Explorer",      icon: "🛰️" },
-  { href: "/tec-heatmap",       label: "TEC Heatmap",       icon: "🗺️" },
-  { href: "/space-weather",     label: "Space Weather",     icon: "🌌" },
-  { href: "/anomaly-detection", label: "Anomaly Detection", icon: "🔬" },
-  { href: "/cors-hardware",     label: "CORS Hardware",     icon: "📡" },
-  { href: "/vtec-theory",       label: "VTEC Theory",       icon: "📚" },
-  { href: "/live-pipeline",     label: "Live Pipeline",     icon: "⚡" },
-  { href: "/ai-assistant",      label: "AI Assistant",      icon: "🤖" },
+const NAV_GROUPS = [
+  {
+    section: "Overview",
+    items: [
+      { href: "/",          label: "Home",      icon: "🏠" },
+      { href: "/dashboard",  label: "Dashboard", icon: "📊" },
+    ],
+  },
+  {
+    section: "Analysis",
+    items: [
+      { href: "/processing",        label: "Processing",        icon: "⚙️" },
+      { href: "/time-series",       label: "Time Series",       icon: "📈" },
+      { href: "/prn-explorer",      label: "PRN Explorer",      icon: "🛰️" },
+      { href: "/tec-heatmap",       label: "TEC Heatmap",       icon: "🗺️" },
+      { href: "/anomaly-detection", label: "Anomaly Detection", icon: "🔬" },
+    ],
+  },
+  {
+    section: "Space Weather",
+    items: [
+      { href: "/space-weather", label: "Space Weather", icon: "🌌" },
+      { href: "/vtec-theory",   label: "VTEC Theory",   icon: "📚" },
+    ],
+  },
+  {
+    section: "Network",
+    items: [
+      { href: "/cors-hardware", label: "CORS Hardware", icon: "📡" },
+      { href: "/live-pipeline", label: "Live Pipeline",  icon: "⚡" },
+    ],
+  },
+  {
+    section: "Tools",
+    items: [
+      { href: "/ai-assistant", label: "AI Assistant", icon: "🤖" },
+    ],
+  },
 ];
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
@@ -58,17 +83,22 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         </div>
 
         <nav className="app-nav">
-          {NAV.map(({ href, label, icon }) => {
-            const active = pathname === href;
-            return (
-              <Link key={href} href={href} className="app-nav-link">
-                <div className={`app-nav-item${active ? " is-active" : ""}`}>
-                  <span className="app-nav-icon">{icon}</span>
-                  <span className="app-nav-label">{label}</span>
-                </div>
-              </Link>
-            );
-          })}
+          {NAV_GROUPS.map(({ section, items }) => (
+            <div key={section} className="app-nav-group">
+              <div className="app-nav-section">{section}</div>
+              {items.map(({ href, label, icon }) => {
+                const active = pathname === href;
+                return (
+                  <Link key={href} href={href} className="app-nav-link">
+                    <div className={`app-nav-item${active ? " is-active" : ""}`}>
+                      <span className="app-nav-icon">{icon}</span>
+                      <span className="app-nav-label">{label}</span>
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          ))}
         </nav>
 
         <div className="sidebar-department">
