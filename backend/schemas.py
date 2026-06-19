@@ -171,6 +171,7 @@ class StationOut(BaseModel):
     lat: float
     lon: float
     status: str
+    status_source: str = "unknown"  # "ntrip" | "catalog" | "unknown"
     constellations: list[str] = []
     current_tec: float | None = None
     height_m: float | None = None
@@ -439,6 +440,45 @@ class LivePipelineStatus(BaseModel):
     streams: dict[str, Any] = {}
     db_backend: str = "sqlite"
     record_count: int = 0
+    runtime_mode: str = "persistent-process"
+    ingest_enabled: bool = True
+    message: str | None = None
+
+
+class NtripProbeRow(BaseModel):
+    station: str
+    mountpoint: str
+    tcp_ok: bool = False
+    caster_ok: bool = False
+    http_status: str | None = None
+    bytes_received: int = 0
+    rtcm_total: int = 0
+    msm_count: int = 0
+    rtcm_frames: int = 0
+    msg_types: dict[str, int] = {}
+    msm_types: dict[str, int] = {}
+    first_msgs: list[int] = []
+    verdict: str
+    note: str = ""
+    error: str | None = None
+
+
+class NtripProbeSummary(BaseModel):
+    total: int = 0
+    msm_streaming: int = 0
+    rtcm_no_msm: int = 0
+    connected_no_data: int = 0
+    offline: int = 0
+
+
+class NtripProbeResponse(BaseModel):
+    host: str | None = None
+    port: int = 2101
+    listen_sec: float = 6.0
+    probed_at: str
+    stations: list[NtripProbeRow] = []
+    summary: NtripProbeSummary
+    error: str | None = None
 
 
 # ── Forecast ───────────────────────────────────────────────────────────────────

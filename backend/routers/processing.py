@@ -115,6 +115,15 @@ async def upload_rinex(
         p.write_bytes(await f.read())
         nav_paths.append(str(p))
 
+    if obs_paths and not nav_paths:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "RINEX processing needs the matching navigation file (.24n/.n) "
+                "with the observation file (.24o/.o). Select both files in the same upload."
+            ),
+        )
+
     _sessions[sid] = {"status": "running", "df": None, "daily": None}
     try:
         import sys; sys.path.insert(0, str(Path(__file__).resolve().parents[2]))

@@ -32,12 +32,20 @@ def _sw() -> dict:
     from pathlib import Path
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     from zgiis.space_weather.fetch_indices import get_space_weather
-    return get_space_weather(use_third_party=False)
+    return get_space_weather(use_third_party=True)
 
 
 @router.get("/current", response_model=SpaceWeatherCurrent)
 async def current(_=Depends(require_api_key)):
     sw = _sw()
+    try:
+        from backend.routers.cors_network import _stations
+
+        stations = _stations()
+        sw["stations_online"] = sum(1 for s in stations if s.status == "online")
+        sw["stations_total"] = len(stations)
+    except Exception:
+        pass
     log_snapshot(source="dashboard", force=False)
     return SpaceWeatherCurrent(
         kp=sw.get("kp"),

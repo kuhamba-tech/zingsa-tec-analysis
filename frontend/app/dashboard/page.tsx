@@ -3,6 +3,8 @@ import { useEffect, useState, useCallback } from "react";
 import { getSpaceWeather, getTimelines, refreshSpaceWeather, getSpaceWeatherLogStatus, getSpaceWeatherCorrelations, getStationStatusLog, getStationStatusEvents, getStationUptime, getEkfStatus, getEkfAlertLog, ackEkfAlert } from "@/lib/api";
 import ClickableMetricGrid from "@/components/spaceWeather/ClickableMetricGrid";
 import { DashboardHeaderClocks } from "@/components/dashboard/DashboardClocks";
+import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
+import Link from "next/link";
 import LineChart from "@/components/charts/LineChart";
 import StationStatusBarChart from "@/components/charts/StationStatusBarChart";
 import type { SpaceWeatherCurrent, SpaceWeatherTimelines, TimelinePoint, SpaceWeatherLogStatus, SpaceWeatherCorrelationResponse, StationStatusLogStatus, StationStatusEvent, StationUptimeRow, EkfStatus, EkfPoint, EkfAlert } from "@/lib/types";
@@ -204,6 +206,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState("");
   const [apiStatus, setApiStatus] = useState<"Live" | "Offline">("Live");
+  const [feedStatus, setFeedStatus] = useState<FeedStatus>("pending");
   const [logStatus, setLogStatus] = useState<SpaceWeatherLogStatus | null>(null);
   const [correlations, setCorrelations] = useState<SpaceWeatherCorrelationResponse | null>(null);
   const [stationLog, setStationLog] = useState<StationStatusLogStatus | null>(null);
@@ -236,12 +239,16 @@ export default function DashboardPage() {
       setAlertLog(alertLogData);
       setLastUpdated(new Date().toUTCString().slice(0, 25));
       setApiStatus("Live");
+      setFeedStatus("ok");
     } catch {
       // The cards keep their empty state if the API is temporarily offline.
       setApiStatus("Offline");
+      setFeedStatus("down");
     }
     setLoading(false);
   }, []);
+
+  const freshnessMsg = useFeedFreshness("dashboard-space-weather", feedStatus);
 
   useEffect(() => {
     load();
@@ -293,12 +300,17 @@ export default function DashboardPage() {
         </p>
       )}
 
+      {freshnessMsg && <div className="banner banner-warn">{freshnessMsg}</div>}
+
       {ekf?.banner && (
         <div className="banner banner-alert" style={{ fontWeight: 600 }}>
           {ekf.banner}
         </div>
       )}
 
+      <p style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
+        Operational snapshot of every index — for solar flare, CME, and NOAA alert detail see <Link href="/space-weather">Space Weather Monitoring</Link>.
+      </p>
       <ClickableMetricGrid sw={sw} updatedUtc={sw?.updated_utc} />
 
       <ScaleReference />

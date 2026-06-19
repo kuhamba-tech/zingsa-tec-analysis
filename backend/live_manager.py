@@ -18,6 +18,18 @@ _monitor = None
 _pipeline = None
 _ntrip_manager = None
 _configured = False
+_status_message = "Live pipeline has not been started."
+
+
+def _env_enabled(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _runtime_mode() -> str:
+    return "vercel-serverless" if os.getenv("VERCEL") else "persistent-process"
 
 
 def _parse_mountpoints() -> dict[str, str]:
@@ -62,17 +74,34 @@ def is_configured() -> bool:
 
 def status() -> dict:
     mgr = _ntrip_manager
+    db_backend = "unknown"
+    try:
+        db = _db
+        db_backend = db.backend if db is not None else ("timescaledb" if os.getenv("TSDB_DSN") else "sqlite")
+    except Exception:
+        db_backend = "unknown"
     return {
         "configured": _configured,
         "active_streams": mgr.active_count if mgr else 0,
         "streams": mgr.status() if mgr else {},
-        "db_backend": "timescaledb" if os.getenv("TSDB_DSN") else "sqlite",
+        "db_backend": db_backend,
+        "runtime_mode": _runtime_mode(),
+        "ingest_enabled": _env_enabled("ENABLE_NTRIP_INGEST", default=not os.getenv("VERCEL")),
+        "message": _status_message,
     }
 
 
 def start() -> None:
     """Start the live pipeline if NTRIP credentials are configured. No-op otherwise."""
-    global _pipeline, _ntrip_manager, _configured
+    global _pipeline, _ntrip_manager, _configured, _status_message
+
+    if os.getenv("VERCEL") and not _env_enabled("ENABLE_NTRIP_INGEST"):
+        _status_message = (
+            "NTRIP ingest is disabled on Vercel serverless. Run the collector in a "
+            "persistent worker and use Vercel for dashboard/API reads."
+        )
+        log.info(_status_message)
+        return
 
     host = os.getenv("NTRIP_HOST", "").strip()
     username = os.getenv("NTRIP_USERNAME", "").strip()
@@ -80,13 +109,15 @@ def start() -> None:
     mountpoints = _parse_mountpoints()
 
     if not (host and username and password and mountpoints):
-        log.info("NTRIP not configured (backend/.env) — live pipeline stays off, dashboard uses cached/SQLite data")
+        _status_message = "NTRIP credentials or mountpoints are not configured."
+        log.info("%s Live pipeline stays off; dashboard uses stored data.", _status_message)
         return
 
     try:
         from zgiis.live.ntrip_stream import LiveNtripManager
         from zgiis.live.stec_vtec import LiveVtecPipeline
     except ImportError as exc:
+        _status_message = f"Live pipeline dependencies are missing: {exc}"
         log.warning("Live pipeline deps missing: %s", exc)
         return
 
@@ -120,6 +151,7 @@ def start() -> None:
     _pipeline = pipeline
     _ntrip_manager = manager
     _configured = True
+    _status_message = f"Live NTRIP pipeline started for {len(mountpoints)} station(s)."
     log.info("Live NTRIP pipeline started for %d station(s): %s", len(mountpoints), mountpoints)
 
 

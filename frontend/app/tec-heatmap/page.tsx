@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { getStations } from "@/lib/api";
+import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
 import type { Station } from "@/lib/types";
 import type { MapLayer } from "@/components/maps/CorsMapWithLayers";
 
@@ -12,20 +13,28 @@ const LAYERS: MapLayer[] = ["Hybrid", "Satellite", "Street", "TEC Heat Map"];
 export default function TecHeatmapPage() {
   const [stations, setStations] = useState<Station[]>([]);
   const [mapLayer, setMapLayer] = useState<MapLayer>("Hybrid");
+  const [status, setStatus] = useState<FeedStatus>("pending");
 
   useEffect(() => {
-    getStations().then(setStations).catch(() => setStations([]));
+    getStations()
+      .then((s) => { setStations(s); setStatus("ok"); })
+      .catch(() => { setStations([]); setStatus("down"); });
   }, []);
+
+  const freshnessMsg = useFeedFreshness("cors-stations", status);
 
   return (
     <div className="tec-map-page">
+      {freshnessMsg && <div className="banner banner-warn">{freshnessMsg}</div>}
       <div className="tec-map-header">
         <div>
           <h1 className="tec-map-title">Zimbabwe CORS Processing Map</h1>
           <p className="tec-map-subtitle">
             {stations.length > 0
-              ? `${stations.length} stations loaded for TEC mapping.`
-              : "No stations loaded for processing. Select RINEX/CMN files to add sites."}
+              ? `${stations.length} CORS stations on the live network feed.`
+              : status === "down"
+              ? "Live CORS station feed is unreachable — no station telemetry to map."
+              : "Live CORS station feed reports zero stations."}
           </p>
         </div>
 

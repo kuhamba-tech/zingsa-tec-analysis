@@ -10,13 +10,16 @@ export default function VtecTheoryPage() {
   const [data, setData] = useState<VtecTheoryPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
+    setLoading(true);
+    setError(null);
     getVtecTheory()
       .then(setData)
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
-  }, []);
+  }, [attempt]);
 
   if (loading) {
     return (
@@ -28,9 +31,12 @@ export default function VtecTheoryPage() {
 
   if (error || !data) {
     return (
-      <div className="banner banner-alert">
-        Could not load theory content. Ensure the ZGIIS API is running on port 8000.
-        {error ? ` (${error})` : ""}
+      <div className="banner banner-alert" style={{ display: "flex", flexDirection: "column", gap: "0.6rem", alignItems: "flex-start" }}>
+        <span>
+          Could not load theory content. Ensure the ZGIIS API is running on port 8000.
+          {error ? ` (${error})` : ""}
+        </span>
+        <button className="btn" onClick={() => setAttempt((n) => n + 1)}>Retry</button>
       </div>
     );
   }

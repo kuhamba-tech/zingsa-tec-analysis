@@ -384,6 +384,23 @@ def _live_ntrip_health() -> Dict[str, Any]:
     except Exception:
         stations = []
 
+    try:
+        from backend.live_manager import get_db, status as live_status
+
+        if not live_status().get("configured"):
+            df = get_db().query_recent(hours=0.25)
+            if not df.empty and "station" in df.columns:
+                recent = {str(code).lower() for code in df["station"].dropna().unique()}
+                if recent:
+                    from dataclasses import replace
+
+                    stations = [
+                        replace(s, status="online" if s.code.lower() in recent else s.status)
+                        for s in stations
+                    ]
+    except Exception:
+        pass
+
     counts = {"online": 0, "degraded": 0, "offline": 0, "unknown": 0}
     rows = []
     for s in stations:
@@ -563,6 +580,23 @@ def get_space_weather(*, use_third_party: bool = True) -> Dict[str, Any]:
                     f"{stations_offline or 0} offline (live NTRIP pipeline)."
                 )
                 source = f"{source} · Live NTRIP pipeline"
+
+        if (
+            use_third_party
+            and health
+            and stations_online is None
+            and (health.get("health_summary") or {}).get("online") is not None
+        ):
+            summary = health.get("health_summary") or {}
+            stations_online = summary.get("online")
+            stations_degraded = summary.get("degraded")
+            stations_offline = summary.get("offline")
+            station_data_status = "rtk_status"
+            station_data_note = (
+                f"{stations_online} station(s) are reported online by the CORS/RTK "
+                "station-health source; live TEC ingestion is tracked separately "
+                "by the NTRIP collector."
+            )
 
         africa_impacts = africa.get("africa_impacts") if africa else None
         kp_history = africa.get("history") if africa else []

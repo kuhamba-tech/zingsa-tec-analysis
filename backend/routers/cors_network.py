@@ -12,8 +12,52 @@ router = APIRouter(prefix="/cors", tags=["cors"])
 
 
 def _stations() -> list:
-    from zgiis.cors.stations import stations_for_map_live
-    return stations_for_map_live()
+    from dataclasses import replace
+
+    from backend.live_manager import status as live_status, get_db
+    from zgiis.api.cors_client import fetch_station_health
+    from zgiis.cors.stations import stations_for_map, stations_for_map_live
+
+    try:
+        health = fetch_station_health(country="Zimbabwe")
+    except Exception:
+        health = None
+
+    # Station availability should come from the CORS/RTK station-health source.
+    # The NTRIP collector is stricter: it proves live RTCM/TEC ingestion, not
+    # whether a station is operational in the CORS network.
+    stations = stations_for_map(health, require_live_telemetry=False)
+
+    try:
+        live = stations_for_map_live()
+        live_by_code = {s.code.lower(): s for s in live}
+        stations = [
+            replace(s, status="online", status_source="ntrip")
+            if live_by_code.get(s.code.lower()) and live_by_code[s.code.lower()].status == "online"
+            else s
+            for s in stations
+        ]
+    except Exception:
+        pass
+
+    try:
+        df = get_db().query_recent(hours=0.25)
+    except Exception:
+        return stations
+    if df.empty or "station" not in df.columns:
+        return stations
+
+    latest = df.sort_values("time").groupby("station").tail(1).set_index("station")
+    means = df.groupby("station")["vtec_tecu"].mean() if "vtec_tecu" in df.columns else {}
+    merged = []
+    for station in stations:
+        code = station.code.lower()
+        if code in latest.index:
+            current_tec = float(means.get(code, 0.0) or 0.0)
+            merged.append(replace(station, status="online", status_source="ntrip", current_tec=round(current_tec, 2)))
+        else:
+            merged.append(station)
+    return merged
 
 
 @router.get("/stations", response_model=list[StationOut])
@@ -26,6 +70,7 @@ async def stations(_=Depends(require_api_key)):
             lat=s.lat,
             lon=s.lon,
             status=s.status,
+            status_source=getattr(s, "status_source", "unknown"),
             constellations=list(s.constellations) if s.constellations else [],
             current_tec=s.current_tec,
             height_m=getattr(s, "height_m", None),
@@ -45,6 +90,7 @@ async def station_detail(code: str, _=Depends(require_api_key)):
         lat=match.lat,
         lon=match.lon,
         status=match.status,
+        status_source=getattr(match, "status_source", "unknown"),
         constellations=list(match.constellations) if match.constellations else [],
         current_tec=match.current_tec,
         height_m=getattr(match, "height_m", None),

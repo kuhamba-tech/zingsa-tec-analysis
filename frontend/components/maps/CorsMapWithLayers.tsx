@@ -114,6 +114,9 @@ export default function CorsMapWithLayers({ stations, height = 480, riskLevel = 
                 <span>{label}</span>
               </div>
             ))}
+            <div style={{ fontSize: "0.62rem", fontWeight: 400, color: "var(--text-muted)", marginTop: "0.15rem", maxWidth: "190px" }}>
+              Hover a station for its status source — live NTRIP vs. CORS catalog (not live RTCM).
+            </div>
           </div>
           {layer === "TEC Heat Map" && <TecHeatMapLegend />}
         </div>

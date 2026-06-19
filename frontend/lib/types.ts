@@ -158,6 +158,7 @@ export interface Station {
   lat: number;
   lon: number;
   status: string;
+  status_source?: "ntrip" | "catalog" | "unknown";
   constellations: string[];
   current_tec: number | null;
   height_m: number | null;
@@ -413,6 +414,43 @@ export interface LivePipelineStatus {
   streams: Record<string, unknown>;
   db_backend: string;
   record_count: number;
+  runtime_mode: string;
+  ingest_enabled: boolean;
+  message: string | null;
+}
+
+export interface NtripProbeRow {
+  station: string;
+  mountpoint: string;
+  tcp_ok: boolean;
+  caster_ok: boolean;
+  http_status: string | null;
+  bytes_received: number;
+  rtcm_total: number;
+  msm_count: number;
+  rtcm_frames: number;
+  msg_types: Record<string, number>;
+  msm_types: Record<string, number>;
+  first_msgs: number[];
+  verdict: "msm_streaming" | "rtcm_no_msm" | "connected_no_data" | "offline" | string;
+  note: string;
+  error: string | null;
+}
+
+export interface NtripProbeResponse {
+  host: string | null;
+  port: number;
+  listen_sec: number;
+  probed_at: string;
+  stations: NtripProbeRow[];
+  summary: {
+    total: number;
+    msm_streaming: number;
+    rtcm_no_msm: number;
+    connected_no_data: number;
+    offline: number;
+  };
+  error: string | null;
 }
 
 // ── Forecast ──────────────────────────────────────────────────────────────────

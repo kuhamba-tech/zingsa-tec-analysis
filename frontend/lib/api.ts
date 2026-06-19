@@ -185,6 +185,23 @@ export const getPrn = (constellation?: string) => get<PrnRow[]>("/tec/prn", { co
 export const getLiveVtec = (hours = 2) => get<LiveObservation[]>("/live/vtec", { hours });
 export const getLiveStations = () => get<StationLiveStatus[]>("/live/stations");
 export const getLivePipelineStatus = () => get<LivePipelineStatus>("/live/pipeline-status");
+export async function runNtripProbe(listen_sec = 6) {
+  const url = new URL(BASE + "/live/ntrip-probe");
+  url.searchParams.set("listen_sec", String(listen_sec));
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 120_000);
+  try {
+    const res = await fetch(url.toString(), {
+      method: "POST",
+      signal: controller.signal,
+      headers: KEY ? { "X-API-Key": KEY } : {},
+    });
+    if (!res.ok) throw new Error(`API /live/ntrip-probe → ${res.status}`);
+    return res.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 // ── Forecast ──────────────────────────────────────────────────────────────────
 export const getForecastStatus = () => get<ForecastStatus>("/forecast/status");

@@ -53,6 +53,7 @@ export default function TimeSeriesPage() {
   const [solarCycle, setSolarCycle] = useState<SolarCycleRow[]>([]);
   const [tab, setTab]         = useState<Tab>("daily");
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [coverageOpen, setCoverageOpen] = useState(false);
   const [omni, setOmni] = useState<OmniAnalysisResponse | null>(null);
   const [omniLoading, setOmniLoading] = useState(false);
@@ -78,20 +79,34 @@ export default function TimeSeriesPage() {
 
   async function loadAll(st?: string, s?: string, e?: string) {
     setLoading(true);
-    try {
-      const [m, o, d, sea, sc] = await Promise.all([
-        getArchiveMeta(),
-        getTimeSeries({ station: st || undefined, start: s || undefined, end: e || undefined, limit: 10000 }),
-        getDiurnal(),
-        getSeasonal(),
-        getSolarCycle(),
-      ]);
-      setMeta(m);
-      setObs(o);
-      setDiurnal(d);
-      setSeasonal(sea);
-      setSolarCycle(sc);
-    } catch { /* offline */ }
+    setLoadError(null);
+    const results = await Promise.allSettled([
+      getArchiveMeta(),
+      getTimeSeries({ station: st || undefined, start: s || undefined, end: e || undefined, limit: 10000 }),
+      getDiurnal(),
+      getSeasonal(),
+      getSolarCycle(),
+    ]);
+    const errors: string[] = [];
+    const labels = ["archive meta", "time series", "diurnal", "seasonal", "solar cycle"];
+    results.forEach((result, i) => {
+      if (result.status === "rejected") {
+        errors.push(`${labels[i]}: ${result.reason instanceof Error ? result.reason.message : "failed"}`);
+      }
+    });
+    const m = results[0].status === "fulfilled" ? results[0].value : null;
+    const o = results[1].status === "fulfilled" ? results[1].value : null;
+    const d = results[2].status === "fulfilled" ? results[2].value : null;
+    const sea = results[3].status === "fulfilled" ? results[3].value : null;
+    const sc = results[4].status === "fulfilled" ? results[4].value : null;
+    if (m) setMeta(m);
+    if (Array.isArray(o)) setObs(o);
+    if (Array.isArray(d)) setDiurnal(d);
+    if (Array.isArray(sea)) setSeasonal(sea);
+    if (Array.isArray(sc)) setSolarCycle(sc);
+    if (errors.length) {
+      setLoadError(errors.join(" · "));
+    }
     setLoading(false);
   }
 
@@ -418,6 +433,12 @@ export default function TimeSeriesPage() {
           <button key={id} className={`tab${tab === id ? " active" : ""}`} onClick={() => setTab(id)}>{label}</button>
         ))}
       </div>
+
+      {loadError && (
+        <div className="banner banner-warn" style={{ fontSize: "0.85rem" }}>
+          Some chart data could not be loaded ({loadError}). Ensure the backend is running on port 8000.
+        </div>
+      )}
 
       {loading && <div className="banner banner-info">Loading archive data…</div>}
 

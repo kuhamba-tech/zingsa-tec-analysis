@@ -129,7 +129,13 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid" }: Pr
         const f = map.forEachFeatureAtPixel(evt.pixel, (feat: any) => feat);
         if (f) {
           const s: Station = f.get("station");
-          popupEl.innerHTML = `<b>${s.code.toUpperCase()}</b> — ${s.name}<br>Status: ${s.status}<br>TEC: ${s.current_tec != null ? s.current_tec.toFixed(2) + " TECU" : "N/A"}`;
+          const sourceNote =
+            s.status_source === "ntrip"
+              ? " (live NTRIP)"
+              : s.status_source === "catalog"
+              ? " (CORS catalog, not live RTCM)"
+              : "";
+          popupEl.innerHTML = `<b>${s.code.toUpperCase()}</b> — ${s.name}<br>Status: ${s.status}${sourceNote}<br>TEC: ${s.current_tec != null ? s.current_tec.toFixed(2) + " TECU" : "N/A"}`;
           popup.setPosition(evt.coordinate);
           popupEl.style.display = "block";
         } else {

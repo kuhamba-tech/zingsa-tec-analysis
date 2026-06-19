@@ -345,6 +345,7 @@ class LiveNtripManager:
     def status(self) -> dict[str, dict]:
         return {
             sid: {
+                "mountpoint": s._mp,
                 "connected":    s.connected,
                 "last_seen":    s.last_seen,
                 "msg_count":    s.msg_count,

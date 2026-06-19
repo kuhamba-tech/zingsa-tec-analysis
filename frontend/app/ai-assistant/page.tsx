@@ -48,6 +48,10 @@ export default function AiAssistantPage() {
           placeholder="sk-ant-…"
           style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "6px", padding: "0.4rem 0.7rem", color: "var(--text)", width: "100%", maxWidth: "400px" }}
         />
+        <p style={{ fontSize: "0.72rem", color: "var(--text-muted)", margin: 0 }}>
+          If provided, your key is sent to the ZGIIS backend with this request only, forwarded to Anthropic to generate the
+          reply, and never stored or logged. Leave blank to use the server&apos;s configured key instead.
+        </p>
       </div>
 
       {/* Suggestions */}

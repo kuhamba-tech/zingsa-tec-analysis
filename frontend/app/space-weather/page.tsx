@@ -3,6 +3,8 @@ import { useCallback, useEffect, useState } from "react";
 import { getSpaceWeather, getSolarActivity, getTimelines, refreshSpaceWeather } from "@/lib/api";
 import ClickableMetricGrid from "@/components/spaceWeather/ClickableMetricGrid";
 import LineChart from "@/components/charts/LineChart";
+import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
+import Link from "next/link";
 import type { SpaceWeatherCurrent, SolarActivityFull, SpaceWeatherTimelines, TimelinePoint } from "@/lib/types";
 
 // ── Solar Cycle 25 reference ──────────────────────────────────────────────────
@@ -128,6 +130,7 @@ export default function SpaceWeatherPage() {
   const [xrayRange, setXrayRange] = useState<"6H" | "24H">("24H");
   const [refreshing, setRefreshing] = useState(false);
   const [nowCat, setNowCat] = useState("");
+  const [feedStatus, setFeedStatus] = useState<FeedStatus>("pending");
 
   useEffect(() => {
     const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
@@ -147,11 +150,13 @@ export default function SpaceWeatherPage() {
 
   const fetchAll = useCallback(() => {
     Promise.all([getSpaceWeather(), getSolarActivity(), getTimelines()])
-      .then(([s, a, t]) => { setSw(s); setSa(a); setTl(t); })
-      .catch(() => {});
+      .then(([s, a, t]) => { setSw(s); setSa(a); setTl(t); setFeedStatus("ok"); })
+      .catch(() => { setFeedStatus("down"); });
   }, []);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  const freshnessMsg = useFeedFreshness("space-weather", feedStatus);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -250,6 +255,11 @@ export default function SpaceWeatherPage() {
         )}
       </div>
 
+      {freshnessMsg && <div className="banner banner-warn">{freshnessMsg}</div>}
+
+      <p style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
+        Full index set with solar-flare and NOAA-alert context — for the operational overview with EKF timelines and the disturbance event log see <Link href="/dashboard">Operations Dashboard</Link>.
+      </p>
       <ClickableMetricGrid sw={sw} updatedUtc={sw?.updated_utc} />
 
       {/* ── Solar Activity Monitor section ── */}

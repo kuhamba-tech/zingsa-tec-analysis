@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   getAnomalies,
   getDiurnal,
@@ -110,6 +111,12 @@ export default function AnomalyDetectionPage() {
 
       {error && <div className="banner banner-alert">{error}</div>}
       {loading && <div className="banner banner-info">Loading TEC anomaly analytics...</div>}
+      {!loading && !error && anomalies.length === 0 && (
+        <div className="banner banner-warn">
+          No processed TEC archive available yet — anomaly detection needs ingested RINEX/CMN observations.
+          Process station data on the <Link href="/processing">Processing</Link> page to populate this view.
+        </div>
+      )}
 
       <section className="anomaly-summary-grid">
         <div className="card card-accent">

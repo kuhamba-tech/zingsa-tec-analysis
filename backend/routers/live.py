@@ -6,7 +6,7 @@ import json
 from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
 
 from backend.deps import require_api_key
-from backend.schemas import LiveObservation, LivePipelineStatus, StationLiveStatus
+from backend.schemas import LiveObservation, LivePipelineStatus, NtripProbeResponse, StationLiveStatus
 
 router = APIRouter(prefix="/live", tags=["live"])
 
@@ -58,14 +58,31 @@ async def live_vtec(
 
 @router.get("/stations", response_model=list[StationLiveStatus])
 async def live_stations(_=Depends(require_api_key)):
+    from backend.live_manager import status as live_status
     from zgiis.cors.stations import stations_for_map_live
     mon = _monitor()
     stations = stations_for_map_live()
+    latest_by_station = {}
+    mean_by_station = {}
+    if not live_status().get("configured"):
+        db = _db()
+        try:
+            df = db.query_recent(hours=0.25) if db else None
+            if df is not None and not df.empty and "station" in df.columns:
+                latest = df.sort_values("time").groupby("station").tail(1).set_index("station")
+                latest_by_station = latest.to_dict(orient="index")
+                if "vtec_tecu" in df.columns:
+                    mean_by_station = df.groupby("station")["vtec_tecu"].mean().to_dict()
+        except Exception:
+            latest_by_station = {}
+            mean_by_station = {}
+
     result = []
     for s in stations:
         lat_ms = None
         msg_rt = None
         stale = True
+        last_vtec = s.current_tec
         if mon:
             try:
                 stats = mon.latency(s.code)
@@ -74,6 +91,9 @@ async def live_stations(_=Depends(require_api_key)):
                 stale = mon.is_stale(s.code)
             except Exception:
                 pass
+        if s.code in latest_by_station:
+            stale = False
+            last_vtec = float(mean_by_station.get(s.code, latest_by_station[s.code].get("vtec_tecu") or 0.0))
         result.append(StationLiveStatus(
             code=s.code,
             name=s.name,
@@ -82,7 +102,7 @@ async def live_stations(_=Depends(require_api_key)):
             latency_ms=lat_ms,
             msg_rate=msg_rt,
             stale=stale,
-            last_vtec=s.current_tec,
+            last_vtec=last_vtec,
         ))
     return result
 
@@ -102,7 +122,22 @@ async def pipeline_status(_=Depends(require_api_key)):
         streams=s["streams"],
         db_backend=s["db_backend"],
         record_count=record_count,
+        runtime_mode=s.get("runtime_mode", "persistent-process"),
+        ingest_enabled=bool(s.get("ingest_enabled", True)),
+        message=s.get("message"),
     )
+
+
+@router.post("/ntrip-probe", response_model=NtripProbeResponse)
+async def ntrip_probe(
+    listen_sec: float = Query(6.0, ge=2.0, le=20.0),
+    _=Depends(require_api_key),
+):
+    """Probe each configured NTRIP mountpoint without stopping the live collector."""
+    from zgiis.live.ntrip_probe import probe_all_mountpoints
+
+    payload = probe_all_mountpoints(listen_sec=listen_sec)
+    return NtripProbeResponse(**payload)
 
 
 @router.websocket("/stream")

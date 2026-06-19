@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { getStations, getSpaceWeather } from "@/lib/api";
 import { buildMetricCards } from "@/lib/spaceWeatherMetrics";
 import CorsMapWithLayers from "@/components/maps/CorsMapWithLayers";
+import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
 import type { Station, SpaceWeatherCurrent } from "@/lib/types";
 import type { MetricKey } from "@/lib/spaceWeatherMetrics";
 import Link from "next/link";
@@ -52,12 +53,16 @@ function HomeMetricCard({
 export default function HomePage() {
   const [stations, setStations] = useState<Station[]>([]);
   const [sw, setSw] = useState<SpaceWeatherCurrent | null>(null);
+  const [swStatus, setSwStatus] = useState<FeedStatus>("pending");
 
   useEffect(() => {
     getStations().then(setStations).catch(() => setStations([]));
-    getSpaceWeather().then(setSw).catch(() => setSw(null));
+    getSpaceWeather()
+      .then((data) => { setSw(data); setSwStatus("ok"); })
+      .catch(() => { setSw(null); setSwStatus("down"); });
   }, []);
 
+  const freshnessMsg = useFeedFreshness("space-weather", swStatus);
   const gnssRisk = sw?.gnss_risk ?? "N/A";
   const homeCards = buildMetricCards(sw)
     .filter((card) => HOME_METRIC_KEYS.includes(card.key))
@@ -81,6 +86,10 @@ export default function HomePage() {
       <div className="home-sw-row">
         <section className="home-sw-panel" aria-label="Live space weather">
           <h2 className="home-sw-heading">Live Space Weather · Zimbabwe CORS Network</h2>
+          <p className="page-subtitle" style={{ fontSize: "0.78rem", margin: "-0.3rem 0 0.6rem" }}>
+            Headline indices only — see the <Link href="/dashboard">Operations Dashboard</Link> for the full metric set, timelines, and alert log.
+          </p>
+          {freshnessMsg && <div className="banner banner-warn" style={{ fontSize: "0.8rem" }}>{freshnessMsg}</div>}
           <div className="dashboard-metric-grid home-metric-grid">
             {homeCards.map((card) => (
               <HomeMetricCard

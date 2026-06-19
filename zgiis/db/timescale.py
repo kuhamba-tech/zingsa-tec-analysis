@@ -92,10 +92,15 @@ class TecDB:
             self._conn = psycopg2.connect(self._dsn)
             with self._conn.cursor() as cur:
                 cur.execute(_PG_DDL)
-                try:
+            self._conn.commit()
+            try:
+                with self._conn.cursor() as cur:
                     cur.execute(_PG_HYPER)
-                except Exception:
-                    pass  # already a hypertable
+                self._conn.commit()
+            except Exception as exc:
+                self._conn.rollback()
+                log.warning("Timescale hypertable setup skipped: %s", exc)
+            with self._conn.cursor() as cur:
                 cur.execute(_PG_IDX)
             self._conn.commit()
         except ImportError:
@@ -106,6 +111,10 @@ class TecDB:
             log.error("TimescaleDB init failed: %s — falling back to SQLite", exc)
             self._is_pg = False
             self._init_sqlite()
+
+    @property
+    def backend(self) -> str:
+        return "timescaledb" if self._is_pg else "sqlite"
 
     def _init_sqlite(self) -> None:
         try:

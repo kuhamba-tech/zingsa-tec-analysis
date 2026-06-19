@@ -229,7 +229,7 @@ export default function ProcessingPage() {
     } else {
       if (!obsFiles.length) return setStatus("Select at least one observation file.");
       if (!navFiles.length) {
-        setStatus("Warning: no navigation file selected — select the matching .24n file together with the .24o file.");
+        return setStatus("Select the matching navigation file (.24n/.n) together with the observation file before processing.");
       }
       setLoading(true); setStatus("Processing RINEX…");
       try {
@@ -238,14 +238,10 @@ export default function ProcessingPage() {
         setStatus(`Done — ${sess.rows.toLocaleString()} observations`);
         await loadSummary(sess.session_id, mode);
         await loadHourly(sess.session_id);
-        if (outImg || outPrn) {
-          const plot = await getSessionTecPlot(sess.session_id);
-          setTecPlot(plot);
-        }
-        if (outUnbias) {
-          const raw = await getSessionTecPlot(sess.session_id, true);
-          setTecPlotRaw(raw);
-        }
+        const plot = await getSessionTecPlot(sess.session_id);
+        setTecPlot(plot);
+        const raw = await getSessionTecPlot(sess.session_id, true);
+        setTecPlotRaw(raw);
         if (outBias) await loadBias(sess.session_id);
       } catch (e) { setTecPlot(null); setStatus(`Error: ${e}`); }
     }
@@ -288,6 +284,10 @@ export default function ProcessingPage() {
   const maxVtecValues = useHourly ? hourlyRows.map((r) => r.max_vtec ?? 0) : rows.map((r) => r.max_vtec ?? 0);
   const minVtecValues = useHourly ? hourlyRows.map((r) => r.min_vtec ?? 0) : rows.map((r) => r.min_vtec ?? 0);
   const daytimeVtecValues = rows.map((r) => r.daytime_mean_vtec ?? r.mean_vtec ?? 0);
+  const processDisabled =
+    loading ||
+    (tab === "rinex" && (obsFiles.length === 0 || navFiles.length === 0)) ||
+    (tab === "cmn" && cmnName === "No file selected");
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.4rem" }}>
@@ -405,9 +405,11 @@ export default function ProcessingPage() {
               <input
                 value={folderLabel}
                 readOnly
-                title="Browsers don't expose full filesystem paths — this shows the name of the folder/files you picked."
                 style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "6px", padding: "0.4rem 0.7rem", color: "var(--text)" }}
               />
+              <p style={{ fontSize: "0.7rem", color: "var(--text-muted)", margin: 0 }}>
+                Browsers don&apos;t expose full filesystem paths — this shows the name of the folder/files you picked.
+              </p>
             </div>
 
             <p style={{ fontSize: "0.72rem", color: "var(--text-muted)", margin: 0 }}>
@@ -512,12 +514,13 @@ export default function ProcessingPage() {
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
-          <label className="metric-label" title="Folder containing CODE DCB files (P1C1YYMM.DCB, P1P2YYMM.DCB). Leave blank to use the server default.">
-            DCB folder (P1C1/P1P2 files)
-          </label>
+          <label className="metric-label">DCB folder (P1C1/P1P2 files)</label>
           <input value={dcbFolder} onChange={(e) => setDcbFolder(e.target.value)}
             placeholder="Leave blank for server default"
             style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "6px", padding: "0.4rem 0.7rem", color: "var(--text)" }} />
+          <p style={{ fontSize: "0.7rem", color: "var(--text-muted)", margin: 0 }}>
+            Folder containing CODE DCB files (P1C1YYMM.DCB, P1P2YYMM.DCB). Leave blank to use the server default.
+          </p>
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
@@ -557,7 +560,7 @@ export default function ProcessingPage() {
 
       {/* Start Process button */}
       <div>
-        <button className="btn btn-primary" onClick={handleProcess} disabled={loading}
+        <button className="btn btn-primary" onClick={handleProcess} disabled={processDisabled}
           style={{ fontSize: "0.9rem", padding: "0.5rem 1.4rem" }}>
           {loading ? "⏳ Processing…" : "► Start Process"}
         </button>

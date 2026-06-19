@@ -1,5 +1,6 @@
 """Zimbabwe CORS network station registry."""
 from __future__ import annotations
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import List
@@ -19,6 +20,10 @@ class CorsStation:
     observation_count: int = 0
     data_start: str = ""
     data_end: str = ""
+    # "ntrip" = live RTCM connection state; "catalog" = ZINGSA CORS_Program
+    # archive/health API (real data, but not live telemetry); "unknown" = neither
+    # source has anything for this station right now.
+    status_source: str = "unknown"
 
     @property
     def status_color(self) -> str:
@@ -60,7 +65,49 @@ def api_status_to_map(status: str) -> str:
     return "offline"
 
 
-def stations_for_map(health: dict | None = None) -> List[CorsStation]:
+_CATALOG_HEALTH_CACHE_TTL_SEC = 60.0
+_catalog_health_cache: dict[str, object] = {"data": None, "ts": 0.0}
+
+
+def _cached_catalog_health() -> dict | None:
+    """Cached fetch of the ZINGSA CORS_Program station-health API.
+
+    This is real, sourced data (RINEX-archive/catalog derived) — never
+    fabricated — but it is NOT live RTCM telemetry, so callers must label it
+    as such rather than presenting it as a live connection state.
+    """
+    now = time.monotonic()
+    cached = _catalog_health_cache.get("data")
+    if cached is not None and (now - _catalog_health_cache["ts"]) < _CATALOG_HEALTH_CACHE_TTL_SEC:
+        return cached  # type: ignore[return-value]
+    try:
+        from zgiis.api.cors_client import fetch_station_health
+
+        health = fetch_station_health(country="Zimbabwe")
+    except Exception:
+        health = None
+    if health is not None:
+        _catalog_health_cache["data"] = health
+        _catalog_health_cache["ts"] = now
+        return health
+    return cached  # type: ignore[return-value]
+
+
+def _catalog_status_by_code(health: dict | None) -> dict[str, str]:
+    rows = (health or {}).get("stations") or []
+    by_code: dict[str, str] = {}
+    for row in rows:
+        code = str(row.get("station_id", "")).lower().rstrip("_")
+        if code:
+            by_code[code] = api_status_to_map(row.get("status"))
+    return by_code
+
+
+def stations_for_map(
+    health: dict | None = None,
+    *,
+    require_live_telemetry: bool = True,
+) -> List[CorsStation]:
     """Return CORS stations with live health statuses when the API is available."""
     from dataclasses import replace
 
@@ -74,24 +121,24 @@ def stations_for_map(health: dict | None = None) -> List[CorsStation]:
 
     summary = (health or {}).get("health_summary") or {}
     rows = (health or {}).get("stations") or []
-    if not rows or int(summary.get("telemetry_live") or 0) <= 0:
+    if (
+        not rows
+        or (require_live_telemetry and int(summary.get("telemetry_live") or 0) <= 0)
+    ):
         return [
-            replace(s, status=normalize_station_status(s.status), current_tec=0.0)
+            replace(s, status=normalize_station_status(s.status), current_tec=0.0, status_source="unknown")
             for s in ZIMBABWE_CORS_STATIONS
         ]
 
-    by_code: dict[str, str] = {}
-    for row in rows:
-        code = str(row.get("station_id", "")).lower().rstrip("_")
-        if code:
-            by_code[code] = api_status_to_map(row.get("status"))
+    by_code = _catalog_status_by_code(health)
 
     merged: List[CorsStation] = []
     for station in ZIMBABWE_CORS_STATIONS:
         code = station.code.lower().rstrip("_")
         live = by_code.get(code)
         status = live if live else normalize_station_status(station.status)
-        merged.append(replace(station, status=status))
+        source = "catalog" if live else "unknown"
+        merged.append(replace(station, status=status, status_source=source))
     return merged
 
 
@@ -123,14 +170,11 @@ def derive_status_from_stream(stream: dict | None, *, stale_after_sec: float = 9
 
 
 def stations_for_map_live(live_status: dict | None = None) -> List[CorsStation]:
-    """Return CORS stations with status derived from the live NTRIP pipeline.
-
-    Unlike stations_for_map(), this never calls the third-party
-    zingsa-national-cors.vercel.app API — status comes solely from
-    backend.live_manager's real RTCM connection state.
-
-    When the live pipeline is not running, falls back to stations_for_map()
-    so the UI still shows offline/degraded/online instead of all unknown.
+    """Return CORS stations with status derived solely from the live NTRIP
+    pipeline's real RTCM connection state — never the third-party catalog API.
+    Callers that want a catalog fallback should use stations_for_map() instead;
+    this function's "no third-party calls" contract is relied on elsewhere
+    (e.g. get_space_weather(use_third_party=False)).
     """
     from dataclasses import replace
 
@@ -152,12 +196,12 @@ def stations_for_map_live(live_status: dict | None = None) -> List[CorsStation]:
         if stream is None:
             # Pipeline active but no stream row → treat as not connected.
             status = "offline" if pipeline_configured else "unknown"
+            source = "ntrip" if pipeline_configured else "unknown"
         else:
             status = derive_status_from_stream(stream)
-        merged.append(replace(station, status=status))
+            source = "ntrip"
+        merged.append(replace(station, status=status, status_source=source))
 
-    if all(s.status == "unknown" for s in merged):
-        return stations_for_map()
     return merged
 
 ZIMBABWE_CORS_STATIONS: List[CorsStation] = [
