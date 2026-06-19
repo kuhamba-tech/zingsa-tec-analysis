@@ -70,6 +70,7 @@ export default function HomePage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [liveMsmOnline, setLiveMsmOnline] = useState<number | null>(null);
   const [ntripProbedAt, setNtripProbedAt] = useState<string | null>(null);
+  const [pipelineNote, setPipelineNote] = useState<string | null>(null);
   const [stationsLoading, setStationsLoading] = useState(true);
 
   useEffect(() => {
@@ -112,6 +113,7 @@ export default function HomePage() {
 
       if (pipelineResult.status === "fulfilled") {
         const p = pipelineResult.value;
+        setPipelineNote(p.message ?? null);
         if (p.ingest_enabled && p.streams) {
           const msm = Object.values(p.streams as Record<string, { msg_count?: number; last_seen?: string | null }>)
             .filter((s) => (s.msg_count ?? 0) > 0 && s.last_seen).length;
@@ -187,6 +189,11 @@ export default function HomePage() {
           {loadError && swStatus === "down" && (
             <div className="banner banner-alert" style={{ fontSize: "0.8rem" }}>
               {loadError} — retry by refreshing the page.
+            </div>
+          )}
+          {pipelineNote && !pipelineNote.includes("started") && (
+            <div className="banner banner-info" style={{ fontSize: "0.78rem" }}>
+              {pipelineNote}
             </div>
           )}
           {stationsLoading && (
