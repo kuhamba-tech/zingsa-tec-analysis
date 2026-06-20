@@ -1,20 +1,23 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
+import { getSpaceWeather, getStations } from "@/lib/api";
+import { buildGnssForecastBundle } from "@/lib/gnssForecastEngine";
 import {
   AI_LEARNS,
   CORS_INPUTS,
-  DIGITAL_TWIN_SITES,
-  INDUSTRY_ALERTS,
   PLATFORM_MODULES,
-  SAMPLE_FORECASTS,
   SPACE_WEATHER_INPUTS,
   STATUS_COLORS,
+  type GnssForecastCity,
 } from "@/lib/gnssWeatherIntelligence";
 import {
   DataFusionPipelineDiagram,
   NationalPlatformDiagram,
 } from "@/components/gnssIntelligence/GnssArchitectureDiagrams";
+import type { GnssForecastBundle } from "@/lib/gnssForecastEngine";
+import type { SpaceWeatherCurrent, Station } from "@/lib/types";
 
 function InputList({ title, subtitle, items, accent }: { title: string; subtitle: string; items: string[]; accent: string }) {
   return (
@@ -30,7 +33,95 @@ function InputList({ title, subtitle, items, accent }: { title: string; subtitle
   );
 }
 
+function ForecastCard({ city }: { city: GnssForecastCity }) {
+  return (
+    <article className="gnwi-forecast-card" style={{ borderColor: STATUS_COLORS[city.status] }}>
+      <div className="gnwi-forecast-city">
+        <span>{city.emoji}</span>
+        <span>{city.city}</span>
+      </div>
+      <div className="gnwi-forecast-status" style={{ color: STATUS_COLORS[city.status] }}>
+        {city.statusLabel}
+      </div>
+      <dl className="gnwi-forecast-fields">
+        {city.fields.map(({ label, value }) => (
+          <div key={label} className="gnwi-forecast-row">
+            <dt>{label}</dt>
+            <dd>{value}</dd>
+          </div>
+        ))}
+      </dl>
+      {city.cause && (
+        <p className="gnwi-forecast-cause">
+          <strong>Inputs:</strong> {city.cause}
+        </p>
+      )}
+      {city.recommendation && (
+        <p className="gnwi-forecast-rec">
+          <strong>Recommendation:</strong> {city.recommendation}
+        </p>
+      )}
+      {city.effects && city.effects.length > 0 && (
+        <ul className="gnwi-effects-list">
+          {city.effects.map((e) => (
+            <li key={e}>{e}</li>
+          ))}
+        </ul>
+      )}
+    </article>
+  );
+}
+
 export default function GnssIntelligencePage() {
+  const [bundle, setBundle] = useState<GnssForecastBundle | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      setLoading(true);
+      setError(null);
+      try {
+        const [swResult, stationsResult] = await Promise.allSettled([
+          getSpaceWeather(),
+          getStations(true),
+        ]);
+        if (cancelled) return;
+
+        const sw: SpaceWeatherCurrent | null =
+          swResult.status === "fulfilled" ? swResult.value : null;
+        const stations: Station[] =
+          stationsResult.status === "fulfilled" ? stationsResult.value : [];
+
+        if (!sw && stations.length === 0) {
+          setError("Could not load space-weather or CORS station feeds.");
+          setBundle(null);
+          return;
+        }
+
+        setBundle(buildGnssForecastBundle(sw, stations));
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load forecast inputs");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    load();
+    const timer = setInterval(load, 120_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, []);
+
+  const forecasts = bundle?.forecasts ?? [];
+  const updatedLabel = bundle?.computedAt
+    ? bundle.computedAt.replace("T", " ").replace("Z", " UTC").slice(0, 19)
+    : null;
+
   return (
     <div className="gnwi-page">
       <header className="gnwi-hero">
@@ -43,12 +134,19 @@ export default function GnssIntelligencePage() {
       </header>
 
       <div className="banner banner-info gnwi-vision-note">
-        <strong>Product vision layer.</strong> Sample forecasts and industry alerts below illustrate
-        the target user experience. Live indices are on{" "}
-        <Link href="/space-weather">Space Weather Monitoring</Link> and the{" "}
-        <Link href="/dashboard">Operations Dashboard</Link>; full AI forecasting is on the platform
-        roadmap.
+        <strong>Live-routed forecasts.</strong> City cards below are computed from{" "}
+        <Link href="/space-weather">live space-weather indices</Link> (Kp, Dst, S4, GNSS risk) and{" "}
+        <Link href="/live-pipeline">NTRIP-probed CORS stations</Link> (HARARE→HARA/ZINH, MUTARE→MUTA,
+        VICTORIA FALLS→VICF). Refreshes every 2 minutes.
       </div>
+
+      {error && <div className="banner banner-alert">{error}</div>}
+      {bundle && (
+        <div className="banner banner-info gnwi-live-sources" style={{ fontSize: "0.78rem" }}>
+          <strong>Input routing:</strong> {bundle.inputSummary}
+          {updatedLabel && <> · Computed {updatedLabel}</>}
+        </div>
+      )}
 
       <section className="gnwi-section">
         <h2 className="gnwi-section-title">Architecture</h2>
@@ -84,67 +182,39 @@ export default function GnssIntelligencePage() {
 
       <section className="gnwi-section">
         <h2 className="gnwi-section-title">User product — Zimbabwe GNSS Forecast</h2>
-        <p className="gnwi-section-lead">Like a weather report, but for positioning reliability.</p>
+        <p className="gnwi-section-lead">
+          Like a weather report, but for positioning reliability — derived from live inputs above.
+        </p>
         <div className="gnwi-forecast-header">
           <span>🇿🇼 Zimbabwe GNSS Forecast</span>
-          <span className="gnwi-forecast-day">Today · illustrative examples</span>
+          <span className="gnwi-forecast-day">
+            {loading ? "Loading live inputs…" : updatedLabel ? `Today · live · ${updatedLabel}` : "Today"}
+          </span>
         </div>
-        <div className="gnwi-forecast-grid">
-          {SAMPLE_FORECASTS.map((city) => (
-            <article
-              key={city.city}
-              className="gnwi-forecast-card"
-              style={{ borderColor: STATUS_COLORS[city.status] }}
-            >
-              <div className="gnwi-forecast-city">
-                <span>{city.emoji}</span>
-                <span>{city.city}</span>
-              </div>
-              <div className="gnwi-forecast-status" style={{ color: STATUS_COLORS[city.status] }}>
-                {city.statusLabel}
-              </div>
-              <dl className="gnwi-forecast-fields">
-                {city.fields.map(({ label, value }) => (
-                  <div key={label} className="gnwi-forecast-row">
-                    <dt>{label}</dt>
-                    <dd>{value}</dd>
-                  </div>
-                ))}
-              </dl>
-              {city.cause && (
-                <p className="gnwi-forecast-cause">
-                  <strong>Cause:</strong> {city.cause}
-                </p>
-              )}
-              {city.recommendation && (
-                <p className="gnwi-forecast-rec">
-                  <strong>Recommendation:</strong> {city.recommendation}
-                </p>
-              )}
-              {city.effects && city.effects.length > 0 && (
-                <ul className="gnwi-effects-list">
-                  {city.effects.map((e) => (
-                    <li key={e}>{e}</li>
-                  ))}
-                </ul>
-              )}
-            </article>
-          ))}
-        </div>
+        {loading && !bundle ? (
+          <div className="banner banner-info">Probing CORS NTRIP and fetching space-weather indices…</div>
+        ) : (
+          <div className="gnwi-forecast-grid">
+            {forecasts.map((city) => (
+              <ForecastCard key={city.city} city={city} />
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="gnwi-section">
         <h2 className="gnwi-section-title">Zimbabwe GNSS Digital Twin</h2>
         <p className="gnwi-section-lead">
-          Advanced layer — a live model of the national positioning environment.
+          Regional positioning model — same live inputs, tomorrow-style outlook.
         </p>
-        <div className="gnwi-twin-banner">ZIMBABWE DIGITAL TWIN · Prediction: Tomorrow</div>
+        <div className="gnwi-twin-banner">ZIMBABWE DIGITAL TWIN · Routed from live CORS + space weather</div>
         <div className="gnwi-twin-grid">
-          {DIGITAL_TWIN_SITES.map((site) => (
+          {(bundle?.digitalTwin ?? []).map((site) => (
             <article key={site.city} className="gnwi-twin-card">
               <div className="gnwi-twin-city">{site.city}</div>
               <div className="gnwi-twin-status" style={{ color: STATUS_COLORS[site.status] }}>
-                Status {site.status === "excellent" ? "🟢" : "🟡"} {site.statusLabel}
+                Status {site.status === "excellent" ? "🟢" : site.status === "moderate" ? "🟡" : "🟠"}{" "}
+                {site.statusLabel}
               </div>
               <dl className="gnwi-forecast-fields">
                 <div className="gnwi-forecast-row">
@@ -162,14 +232,9 @@ export default function GnssIntelligencePage() {
                   </div>
                 )}
               </dl>
-              {site.reason && (
-                <p className="gnwi-forecast-cause">
-                  <strong>Reason:</strong> {site.reason}
-                </p>
-              )}
               {site.cause && (
                 <p className="gnwi-forecast-cause">
-                  <strong>Cause:</strong> {site.cause}
+                  <strong>Inputs:</strong> {site.cause}
                 </p>
               )}
               {site.recommendations && site.recommendations.length > 0 && (
@@ -186,11 +251,9 @@ export default function GnssIntelligencePage() {
 
       <section className="gnwi-section">
         <h2 className="gnwi-section-title">Industry-specific alerts</h2>
-        <p className="gnwi-section-lead">
-          Tailored warnings — not one message for every user.
-        </p>
+        <p className="gnwi-section-lead">Generated from the live forecast state — not static templates.</p>
         <div className="gnwi-alerts-grid">
-          {INDUSTRY_ALERTS.map((alert) => (
+          {(bundle?.industryAlerts ?? []).map((alert) => (
             <article key={alert.id} className="card gnwi-alert-card">
               <h3 className="gnwi-alert-title">
                 <span aria-hidden>{alert.icon}</span> {alert.title}
