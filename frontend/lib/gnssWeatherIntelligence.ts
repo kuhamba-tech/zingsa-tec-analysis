@@ -30,57 +30,6 @@ export interface IndustryAlert {
   lines: string[];
 }
 
-export const GNSS_ARCHITECTURE_ASCII = `                    SUN
-                     |
-             Solar Activity Data
-                     |
-       -----------------------------
-       |                           |
- NOAA / Space Weather        Zimbabwe CORS
- Kp, Dst, Solar Wind          TEC, GNSS errors
-
-                     |
-                     v
-
-        GNSS WEATHER AI ENGINE
-
-                     |
-                     v
-
-        National Positioning Forecast`;
-
-export const NATIONAL_ARCHITECTURE_ASCII = `             GNSS Satellites
-
-                    v
-
-          Zimbabwe CORS Network
-
-                    v
-
-================================
-
- NATIONAL POSITIONING INTELLIGENCE
-
-================================
-
-
-Modules:
-
-  RTK Correction Engine
-  Smart CORS Selection
-  Accuracy Prediction
-  GNSS Weather Forecast
-  Space Weather Alerts
-  Zimbabwe GNSS Digital Twin
-  User Applications
-  API Marketplace
-
-
-                    v
-
-
-Survey | Drone | Farming | Transport | Mining`;
-
 export const CORS_INPUTS = [
   "TEC",
   "Scintillation",

@@ -5,25 +5,16 @@ import {
   AI_LEARNS,
   CORS_INPUTS,
   DIGITAL_TWIN_SITES,
-  GNSS_ARCHITECTURE_ASCII,
   INDUSTRY_ALERTS,
-  NATIONAL_ARCHITECTURE_ASCII,
   PLATFORM_MODULES,
   SAMPLE_FORECASTS,
   SPACE_WEATHER_INPUTS,
   STATUS_COLORS,
 } from "@/lib/gnssWeatherIntelligence";
-
-function ArchitectureBlock({ title, diagram }: { title: string; diagram: string }) {
-  return (
-    <div className="gnwi-arch-block">
-      <div className="gnwi-arch-title">{title}</div>
-      <pre className="gnwi-arch-pre" aria-label={title}>
-        {diagram}
-      </pre>
-    </div>
-  );
-}
+import {
+  DataFusionPipelineDiagram,
+  NationalPlatformDiagram,
+} from "@/components/gnssIntelligence/GnssArchitectureDiagrams";
 
 function InputList({ title, subtitle, items, accent }: { title: string; subtitle: string; items: string[]; accent: string }) {
   return (
@@ -61,7 +52,7 @@ export default function GnssIntelligencePage() {
 
       <section className="gnwi-section">
         <h2 className="gnwi-section-title">Architecture</h2>
-        <ArchitectureBlock title="Data fusion pipeline" diagram={GNSS_ARCHITECTURE_ASCII} />
+        <DataFusionPipelineDiagram />
       </section>
 
       <section className="gnwi-section">
@@ -220,14 +211,7 @@ export default function GnssIntelligencePage() {
           This GNSS Weather service moves the platform beyond a standard CORS network toward a
           national positioning reliability service.
         </p>
-        <ArchitectureBlock title="Full platform stack" diagram={NATIONAL_ARCHITECTURE_ASCII} />
-        <ul className="gnwi-module-list">
-          {PLATFORM_MODULES.map((mod) => (
-            <li key={mod}>
-              <span className="gnwi-module-check">✓</span> {mod}
-            </li>
-          ))}
-        </ul>
+        <NationalPlatformDiagram modules={PLATFORM_MODULES} />
       </section>
 
       <div className="gnwi-footer-links">
