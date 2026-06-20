@@ -25,7 +25,7 @@ const NAV_GROUPS = [
     section: "Space Weather",
     items: [
       { href: "/space-weather", label: "Space Weather", icon: "🌌" },
-      { href: "/space-weather/gnss-intelligence", label: "GNSS Weather AI", icon: "🛰️" },
+      { href: "/space-weather/gnss-intelligence", label: "Navigation Weather", icon: "🛰️" },
       { href: "/vtec-theory",   label: "VTEC Theory",   icon: "📚" },
     ],
   },
