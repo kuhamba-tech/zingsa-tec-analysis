@@ -59,7 +59,13 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     <div className="app-shell">
       {/* Mobile top bar */}
       <header className="app-topbar">
-        <button className="app-hamburger" onClick={() => setMobileOpen(true)} aria-label="Open navigation">
+        <button
+          className="app-hamburger"
+          onClick={() => setMobileOpen((open) => !open)}
+          aria-label={mobileOpen ? "Close navigation" : "Open navigation"}
+          aria-expanded={mobileOpen}
+          aria-controls="app-navigation"
+        >
           <span /><span /><span />
         </button>
         <span className="app-topbar-title">GNSS-TEC</span>
@@ -69,7 +75,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       {mobileOpen && <div className="app-overlay" onClick={closeMobile} />}
 
       {/* Sidebar */}
-      <aside className={`app-sidebar${collapsed ? " is-collapsed" : ""}${mobileOpen ? " is-mobile-open" : ""}`}>
+      <aside
+        id="app-navigation"
+        className={`app-sidebar${collapsed ? " is-collapsed" : ""}${mobileOpen ? " is-mobile-open" : ""}`}
+      >
         <div className="app-sidebar-head">
           <span className="app-logo-text">GNSS-TEC</span>
           <button

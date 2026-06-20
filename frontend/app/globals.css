@@ -169,7 +169,7 @@ html, body {
     padding: 0 1rem;
     background: #000;
     border-bottom: 1px solid var(--border);
-    z-index: 46;
+    z-index: 48;
   }
   .app-hamburger {
     display: flex;
@@ -207,9 +207,9 @@ html, body {
 
   .app-sidebar {
     position: fixed;
-    top: 0;
+    top: 52px;
     left: 0;
-    height: 100vh;
+    height: calc(100dvh - 52px);
     width: 250px;
     min-width: 250px;
     z-index: 47;
