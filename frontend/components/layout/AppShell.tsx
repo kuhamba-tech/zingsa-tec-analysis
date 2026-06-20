@@ -89,7 +89,13 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               {items.map(({ href, label, icon }) => {
                 const active = pathname === href;
                 return (
-                  <Link key={href} href={href} className="app-nav-link">
+                  <Link
+                    key={href}
+                    href={href}
+                    className="app-nav-link"
+                    onClick={closeMobile}
+                    aria-current={active ? "page" : undefined}
+                  >
                     <div className={`app-nav-item${active ? " is-active" : ""}`}>
                       <span className="app-nav-icon">{icon}</span>
                       <span className="app-nav-label">{label}</span>
