@@ -60,7 +60,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     <div className="app-shell">
       {/* Mobile top bar */}
       <header className="app-topbar">
-        <span className="app-topbar-title">GNSS-TEC</span>
         <button
           className="app-hamburger"
           onClick={() => setMobileOpen((open) => !open)}
@@ -71,6 +70,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           <span className="app-hamburger-icon" aria-hidden="true">☰</span>
           <span className="app-hamburger-label">{mobileOpen ? "Close" : "Menu"}</span>
         </button>
+        <span className="app-topbar-title">GNSS-TEC</span>
       </header>
 
       {/* Backdrop (mobile only, shown while drawer is open) */}
