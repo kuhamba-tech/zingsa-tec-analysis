@@ -23,13 +23,6 @@ export interface DigitalTwinSite {
   recommendations?: string[];
 }
 
-export interface IndustryAlert {
-  id: string;
-  icon: string;
-  title: string;
-  lines: string[];
-}
-
 export const CORS_INPUTS = [
   "TEC",
   "Scintillation",

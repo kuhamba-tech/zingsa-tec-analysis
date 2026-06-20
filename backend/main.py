@@ -22,6 +22,7 @@ from backend.routers import (
     cors_network,
     forecast,
     live,
+    navigation_news,
     processing,
     reports,
     space_weather,
@@ -57,6 +58,7 @@ app.add_middleware(
 )
 
 app.include_router(space_weather.router)
+app.include_router(navigation_news.router)
 app.include_router(cors_network.router)
 app.include_router(processing.router)
 app.include_router(tec.router)

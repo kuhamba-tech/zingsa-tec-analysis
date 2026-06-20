@@ -1,9 +1,10 @@
+import type { NavigationNewsBrief } from "./gnssAudienceNews";
+import { buildAudienceNews } from "./gnssAudienceNews";
 import type { SpaceWeatherCurrent, Station } from "./types";
 import type {
   DigitalTwinSite,
   ForecastStatus,
   GnssForecastCity,
-  IndustryAlert,
 } from "./gnssWeatherIntelligence";
 
 export interface ForecastSiteConfig {
@@ -22,7 +23,7 @@ export const FORECAST_SITES: ForecastSiteConfig[] = [
 export interface GnssForecastBundle {
   forecasts: GnssForecastCity[];
   digitalTwin: DigitalTwinSite[];
-  industryAlerts: IndustryAlert[];
+  audienceNews: NavigationNewsBrief[];
   sources: {
     spaceWeather: boolean;
     corsStations: boolean;
@@ -252,79 +253,6 @@ function buildDigitalTwin(
   };
 }
 
-function buildIndustryAlerts(forecasts: GnssForecastCity[]): IndustryAlert[] {
-  const byCity = Object.fromEntries(forecasts.map((f) => [f.city, f]));
-  const harare = byCity.HARARE;
-  const mutare = byCity.MUTARE;
-  const vicf = byCity["VICTORIA FALLS"];
-
-  const alerts: IndustryAlert[] = [];
-
-  if (mutare && mutare.status !== "excellent") {
-    const acc = mutare.fields.find((f) => f.label === "Expected Accuracy")?.value ?? "reduced";
-    alerts.push({
-      id: "surveyor",
-      icon: "⚠️",
-      title: "Surveyor Alert — GNSS Accuracy",
-      lines: [
-        `Location: Mutare (MUTA)`,
-        `RTK risk: ${mutare.statusLabel}`,
-        `Expected accuracy: ${acc}`,
-        mutare.recommendation ? `Action: ${mutare.recommendation}` : "Monitor live Kp/S4",
-      ],
-    });
-  }
-
-  if (vicf && vicf.status === "warning") {
-    alerts.push({
-      id: "drone",
-      icon: "🚁",
-      title: "Drone GNSS Alert",
-      lines: [
-        "Area: Victoria Falls (VICF)",
-        "Afternoon window — Risk: HIGH",
-        vicf.cause ?? "Ionospheric disturbance indicators elevated",
-        vicf.recommendation ?? "Fly earlier in the day",
-      ],
-    });
-  }
-
-  if (harare?.status === "excellent") {
-    alerts.push({
-      id: "farmer",
-      icon: "🌱",
-      title: "Smart Agriculture Alert",
-      lines: [
-        "Today — GNSS Quality: Excellent (Harare region)",
-        "✓ Boundary mapping",
-        "✓ Precision spraying",
-        "✓ Tractor guidance",
-        `Window: ${harare.fields.find((f) => f.label === "Best Survey Window")?.value ?? "07:00 – 14:00"}`,
-      ],
-    });
-  }
-
-  const transportRisk = forecasts.every((f) => f.status !== "warning");
-  alerts.push({
-    id: "transport",
-    icon: "🚗",
-    title: "Transport Position Alert",
-    lines: transportRisk
-      ? [
-          "GNSS Quality: Normal network-wide",
-          "Expected positioning: 0.8 – 1.5 m",
-          "No action required",
-        ]
-      : [
-          "GNSS Quality: Degraded in some regions",
-          "Verify navigation fixes in eastern/western corridors",
-          "Check Victoria Falls and Mutare advisories",
-        ],
-  });
-
-  return alerts;
-}
-
 export function buildGnssForecastBundle(
   sw: SpaceWeatherCurrent | null,
   stations: Station[],
@@ -355,16 +283,18 @@ export function buildGnssForecastBundle(
     parts.push(`CORS/NTRIP: ${safeStations.length} sites probed, ${msm} MSM streaming`);
   }
 
+  const computedAt = new Date().toISOString();
+
   return {
     forecasts,
     digitalTwin,
-    industryAlerts: buildIndustryAlerts(forecasts),
+    audienceNews: buildAudienceNews(forecasts, computedAt, sw),
     sources: {
       spaceWeather: hasSw,
       corsStations: hasCors,
       ntripProbe: hasNtrip,
     },
-    computedAt: new Date().toISOString(),
+    computedAt,
     inputSummary: parts.join(" · ") || "Awaiting live feeds",
   };
 }

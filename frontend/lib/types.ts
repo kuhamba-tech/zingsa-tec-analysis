@@ -541,3 +541,31 @@ export interface ComputationPipeline {
   stages: { label: string; ref: string }[];
   output: string;
 }
+
+// ── Navigation News (broadcast agent API) ───────────────────────────────────────
+
+export type AudienceId = "farmer" | "surveyor" | "citizen" | "driver";
+
+export interface NavigationNewsBriefApi {
+  id: AudienceId;
+  icon: string;
+  title: string;
+  audience: string;
+  headline: string;
+  summary: string;
+  space_weather_today: string;
+  space_weather_bullets: string[];
+  bullets: string[];
+  action: string;
+  status_tone: string;
+  broadcast_script: string;
+  social_script: string;
+  channels: string[];
+}
+
+export interface NavigationNewsBundleApi {
+  computed_at: string;
+  input_summary: string;
+  sources: { spaceWeather?: boolean; corsStations?: boolean; ntripProbe?: boolean };
+  briefs: NavigationNewsBriefApi[];
+}

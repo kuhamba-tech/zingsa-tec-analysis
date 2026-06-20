@@ -16,8 +16,7 @@ import {
   DataFusionPipelineDiagram,
   NationalPlatformDiagram,
 } from "@/components/gnssIntelligence/GnssArchitectureDiagrams";
-import type { GnssForecastBundle } from "@/lib/gnssForecastEngine";
-import type { SpaceWeatherCurrent, Station } from "@/lib/types";
+import type { NavigationNewsBrief } from "@/lib/gnssAudienceNews";
 
 function InputList({ title, subtitle, items, accent }: { title: string; subtitle: string; items: string[]; accent: string }) {
   return (
@@ -68,6 +67,53 @@ function ForecastCard({ city }: { city: GnssForecastCity }) {
           ))}
         </ul>
       )}
+    </article>
+  );
+}
+
+function AudienceNewsCard({ brief }: { brief: NavigationNewsBrief }) {
+  return (
+    <article className="card gnwi-news-card" style={{ borderColor: STATUS_COLORS[brief.statusTone] }}>
+      <div className="gnwi-news-meta">
+        <span className="gnwi-news-icon" aria-hidden>
+          {brief.icon}
+        </span>
+        <div>
+          <h3 className="gnwi-news-title">{brief.title}</h3>
+          <p className="gnwi-news-audience">{brief.audience}</p>
+        </div>
+      </div>
+      <div className="gnwi-sw-box">
+        <p className="gnwi-sw-box-label">Space weather today</p>
+        <p className="gnwi-sw-box-text">{brief.spaceWeatherToday}</p>
+        <ul className="gnwi-sw-readout">
+          {brief.spaceWeatherBullets.map((line) => (
+            <li key={line}>{line}</li>
+          ))}
+        </ul>
+      </div>
+      <p className="gnwi-news-headline">{brief.headline}</p>
+      <p className="gnwi-news-summary">{brief.summary}</p>
+      <p className="gnwi-news-impact-label">What this means for you</p>
+      <ul className="gnwi-alert-lines">
+        {brief.bullets.map((line) => (
+          <li key={line}>{line}</li>
+        ))}
+      </ul>
+      <p className="gnwi-news-action">
+        <strong>What to do:</strong> {brief.action}
+      </p>
+      <p className="gnwi-news-channels">
+        <strong>Future channels:</strong> {brief.channels.join(" · ")}
+      </p>
+      <details className="gnwi-news-script-details">
+        <summary>Broadcast script (WhatsApp / groups)</summary>
+        <pre className="gnwi-news-script">{brief.broadcastScript}</pre>
+      </details>
+      <details className="gnwi-news-script-details">
+        <summary>Social post (Facebook / X)</summary>
+        <pre className="gnwi-news-script gnwi-news-script--short">{brief.socialScript}</pre>
+      </details>
     </article>
   );
 }
@@ -126,19 +172,21 @@ export default function GnssIntelligencePage() {
   return (
     <div className="gnwi-page">
       <header className="gnwi-hero">
-        <div className="gnwi-hero-kicker">Space Weather · National Positioning Intelligence</div>
-        <h1 className="page-title">🛰️ GNSS Weather Intelligence Module</h1>
+        <div className="gnwi-hero-kicker">Navigation Weather · National Positioning Intelligence</div>
+        <h1 className="page-title">🛰️ Navigation Weather</h1>
         <p className="page-subtitle">
-          Fuse Zimbabwe CORS network observations with NOAA space-weather indices to forecast
-          positioning reliability — RTK, drones, agriculture, transport, and surveying.
+          How space weather — activity on the Sun and in Earth&apos;s magnetic field — affects
+          navigation in your everyday life. Plain-language news for citizens, farmers, surveyors,
+          and drivers, updated from live NOAA indices and the ZINGSA CORS network.
         </p>
       </header>
 
       <div className="banner banner-info gnwi-vision-note">
-        <strong>Live-routed forecasts.</strong> City cards below are computed from{" "}
-        <Link href="/space-weather">live space-weather indices</Link> (Kp, Dst, S4, GNSS risk) and{" "}
-        <Link href="/live-pipeline">NTRIP-probed CORS stations</Link> (HARARE→HARA/ZINH, MUTARE→MUTA,
-        VICTORIA FALLS→VICF). Refreshes every 2 minutes.
+        <strong>Space weather affects everyone.</strong> Solar flares, geomagnetic storms, and
+        ionospheric disturbance change how GPS reaches your phone, tractor, taxi, and survey
+        instruments. Briefs below translate live{" "}
+        <Link href="/space-weather">Kp, Dst, S4, and GNSS risk</Link> into plain language — ready
+        for WhatsApp groups, radio, and social media.
       </div>
 
       {error && <div className="banner banner-alert">{error}</div>}
@@ -148,6 +196,24 @@ export default function GnssIntelligencePage() {
           {updatedLabel && <> · Computed {updatedLabel}</>}
         </div>
       )}
+
+      <section className="gnwi-section">
+        <h2 className="gnwi-section-title">Navigation News — space weather &amp; you</h2>
+        <p className="gnwi-section-lead">
+          Space weather is not only for scientists. When the Sun stirs the ionosphere, maps drift,
+          tractors lose RTK fix, and taxis miss pickup points. Each brief explains what is happening
+          in space today, what it means for your group, and what to do — in language anyone can
+          understand.
+        </p>
+        <div className="gnwi-news-grid">
+          {(bundle?.audienceNews ?? []).map((brief) => (
+            <AudienceNewsCard key={brief.id} brief={brief} />
+          ))}
+        </div>
+        {loading && !bundle && (
+          <div className="banner banner-info">Preparing audience briefs from live inputs…</div>
+        )}
+      </section>
 
       <section className="gnwi-section">
         <h2 className="gnwi-section-title">Architecture</h2>
@@ -182,9 +248,9 @@ export default function GnssIntelligencePage() {
       </section>
 
       <section className="gnwi-section">
-        <h2 className="gnwi-section-title">User product — Zimbabwe GNSS Forecast</h2>
+        <h2 className="gnwi-section-title">Regional GNSS forecast</h2>
         <p className="gnwi-section-lead">
-          Like a weather report, but for positioning reliability — derived from live inputs above.
+          Technical outlook by city — the live inputs behind the audience briefs above.
         </p>
         <div className="gnwi-forecast-header">
           <span>🇿🇼 Zimbabwe GNSS Forecast</span>
@@ -251,28 +317,9 @@ export default function GnssIntelligencePage() {
       </section>
 
       <section className="gnwi-section">
-        <h2 className="gnwi-section-title">Industry-specific alerts</h2>
-        <p className="gnwi-section-lead">Generated from the live forecast state — not static templates.</p>
-        <div className="gnwi-alerts-grid">
-          {(bundle?.industryAlerts ?? []).map((alert) => (
-            <article key={alert.id} className="card gnwi-alert-card">
-              <h3 className="gnwi-alert-title">
-                <span aria-hidden>{alert.icon}</span> {alert.title}
-              </h3>
-              <ul className="gnwi-alert-lines">
-                {alert.lines.map((line) => (
-                  <li key={line}>{line}</li>
-                ))}
-              </ul>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="gnwi-section">
         <h2 className="gnwi-section-title">National positioning intelligence platform</h2>
         <p className="gnwi-section-lead">
-          This GNSS Weather service moves the platform beyond a standard CORS network toward a
+          This Navigation Weather service moves the platform beyond a standard CORS network toward a
           national positioning reliability service.
         </p>
         <NationalPlatformDiagram modules={PLATFORM_MODULES} />

@@ -1,6 +1,7 @@
 import type {
   ArchiveMeta,
   AnomalyDay,
+  AudienceId,
   BiasRow,
   CelestrakAnalysisResponse,
   ChatMessage,
@@ -13,6 +14,8 @@ import type {
   ForecastStatus,
   LiveObservation,
   LivePipelineStatus,
+  NavigationNewsBriefApi,
+  NavigationNewsBundleApi,
   NtripProbeResponse,
   OmniAnalysisResponse,
   PrnRow,
@@ -114,6 +117,20 @@ export const ackEkfAlert = (alertId: string) =>
   fetch(BASE + `/space-weather/ekf/alerts/${alertId}/ack`, {
     method: "POST",
     headers: KEY ? { "X-API-Key": KEY } : {},
+  });
+
+// ── Navigation News (broadcast agent) ───────────────────────────────────────────
+export const getNavigationNews = (audience?: AudienceId, refreshNtrip = false) =>
+  getWithRetry<NavigationNewsBundleApi>("/navigation-news", {
+    _ts: Date.now(),
+    ...(audience ? { audience } : {}),
+    ...(refreshNtrip ? { refresh_ntrip: "true" } : {}),
+  });
+
+export const getNavigationNewsBrief = (audience: AudienceId, refreshNtrip = false) =>
+  getWithRetry<NavigationNewsBriefApi>(`/navigation-news/briefs/${audience}`, {
+    _ts: Date.now(),
+    ...(refreshNtrip ? { refresh_ntrip: "true" } : {}),
   });
 
 // ── CORS Network ──────────────────────────────────────────────────────────────

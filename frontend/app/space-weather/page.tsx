@@ -259,7 +259,8 @@ export default function SpaceWeatherPage() {
 
       <p style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
         Full index set with solar-flare and NOAA-alert context — for the operational overview with EKF timelines and the disturbance event log see <Link href="/dashboard">Operations Dashboard</Link>.
-        {" "}Explore the <Link href="/space-weather/gnss-intelligence">GNSS Weather Intelligence Module</Link> for national positioning forecasts and industry alerts.
+        {" "}Explore <Link href="/space-weather/gnss-intelligence">Navigation Weather</Link> for
+        daily briefs for farmers, surveyors, drivers, and the public — plus live regional forecasts.
       </p>
       <ClickableMetricGrid sw={sw} updatedUtc={sw?.updated_utc} />
 

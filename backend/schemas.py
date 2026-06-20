@@ -508,6 +508,32 @@ class ForecastPoint(BaseModel):
     lower: float | None = None
 
 
+# ── Navigation News ────────────────────────────────────────────────────────────
+
+class NavigationNewsBriefOut(BaseModel):
+    id: str
+    icon: str
+    title: str
+    audience: str
+    headline: str
+    summary: str
+    space_weather_today: str
+    space_weather_bullets: list[str]
+    bullets: list[str]
+    action: str
+    status_tone: str
+    broadcast_script: str
+    social_script: str
+    channels: list[str]
+
+
+class NavigationNewsBundleOut(BaseModel):
+    computed_at: str
+    input_summary: str
+    sources: dict[str, bool]
+    briefs: list[NavigationNewsBriefOut]
+
+
 # ── Chat ───────────────────────────────────────────────────────────────────────
 
 class ChatMessage(BaseModel):

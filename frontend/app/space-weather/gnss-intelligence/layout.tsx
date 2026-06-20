@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "GNSS Weather Intelligence — ZGIIS",
+  title: "Navigation Weather — ZGIIS",
   description:
-    "National positioning intelligence: CORS TEC, space weather fusion, GNSS forecast, digital twin, and industry-specific alerts for Zimbabwe.",
+    "Daily positioning reliability for Zimbabwe: audience briefs for farmers, surveyors, drivers, and citizens — powered by live CORS and space-weather data.",
 };
 
 export default function GnssIntelligenceLayout({ children }: { children: React.ReactNode }) {
