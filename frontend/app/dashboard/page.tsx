@@ -1,20 +1,14 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
-import { getSpaceWeather, getTimelines, refreshSpaceWeather, getSpaceWeatherLogStatus, getSpaceWeatherCorrelations, getStationStatusLog, getStationStatusEvents, getStationUptime, getEkfStatus, getEkfAlertLog, ackEkfAlert } from "@/lib/api";
+import { getSpaceWeather, getTimelines, refreshSpaceWeather, getSpaceWeatherLogStatus, getSpaceWeatherCorrelations, getStationStatusLog, getStationStatusEvents, getStationUptime, getEkfStatus } from "@/lib/api";
 import ClickableMetricGrid from "@/components/spaceWeather/ClickableMetricGrid";
+import StormWatchLog from "@/components/spaceWeather/StormWatchLog";
 import { DashboardHeaderClocks } from "@/components/dashboard/DashboardClocks";
 import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
 import Link from "next/link";
 import LineChart from "@/components/charts/LineChart";
 import StationStatusBarChart from "@/components/charts/StationStatusBarChart";
-import type { SpaceWeatherCurrent, SpaceWeatherTimelines, TimelinePoint, SpaceWeatherLogStatus, SpaceWeatherCorrelationResponse, StationStatusLogStatus, StationStatusEvent, StationUptimeRow, EkfStatus, EkfPoint, EkfAlert } from "@/lib/types";
-
-const SEVERITY_COLOR: Record<string, string> = {
-  Low: "#00ff88",
-  Moderate: "#ffcc00",
-  High: "#ff7a00",
-  Severe: "#ff2e2e",
-};
+import type { SpaceWeatherCurrent, SpaceWeatherTimelines, TimelinePoint, SpaceWeatherLogStatus, SpaceWeatherCorrelationResponse, StationStatusLogStatus, StationStatusEvent, StationUptimeRow, EkfStatus, EkfPoint } from "@/lib/types";
 
 function alignEkfToPoints(points: TimelinePoint[], ekfPoints: EkfPoint[] | undefined) {
   const byT = new Map<string, EkfPoint>();
@@ -213,11 +207,10 @@ export default function DashboardPage() {
   const [stationEvents, setStationEvents] = useState<StationStatusEvent[]>([]);
   const [stationUptime, setStationUptime] = useState<StationUptimeRow[]>([]);
   const [ekf, setEkf] = useState<EkfStatus | null>(null);
-  const [alertLog, setAlertLog] = useState<EkfAlert[]>([]);
 
   const load = useCallback(async () => {
     try {
-      const [swData, tlData, logData, corrData, stLog, stEvents, stUptime, ekfData, alertLogData] = await Promise.all([
+      const [swData, tlData, logData, corrData, stLog, stEvents, stUptime, ekfData] = await Promise.all([
         getSpaceWeather(),
         getTimelines(),
         getSpaceWeatherLogStatus().catch(() => null),
@@ -226,7 +219,6 @@ export default function DashboardPage() {
         getStationStatusEvents(168).catch(() => []),
         getStationUptime(168).catch(() => []),
         getEkfStatus().catch(() => null),
-        getEkfAlertLog(168).catch(() => []),
       ]);
       setSw(swData);
       setTl(tlData);
@@ -236,7 +228,6 @@ export default function DashboardPage() {
       setStationEvents(stEvents.slice(-12).reverse());
       setStationUptime(stUptime);
       setEkf(ekfData);
-      setAlertLog(alertLogData);
       setLastUpdated(new Date().toUTCString().slice(0, 25));
       setApiStatus("Live");
       setFeedStatus("ok");
@@ -456,63 +447,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {alertLog.length > 0 && (
-        <div className="card card-accent">
-          <div className="operations-chart-title">EKF Geomagnetic Disturbance Event Log (last 7 days)</div>
-          <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "0.75rem" }}>
-            Alerts fire when an observed value deviates from the Extended Kalman Filter&apos;s predicted value by more than
-            the dynamic threshold (mean + 3σ of recent prediction error). Severity escalates to Severe when two or more
-            other indicators are simultaneously abnormal.
-          </p>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.82rem" }}>
-            <thead>
-              <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                <th style={{ textAlign: "left", padding: "0.35rem 0.5rem" }}>Time (UTC)</th>
-                <th style={{ textAlign: "left", padding: "0.35rem 0.5rem" }}>Parameter</th>
-                <th style={{ textAlign: "right", padding: "0.35rem 0.5rem" }}>Observed</th>
-                <th style={{ textAlign: "right", padding: "0.35rem 0.5rem" }}>EKF Predicted</th>
-                <th style={{ textAlign: "right", padding: "0.35rem 0.5rem" }}>Error</th>
-                <th style={{ textAlign: "right", padding: "0.35rem 0.5rem" }}>Threshold</th>
-                <th style={{ textAlign: "left", padding: "0.35rem 0.5rem" }}>Severity</th>
-                <th style={{ textAlign: "left", padding: "0.35rem 0.5rem" }}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {alertLog.map((alert) => (
-                <tr key={alert.alert_id} style={{ borderBottom: "1px solid rgba(36,77,115,0.35)" }}>
-                  <td style={{ padding: "0.35rem 0.5rem", whiteSpace: "nowrap" }}>{alert.timestamp.replace("T", " ").slice(0, 19)}</td>
-                  <td style={{ padding: "0.35rem 0.5rem" }}>{alert.parameter_label}</td>
-                  <td style={{ padding: "0.35rem 0.5rem", textAlign: "right" }}>{alert.observed_value?.toFixed(2) ?? "N/A"}</td>
-                  <td style={{ padding: "0.35rem 0.5rem", textAlign: "right" }}>{alert.ekf_predicted_value?.toFixed(2) ?? "N/A"}</td>
-                  <td style={{ padding: "0.35rem 0.5rem", textAlign: "right" }}>{alert.prediction_error?.toFixed(2) ?? "N/A"}</td>
-                  <td style={{ padding: "0.35rem 0.5rem", textAlign: "right" }}>{alert.threshold?.toFixed(2) ?? "N/A"}</td>
-                  <td style={{ padding: "0.35rem 0.5rem", color: SEVERITY_COLOR[alert.severity] ?? "var(--text)", fontWeight: 600 }}>
-                    {alert.severity}
-                  </td>
-                  <td style={{ padding: "0.35rem 0.5rem" }}>
-                    {alert.acknowledged_status ? (
-                      <span style={{ color: "var(--text-muted)" }}>Acknowledged</span>
-                    ) : (
-                      <button
-                        className="btn"
-                        style={{ fontSize: "0.75rem", padding: "0.25rem 0.6rem" }}
-                        onClick={async () => {
-                          await ackEkfAlert(alert.alert_id);
-                          setAlertLog((prev) =>
-                            prev.map((a) => (a.alert_id === alert.alert_id ? { ...a, acknowledged_status: true } : a))
-                          );
-                        }}
-                      >
-                        Acknowledge
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <StormWatchLog />
 
       {loading && <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>Loading live data...</p>}
     </div>
