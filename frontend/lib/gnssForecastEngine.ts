@@ -39,7 +39,7 @@ const STATUS_EMOJI: Record<ForecastStatus, string> = {
 };
 
 function pickStation(stations: Station[], codes: string[]): Station | null {
-  const byCode = new Map(stations.map((s) => [s.code.toLower(), s]));
+  const byCode = new Map(stations.map((s) => [s.code.toLowerCase(), s]));
   const candidates = codes.map((c) => byCode.get(c.toLowerCase())).filter(Boolean) as Station[];
   if (candidates.length === 0) return null;
 
