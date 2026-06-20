@@ -38,9 +38,17 @@ const STATUS_EMOJI: Record<ForecastStatus, string> = {
   warning: "🟠",
 };
 
+function normCode(value: unknown): string {
+  return String(value ?? "").trim().toLowerCase();
+}
+
 function pickStation(stations: Station[], codes: string[]): Station | null {
-  const byCode = new Map(stations.map((s) => [s.code.toLowerCase(), s]));
-  const candidates = codes.map((c) => byCode.get(c.toLowerCase())).filter(Boolean) as Station[];
+  const byCode = new Map(
+    stations
+      .filter((s) => normCode(s?.code))
+      .map((s) => [normCode(s.code), s]),
+  );
+  const candidates = codes.map((c) => byCode.get(normCode(c))).filter(Boolean) as Station[];
   if (candidates.length === 0) return null;
 
   const rank = (s: Station): number => {
@@ -76,7 +84,7 @@ function ionoStress(sw: SpaceWeatherCurrent | null): number {
   if (wind > 600) score += 12;
   else if (wind > 450) score += 6;
 
-  const risk = (sw.gnss_risk ?? "").toLowerCase();
+  const risk = normCode(sw.gnss_risk);
   if (risk === "critical" || risk === "high") score += 18;
   else if (risk === "moderate") score += 8;
 
@@ -135,7 +143,7 @@ function buildCause(sw: SpaceWeatherCurrent | null, station: Station | null): st
   if (sw?.s4 != null) parts.push(`S4 ${sw.s4.toFixed(2)}`);
   if (sw?.dst != null) parts.push(`Dst ${sw.dst >= 0 ? "+" : ""}${sw.dst} nT`);
   if (station?.ntrip_verdict) {
-    parts.push(`NTRIP ${station.ntrip_verdict.replace(/_/g, " ")} @ ${station.code.toUpperCase()}`);
+    parts.push(`NTRIP ${station.ntrip_verdict.replace(/_/g, " ")} @ ${normCode(station.code).toUpperCase()}`);
   } else if (station) {
     parts.push(`CORS ${station.status} (${station.status_source ?? "unknown"})`);
   }
@@ -180,8 +188,9 @@ function buildForecast(
   if (station?.current_tec != null && station.current_tec > 0) {
     fields.push({ label: "VTEC (station)", value: `${station.current_tec.toFixed(1)} TECU` });
   }
-  if (station?.code) {
-    fields.push({ label: "CORS site", value: station.code.toUpperCase() });
+  const siteCode = station ? normCode(station.code) : "";
+  if (siteCode) {
+    fields.push({ label: "CORS site", value: siteCode.toUpperCase() });
   }
 
   return {
@@ -320,19 +329,20 @@ export function buildGnssForecastBundle(
   sw: SpaceWeatherCurrent | null,
   stations: Station[],
 ): GnssForecastBundle {
+  const safeStations = Array.isArray(stations) ? stations : [];
   const forecasts = FORECAST_SITES.map((site) => {
-    const station = pickStation(stations, site.stationCodes);
+    const station = pickStation(safeStations, site.stationCodes);
     return buildForecast(site, station, sw);
   });
 
   const digitalTwin = FORECAST_SITES.map((site) => {
-    const station = pickStation(stations, site.stationCodes);
+    const station = pickStation(safeStations, site.stationCodes);
     return buildDigitalTwin(site, station, sw);
   });
 
   const hasSw = sw != null && (sw.kp != null || sw.s4 != null || sw.gnss_risk != null);
-  const hasCors = stations.length > 0;
-  const hasNtrip = stations.some((s) => Boolean(s.ntrip_verdict));
+  const hasCors = safeStations.length > 0;
+  const hasNtrip = safeStations.some((s) => Boolean(s.ntrip_verdict));
 
   const parts: string[] = [];
   if (hasSw) {
@@ -341,8 +351,8 @@ export function buildGnssForecastBundle(
     );
   }
   if (hasCors) {
-    const msm = stations.filter((s) => s.ntrip_verdict === "msm_streaming").length;
-    parts.push(`CORS/NTRIP: ${stations.length} sites probed, ${msm} MSM streaming`);
+    const msm = safeStations.filter((s) => s.ntrip_verdict === "msm_streaming").length;
+    parts.push(`CORS/NTRIP: ${safeStations.length} sites probed, ${msm} MSM streaming`);
   }
 
   return {

@@ -92,8 +92,9 @@ export default function GnssIntelligencePage() {
 
         const sw: SpaceWeatherCurrent | null =
           swResult.status === "fulfilled" ? swResult.value : null;
-        const stations: Station[] =
+        const stationsRaw =
           stationsResult.status === "fulfilled" ? stationsResult.value : [];
+        const stations: Station[] = Array.isArray(stationsRaw) ? stationsRaw : [];
 
         if (!sw && stations.length === 0) {
           setError("Could not load space-weather or CORS station feeds.");
