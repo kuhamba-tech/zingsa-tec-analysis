@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { getSpaceWeather, getStations } from "@/lib/api";
-import { buildGnssForecastBundle } from "@/lib/gnssForecastEngine";
+import { buildGnssForecastBundle, type GnssForecastBundle } from "@/lib/gnssForecastEngine";
 import {
   AI_LEARNS,
   CORS_INPUTS,
@@ -17,6 +17,7 @@ import {
   NationalPlatformDiagram,
 } from "@/components/gnssIntelligence/GnssArchitectureDiagrams";
 import type { NavigationNewsBrief } from "@/lib/gnssAudienceNews";
+import type { SpaceWeatherCurrent, Station } from "@/lib/types";
 
 function InputList({ title, subtitle, items, accent }: { title: string; subtitle: string; items: string[]; accent: string }) {
   return (
