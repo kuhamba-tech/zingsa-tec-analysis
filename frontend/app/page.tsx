@@ -21,6 +21,35 @@ const MODULES = [
   { href: "/ai-assistant",      icon: "🤖",  title: "AI Assistant",      desc: "Ask questions about TEC and ionosphere" },
 ];
 
+const GETTING_STARTED = [
+  {
+    step: 1,
+    icon: "📡",
+    title: "View live CORS status",
+    desc: "See which of the 24 Zimbabwe CORS stations are streaming RTCM on NTRIP.",
+    href: "/live-pipeline",
+    cta: "Open Live Pipeline",
+  },
+  {
+    step: 2,
+    icon: "⚙️",
+    title: "Upload RINEX or CMN",
+    desc: "Run the VTEC pipeline on observation files, or reformat raw data with the RINEX converter.",
+    href: "/processing",
+    cta: "Go to Processing",
+    altHref: "/processing#converter",
+    altLabel: "RINEX converter",
+  },
+  {
+    step: 3,
+    icon: "📈",
+    title: "Explore TEC trends",
+    desc: "Review VTEC time series, regional heatmaps, and storm-correlated anomalies.",
+    href: "/time-series",
+    cta: "View Time Series",
+  },
+] as const;
+
 const HOME_METRIC_KEYS: MetricKey[] = ["kp", "geomagnetic", "gnss_risk", "stations"];
 
 const HOME_LABELS: Partial<Record<MetricKey, string>> = {
@@ -164,10 +193,6 @@ export default function HomePage() {
       <div className="home-sw-row">
         <section className="home-sw-panel" aria-label="Live space weather">
           <h2 className="home-sw-heading">Live Space Weather · Zimbabwe CORS Network</h2>
-          <p className="page-subtitle" style={{ fontSize: "0.78rem", margin: "-0.3rem 0 0.6rem" }}>
-            Headline indices use live feeds where available; gaps are filled from the{" "}
-            <Link href="/dashboard">EKF predictor</Link> on the Operations Dashboard.
-          </p>
           {freshnessMsg && <div className="banner banner-warn" style={{ fontSize: "0.8rem" }}>{freshnessMsg}</div>}
           {loadError && swStatus === "down" && (
             <div className="banner banner-alert" style={{ fontSize: "0.8rem" }}>
@@ -227,30 +252,46 @@ export default function HomePage() {
       />
 
       <section className="home-getting-started" aria-label="Getting started">
-        <h2 className="home-section-heading">Getting Started</h2>
-        <ol className="home-steps">
-          <li className="home-step">
-            <span className="home-step-num">1</span>
-            <div>
-              <Link href="/live-pipeline" className="home-step-title">View live CORS status</Link>
-              <p className="home-step-desc">Check which of the 24 Zimbabwe CORS stations are streaming on NTRIP.</p>
-            </div>
-          </li>
-          <li className="home-step">
-            <span className="home-step-num">2</span>
-            <div>
-              <Link href="/processing" className="home-step-title">Upload RINEX or CMN</Link>
-              <p className="home-step-desc">Process observation files for VTEC, or use the <Link href="/processing#converter">RINEX converter</Link> to reformat raw data.</p>
-            </div>
-          </li>
-          <li className="home-step">
-            <span className="home-step-num">3</span>
-            <div>
-              <Link href="/time-series" className="home-step-title">Explore TEC trends</Link>
-              <p className="home-step-desc">Review historical VTEC time series, heatmaps, and anomaly detection.</p>
-            </div>
-          </li>
-        </ol>
+        <div className="home-getting-started-panel">
+          <div className="home-getting-started-head">
+            <h2 className="home-section-heading">Getting Started</h2>
+            <p className="home-getting-started-sub">
+              New to GNSS-TEC? Follow this workflow from live station health through processing to analysis.
+            </p>
+          </div>
+          <ol className="home-steps-strip">
+            {GETTING_STARTED.map((item, index) => (
+              <li key={item.step} className="home-step-item">
+                {index > 0 && (
+                  <span className="home-step-connector" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="20" height="20">
+                      <path d="M8 5l8 7-8 7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </span>
+                )}
+                <article className="home-step-card">
+                  <div className="home-step-card-top">
+                    <span className="home-step-badge">Step {item.step}</span>
+                    <span className="home-step-icon" aria-hidden="true">{item.icon}</span>
+                  </div>
+                  <h3 className="home-step-title">{item.title}</h3>
+                  <p className="home-step-desc">{item.desc}</p>
+                  <div className="home-step-actions">
+                    <Link href={item.href} className="home-step-cta">
+                      {item.cta}
+                      <span aria-hidden="true"> →</span>
+                    </Link>
+                    {"altHref" in item && item.altHref && (
+                      <Link href={item.altHref} className="home-step-alt">
+                        {item.altLabel}
+                      </Link>
+                    )}
+                  </div>
+                </article>
+              </li>
+            ))}
+          </ol>
+        </div>
       </section>
 
       <section className="home-modules">
