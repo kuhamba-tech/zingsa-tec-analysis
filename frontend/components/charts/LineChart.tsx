@@ -143,7 +143,7 @@ export default function LineChart({
                 afterBody: (items: any[]) => {
                   const index = items[0]?.dataIndex;
                   const detail = index === undefined ? null : tooltipDetails?.[index];
-                  return detail ? [`Storm type: ${detail}`] : [];
+                  return detail ? [`Geomagnetic condition: ${detail}`] : [];
                 },
               },
             },

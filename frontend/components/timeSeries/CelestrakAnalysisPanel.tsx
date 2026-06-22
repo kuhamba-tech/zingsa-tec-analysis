@@ -1,6 +1,7 @@
 "use client";
 
 import LineChart from "@/components/charts/LineChart";
+import GeomagneticConditionScale, { geomagneticConditionForKp } from "@/components/spaceWeather/GeomagneticConditionScale";
 import type { CelestrakAnalysisResponse } from "@/lib/types";
 
 interface Props {
@@ -40,7 +41,9 @@ export default function CelestrakAnalysisPanel({
 
   const labels = celestrak.series.map((r) => r.date);
   const stormDates = celestrak.storms.map((s) => s.date);
-  const stormTypeByDate = new Map(celestrak.series.map((row) => [row.date, row.storm_class || "Quiet"]));
+  const stormTypeByDate = new Map(
+    celestrak.series.map((row) => [row.date, geomagneticConditionForKp(row.kp) ?? row.storm_class ?? "Unavailable"]),
+  );
   const stormTypesFor = (chartLabels: string[]) => chartLabels.map((date) => stormTypeByDate.get(date) ?? null);
   const vtecOverlay =
     vtecDatasets.length > 0
@@ -78,6 +81,8 @@ export default function CelestrakAnalysisPanel({
           severity here is judged from Kp/Ap instead.
         </p>
       </div>
+
+      <GeomagneticConditionScale />
 
       <div className="omni-summary-grid">
         <div className="card omni-stat-card">

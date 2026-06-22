@@ -839,6 +839,15 @@ html, body {
   margin-top: 0.42rem;
   border-radius: 999px;
 }
+.geomagnetic-condition-scale {
+  padding-block: 0.9rem;
+}
+.geomagnetic-condition-scale .scale-row {
+  align-items: center;
+}
+.geomagnetic-condition-scale .scale-text {
+  min-height: 0;
+}
 
 /* TEC map page */
 .tec-map-page {
