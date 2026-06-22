@@ -1,4 +1,5 @@
 import type { SpaceWeatherCurrent } from "./types";
+import type { LiveStationCounts } from "./liveStationStatus";
 
 export type MetricKey =
   | "kp"
@@ -62,8 +63,7 @@ function solarWindColor(speed: number | null): string {
 }
 
 export interface MetricCardOptions {
-  liveMsmOnline?: number | null;
-  catalogOnline?: number | null;
+  liveStationCounts?: LiveStationCounts | null;
   ekfFilled?: Set<string>;
 }
 
@@ -81,23 +81,20 @@ export function buildMetricCards(
   const kpColor = sw?.kp_color ?? "#168bd2";
   const riskColor = sw?.gnss_risk_color ?? "#1D9E75";
   const ekfFilled = opts?.ekfFilled ?? new Set<string>();
-  const liveMsm = opts?.liveMsmOnline;
-  const catalogOnline = opts?.catalogOnline;
+  const liveCounts = opts?.liveStationCounts;
 
   const ekfSuffix = (key: string) => (ekfFilled.has(key) ? " · EKF predicted" : "");
 
   const dstValue = dst !== null ? `${dst >= 0 ? "+" : ""}${dst} nT` : "N/A";
-  const stationsOnlineCount = liveMsm != null ? liveMsm : online;
+  const stationsOnlineCount = liveCounts ? liveCounts.online : online;
+  const stationsTotal = liveCounts?.total ?? total;
   const stationsLabel =
-    stationsOnlineCount !== null && total ? `${stationsOnlineCount}/${total}` : "N/A";
+    stationsOnlineCount !== null && stationsTotal ? `${stationsOnlineCount}/${stationsTotal}` : "N/A";
   const windValue = wind !== null ? `${wind} km/s` : "N/A";
 
-  let stationsNote = "Live NTRIP MSM probe (VTEC-usable RTCM)";
-  if (liveMsm == null && online === null && !ekfFilled.has("stations_online")) {
-    stationsNote = "NTRIP probe unavailable";
-  } else if (catalogOnline != null) {
-    stationsNote += ` · Catalog archive: ${catalogOnline}/${total ?? 24}`;
-  }
+  const stationsNote = liveCounts
+    ? `Online ${liveCounts.online} · Degraded ${liveCounts.degraded} · Offline ${liveCounts.offline} · Unavailable ${liveCounts.unavailable}`
+    : "Live stream status unavailable";
 
   return [
     {

@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import type { Station } from "@/lib/types";
+import { getLiveStationStatus } from "@/lib/liveStationStatus";
 import type { MapLayer } from "./CorsMapWithLayers";
 import SiteDetailsPanel from "./SiteDetailsPanel";
 
@@ -14,7 +15,7 @@ const STATUS_COLOR: Record<string, string> = {
   online: "#00ff88",
   degraded: "#ff8c00",
   offline: "#ff4444",
-  unknown: "#666",
+  unavailable: "#666",
 };
 
 const TILE_URLS: Record<MapLayer, string> = {
@@ -56,7 +57,7 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid" }: Pr
         new Style({
           image: new Circle({
             radius: 7,
-            fill: new Fill({ color: STATUS_COLOR[s.status] ?? "#666" }),
+            fill: new Fill({ color: STATUS_COLOR[getLiveStationStatus(s)] }),
             stroke: new Stroke({ color: "#fff", width: 1.5 }),
           }),
           text: new Text({

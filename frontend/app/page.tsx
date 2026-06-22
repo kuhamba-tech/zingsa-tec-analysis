@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { getEkfStatus, getLivePipelineStatus, getSpaceWeather, getStations } from "@/lib/api";
 import { mergeSpaceWeatherWithEkf } from "@/lib/homeSpaceWeather";
 import { buildMetricCards } from "@/lib/spaceWeatherMetrics";
+import { countLiveStationStatuses } from "@/lib/liveStationStatus";
 import CorsMapWithLayers from "@/components/maps/CorsMapWithLayers";
 import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
 import type { Station, SpaceWeatherCurrent } from "@/lib/types";
@@ -24,7 +25,7 @@ const HOME_METRIC_KEYS: MetricKey[] = ["kp", "geomagnetic", "gnss_risk", "statio
 
 const HOME_LABELS: Partial<Record<MetricKey, string>> = {
   geomagnetic: "Geomagnetic condition",
-  stations: "Live NTRIP MSM",
+  stations: "Live Stream Status",
 };
 
 function HomeMetricCard({
@@ -54,21 +55,12 @@ function HomeMetricCard({
   );
 }
 
-function countMsmFromStations(stations: Station[]): number {
-  return stations.filter((s) => s.ntrip_verdict === "msm_streaming").length;
-}
-
-function countCatalogOnline(stations: Station[]): number {
-  return stations.filter((s) => (s.catalog_status ?? s.status) === "online").length;
-}
-
 export default function HomePage() {
   const [stations, setStations] = useState<Station[]>([]);
   const [displaySw, setDisplaySw] = useState<SpaceWeatherCurrent | null>(null);
   const [ekfFilled, setEkfFilled] = useState<Set<string>>(new Set());
   const [swStatus, setSwStatus] = useState<FeedStatus>("pending");
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [liveMsmOnline, setLiveMsmOnline] = useState<number | null>(null);
   const [ntripProbedAt, setNtripProbedAt] = useState<string | null>(null);
   const [pipelineNote, setPipelineNote] = useState<string | null>(null);
   const [stationsLoading, setStationsLoading] = useState(true);
@@ -114,11 +106,6 @@ export default function HomePage() {
       if (pipelineResult.status === "fulfilled") {
         const p = pipelineResult.value;
         setPipelineNote(p.message ?? null);
-        if (p.ingest_enabled && p.streams) {
-          const msm = Object.values(p.streams as Record<string, { msg_count?: number; last_seen?: string | null }>)
-            .filter((s) => (s.msg_count ?? 0) > 0 && s.last_seen).length;
-          setLiveMsmOnline(msm);
-        }
       }
 
       setStationsLoading(true);
@@ -127,13 +114,12 @@ export default function HomePage() {
         if (cancelled) return;
 
         setStations(stationsResult);
-        const msm = countMsmFromStations(stationsResult);
-        setLiveMsmOnline(msm);
+        const liveCounts = countLiveStationStatuses(stationsResult);
         const probed = stationsResult.find((s) => s.ntrip_probed_at)?.ntrip_probed_at;
         if (probed) setNtripProbedAt(probed);
         setDisplaySw((prev) =>
-          prev && stationsResult.some((s) => s.ntrip_verdict)
-            ? { ...prev, stations_online: msm, stations_total: stationsResult.length || 24 }
+          prev && stationsResult.some((s) => s.ntrip_verdict || s.status_source === "ntrip")
+            ? { ...prev, stations_online: liveCounts.online, stations_total: liveCounts.total }
             : prev,
         );
       } catch {
@@ -151,13 +137,10 @@ export default function HomePage() {
   const loading = swStatus === "pending";
   const gnssRisk = displaySw?.gnss_risk ?? (loading ? "…" : "N/A");
 
-  const catalogOnlineCount = countCatalogOnline(stations);
-  const catalogTotal = stations.length > 0 ? stations.length : 24;
-  const ntripDegraded = stations.filter((s) => s.ntrip_verdict === "rtcm_no_msm").length;
+  const liveCounts = countLiveStationStatuses(stations);
 
   const homeCards = buildMetricCards(displaySw, {
-    liveMsmOnline,
-    catalogOnline: catalogOnlineCount,
+    liveStationCounts: liveCounts,
     ekfFilled,
   })
     .filter((card) => HOME_METRIC_KEYS.includes(card.key))
@@ -203,8 +186,8 @@ export default function HomePage() {
           )}
           {ntripProbedAt && !stationsLoading && (
             <div className="banner banner-info" style={{ fontSize: "0.72rem" }}>
-              NTRIP probe at {ntripProbedAt.replace("T", " ").replace("Z", " UTC")} — map markers reflect live caster
-              decode (MSM = online, RTCM-only = degraded). Catalog archive: {catalogOnlineCount}/{catalogTotal} online.
+              Live NTRIP probe at {ntripProbedAt.replace("T", " ").replace("Z", " UTC")} — Online {liveCounts.online},
+              Degraded {liveCounts.degraded}, Offline {liveCounts.offline}, Unavailable {liveCounts.unavailable}.
             </div>
           )}
           <div className="dashboard-metric-grid home-metric-grid">
@@ -216,7 +199,7 @@ export default function HomePage() {
                 value={card.value}
                 note={card.note}
                 valueColor={card.valueColor}
-                loading={loading && card.value === "N/A"}
+                loading={card.key === "stations" ? stationsLoading : loading && card.value === "N/A"}
               />
             ))}
           </div>
@@ -238,10 +221,7 @@ export default function HomePage() {
         stations={stations}
         height={480}
         riskLevel={gnssRisk}
-        catalogOnline={catalogOnlineCount}
-        catalogTotal={catalogTotal}
-        liveMsmOnline={liveMsmOnline}
-        ntripDegraded={ntripDegraded}
+        liveCounts={liveCounts}
         ntripProbedAt={ntripProbedAt}
         stationsLoading={stationsLoading}
       />

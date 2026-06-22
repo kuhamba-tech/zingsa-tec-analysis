@@ -3,6 +3,7 @@ import { useState } from "react";
 import CorsMap from "./CorsMap";
 import TecHeatMapLegend from "./TecHeatMapLegend";
 import type { Station } from "@/lib/types";
+import type { LiveStationCounts } from "@/lib/liveStationStatus";
 
 export type MapLayer = "Hybrid" | "Satellite" | "Street" | "TEC Heat Map";
 
@@ -10,10 +11,7 @@ interface Props {
   stations: Station[];
   height?: number;
   riskLevel?: string;
-  catalogOnline?: number;
-  catalogTotal?: number;
-  liveMsmOnline?: number | null;
-  ntripDegraded?: number;
+  liveCounts: LiveStationCounts;
   ntripProbedAt?: string | null;
   stationsLoading?: boolean;
 }
@@ -30,24 +28,17 @@ export default function CorsMapWithLayers({
   stations,
   height = 480,
   riskLevel = "N/A",
-  catalogOnline,
-  catalogTotal = 24,
-  liveMsmOnline = null,
-  ntripDegraded = 0,
+  liveCounts,
   ntripProbedAt = null,
   stationsLoading = false,
 }: Props) {
   const [layer, setLayer] = useState<MapLayer>("Hybrid");
 
-  const total = stations.length > 0 ? stations.length : catalogTotal;
-  const catalogCount = catalogOnline ?? stations.filter((s) => (s.catalog_status ?? s.status) === "online").length;
-  const msmCount = liveMsmOnline ?? stations.filter((s) => s.ntrip_verdict === "msm_streaming").length;
-  const catalogLabel = `${catalogCount}/${total} catalog archive`;
-  const msmLabel = stationsLoading
+  const liveLabel = stationsLoading
     ? "NTRIP probe running…"
-    : liveMsmOnline != null || ntripProbedAt
-      ? `${msmCount}/${total} live MSM · ${ntripDegraded}/${total} RTCM-only`
-      : "MSM N/A (NTRIP probe pending)";
+    : ntripProbedAt || stations.length > 0
+      ? `Online ${liveCounts.online} · Degraded ${liveCounts.degraded} · Offline ${liveCounts.offline} · Unavailable ${liveCounts.unavailable}`
+      : "Live stream status unavailable";
 
   return (
     <div>
@@ -58,7 +49,7 @@ export default function CorsMapWithLayers({
             <span>Zimbabwe CORS Network</span>
           </div>
           <div className="home-map-toolbar-summary">
-            {total} stations · {catalogLabel} · {msmLabel} · {riskLevel} GNSS risk
+            {liveCounts.total} stations · {liveLabel} · {riskLevel} GNSS risk
           </div>
         </div>
 
@@ -137,7 +128,7 @@ export default function CorsMapWithLayers({
               </div>
             ))}
             <div style={{ fontSize: "0.62rem", fontWeight: 400, color: "var(--text-muted)", marginTop: "0.15rem", maxWidth: "210px" }}>
-              Markers use live NTRIP probe when the persistent collector is off. Click a marker for site Details.
+              Markers and counts use only the current live NTRIP stream status. Click a marker for site Details.
             </div>
           </div>
           {layer === "TEC Heat Map" && <TecHeatMapLegend />}
