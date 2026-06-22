@@ -76,13 +76,24 @@ async def upload_cmn(
     try:
         import sys; sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
         from tec_core import read_cmn_file
+        from zgiis.processing.goptec_plot import build_tec_plot_series
 
         cfg = _build_cfg(elevation_min, ipp_height, dcb_folder)
         df = read_cmn_file(str(tmp_path), cfg)
         df = _filter_stations(df, stations)
         daily = _storm_daily(df, kp_csv)
+        plot = build_tec_plot_series(df, value_col="vtec")
+        raw_col = "vtec_raw" if "vtec_raw" in df.columns else "vtec"
+        plot_raw = build_tec_plot_series(df, value_col=raw_col)
         _sessions[sid].update({
-            "status": "done", "df": df, "daily": daily, "rows": len(df), "kind": "cmn", "cfg": cfg,
+            "status": "done",
+            "df": df,
+            "daily": daily,
+            "rows": len(df),
+            "plot": plot,
+            "plot_raw": plot_raw,
+            "kind": "cmn",
+            "cfg": cfg,
         })
         return ProcessingSession(session_id=sid, status="done", rows=len(df))
     except HTTPException:

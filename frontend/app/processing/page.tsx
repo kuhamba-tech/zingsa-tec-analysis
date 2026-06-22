@@ -317,10 +317,18 @@ export default function ProcessingPage() {
       try {
         const sess = await uploadCmn(file, buildOptions());
         setSessionId(sess.session_id);
-        setTecPlot(null);
         setStatus(`Done — ${sess.rows.toLocaleString()} observations`);
         await loadSummary(sess.session_id, mode);
         await loadHourly(sess.session_id);
+        try {
+          const plot = await getSessionTecPlot(sess.session_id);
+          setTecPlot(plot);
+          const raw = await getSessionTecPlot(sess.session_id, true);
+          setTecPlotRaw(raw);
+        } catch {
+          setTecPlot(null);
+          setTecPlotRaw(null);
+        }
         if (outBias) await loadBias(sess.session_id);
       } catch (e) { setStatus(`Error: ${e}`); }
     } else {
