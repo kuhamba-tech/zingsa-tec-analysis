@@ -242,9 +242,7 @@ function buildDigitalTwin(
         ? "Available"
         : station?.ntrip_verdict === "rtcm_no_msm"
           ? "Degraded — RTCM only"
-          : feed >= 60
-            ? "Catalog online"
-            : "Limited",
+          : "Limited",
     accuracy: expectedAccuracy(iono, feed),
     confidence,
     reason: iono >= 35 ? "Elevated ionospheric stress index" : undefined,
