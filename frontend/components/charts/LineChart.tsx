@@ -36,9 +36,18 @@ interface Props {
   height?: number;
   threshold?: { value: number; label: string };
   highlightDates?: string[];
+  tooltipDetails?: (string | null)[];
 }
 
-export default function LineChart({ labels, datasets, yLabel = "VTEC (TECU)", height = 300, threshold, highlightDates }: Props) {
+export default function LineChart({
+  labels,
+  datasets,
+  yLabel = "VTEC (TECU)",
+  height = 300,
+  threshold,
+  highlightDates,
+  tooltipDetails,
+}: Props) {
   const COLORS = ["#168bd2", "#ff8c00", "#00ff88", "#ff4444", "#a78bfa", "#34d399"];
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -127,6 +136,14 @@ export default function LineChart({ labels, datasets, yLabel = "VTEC (TECU)", he
                     if (meta.confidence != null) line += ` · confidence ${meta.confidence.toFixed(0)}%`;
                   }
                   return line;
+                },
+                // Show one shared classification for the hovered date, rather than
+                // repeating it once for every dataset in an index-mode tooltip.
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                afterBody: (items: any[]) => {
+                  const index = items[0]?.dataIndex;
+                  const detail = index === undefined ? null : tooltipDetails?.[index];
+                  return detail ? [`Storm type: ${detail}`] : [];
                 },
               },
             },

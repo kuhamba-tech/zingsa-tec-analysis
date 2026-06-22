@@ -40,6 +40,8 @@ export default function CelestrakAnalysisPanel({
 
   const labels = celestrak.series.map((r) => r.date);
   const stormDates = celestrak.storms.map((s) => s.date);
+  const stormTypeByDate = new Map(celestrak.series.map((row) => [row.date, row.storm_class || "Quiet"]));
+  const stormTypesFor = (chartLabels: string[]) => chartLabels.map((date) => stormTypeByDate.get(date) ?? null);
   const vtecOverlay =
     vtecDatasets.length > 0
       ? vtecDatasets
@@ -123,6 +125,7 @@ export default function CelestrakAnalysisPanel({
             yLabel="VTEC (TECU)"
             height={300}
             highlightDates={stormDates.filter((d) => vtecLabels.includes(d))}
+            tooltipDetails={stormTypesFor(vtecLabels)}
           />
         </div>
       )}
@@ -142,6 +145,7 @@ export default function CelestrakAnalysisPanel({
           ]}
           yLabel="Kp / Ap÷10"
           height={240}
+          tooltipDetails={stormTypesFor(labels)}
         />
         <p style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "0.45rem" }}>
           Ap scaled ÷10 for shared axis readability (e.g. Ap 50 → 5.0).
@@ -158,6 +162,7 @@ export default function CelestrakAnalysisPanel({
           ]}
           yLabel="F10.7 / SSN"
           height={220}
+          tooltipDetails={stormTypesFor(labels)}
         />
       </div>
 
