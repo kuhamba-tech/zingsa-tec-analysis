@@ -66,7 +66,12 @@ export default function LivePipelinePage() {
     setProbeError(null);
     try {
       const result = await runNtripProbe(6);
-      setProbe(result);
+      if (result.error) {
+        setProbe(null);
+        setProbeError(result.error);
+      } else {
+        setProbe(result);
+      }
     } catch (err) {
       setProbe(null);
       setProbeError(err instanceof Error ? err.message : "NTRIP probe failed");
