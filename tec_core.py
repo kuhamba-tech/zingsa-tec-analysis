@@ -329,7 +329,8 @@ def _parse_station_and_date(path: Path) -> tuple[str, Optional[pd.Timestamp]]:
     return station.lower(), None
 
 
-def read_cmn_file(path: Path, config: TecConfig) -> pd.DataFrame:
+def read_cmn_file(path: Path | str, config: TecConfig) -> pd.DataFrame:
+    path = Path(path)
     station, parsed_date = _parse_station_and_date(path)
     df = pd.read_csv(
         path,
