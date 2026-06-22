@@ -1,0 +1,38 @@
+{
+  "citizen": [
+    { "channel": "console", "script": "broadcast" },
+    { "channel": "file", "script": "social" },
+    { "channel": "facebook", "script": "social" },
+    { "channel": "twitter", "script": "social" }
+  ],
+  "farmer": [
+    { "channel": "console", "script": "broadcast" },
+    { "channel": "file", "script": "broadcast" },
+    {
+      "channel": "whatsapp",
+      "script": "broadcast",
+      "options": { "to": "263XXXXXXXXX" }
+    },
+    {
+      "channel": "webhook",
+      "script": "broadcast",
+      "options": { "url": "https://your-bot.example/hooks/farmer" }
+    }
+  ],
+  "surveyor": [
+    { "channel": "console", "script": "broadcast" },
+    {
+      "channel": "whatsapp",
+      "script": "broadcast",
+      "options": { "to": "263XXXXXXXXX" }
+    }
+  ],
+  "driver": [
+    { "channel": "console", "script": "broadcast" },
+    {
+      "channel": "webhook",
+      "script": "broadcast",
+      "options": { "url": "https://your-fleet.example/hooks/drivers" }
+    }
+  ]
+}
