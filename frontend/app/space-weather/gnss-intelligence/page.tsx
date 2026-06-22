@@ -72,6 +72,26 @@ function ForecastCard({ city }: { city: GnssForecastCity }) {
   );
 }
 
+function CopyScriptButton({ text, label }: { text: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* clipboard unavailable */
+    }
+  }
+
+  return (
+    <button type="button" className="gnwi-copy-btn" onClick={copy}>
+      {copied ? "Copied!" : label}
+    </button>
+  );
+}
+
 function AudienceNewsCard({ brief }: { brief: NavigationNewsBrief }) {
   return (
     <article className="card gnwi-news-card" style={{ borderColor: STATUS_COLORS[brief.statusTone] }}>
@@ -109,10 +129,16 @@ function AudienceNewsCard({ brief }: { brief: NavigationNewsBrief }) {
       </p>
       <details className="gnwi-news-script-details">
         <summary>Broadcast script (WhatsApp / groups)</summary>
+        <div className="gnwi-script-toolbar">
+          <CopyScriptButton text={brief.broadcastScript} label="Copy for WhatsApp" />
+        </div>
         <pre className="gnwi-news-script">{brief.broadcastScript}</pre>
       </details>
       <details className="gnwi-news-script-details">
         <summary>Social post (Facebook / X)</summary>
+        <div className="gnwi-script-toolbar">
+          <CopyScriptButton text={brief.socialScript} label="Copy for social" />
+        </div>
         <pre className="gnwi-news-script gnwi-news-script--short">{brief.socialScript}</pre>
       </details>
     </article>
@@ -214,6 +240,25 @@ export default function GnssIntelligencePage() {
         {loading && !bundle && (
           <div className="banner banner-info">Preparing audience briefs from live inputs…</div>
         )}
+        <div className="card gnwi-agent-api">
+          <h3 className="gnwi-agent-api-title">Broadcast agent API</h3>
+          <p className="gnwi-agent-api-lead">
+            Your AI agent can fetch the same scripts programmatically. Each response includes{" "}
+            <code>broadcast_script</code> and <code>social_script</code> ready to post.
+          </p>
+          <ul className="gnwi-agent-api-list">
+            <li>
+              <code>GET /navigation-news</code> — all four audience briefs
+            </li>
+            <li>
+              <code>GET /navigation-news/briefs/citizen</code> — single brief (also{" "}
+              <code>farmer</code>, <code>surveyor</code>, <code>driver</code>)
+            </li>
+            <li>
+              <code>?audience=farmer</code> — filter on the bundle endpoint
+            </li>
+          </ul>
+        </div>
       </section>
 
       <section className="gnwi-section">

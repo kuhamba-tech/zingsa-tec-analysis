@@ -2418,6 +2418,47 @@ html, body {
   user-select: none;
   padding: 0.25rem 0;
 }
+.gnwi-script-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.35rem;
+}
+.gnwi-copy-btn {
+  font-size: 0.72rem;
+  padding: 0.3rem 0.65rem;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: rgba(22, 139, 210, 0.12);
+  color: var(--accent);
+  cursor: pointer;
+}
+.gnwi-copy-btn:hover {
+  background: rgba(22, 139, 210, 0.22);
+}
+.gnwi-agent-api {
+  margin-top: 1rem;
+  border-left: 3px solid #168bd2;
+  font-size: 0.82rem;
+}
+.gnwi-agent-api-title {
+  margin: 0 0 0.4rem;
+  font-size: 0.9rem;
+}
+.gnwi-agent-api-lead {
+  margin: 0 0 0.5rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+.gnwi-agent-api-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  line-height: 1.65;
+  color: var(--text-muted);
+}
+.gnwi-agent-api-list code {
+  font-size: 0.78rem;
+  color: var(--accent);
+}
 .gnwi-news-script {
   margin: 0.5rem 0 0;
   padding: 0.65rem 0.75rem;
