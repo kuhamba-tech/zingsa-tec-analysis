@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import io
 import logging
+import random
 import socket
 import ssl
 import threading
@@ -179,6 +180,9 @@ class StationStream(threading.Thread):
         *,
         use_tls: bool = False,
         reconnect_delay: float = 5.0,
+        max_reconnect_delay: float = 120.0,
+        connection_slots: Optional[threading.Semaphore] = None,
+        start_delay: float = 0.0,
     ):
         super().__init__(name=f"ntrip-{station}", daemon=True)
         self.station = station
@@ -190,6 +194,14 @@ class StationStream(threading.Thread):
         self._on_record = on_record
         self._tls = use_tls
         self._reconnect_delay = reconnect_delay
+        self._max_reconnect_delay = max_reconnect_delay
+        # Caps how many StationStreams hold an open caster connection at once —
+        # the caster enforces a per-account concurrent-connection limit, and
+        # connecting all 24 mountpoints at once under one account exceeds it,
+        # so most get rejected with "too many concurrent connections".
+        self._slots = connection_slots
+        self._start_delay = start_delay
+        self._consecutive_failures = 0
 
         self._stop = threading.Event()
         self._lock = threading.Lock()
@@ -225,20 +237,43 @@ class StationStream(threading.Thread):
     # ── Thread body ──────────────────────────────────────────────────────────
 
     def run(self):
+        if self._start_delay > 0:
+            self._stop.wait(self._start_delay)
         while not self._stop.is_set():
+            acquired = self._slots is None or self._slots.acquire(timeout=30)
+            if not acquired:
+                # Every slot is busy with another station — back off and retry
+                # rather than piling up alongside the threads already waiting.
+                time.sleep(self._backoff_delay(rejected=False))
+                continue
             try:
                 sock = self._connect()
                 with self._lock:
                     self._connected = True
+                self._consecutive_failures = 0
                 log.info("[%s] Connected to %s/%s", self.station, self._host, self._mp)
                 self._stream(sock)
             except Exception as exc:
+                rejected = "too many concurrent" in str(exc).lower() or "rejected" in str(exc).lower()
+                self._consecutive_failures += 1
                 log.warning("[%s] %s", self.station, exc)
+            else:
+                rejected = False
             finally:
                 with self._lock:
                     self._connected = False
+                if self._slots is not None:
+                    self._slots.release()
             if not self._stop.is_set():
-                time.sleep(self._reconnect_delay)
+                time.sleep(self._backoff_delay(rejected=rejected))
+
+    def _backoff_delay(self, *, rejected: bool) -> float:
+        # Account-level rejections (auth/concurrency limits) need a longer
+        # cooldown than an ordinary transient network hiccup, or this thread
+        # just keeps re-triggering the same rejection every few seconds.
+        base = self._reconnect_delay * 4 if rejected else self._reconnect_delay
+        delay = min(base * (2 ** min(self._consecutive_failures, 5)), self._max_reconnect_delay)
+        return delay * (0.75 + random.random() * 0.5)
 
     def _connect(self) -> socket.socket:
         raw = socket.create_connection((self._host, self._port), timeout=10)
@@ -304,12 +339,19 @@ class LiveNtripManager:
         self,
         ntrip_cfg: dict,
         on_observation: Optional[Callable[[dict], None]] = None,
+        *,
+        max_concurrent: Optional[int] = None,
     ):
         self._cfg = ntrip_cfg
         self._on_obs = on_observation or (lambda _: None)
         self._streams: dict[str, StationStream] = {}
+        # One shared account opening 24 mountpoints at once exceeds the
+        # caster's per-account concurrent-connection limit (see
+        # NTRIP_LIVE_MAX_CONCURRENT) — cap how many stations hold an open
+        # session simultaneously; the rest queue and rotate in.
+        self._slots = threading.Semaphore(max_concurrent) if max_concurrent else None
 
-    def start(self, mountpoints: dict[str, str]) -> None:
+    def start(self, mountpoints: dict[str, str], *, stagger_sec: float = 1.5) -> None:
         """
         Start a stream for each station.
         mountpoints: {station_id: mountpoint_name}
@@ -320,7 +362,7 @@ class LiveNtripManager:
         pw   = self._cfg.get("password", "")
         tls  = str(self._cfg.get("connection", "TCP")).upper() == "TLS"
 
-        for station, mp in mountpoints.items():
+        for i, (station, mp) in enumerate(mountpoints.items()):
             if station in self._streams:
                 continue
             s = StationStream(
@@ -332,6 +374,8 @@ class LiveNtripManager:
                 password=pw,
                 on_record=self._on_obs,
                 use_tls=tls,
+                connection_slots=self._slots,
+                start_delay=i * stagger_sec,
             )
             self._streams[station] = s
             s.start()

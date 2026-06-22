@@ -145,7 +145,10 @@ def start() -> None:
         "connection": os.getenv("NTRIP_CONNECTION", "TCP"),
     }
 
-    manager = LiveNtripManager(ntrip_cfg, on_observation=_on_observation)
+    max_concurrent_raw = os.getenv("NTRIP_LIVE_MAX_CONCURRENT", "4").strip()
+    max_concurrent = int(max_concurrent_raw) if max_concurrent_raw else None
+
+    manager = LiveNtripManager(ntrip_cfg, on_observation=_on_observation, max_concurrent=max_concurrent)
     manager.start(mountpoints)
 
     _pipeline = pipeline
