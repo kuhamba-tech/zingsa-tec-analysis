@@ -6,6 +6,7 @@ import {
   getStations, downloadSessionRaw, getLivePipelineStatus,
 } from "@/lib/api";
 import LineChart from "@/components/charts/LineChart";
+import RinexConverterPanel from "@/components/processing/RinexConverterPanel";
 import type { TecSummaryRow, TecHourlyRow, TecPlotSeries, BiasRow, Station } from "@/lib/types";
 import type { MapLayer } from "@/components/maps/CorsMapWithLayers";
 
@@ -56,7 +57,51 @@ const PIPELINE_STAGES = [
   { icon: "↗",  label: "Slant TEC calculation",     color: "#ff8c00" },
   { icon: "⊞",  label: "Vertical TEC calculation",  color: "#168bd2" },
   { icon: "🗺️", label: "Map/table generation",      color: "#00ff88" },
-];
+] as const;
+
+const PIPELINE_EXPLANATIONS: Record<string, string> = {
+  "RINEX/CMN loading": "Reads dual-frequency observation and navigation files (RINEX .o/.n or GOP CMN format) and aligns them to a common time base for TEC computation.",
+  "Cycle slip detection": "Identifies phase jumps on L1/L2 carriers so biased STEC segments are excluded before bias correction.",
+  "Satellite bias correction": "Applies satellite differential code biases (DCBs) from CODE P1C1/P1P2 files to reduce systematic errors per PRN.",
+  "Receiver bias correction": "Estimates and removes receiver hardware delays so slant TEC can be leveled across satellites and epochs.",
+  "Slant TEC calculation": "Computes slant total electron content along each satellite ray using dual-frequency pseudorange and phase (Gopi Eqs 4.10–4.12).",
+  "Vertical TEC calculation": "Maps slant TEC to vertical TEC at the ionospheric pierce point using the thin-shell model and elevation mapping function.",
+  "Map/table generation": "Builds summary tables, PRN plots, and map overlays for the processed session — mean, max, and min VTEC by day or hour.",
+};
+
+function parseStationCodeFromFilename(name: string): string | null {
+  const rinex = /^([a-z0-9]{4})\d{3}0\.\d{2}o$/i.exec(name);
+  if (rinex) return rinex[1].toLowerCase();
+  const prefix = /^([a-z0-9]{4})/i.exec(name.replace(/^.*[\\/]/, ""));
+  return prefix ? prefix[1].toLowerCase() : null;
+}
+
+function resolveMapStations(
+  catalog: Station[],
+  biasRows: BiasRow[],
+  obsFiles: File[],
+  cmnName: string,
+): Station[] {
+  const codes = new Set<string>();
+  biasRows.forEach((r) => {
+    if (r.station) codes.add(r.station.toLowerCase());
+  });
+  if (codes.size === 0) {
+    obsFiles.forEach((f) => {
+      const code = parseStationCodeFromFilename(f.name);
+      if (code) codes.add(code);
+    });
+    if (cmnName !== "No file selected") {
+      const code = parseStationCodeFromFilename(cmnName);
+      if (code) codes.add(code);
+    }
+  }
+  if (codes.size === 0) return [];
+  const matched = catalog.filter((s) => codes.has(s.code.toLowerCase()));
+  return matched.length > 0 ? matched : catalog.filter((s) =>
+    [...codes].some((c) => s.code.toLowerCase().startsWith(c) || c.startsWith(s.code.toLowerCase())),
+  );
+}
 
 export default function ProcessingPage() {
   const [status, setStatus]     = useState<string>("");
@@ -66,7 +111,7 @@ export default function ProcessingPage() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [tecPlot, setTecPlot] = useState<TecPlotSeries | null>(null);
   const [loading, setLoading]   = useState(false);
-  const [tab, setTab]           = useState<"cmn" | "rinex">("cmn");
+  const [tab, setTab]           = useState<"cmn" | "rinex" | "converter">("cmn");
   const [mapLayer, setMapLayer] = useState<MapLayer>("Hybrid");
   const [cmnName, setCmnName]   = useState("No file selected");
   const [obsFiles, setObsFiles] = useState<File[]>([]);
@@ -105,6 +150,28 @@ export default function ProcessingPage() {
   const [biasRows, setBiasRows] = useState<BiasRow[]>([]);
   const [tecPlotRaw, setTecPlotRaw] = useState<TecPlotSeries | null>(null);
   const [processingHostNote, setProcessingHostNote] = useState<string | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [pipelineStage, setPipelineStage] = useState<string | null>(null);
+  const [mapStations, setMapStations] = useState<Station[]>([]);
+
+  useEffect(() => {
+    const applyHash = () => {
+      if (window.location.hash === "#converter") setTab("converter");
+    };
+    applyHash();
+    window.addEventListener("hashchange", applyHash);
+    return () => window.removeEventListener("hashchange", applyHash);
+  }, []);
+
+  useEffect(() => {
+    if (tab === "converter") {
+      if (window.location.hash !== "#converter") {
+        window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#converter`);
+      }
+    } else if (window.location.hash === "#converter") {
+      window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+    }
+  }, [tab]);
 
   useEffect(() => {
     getStations().then(setStationsList).catch(() => setStationsList([]));
@@ -124,6 +191,14 @@ export default function ProcessingPage() {
     classifyAndSetRinexFiles(filePool, processingMode !== "directory");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [processingMode, targetDay, targetMonth, targetYear, browseObs, browseN, browseG]);
+
+  useEffect(() => {
+    if (!sessionId) {
+      setMapStations([]);
+      return;
+    }
+    setMapStations(resolveMapStations(stationsList, biasRows, obsFiles, cmnName));
+  }, [sessionId, stationsList, biasRows, obsFiles, cmnName]);
 
   const imgLabel = {
     day: "TEC Image (24 hrs)",
@@ -417,7 +492,10 @@ export default function ProcessingPage() {
         <div className="tabs" style={{ marginBottom: "0.2rem" }}>
           <button className={`tab${tab === "cmn" ? " active" : ""}`} onClick={() => setTab("cmn")}>CMN File</button>
           <button className={`tab${tab === "rinex" ? " active" : ""}`} onClick={() => setTab("rinex")}>RINEX Files</button>
+          <button className={`tab${tab === "converter" ? " active" : ""}`} onClick={() => setTab("converter")}>RINEX Converter</button>
         </div>
+
+        {tab === "converter" && <RinexConverterPanel />}
 
         {tab === "cmn" && (
           <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
@@ -563,6 +641,8 @@ export default function ProcessingPage() {
         )}
       </div>
 
+      {tab !== "converter" && (
+      <>
       {/* Settings panel — parity with pages/2_Processing.py sidebar */}
       <div className="card" style={{ display: "flex", flexDirection: "column", gap: "0.8rem" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", borderBottom: "1px solid var(--border)", paddingBottom: "0.8rem" }}>
@@ -635,6 +715,17 @@ export default function ProcessingPage() {
           </div>
         </div>
 
+        <button
+          type="button"
+          className="btn processing-advanced-toggle"
+          onClick={() => setShowAdvanced((v) => !v)}
+          aria-expanded={showAdvanced}
+        >
+          {showAdvanced ? "▾ Hide advanced settings" : "▸ Advanced settings (DCB, Kp CSV, outputs)"}
+        </button>
+
+        {showAdvanced && (
+        <>
         <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
           <label className="metric-label">DCB folder (P1C1/P1P2 files)</label>
           <input value={dcbFolder} onChange={(e) => setDcbFolder(e.target.value)}
@@ -673,6 +764,8 @@ export default function ProcessingPage() {
             ))}
           </div>
         </div>
+        </>
+        )}
       </div>
 
       {/* Info banner */}
@@ -680,8 +773,7 @@ export default function ProcessingPage() {
         Select a {tab === "cmn" ? ".Cmn" : "RINEX observation"} file above, then click Start Process to run the VTEC computation pipeline.
       </div>
 
-      {/* Start Process button */}
-      <div>
+      <div className="processing-action-row">
         <button className="btn btn-primary" onClick={handleProcess} disabled={processDisabled}
           style={{ fontSize: "0.9rem", padding: "0.5rem 1.4rem" }}>
           {loading ? "⏳ Processing…" : "► Start Process"}
@@ -691,16 +783,22 @@ export default function ProcessingPage() {
       {status && (
         <div className={`banner ${status.startsWith("Error") ? "banner-alert" : "banner-info"}`}>{status}</div>
       )}
+      </>
+      )}
 
+      {tab !== "converter" && (
+      <>
       {/* Map section */}
       <div>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.6rem", marginBottom: "0.4rem" }}>
           <div>
             <div style={{ fontWeight: 700, fontSize: "0.9rem" }}>Zimbabwe CORS Processing Map</div>
             <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "0.15rem" }}>
-              {rows.length > 0
-                ? `${rows.length} sessions loaded.`
-                : "No stations loaded for processing. Select RINEX/CMN files to add sites."}
+              {mapStations.length > 0
+                ? `${mapStations.length} processed station(s) on map.`
+                : rows.length > 0
+                  ? `${rows.length} session(s) loaded — station not in CORS catalog.`
+                  : "No stations loaded for processing. Select RINEX/CMN files to add sites."}
             </div>
           </div>
           {/* Layer switcher */}
@@ -724,7 +822,7 @@ export default function ProcessingPage() {
 
         {/* Map with station status legend overlay */}
         <div style={{ position: "relative" }}>
-          <CorsMap stations={[]} height={420} layer={mapLayer} />
+          <CorsMap stations={mapStations} height={420} layer={mapLayer} />
           <div style={{
             position: "absolute", bottom: "12px", left: "12px",
             display: "inline-flex", flexDirection: "column", gap: "0.3rem",
@@ -753,16 +851,31 @@ export default function ProcessingPage() {
       {/* Processing Pipeline */}
       <div>
         <div style={{ fontWeight: 700, fontSize: "0.9rem", marginBottom: "0.2rem" }}>Processing Pipeline</div>
-        <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.8rem" }}>Click a card for an explanation of what the value means.</div>
+        <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.8rem" }}>Click a stage card for an explanation of that pipeline step.</div>
         <div style={{ display: "flex", gap: "0.6rem", overflowX: "auto" }}>
           {PIPELINE_STAGES.map(({ icon, label, color }, i) => (
-            <div key={label} className="card" style={{ flex: "1 1 0", minWidth: "120px", textAlign: "center", cursor: "default", borderLeft: `3px solid ${color}`, padding: "0.8rem" }}>
+            <button
+              key={label}
+              type="button"
+              className={`card processing-pipeline-card${pipelineStage === label ? " processing-pipeline-card--selected" : ""}`}
+              style={{ flex: "1 1 0", minWidth: "120px", textAlign: "center", borderLeft: `3px solid ${color}`, padding: "0.8rem" }}
+              onClick={() => setPipelineStage((s) => (s === label ? null : label))}
+              aria-pressed={pipelineStage === label}
+            >
               <div style={{ fontSize: "1.3rem", marginBottom: "0.3rem" }}>{icon}</div>
               <div style={{ fontSize: "0.75rem", fontWeight: 600, lineHeight: 1.3 }}>{label}</div>
               <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", marginTop: "0.25rem" }}>Stage {i + 1}</div>
-            </div>
+            </button>
           ))}
         </div>
+        {pipelineStage && PIPELINE_EXPLANATIONS[pipelineStage] && (
+          <div className="card processing-pipeline-explain" style={{ marginTop: "0.75rem", padding: "0.85rem 1rem" }}>
+            <div style={{ fontWeight: 700, fontSize: "0.85rem", marginBottom: "0.35rem" }}>{pipelineStage}</div>
+            <p style={{ fontSize: "0.8rem", margin: 0, lineHeight: 1.5, color: "var(--text-muted)" }}>
+              {PIPELINE_EXPLANATIONS[pipelineStage]}
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Results */}
@@ -896,6 +1009,9 @@ export default function ProcessingPage() {
             </table>
           </div>
         </>
+      )}
+
+      </>
       )}
 
     </div>

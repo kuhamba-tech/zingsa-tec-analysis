@@ -325,6 +325,79 @@ html, body {
 .tab:hover { color: var(--text); }
 .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
 
+/* ── RINEX Converter (GOP-style dialog) ── */
+.rinex-conv {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 0.75rem 1rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+.rinex-conv-titlebar {
+  font-weight: 700;
+  font-size: 0.9rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--border);
+}
+.rinex-conv-tabs { margin-bottom: 0.25rem; }
+.rinex-conv-body { display: flex; flex-direction: column; gap: 0.55rem; min-height: 280px; }
+.rinex-conv-fieldset {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.55rem 0.75rem 0.65rem;
+  margin: 0;
+}
+.rinex-conv-fieldset legend {
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0 0.35rem;
+  color: var(--text);
+}
+.rinex-conv-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 200px) 1fr;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  margin-bottom: 0.35rem;
+}
+.rinex-conv-row--disabled { opacity: 0.55; }
+.rinex-conv-label { color: var(--text-muted); }
+.rinex-conv-select,
+.rinex-conv-input,
+.rinex-conv-textarea {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.3rem 0.45rem;
+  color: var(--text);
+  font-size: 0.8rem;
+}
+.rinex-conv-textarea { resize: vertical; min-height: 2.4rem; font-family: inherit; }
+.rinex-conv-header-row { display: flex; gap: 0.35rem; align-items: stretch; }
+.rinex-conv-browse {
+  min-width: 2rem;
+  padding: 0 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+  font-weight: 700;
+}
+.rinex-conv-browse:hover:not(:disabled) { border-color: var(--accent); }
+.rinex-conv-browse:disabled { opacity: 0.45; cursor: not-allowed; }
+.rinex-conv-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid var(--border);
+}
+
 /* ── Page title ── */
 .page-title {
   font-size: clamp(2rem, 4.5vw, 3rem);
@@ -432,6 +505,100 @@ html, body {
 .home-module-desc {
   font-size: 0.8rem;
   color: var(--text-muted);
+}
+.home-getting-started {
+  margin-top: 0.2rem;
+}
+.home-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.75rem;
+}
+.home-step {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.home-step-num {
+  flex-shrink: 0;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #000;
+  font-weight: 800;
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.home-step-title {
+  font-weight: 700;
+  font-size: 0.88rem;
+  color: var(--accent);
+  text-decoration: none;
+}
+.home-step-title:hover { text-decoration: underline; }
+.home-step-desc {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin: 0.25rem 0 0;
+  line-height: 1.45;
+}
+.home-step-desc a {
+  color: var(--accent);
+  text-decoration: none;
+}
+.home-step-desc a:hover { text-decoration: underline; }
+
+/* Processing page UX */
+.processing-advanced-toggle {
+  width: fit-content;
+  font-size: 0.8rem;
+  padding: 0.35rem 0.75rem;
+  margin-top: 0.15rem;
+}
+.processing-action-row {
+  position: sticky;
+  bottom: 0;
+  z-index: 25;
+  padding: 0.65rem 0;
+  margin: -0.25rem 0 0;
+  background: linear-gradient(to top, var(--bg) 70%, transparent);
+}
+.processing-pipeline-card {
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.processing-pipeline-card:hover {
+  border-color: var(--accent);
+}
+.processing-pipeline-card--selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.processing-pipeline-explain {
+  border-left: 3px solid var(--accent);
+}
+
+.app-nav-item--sub {
+  margin-left: 0.35rem;
+  padding-left: 0.5rem;
+  border-left: 2px solid var(--border);
+}
+.app-nav-item--sub .app-nav-label {
+  font-size: 0.82rem;
 }
 
 /* Home map toolbar (single row) */

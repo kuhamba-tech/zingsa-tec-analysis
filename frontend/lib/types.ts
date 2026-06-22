@@ -258,6 +258,35 @@ export interface ProcessingOptions {
   kpCsv?: string;
 }
 
+export interface RinexConvertConfig {
+  product_type: "rinex3" | "rinex2";
+  observation_rate: "original" | "1hz" | "30s" | "15s";
+  archive_type: "none" | "gzip" | "hatanaka";
+  use_multiple_extensions: boolean;
+  include_observations: boolean;
+  include_observables: string;
+  satellite_system: string;
+  product_dynamics: "static" | "kinematic";
+  compact_rinex: boolean;
+  include_doppler: boolean;
+  include_snr: boolean;
+  include_l2c: boolean;
+  include_navigation: boolean;
+  observer: string;
+  agency: string;
+  include_meteo: boolean;
+  meteo_device_name: string;
+  meteo_manufacturer: string;
+  include_auxiliary: boolean;
+  aux_device_name: string;
+  aux_manufacturer: string;
+  general_header: string;
+  obs_header: string;
+  nav_header: string;
+  meteo_header: string;
+  aux_header: string;
+}
+
 export interface TecPlotPoint {
   x: number | null;
   y: number | null;

@@ -21,6 +21,7 @@ import type {
   PrnRow,
   ProcessingOptions,
   ProcessingSession,
+  RinexConvertConfig,
   SeasonalRow,
   SolarActivityFull,
   SolarCycleRow,
@@ -181,6 +182,30 @@ export async function uploadRinex(obs: File[], nav: File[], opts?: ProcessingOpt
   });
   if (!res.ok) throw new Error(await res.text());
   return res.json();
+}
+
+export async function convertRinex(files: File[], config: RinexConvertConfig): Promise<Blob> {
+  const fd = new FormData();
+  files.forEach((f) => fd.append("files", f));
+  fd.append("config", JSON.stringify(config));
+  const res = await fetchWithTimeout(BASE + "/processing/rinex-convert", {
+    method: "POST",
+    headers: KEY ? { "X-API-Key": KEY } : {},
+    body: fd,
+  }, 120_000);
+  if (!res.ok) {
+    const text = await res.text();
+    let msg = text;
+    try {
+      const j = JSON.parse(text) as { detail?: string | { msg?: string }[] };
+      if (typeof j.detail === "string") msg = j.detail;
+      else if (Array.isArray(j.detail)) msg = j.detail.map((d) => d.msg ?? String(d)).join("; ");
+    } catch {
+      /* use raw text */
+    }
+    throw new Error(msg || `RINEX convert failed (${res.status})`);
+  }
+  return res.blob();
 }
 
 export const getSessionSummary = (id: string, mode: "daily" | "monthly" | "yearly" = "daily") =>

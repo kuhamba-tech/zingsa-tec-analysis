@@ -159,6 +159,52 @@ async def upload_rinex(
         raise HTTPException(status_code=422, detail=str(exc))
 
 
+@router.post("/rinex-convert")
+async def rinex_convert(
+    files: list[UploadFile] = File(...),
+    config: str = Form("{}"),
+    _=Depends(require_api_key),
+):
+    """Convert MDB/raw/RINEX inputs to RINEX 3.x using GOP-style settings."""
+    import json
+    import tempfile
+
+    from zgiis.processing.rinex_converter import RinexConvertConfig, build_zip, convert_inputs
+
+    try:
+        cfg_data = json.loads(config or "{}")
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid config JSON: {exc}") from exc
+
+    cfg = RinexConvertConfig.from_dict(cfg_data)
+    if not files:
+        raise HTTPException(status_code=422, detail="Select at least one MDB or RINEX file")
+
+    sid = str(uuid.uuid4())[:8]
+    work = Path(tempfile.gettempdir()) / "zgiis_rinex_conv" / sid
+    in_dir = work / "in"
+    out_dir = work / "out"
+    in_dir.mkdir(parents=True, exist_ok=True)
+
+    saved: list[Path] = []
+    for f in files:
+        dest = in_dir / (f.filename or "input.dat")
+        dest.write_bytes(await f.read())
+        saved.append(dest)
+
+    results = convert_inputs(saved, out_dir, cfg)
+    if not any(r.ok and r.output_name for r in results):
+        detail = "; ".join(r.message for r in results) or "No files converted"
+        raise HTTPException(status_code=422, detail=detail)
+
+    payload = build_zip(out_dir, results)
+    return StreamingResponse(
+        iter([payload]),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="rinex_converted_{sid}.zip"'},
+    )
+
+
 @router.get("/{session_id}/status", response_model=ProcessingSession)
 async def session_status(session_id: str, _=Depends(require_api_key)):
     s = _get_session(session_id)

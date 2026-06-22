@@ -13,7 +13,7 @@ import Link from "next/link";
 import Image from "next/image";
 
 const MODULES = [
-  { href: "/processing",        icon: "⚙️",  title: "Processing",        desc: "Upload and process RINEX/CMN files" },
+  { href: "/processing",        icon: "⚙️",  title: "Processing",        desc: "Upload and process RINEX/CMN files — includes RINEX converter" },
   { href: "/time-series",       icon: "📈",  title: "Time Series",       desc: "VTEC trends over time" },
   { href: "/prn-explorer",      icon: "🛰️",  title: "PRN Explorer",      desc: "Per-satellite TEC analysis" },
   { href: "/tec-heatmap",       icon: "🗺️",  title: "TEC Heatmap",       desc: "Interpolated VTEC grid over Zimbabwe" },
@@ -225,6 +225,33 @@ export default function HomePage() {
         ntripProbedAt={ntripProbedAt}
         stationsLoading={stationsLoading}
       />
+
+      <section className="home-getting-started" aria-label="Getting started">
+        <h2 className="home-section-heading">Getting Started</h2>
+        <ol className="home-steps">
+          <li className="home-step">
+            <span className="home-step-num">1</span>
+            <div>
+              <Link href="/live-pipeline" className="home-step-title">View live CORS status</Link>
+              <p className="home-step-desc">Check which of the 24 Zimbabwe CORS stations are streaming on NTRIP.</p>
+            </div>
+          </li>
+          <li className="home-step">
+            <span className="home-step-num">2</span>
+            <div>
+              <Link href="/processing" className="home-step-title">Upload RINEX or CMN</Link>
+              <p className="home-step-desc">Process observation files for VTEC, or use the <Link href="/processing#converter">RINEX converter</Link> to reformat raw data.</p>
+            </div>
+          </li>
+          <li className="home-step">
+            <span className="home-step-num">3</span>
+            <div>
+              <Link href="/time-series" className="home-step-title">Explore TEC trends</Link>
+              <p className="home-step-desc">Review historical VTEC time series, heatmaps, and anomaly detection.</p>
+            </div>
+          </li>
+        </ol>
+      </section>
 
       <section className="home-modules">
         <h2 className="home-section-heading">Analysis Modules</h2>
