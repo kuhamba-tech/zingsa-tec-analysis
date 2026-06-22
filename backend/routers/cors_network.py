@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import logging
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -10,9 +11,25 @@ from backend.schemas import CorsHealthOut, StationOut, StationStatusEventOut, St
 from backend.station_status_logger import poll_and_log, status as station_log_status
 
 router = APIRouter(prefix="/cors", tags=["cors"])
+log = logging.getLogger(__name__)
 
 _STATIONS_CACHE_TTL_SEC = 45.0
 _stations_cache: dict[str, object] = {"rows": None, "ts": 0.0}
+
+
+def _merge_live_station_statuses(stations: list, live_stations: list) -> list:
+    """Overlay every live NTRIP state, not only the online state."""
+    from dataclasses import replace
+
+    live_by_code = {s.code.lower().rstrip("_"): s for s in live_stations}
+    merged = []
+    for station in stations:
+        live = live_by_code.get(station.code.lower().rstrip("_"))
+        if live is None:
+            merged.append(replace(station, status="offline", status_source="ntrip"))
+        else:
+            merged.append(replace(station, status=live.status, status_source=live.status_source))
+    return merged
 
 
 def _stations_impl(*, refresh_ntrip: bool = False) -> list:
@@ -21,7 +38,7 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
     from backend.live_manager import status as live_status, get_db
     from zgiis.api.cors_client import fetch_station_health
     from zgiis.cors.site_details import enrich_station, enrich_station_from_probe
-    from zgiis.cors.stations import stations_for_map, stations_for_map_live
+    from zgiis.cors.stations import derive_status_from_stream, stations_for_map, stations_for_map_live
     from zgiis.live.ntrip_status_cache import get_cached_ntrip_probe, probe_rows_by_station
 
     try:
@@ -34,20 +51,14 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
     live_streams: dict = {}
     pipeline_configured = False
     try:
-        live = stations_for_map_live()
-        live_by_code = {s.code.lower(): s for s in live}
         mgr = live_status()
-        pipeline_configured = bool(mgr.get("configured"))
         live_streams = mgr.get("streams") or {}
+        pipeline_configured = bool(mgr.get("configured") or live_streams)
         if pipeline_configured:
-            stations = [
-                replace(s, status="online", status_source="ntrip")
-                if live_by_code.get(s.code.lower()) and live_by_code[s.code.lower()].status == "online"
-                else s
-                for s in stations
-            ]
+            live = stations_for_map_live(live_streams)
+            stations = _merge_live_station_statuses(stations, live)
     except Exception:
-        pass
+        log.exception("Failed to merge live NTRIP station states")
 
     probe_payload = None
     probe_by: dict = {}
@@ -71,6 +82,8 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
         code = station.code.lower()
         stream = live_streams.get(code) if live_streams else None
         s = enrich_station(station, stream=stream)
+        if pipeline_configured:
+            s = replace(s, status=derive_status_from_stream(stream), status_source="ntrip")
         if code in probe_by:
             s = enrich_station_from_probe(s, probe_by[code], probed_at=probed_at or None)
         elif df is not None and not df.empty and "station" in df.columns:
@@ -79,7 +92,7 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
             if code in latest.index:
                 current_tec = float(means.get(code, 0.0) or 0.0)
                 s = replace(s, status="online", status_source="ntrip", current_tec=round(current_tec, 2))
-                s = enrich_station(station, stream=stream)
+                s = enrich_station(s, stream=stream)
         merged.append(s)
     return merged
 
