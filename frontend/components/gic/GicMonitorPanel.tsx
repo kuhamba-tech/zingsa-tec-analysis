@@ -24,7 +24,7 @@ const RANGES: { label: string; hours: number; resample?: string }[] = [
   { label: "1 h", hours: 1 },
   { label: "24 h", hours: 24 },
   { label: "7 d", hours: 168, resample: "10min" },
-  { label: "30 d", hours: 720, resample: "1h" },
+  { label: "1 m", hours: 720, resample: "1h" },
   { label: "1 yr", hours: 8760, resample: "6h" },
 ];
 

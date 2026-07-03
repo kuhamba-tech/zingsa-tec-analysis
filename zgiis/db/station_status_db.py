@@ -270,6 +270,25 @@ class StationStatusDB:
             return pd.read_sql(sql, self._conn, params=params)
         return pd.read_sql_query(sql, self._conn, params=params)
 
+    def latest_snapshots(self, hours: float = 1.0) -> dict[str, dict[str, Any]]:
+        """Latest archived live status for each station within the freshness window."""
+        df = self.query_snapshots(hours=hours)
+        if df.empty or "station_code" not in df.columns:
+            return {}
+        latest = df.sort_values("time").groupby("station_code").tail(1)
+        out: dict[str, dict[str, Any]] = {}
+        for _, row in latest.iterrows():
+            code = str(row.get("station_code") or "").lower().rstrip("_")
+            status = str(row.get("status") or "").lower()
+            if code and status in VALID_STATUSES:
+                out[code] = {
+                    "time": str(row.get("time") or ""),
+                    "status": status,
+                    "api_reachable": bool(row.get("api_reachable", True)),
+                    "source": str(row.get("source") or "station_status_archive"),
+                }
+        return out
+
     def uptime_summary(self, hours: float = 168.0) -> list[dict[str, Any]]:
         """Fraction of snapshots in each status per station (all registered CORS sites)."""
         from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS

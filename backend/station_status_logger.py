@@ -139,6 +139,18 @@ def poll_and_log(*, source: str = "scheduler", force: bool = False) -> dict[str,
     if not force and _last_poll_at is not None and (now - _last_poll_at) < _MIN_POLL_GAP_SEC:
         return {"skipped": True}
 
+    try:
+        from backend import live_manager
+
+        pipeline_status = live_manager.status()
+        if not (pipeline_status.get("configured") or pipeline_status.get("active_streams")):
+            return {
+                "skipped": True,
+                "reason": "live pipeline is not configured in this process",
+            }
+    except Exception:
+        return {"skipped": True, "reason": "live pipeline status unavailable"}
+
     _last_poll_at = now
 
     current = _status_from_live()

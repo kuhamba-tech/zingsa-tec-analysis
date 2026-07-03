@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import logging
+import os
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -17,6 +18,24 @@ _STATIONS_CACHE_TTL_SEC = 45.0
 _stations_cache: dict[str, object] = {"rows": None, "ts": 0.0}
 
 
+def _live_pipeline_can_poll() -> bool:
+    try:
+        from backend.live_manager import status as live_status
+
+        s = live_status()
+        return bool(s.get("configured") or s.get("active_streams"))
+    except Exception:
+        return False
+
+
+def _archive_freshness_hours() -> float:
+    raw = os.getenv("LIVE_STATUS_ARCHIVE_HOURS", "1").strip()
+    try:
+        return max(0.05, float(raw))
+    except ValueError:
+        return 1.0
+
+
 def _merge_live_station_statuses(stations: list, live_stations: list) -> list:
     """Overlay every live NTRIP state, not only the online state."""
     from dataclasses import replace
@@ -30,6 +49,48 @@ def _merge_live_station_statuses(stations: list, live_stations: list) -> list:
         else:
             merged.append(replace(station, status=live.status, status_source=live.status_source))
     return merged
+
+
+def _merge_archived_live_statuses(stations: list) -> tuple[list, bool]:
+    """Overlay recent live-collector snapshots from the shared status DB.
+
+    This is the production path for Vercel: the always-on collector writes
+    snapshots from a persistent process, while serverless functions only read.
+    """
+    from dataclasses import replace
+
+    from zgiis.cors.site_details import enrich_station, vendor_status_label
+    from zgiis.db.station_status_db import StationStatusDB
+
+    try:
+        latest = StationStatusDB().latest_snapshots(hours=_archive_freshness_hours())
+    except Exception:
+        log.exception("Failed to read archived live station snapshots")
+        return stations, False
+
+    if not latest:
+        return stations, False
+
+    merged = []
+    applied = False
+    for station in stations:
+        code = station.code.lower().rstrip("_")
+        row = latest.get(code)
+        if not row or row["status"] == "unknown":
+            merged.append(station)
+            continue
+        status = row["status"]
+        updated = str(row.get("time") or "").replace("T", " ").replace("+00:00", " UTC")[:22]
+        s = replace(
+            station,
+            status=status,
+            status_source="ntrip",
+            last_update=updated,
+            site_status_label=vendor_status_label(status),
+        )
+        merged.append(enrich_station(s))
+        applied = True
+    return merged, applied
 
 
 def _stations_impl(*, refresh_ntrip: bool = False) -> list:
@@ -60,9 +121,13 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
     except Exception:
         log.exception("Failed to merge live NTRIP station states")
 
+    archive_applied = False
+    if not pipeline_configured:
+        stations, archive_applied = _merge_archived_live_statuses(stations)
+
     probe_payload = None
     probe_by: dict = {}
-    if not pipeline_configured:
+    if not pipeline_configured and not archive_applied:
         try:
             probe_payload = get_cached_ntrip_probe(refresh=refresh_ntrip, listen_sec=4.0)
             if not probe_payload.get("error"):
@@ -143,7 +208,8 @@ async def stations(
     refresh_ntrip: bool = Query(False),
     _=Depends(require_api_key),
 ):
-    poll_and_log(source="cors_stations", force=False)
+    if _live_pipeline_can_poll():
+        poll_and_log(source="cors_stations", force=False)
     return [_station_out(s) for s in _stations(refresh_ntrip=refresh_ntrip)]
 
 
