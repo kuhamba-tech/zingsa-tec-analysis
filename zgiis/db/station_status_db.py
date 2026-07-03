@@ -21,7 +21,12 @@ import pandas as pd
 
 log = logging.getLogger(__name__)
 
-_TSDB_DSN = os.getenv("TSDB_DSN", "")
+_TSDB_DSN = (
+    os.getenv("TSDB_DSN")
+    or os.getenv("POSTGRES_URL")
+    or os.getenv("DATABASE_URL")
+    or ""
+)
 _SQLITE_PATH = Path(__file__).resolve().parents[2] / "static" / "data" / "station_status.sqlite"
 
 VALID_STATUSES = frozenset({"online", "degraded", "offline", "unknown"})
@@ -126,11 +131,16 @@ class StationStatusDB:
             with self._conn.cursor() as cur:
                 cur.execute(_PG_EVENTS_DDL)
                 cur.execute(_PG_SNAPSHOTS_DDL)
-                for stmt in (_PG_EVENTS_HYPER, _PG_SNAPSHOTS_HYPER):
-                    try:
+            self._conn.commit()
+            for stmt in (_PG_EVENTS_HYPER, _PG_SNAPSHOTS_HYPER):
+                try:
+                    with self._conn.cursor() as cur:
                         cur.execute(stmt)
-                    except Exception:
-                        pass
+                    self._conn.commit()
+                except Exception as exc:
+                    self._conn.rollback()
+                    log.warning("Station status hypertable setup skipped: %s", exc)
+            with self._conn.cursor() as cur:
                 cur.execute(_PG_IDX)
             self._conn.commit()
         except Exception as exc:

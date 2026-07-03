@@ -6,6 +6,7 @@ import StormWatchLog from "@/components/spaceWeather/StormWatchLog";
 import { DashboardHeaderClocks } from "@/components/dashboard/DashboardClocks";
 import GicLiveTimelinePanel from "@/components/dashboard/GicLiveTimelinePanel";
 import SpaceWeatherReportsPanel from "@/components/dashboard/SpaceWeatherReportsPanel";
+import StormWarningAlarm from "@/components/dashboard/StormWarningAlarm";
 import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
 import Link from "next/link";
 import LineChart from "@/components/charts/LineChart";
@@ -292,11 +293,7 @@ export default function DashboardPage() {
 
       {freshnessMsg && <div className="banner banner-warn">{freshnessMsg}</div>}
 
-      {ekf?.banner && (
-        <div className="banner banner-alert" style={{ fontWeight: 600 }}>
-          {ekf.banner}
-        </div>
-      )}
+      <StormWarningAlarm ekf={ekf} sw={sw} />
 
       <p style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
         Operational snapshot of every index — for solar flare, CME, and NOAA alert detail see <Link href="/space-weather">Space Weather Monitoring</Link>.

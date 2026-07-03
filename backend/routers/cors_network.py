@@ -5,7 +5,7 @@ import logging
 import os
 import time
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
 from backend.deps import require_api_key
 from backend.schemas import CorsHealthOut, StationOut, StationStatusEventOut, StationStatusLogStatus, StationUptimeRow
@@ -223,7 +223,8 @@ async def station_detail(code: str, _=Depends(require_api_key)):
 
 @router.get("/health", response_model=CorsHealthOut)
 async def health(_=Depends(require_api_key)):
-    poll_and_log(source="cors_health", force=False)
+    if _live_pipeline_can_poll():
+        poll_and_log(source="cors_health", force=False)
     all_s = _stations()
     online = sum(1 for s in all_s if s.status == "online")
     degraded = sum(1 for s in all_s if s.status == "degraded")
@@ -277,6 +278,42 @@ async def status_events(
             )
         )
     return rows
+
+
+@router.post("/status/snapshots")
+async def ingest_status_snapshots(
+    payload: dict = Body(...),
+    _=Depends(require_api_key),
+):
+    from datetime import datetime, timezone
+
+    from zgiis.db.station_status_db import StationStatusDB, VALID_STATUSES
+
+    rows_in = payload.get("snapshots") if isinstance(payload, dict) else None
+    if not isinstance(rows_in, list):
+        raise HTTPException(status_code=400, detail="snapshots must be a list")
+
+    now = datetime.now(tz=timezone.utc).replace(microsecond=0).isoformat()
+    rows = []
+    for item in rows_in[:100]:
+        if not isinstance(item, dict):
+            continue
+        code = str(item.get("station_code") or item.get("code") or "").lower().rstrip("_")
+        status = str(item.get("status") or "").lower()
+        if not code or status not in VALID_STATUSES:
+            continue
+        rows.append(
+            {
+                "time": str(item.get("time") or now),
+                "station_code": code,
+                "status": status,
+                "api_reachable": bool(item.get("api_reachable", True)),
+                "source": str(item.get("source") or "status_snapshot_push"),
+            }
+        )
+
+    inserted = StationStatusDB().insert_snapshots(rows)
+    return {"inserted": inserted}
 
 
 @router.get("/status/uptime", response_model=list[StationUptimeRow])

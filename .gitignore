@@ -20,6 +20,7 @@ secrets.toml
 static/data/*.db
 static/data/*.sqlite
 static/data/*.sqlite3
+static/data/storm_notify_state.json
 
 # Cache / tools
 .pytest_cache/

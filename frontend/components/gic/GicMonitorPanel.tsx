@@ -552,28 +552,6 @@ export default function GicMonitorPanel() {
           </div>
       </div>
 
-      {/* ── Methodology ── */}
-      <div className="card">
-        <div className="operations-chart-title">Scientific Basis</div>
-        <ul style={{ fontSize: "0.78rem", lineHeight: 1.7, color: "var(--text-muted)", paddingLeft: "1.2rem", margin: 0 }}>
-          <li>
-            Muchini et al. — characterisation of geomagnetically induced currents in the Zimbabwean
-            power grid (ZINGSA/ZETDC/University of Zimbabwe measurement programme; Scientific African, 2026).
-          </li>
-          <li>
-            EPRI SUNBURST network occurrence study (Space Weather, 2023) — transformer-neutral GIC
-            monitoring practice and the ≥10 A large-event criterion.
-          </li>
-          <li>
-            Gannon storm May-2024 transformer response (Space Weather, 2024) — even-order harmonics
-            from half-cycle core saturation at 25–35 A and reactive-power increase (~0.026–0.038 MVAr/A) above ~30 A.
-          </li>
-          <li>
-            Matandirotya et al. (Space Weather, 2016) — differential magnetometer method validation of
-            GIC measurement in Southern African power networks.
-          </li>
-        </ul>
-      </div>
     </div>
   );
 }

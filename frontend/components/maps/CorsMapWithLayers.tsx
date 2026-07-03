@@ -38,7 +38,7 @@ export default function CorsMapWithLayers({
     ? "NTRIP probe running…"
     : ntripProbedAt || stations.length > 0
       ? `Online ${liveCounts.online} · Degraded ${liveCounts.degraded} · Offline ${liveCounts.offline} · Unavailable ${liveCounts.unavailable}`
-      : "Live stream status unavailable";
+      : "Live stream status";
 
   return (
     <div>

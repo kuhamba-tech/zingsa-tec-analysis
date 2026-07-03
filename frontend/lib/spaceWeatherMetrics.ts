@@ -94,7 +94,7 @@ export function buildMetricCards(
 
   const stationsNote = liveCounts
     ? `Online ${liveCounts.online} · Degraded ${liveCounts.degraded} · Offline ${liveCounts.offline} · Unavailable ${liveCounts.unavailable}`
-    : "Live stream status unavailable";
+    : "Live stream status";
 
   return [
     {

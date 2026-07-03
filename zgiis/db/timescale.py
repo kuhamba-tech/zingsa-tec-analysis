@@ -21,7 +21,12 @@ import pandas as pd
 
 log = logging.getLogger(__name__)
 
-_TSDB_DSN   = os.getenv("TSDB_DSN", "")
+_TSDB_DSN = (
+    os.getenv("TSDB_DSN")
+    or os.getenv("POSTGRES_URL")
+    or os.getenv("DATABASE_URL")
+    or ""
+)
 _SQLITE_PATH = Path(__file__).resolve().parents[2] / "static" / "data" / "vtec_live.db"
 
 # ── TimescaleDB schema ────────────────────────────────────────────────────────

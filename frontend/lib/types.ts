@@ -67,6 +67,19 @@ export interface EkfStatus {
   series: Record<string, EkfSeries>;
   alerts: EkfAlert[];
   banner: string | null;
+  active_alert_count?: number;
+  kp_storm_level?: string | null;
+  notification_channels?: Record<string, boolean>;
+}
+
+export interface StormAlertStatus {
+  active: boolean;
+  active_count: number;
+  banner: string | null;
+  kp_storm_level: string | null;
+  ekf_alert_count: number;
+  notification_channels: Record<string, boolean>;
+  dry_run: boolean;
 }
 
 export interface SpaceWeatherHistoryRow {

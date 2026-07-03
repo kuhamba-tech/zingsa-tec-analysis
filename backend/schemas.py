@@ -200,9 +200,25 @@ class EkfStatusOut(BaseModel):
     series: dict[str, EkfSeriesOut] = {}
     alerts: list[EkfAlertOut] = []
     banner: str | None = None
+    active_alert_count: int = 0
+    kp_storm_level: str | None = None
+    notification_channels: dict[str, bool] = {}
 
 
-# ── CORS Network ───────────────────────────────────────────────────────────────
+class StormAlertDispatchResult(BaseModel):
+    channel: str
+    ok: bool
+    detail: str = ""
+
+
+class StormAlertStatus(BaseModel):
+    active: bool
+    active_count: int = 0
+    banner: str | None = None
+    kp_storm_level: str | None = None
+    ekf_alert_count: int = 0
+    notification_channels: dict[str, bool] = {}
+    dry_run: bool = True
 
 class StationOut(BaseModel):
     code: str

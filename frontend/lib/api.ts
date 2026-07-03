@@ -42,6 +42,7 @@ import type {
   SpaceWeatherReport,
   SpaceWeatherReportPeriod,
   SpaceWeatherTimelines,
+  StormAlertStatus,
   Station,
   StationLiveStatus,
   StationStatusEvent,
@@ -127,6 +128,7 @@ export const getSpaceWeatherCorrelations = (hours = 168, resample = "1h") =>
 export const getSpaceWeatherReport = (period: SpaceWeatherReportPeriod = "hourly") =>
   get<SpaceWeatherReport>("/space-weather/report", { period, _ts: Date.now() });
 export const getEkfStatus = () => getWithRetry<EkfStatus>("/space-weather/ekf", { _ts: Date.now() });
+export const getStormAlertStatus = () => get<StormAlertStatus>("/space-weather/storm-alerts/status");
 export const getEkfAlertLog = (hours = 24) => get<EkfAlert[]>("/space-weather/ekf/alerts", { hours });
 export const ackEkfAlert = (alertId: string) =>
   fetch(BASE + `/space-weather/ekf/alerts/${alertId}/ack`, {
