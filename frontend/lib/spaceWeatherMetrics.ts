@@ -1,5 +1,6 @@
 import type { SpaceWeatherCurrent } from "./types";
 import type { LiveStationCounts } from "./liveStationStatus";
+import { kpConditionFromValue } from "./homeSpaceWeather";
 
 export type MetricKey =
   | "kp"
@@ -280,4 +281,39 @@ export function interpretMetric(sw: SpaceWeatherCurrent | null, key: MetricKey):
         return `${online} of ${total} stations are online (${availability.toFixed(0)}%), indicating ${availLevel}.`;
       }
   }
+}
+
+/** Short geomagnetic / ionospheric condition label for chart point tooltips. */
+export function kpGeomagneticCondition(kp: number | null | undefined): string | null {
+  if (kp == null || !Number.isFinite(kp)) return null;
+  return kpConditionFromValue(kp).label;
+}
+
+export function dstGeomagneticCondition(dst: number | null | undefined): string | null {
+  if (dst == null || !Number.isFinite(dst)) return null;
+  if (dst > -20) return "Quiet";
+  if (dst > -50) return "Weak disturbance";
+  if (dst > -100) return "Moderate storm";
+  if (dst > -200) return "Intense storm";
+  if (dst > -350) return "Severe storm";
+  return "Super storm";
+}
+
+export function tecIonosphericCondition(tec: number | null | undefined): string | null {
+  if (tec == null || !Number.isFinite(tec)) return null;
+  if (tec < 10) return "Very low";
+  if (tec < 25) return "Low";
+  if (tec < 40) return "Moderate";
+  if (tec < 60) return "Elevated";
+  if (tec < 100) return "High";
+  return "Severe storm level";
+}
+
+export function conditionsForSeries(
+  values: (number | null)[],
+  kind: "kp" | "dst" | "tec",
+): (string | null)[] {
+  const fn =
+    kind === "kp" ? kpGeomagneticCondition : kind === "dst" ? dstGeomagneticCondition : tecIonosphericCondition;
+  return values.map((v) => fn(v));
 }

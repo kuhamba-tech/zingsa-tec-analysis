@@ -45,6 +45,9 @@ interface Props {
   thresholds?: ThresholdLine[];
   highlightDates?: string[];
   tooltipDetails?: (string | null)[];
+  tooltipDetailLabel?: string;
+  /** Smaller charts — larger points and nearest-point hover for report mini charts. */
+  compact?: boolean;
 }
 
 export default function LineChart({
@@ -56,6 +59,8 @@ export default function LineChart({
   thresholds,
   highlightDates,
   tooltipDetails,
+  tooltipDetailLabel = "Geomagnetic condition",
+  compact = false,
 }: Props) {
   const COLORS = ["#168bd2", "#ff8c00", "#00ff88", "#ff4444", "#a78bfa", "#34d399"];
 
@@ -127,7 +132,8 @@ export default function LineChart({
             fill: ds.fill ?? false,
             borderWidth: 2,
             borderDash: ds.dashed ? [6, 4] : undefined,
-            pointRadius: labels.length > 200 ? 0 : 2,
+            pointRadius: compact ? 4 : labels.length > 200 ? 0 : 2,
+            pointHoverRadius: compact ? 7 : 4,
             tension: 0.3,
             spanGaps: true,
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -137,16 +143,23 @@ export default function LineChart({
         options={{
           responsive: true,
           maintainAspectRatio: false,
+          interaction: {
+            mode: compact ? "nearest" : "index",
+            intersect: compact,
+            axis: "x",
+          },
           plugins: {
             legend: { labels: { color: "#fff", boxWidth: 12 } },
             tooltip: {
-              mode: "index",
-              intersect: false,
+              mode: compact ? "nearest" : "index",
+              intersect: compact,
               callbacks: {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 label: (ctx: any) => {
                   const val = ctx.parsed.y;
                   let line = `${ctx.dataset.label}: ${val ?? "N/A"}`;
+                  const detail = tooltipDetails?.[ctx.dataIndex];
+                  if (detail) line += ` — ${detail}`;
                   const meta = ctx.dataset.meta?.[ctx.dataIndex];
                   if (meta) {
                     if (meta.error != null) line += ` · error ${meta.error.toFixed(2)}`;
@@ -154,13 +167,12 @@ export default function LineChart({
                   }
                   return line;
                 },
-                // Show one shared classification for the hovered date, rather than
-                // repeating it once for every dataset in an index-mode tooltip.
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 afterBody: (items: any[]) => {
+                  if (compact) return [];
                   const index = items[0]?.dataIndex;
                   const detail = index === undefined ? null : tooltipDetails?.[index];
-                  return detail ? [`Geomagnetic condition: ${detail}`] : [];
+                  return detail ? [`${tooltipDetailLabel}: ${detail}`] : [];
                 },
               },
             },

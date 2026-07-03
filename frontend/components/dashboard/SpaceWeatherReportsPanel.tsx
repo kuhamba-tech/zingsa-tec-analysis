@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import LineChart from "@/components/charts/LineChart";
 import { getSpaceWeatherReport } from "@/lib/api";
+import { conditionsForSeries } from "@/lib/spaceWeatherMetrics";
 import type { SpaceWeatherReport, SpaceWeatherReportPeriod } from "@/lib/types";
 
 const PERIODS: { id: SpaceWeatherReportPeriod; label: string }[] = [
@@ -47,19 +48,46 @@ export default function SpaceWeatherReportsPanel() {
   const chartsBlock = useMemo(() => {
     if (!report?.charts.labels.length) return null;
     const { labels, kp, dst, tec } = report.charts;
+    const kpConditions = conditionsForSeries(kp, "kp");
+    const dstConditions = conditionsForSeries(dst, "dst");
+    const tecConditions = conditionsForSeries(tec, "tec");
     return (
       <div className="sw-report-charts">
         <div className="sw-report-mini-chart">
           <div className="sw-report-mini-title">Kp Index</div>
-          <LineChart labels={labels} datasets={[{ label: "Kp", data: kp, color: "#a78bfa" }]} yLabel="Kp" height={120} />
+          <LineChart
+            labels={labels}
+            datasets={[{ label: "Kp", data: kp, color: "#a78bfa" }]}
+            yLabel="Kp"
+            height={120}
+            tooltipDetails={kpConditions}
+            tooltipDetailLabel="Geomagnetic condition"
+            compact
+          />
         </div>
         <div className="sw-report-mini-chart">
           <div className="sw-report-mini-title">Dst Index (nT)</div>
-          <LineChart labels={labels} datasets={[{ label: "Dst", data: dst, color: "#168bd2" }]} yLabel="nT" height={120} />
+          <LineChart
+            labels={labels}
+            datasets={[{ label: "Dst", data: dst, color: "#168bd2" }]}
+            yLabel="nT"
+            height={120}
+            tooltipDetails={dstConditions}
+            tooltipDetailLabel="Geomagnetic condition"
+            compact
+          />
         </div>
         <div className="sw-report-mini-chart">
           <div className="sw-report-mini-title">TEC (TECU)</div>
-          <LineChart labels={labels} datasets={[{ label: "TEC", data: tec, color: "#00ff88" }]} yLabel="TECU" height={120} />
+          <LineChart
+            labels={labels}
+            datasets={[{ label: "TEC", data: tec, color: "#00ff88" }]}
+            yLabel="TECU"
+            height={120}
+            tooltipDetails={tecConditions}
+            tooltipDetailLabel="Ionospheric condition"
+            compact
+          />
         </div>
       </div>
     );
