@@ -29,6 +29,7 @@ PARAM_LABELS: dict[str, str] = {
     "s4": "Scintillation S4",
     "gnss_risk": "GNSS Risk Score",
     "stations_online": "CORS Stations Online",
+    "gic": "GIC (Transformer Neutral Current)",
 }
 
 # Minimum number of prior errors needed before a threshold is meaningful.

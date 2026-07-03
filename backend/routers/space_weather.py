@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from backend.deps import require_api_key
 from backend.schemas import (
@@ -18,6 +18,7 @@ from backend.schemas import (
     SpaceWeatherHistoryResponse,
     SpaceWeatherHistoryRow,
     SpaceWeatherLogStatus,
+    SpaceWeatherReportResponse,
     SpaceWeatherTimelines,
     TimelinePoint,
 )
@@ -250,6 +251,28 @@ async def history(
         count=len(rows),
         rows=rows,
     )
+
+
+@router.get("/report", response_model=SpaceWeatherReportResponse)
+async def space_weather_report(
+    period: str = "hourly",
+    _=Depends(require_api_key),
+):
+    from zgiis.space_weather.report_builder import REPORT_WINDOWS, build_space_weather_report
+
+    if period not in REPORT_WINDOWS:
+        raise HTTPException(status_code=422, detail=f"Invalid period. Choose from: {', '.join(REPORT_WINDOWS)}")
+
+    hours = REPORT_WINDOWS[period]["hours"]
+    uptime_rows: list[dict] = []
+    try:
+        from zgiis.db.station_status_db import StationStatusDB
+        uptime_rows = StationStatusDB().uptime_summary(hours=hours)
+    except Exception:
+        pass
+
+    payload = build_space_weather_report(period, uptime_rows=uptime_rows)
+    return SpaceWeatherReportResponse(**payload)
 
 
 @router.get("/correlations", response_model=SpaceWeatherCorrelationResponse)

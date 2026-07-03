@@ -12,10 +12,20 @@ import type {
   EkfStatus,
   ForecastPoint,
   ForecastStatus,
+  GicLiveModel,
+  GicNetwork,
+  GicReport,
+  GicReportPeriod,
+  GicSeriesResponse,
+  GicStatusResponse,
+  GicUploadResult,
+  GfzKpAnalysisResponse,
+  IntermagnetAnalysisResponse,
   LiveObservation,
   LivePipelineStatus,
   NavigationNewsBriefApi,
   NavigationNewsBundleApi,
+  NavigationNewsScheduleApi,
   NtripProbeResponse,
   OmniAnalysisResponse,
   PrnRow,
@@ -29,6 +39,8 @@ import type {
   SpaceWeatherCorrelationResponse,
   SpaceWeatherHistoryResponse,
   SpaceWeatherLogStatus,
+  SpaceWeatherReport,
+  SpaceWeatherReportPeriod,
   SpaceWeatherTimelines,
   Station,
   StationLiveStatus,
@@ -112,6 +124,8 @@ export const getSpaceWeatherHistory = (hours = 168, resample?: string) =>
   get<SpaceWeatherHistoryResponse>("/space-weather/history", { hours, resample });
 export const getSpaceWeatherCorrelations = (hours = 168, resample = "1h") =>
   get<SpaceWeatherCorrelationResponse>("/space-weather/correlations", { hours, resample });
+export const getSpaceWeatherReport = (period: SpaceWeatherReportPeriod = "hourly") =>
+  get<SpaceWeatherReport>("/space-weather/report", { period, _ts: Date.now() });
 export const getEkfStatus = () => getWithRetry<EkfStatus>("/space-weather/ekf", { _ts: Date.now() });
 export const getEkfAlertLog = (hours = 24) => get<EkfAlert[]>("/space-weather/ekf/alerts", { hours });
 export const ackEkfAlert = (alertId: string) =>
@@ -121,17 +135,26 @@ export const ackEkfAlert = (alertId: string) =>
   });
 
 // ── Navigation News (broadcast agent) ───────────────────────────────────────────
-export const getNavigationNews = (audience?: AudienceId, refreshNtrip = false) =>
+export const getNavigationNews = (
+  audience?: AudienceId,
+  refreshNtrip = false,
+  force = false,
+) =>
   getWithRetry<NavigationNewsBundleApi>("/navigation-news", {
     _ts: Date.now(),
     ...(audience ? { audience } : {}),
     ...(refreshNtrip ? { refresh_ntrip: "true" } : {}),
+    ...(force ? { force: "true" } : {}),
   });
 
-export const getNavigationNewsBrief = (audience: AudienceId, refreshNtrip = false) =>
+export const getNavigationNewsSchedule = () =>
+  getWithRetry<NavigationNewsScheduleApi>("/navigation-news/schedule", { _ts: Date.now() });
+
+export const getNavigationNewsBrief = (audience: AudienceId, refreshNtrip = false, force = false) =>
   getWithRetry<NavigationNewsBriefApi>(`/navigation-news/briefs/${audience}`, {
     _ts: Date.now(),
     ...(refreshNtrip ? { refresh_ntrip: "true" } : {}),
+    ...(force ? { force: "true" } : {}),
   });
 
 // ── CORS Network ──────────────────────────────────────────────────────────────
@@ -239,6 +262,10 @@ export const getOmniAnalysis = (start: string, end: string, station?: string) =>
   get<OmniAnalysisResponse>("/tec/omni-analysis", { start, end, station, _ts: Date.now() });
 export const getCelestrakAnalysis = (start: string, end: string, station?: string) =>
   get<CelestrakAnalysisResponse>("/tec/celestrak-analysis", { start, end, station, _ts: Date.now() });
+export const getGfzKpAnalysis = (start: string, end: string, station?: string) =>
+  get<GfzKpAnalysisResponse>("/tec/gfz-kp-analysis", { start, end, station, _ts: Date.now() });
+export const getIntermagnetAnalysis = (start: string, end: string, observatory: string, station?: string) =>
+  get<IntermagnetAnalysisResponse>("/tec/intermagnet-analysis", { start, end, observatory, station, _ts: Date.now() });
 export const getPrn = (constellation?: string) => get<PrnRow[]>("/tec/prn", { constellation });
 
 // ── Live ──────────────────────────────────────────────────────────────────────
@@ -281,3 +308,46 @@ export const getVtecTheory = () => get<VtecTheoryPayload>("/theory/vtec");
 // ── Chat ──────────────────────────────────────────────────────────────────────
 export const sendChat = (messages: ChatMessage[], api_key?: string) =>
   post<ChatResponse>("/chat", { messages, api_key });
+
+// ── GIC Monitor ───────────────────────────────────────────────────────────────
+export const getGicNetwork = () => get<GicNetwork>("/gic/network");
+export const getGicStatus = () => get<GicStatusResponse>("/gic/status", { _ts: Date.now() });
+export const getGicSeries = (station_id: string, hours = 24, resample?: string) =>
+  get<GicSeriesResponse>("/gic/series", { station_id, hours, resample, _ts: Date.now() });
+export const getGicReport = (station_id: string, period: GicReportPeriod) =>
+  get<GicReport>("/gic/report", { station_id, period, _ts: Date.now() });
+export const getGicLiveModel = (hours = 24) =>
+  get<GicLiveModel>("/gic/live-model", { hours, _ts: Date.now() });
+
+export async function uploadGicFile(file: File, stationId: string): Promise<GicUploadResult> {
+  const fd = new FormData();
+  fd.append("file", file);
+  fd.append("station_id", stationId);
+  const res = await fetch(BASE + "/gic/upload", {
+    method: "POST",
+    headers: KEY ? { "X-API-Key": KEY } : {},
+    body: fd,
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    let msg = text;
+    try {
+      const j = JSON.parse(text) as { detail?: string };
+      if (typeof j.detail === "string") msg = j.detail;
+    } catch {
+      /* use raw text */
+    }
+    throw new Error(msg || `GIC upload failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function downloadGicReportCsv(station_id: string, period: GicReportPeriod): Promise<Blob> {
+  const url = new URL(BASE + "/gic/report");
+  url.searchParams.set("station_id", station_id);
+  url.searchParams.set("period", period);
+  url.searchParams.set("format", "csv");
+  const res = await fetchWithTimeout(url.toString(), { headers: KEY ? { "X-API-Key": KEY } : {} });
+  if (!res.ok) throw new Error(`API /gic/report → ${res.status}`);
+  return res.blob();
+}

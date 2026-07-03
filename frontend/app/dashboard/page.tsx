@@ -1,14 +1,16 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
-import { getSpaceWeather, getTimelines, refreshSpaceWeather, getSpaceWeatherLogStatus, getSpaceWeatherCorrelations, getStationStatusLog, getStationStatusEvents, getStationUptime, getEkfStatus } from "@/lib/api";
+import { getSpaceWeather, getTimelines, refreshSpaceWeather, getSpaceWeatherLogStatus, getStationStatusLog, getStationStatusEvents, getStationUptime, getEkfStatus } from "@/lib/api";
 import ClickableMetricGrid from "@/components/spaceWeather/ClickableMetricGrid";
 import StormWatchLog from "@/components/spaceWeather/StormWatchLog";
 import { DashboardHeaderClocks } from "@/components/dashboard/DashboardClocks";
+import GicLiveTimelinePanel from "@/components/dashboard/GicLiveTimelinePanel";
+import SpaceWeatherReportsPanel from "@/components/dashboard/SpaceWeatherReportsPanel";
 import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
 import Link from "next/link";
 import LineChart from "@/components/charts/LineChart";
 import StationStatusBarChart from "@/components/charts/StationStatusBarChart";
-import type { SpaceWeatherCurrent, SpaceWeatherTimelines, TimelinePoint, SpaceWeatherLogStatus, SpaceWeatherCorrelationResponse, StationStatusLogStatus, StationStatusEvent, StationUptimeRow, EkfStatus, EkfPoint } from "@/lib/types";
+import type { SpaceWeatherCurrent, SpaceWeatherTimelines, TimelinePoint, SpaceWeatherLogStatus, StationStatusLogStatus, StationStatusEvent, StationUptimeRow, EkfStatus, EkfPoint } from "@/lib/types";
 
 function alignEkfToPoints(points: TimelinePoint[], ekfPoints: EkfPoint[] | undefined) {
   const byT = new Map<string, EkfPoint>();
@@ -202,7 +204,6 @@ export default function DashboardPage() {
   const [apiStatus, setApiStatus] = useState<"Live" | "Offline">("Live");
   const [feedStatus, setFeedStatus] = useState<FeedStatus>("pending");
   const [logStatus, setLogStatus] = useState<SpaceWeatherLogStatus | null>(null);
-  const [correlations, setCorrelations] = useState<SpaceWeatherCorrelationResponse | null>(null);
   const [stationLog, setStationLog] = useState<StationStatusLogStatus | null>(null);
   const [stationEvents, setStationEvents] = useState<StationStatusEvent[]>([]);
   const [stationUptime, setStationUptime] = useState<StationUptimeRow[]>([]);
@@ -210,11 +211,10 @@ export default function DashboardPage() {
 
   const load = useCallback(async () => {
     try {
-      const [swData, tlData, logData, corrData, stLog, stEvents, stUptime, ekfData] = await Promise.all([
+      const [swData, tlData, logData, stLog, stEvents, stUptime, ekfData] = await Promise.all([
         getSpaceWeather(),
         getTimelines(),
         getSpaceWeatherLogStatus().catch(() => null),
-        getSpaceWeatherCorrelations(168, "1h").catch(() => null),
         getStationStatusLog().catch(() => null),
         getStationStatusEvents(168).catch(() => []),
         getStationUptime(168).catch(() => []),
@@ -223,7 +223,6 @@ export default function DashboardPage() {
       setSw(swData);
       setTl(tlData);
       setLogStatus(logData);
-      setCorrelations(corrData);
       setStationLog(stLog);
       setStationEvents(stEvents.slice(-12).reverse());
       setStationUptime(stUptime);
@@ -306,35 +305,7 @@ export default function DashboardPage() {
 
       <ScaleReference />
 
-      {correlations && correlations.pairs.length > 0 && (
-        <div className="card card-accent">
-          <div className="operations-chart-title">Metric Correlations (last {correlations.hours}h, {correlations.resample} bins)</div>
-          <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "0.75rem" }}>
-            Pearson <em>r</em> from the logged dashboard archive — stronger values suggest linked solar / ionospheric behaviour.
-            {correlations.sample_count < 24 ? " More samples will appear as logging continues." : ""}
-          </p>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.82rem" }}>
-            <thead>
-              <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                <th style={{ textAlign: "left", padding: "0.35rem 0.5rem" }}>Metric A</th>
-                <th style={{ textAlign: "left", padding: "0.35rem 0.5rem" }}>Metric B</th>
-                <th style={{ textAlign: "right", padding: "0.35rem 0.5rem" }}>r</th>
-              </tr>
-            </thead>
-            <tbody>
-              {correlations.pairs.slice(0, 8).map((pair) => (
-                <tr key={`${pair.a}-${pair.b}`} style={{ borderBottom: "1px solid rgba(36,77,115,0.35)" }}>
-                  <td style={{ padding: "0.35rem 0.5rem" }}>{pair.a}</td>
-                  <td style={{ padding: "0.35rem 0.5rem" }}>{pair.b}</td>
-                  <td style={{ padding: "0.35rem 0.5rem", textAlign: "right", color: "var(--accent)" }}>
-                    {pair.r.toFixed(3)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <SpaceWeatherReportsPanel />
 
       {kpPoints.length > 0 && (() => {
         const kpEkf = alignEkfToPoints(kpPoints, ekf?.series.kp?.points);
@@ -342,7 +313,7 @@ export default function DashboardPage() {
         const hasKpEkf = kpEkf.data.some((v) => v !== null);
         const hasDstEkf = dstEkf.data.some((v) => v !== null);
         return (
-          <div className="card operations-chart-card">
+          <div className="card operations-chart-card" id="dashboard-timelines">
             <div className="operations-chart-title">7-Day Index Timelines</div>
             <LineChart
               labels={timelineLabels(kpPoints)}
@@ -379,6 +350,7 @@ export default function DashboardPage() {
           empty="Live NOAA solar-wind plasma feed is unavailable."
           ekfPoints={ekf?.series.solar_wind?.points}
         />
+        <GicLiveTimelinePanel />
         <TimelinePanel
           title="Live Scintillation S4 Timeline"
           points={s4Points}

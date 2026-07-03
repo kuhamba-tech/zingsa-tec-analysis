@@ -127,6 +127,45 @@ class SpaceWeatherLogStatus(BaseModel):
     db_backend: str
 
 
+class SpaceWeatherReportParameter(BaseModel):
+    name: str
+    current: float | None = None
+    unit: str | None = None
+    trend: str = "stable"
+    interpretation: str = ""
+
+
+class SpaceWeatherReportGnssStation(BaseModel):
+    station_code: str | None = None
+    station_name: str | None = None
+    availability_pct: float | None = None
+    rtk_note: str = ""
+
+
+class SpaceWeatherReportCharts(BaseModel):
+    labels: list[str] = []
+    kp: list[float | None] = []
+    dst: list[float | None] = []
+    tec: list[float | None] = []
+
+
+class SpaceWeatherReportResponse(BaseModel):
+    period: str
+    period_label: str
+    window_start: str
+    window_end: str
+    generated_utc: str
+    sample_count: int = 0
+    impact: dict[str, str]
+    executive_summary: str
+    parameters: list[SpaceWeatherReportParameter] = []
+    gnss_stations: list[SpaceWeatherReportGnssStation] = []
+    overall_availability_pct: float | None = None
+    risk_score: float | None = None
+    risk_message: str = ""
+    charts: SpaceWeatherReportCharts = SpaceWeatherReportCharts()
+
+
 # ── Extended Kalman Filter (EKF) ──────────────────────────────────────────────
 
 class EkfPointOut(BaseModel):
@@ -410,6 +449,82 @@ class CelestrakAnalysisResponse(BaseModel):
     fetched_at: str | None = None
 
 
+class GfzKpDailyPoint(BaseModel):
+    date: str
+    kp: float | None = None
+    kp_mean: float | None = None
+    ap: float | None = None
+    ap_daily: float | None = None
+    cp: float | None = None
+    storm_flag: bool = False
+    storm_class: str = "Quiet"
+    mean_vtec: float | None = None
+
+
+class GfzKpStormDay(BaseModel):
+    date: str
+    kp: float | None = None
+    ap: float | None = None
+    cp: float | None = None
+    storm_class: str
+    mean_vtec: float | None = None
+
+
+class GfzKpAnalysisResponse(BaseModel):
+    source: str
+    start_date: str | None = None
+    end_date: str | None = None
+    days: int = 0
+    storm_days: int = 0
+    max_kp: float | None = None
+    max_ap: float | None = None
+    mean_cp: float | None = None
+    mean_vtec_storm: float | None = None
+    mean_vtec_quiet: float | None = None
+    series: list[GfzKpDailyPoint] = []
+    storms: list[GfzKpStormDay] = []
+    fetched_at: str | None = None
+
+
+class IntermagnetDailyPoint(BaseModel):
+    date: str
+    mean_h: float | None = None
+    range_h: float | None = None
+    max_dbdt: float | None = None
+    gic_est_a: float | None = None
+    samples: int = 0
+    storm_flag: bool = False
+    storm_class: str = "Quiet"
+    mean_vtec: float | None = None
+
+
+class IntermagnetStormDay(BaseModel):
+    date: str
+    max_dbdt: float | None = None
+    range_h: float | None = None
+    gic_est_a: float | None = None
+    storm_class: str
+    mean_vtec: float | None = None
+
+
+class IntermagnetAnalysisResponse(BaseModel):
+    source: str
+    observatory: str
+    observatory_name: str | None = None
+    start_date: str | None = None
+    end_date: str | None = None
+    days: int = 0
+    storm_days: int = 0
+    max_dbdt: float | None = None
+    max_range_h: float | None = None
+    max_gic_est_a: float | None = None
+    mean_vtec_storm: float | None = None
+    mean_vtec_quiet: float | None = None
+    series: list[IntermagnetDailyPoint] = []
+    storms: list[IntermagnetStormDay] = []
+    fetched_at: str | None = None
+
+
 class PrnRow(BaseModel):
     prn: str
     constellation: str
@@ -529,9 +644,21 @@ class NavigationNewsBriefOut(BaseModel):
 
 class NavigationNewsBundleOut(BaseModel):
     computed_at: str
+    last_updated_at: str
+    next_update_at: str
+    update_interval_hours: int = 4
+    update_history: list[str] = []
     input_summary: str
     sources: dict[str, bool]
     briefs: list[NavigationNewsBriefOut]
+
+
+class NavigationNewsScheduleOut(BaseModel):
+    last_updated_at: str
+    next_update_at: str
+    update_interval_hours: int = 4
+    updates_per_day: int = 6
+    update_history: list[str] = []
 
 
 # ── Chat ───────────────────────────────────────────────────────────────────────

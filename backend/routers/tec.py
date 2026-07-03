@@ -12,6 +12,8 @@ from backend.schemas import (
     AnomalyDay,
     CelestrakAnalysisResponse,
     DiurnalPoint,
+    GfzKpAnalysisResponse,
+    IntermagnetAnalysisResponse,
     OmniAnalysisResponse,
     PrnRow,
     SeasonalRow,
@@ -164,6 +166,69 @@ async def celestrak_analysis(
     vtec_by_date = _vtec_by_date(start, end, station)
     payload = build_celestrak_analysis(celestrak_rows, vtec_by_date)
     return CelestrakAnalysisResponse(**payload)
+
+
+@router.get("/gfz-kp-analysis", response_model=GfzKpAnalysisResponse)
+async def gfz_kp_analysis(
+    start: str = Query(..., description="Start date YYYY-MM-DD"),
+    end: str = Query(..., description="End date YYYY-MM-DD"),
+    station: str | None = Query(None),
+    _=Depends(require_api_key),
+):
+    """Fetch GFZ Potsdam Kp/ap/Ap/Cp indices and correlate with archived VTEC."""
+    try:
+        start_d = date.fromisoformat(start[:10])
+        end_d = date.fromisoformat(end[:10])
+    except ValueError as exc:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=422, detail="Invalid date format; use YYYY-MM-DD") from exc
+
+    from zgiis.space_weather.gfz_kp_client import build_analysis as build_gfz_analysis, fetch_gfz_daily
+
+    try:
+        rows = fetch_gfz_daily(start_d, end_d)
+    except Exception as exc:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=502, detail=f"GFZ Kp fetch failed: {exc}") from exc
+
+    vtec_by_date = _vtec_by_date(start, end, station)
+    payload = build_gfz_analysis(rows, vtec_by_date)
+    return GfzKpAnalysisResponse(**payload)
+
+
+@router.get("/intermagnet-analysis", response_model=IntermagnetAnalysisResponse)
+async def intermagnet_analysis(
+    start: str = Query(..., description="Start date YYYY-MM-DD"),
+    end: str = Query(..., description="End date YYYY-MM-DD"),
+    observatory: str = Query("HER", description="IAGA observatory code (HER, HBK, TSU, KMH)"),
+    station: str | None = Query(None),
+    _=Depends(require_api_key),
+):
+    """Fetch INTERMAGNET ground-magnetometer minute data (BGS GIN), aggregate to
+    daily H-field statistics and dB/dt-based storm days, and correlate with archived VTEC."""
+    from fastapi import HTTPException
+
+    try:
+        start_d = date.fromisoformat(start[:10])
+        end_d = date.fromisoformat(end[:10])
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Invalid date format; use YYYY-MM-DD") from exc
+
+    from zgiis.space_weather.intermagnet_client import (
+        build_analysis as build_intermagnet_analysis,
+        fetch_intermagnet_daily,
+    )
+
+    try:
+        rows = fetch_intermagnet_daily(observatory, start_d, end_d)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"INTERMAGNET fetch failed: {exc}") from exc
+
+    vtec_by_date = _vtec_by_date(start, end, station)
+    payload = build_intermagnet_analysis(rows, vtec_by_date, observatory=observatory)
+    return IntermagnetAnalysisResponse(**payload)
 
 
 @router.get("/anomalies", response_model=list[AnomalyDay])

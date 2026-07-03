@@ -29,12 +29,20 @@ interface Dataset {
   meta?: (PointMeta | null)[];
 }
 
+interface ThresholdLine {
+  value: number;
+  label: string;
+  color?: string;
+}
+
 interface Props {
   labels: string[];
   datasets: Dataset[];
   yLabel?: string;
   height?: number;
-  threshold?: { value: number; label: string };
+  threshold?: ThresholdLine;
+  /** Multiple horizontal reference lines (e.g. Moderate/High/Extreme bands). */
+  thresholds?: ThresholdLine[];
   highlightDates?: string[];
   tooltipDetails?: (string | null)[];
 }
@@ -45,6 +53,7 @@ export default function LineChart({
   yLabel = "VTEC (TECU)",
   height = 300,
   threshold,
+  thresholds,
   highlightDates,
   tooltipDetails,
 }: Props) {
@@ -52,24 +61,32 @@ export default function LineChart({
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const plugins: any[] = [];
-  if (threshold) {
+  const thresholdLines: ThresholdLine[] = [
+    ...(threshold ? [threshold] : []),
+    ...(thresholds ?? []),
+  ];
+  if (thresholdLines.length > 0) {
     plugins.push({
       id: "threshold",
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       afterDraw(chart: any) {
         const { ctx, scales: { y } } = chart;
-        const yPx = y.getPixelForValue(threshold.value);
         ctx.save();
-        ctx.strokeStyle = "#ff8c00";
-        ctx.lineWidth = 1.5;
-        ctx.setLineDash([6, 3]);
-        ctx.beginPath();
-        ctx.moveTo(chart.chartArea.left, yPx);
-        ctx.lineTo(chart.chartArea.right, yPx);
-        ctx.stroke();
-        ctx.fillStyle = "#ff8c00";
-        ctx.font = "11px sans-serif";
-        ctx.fillText(threshold.label, chart.chartArea.left + 4, yPx - 4);
+        for (const line of thresholdLines) {
+          if (line.value < y.min || line.value > y.max) continue;
+          const yPx = y.getPixelForValue(line.value);
+          const color = line.color ?? "#ff8c00";
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash([6, 3]);
+          ctx.beginPath();
+          ctx.moveTo(chart.chartArea.left, yPx);
+          ctx.lineTo(chart.chartArea.right, yPx);
+          ctx.stroke();
+          ctx.fillStyle = color;
+          ctx.font = "11px sans-serif";
+          ctx.fillText(line.label, chart.chartArea.left + 4, yPx - 4);
+        }
         ctx.restore();
       },
     });

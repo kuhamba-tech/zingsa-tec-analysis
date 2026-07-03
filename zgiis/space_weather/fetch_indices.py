@@ -39,7 +39,8 @@ _GNSS_RISK_COLORS = {
 NOAA_KP_URL = "https://services.swpc.noaa.gov/json/planetary_k_index_1m.json"
 NOAA_F107_URL = "https://services.swpc.noaa.gov/json/f107_cm_flux.json"
 NOAA_DST_URL = "https://services.swpc.noaa.gov/products/kyoto-dst.json"
-NOAA_PLASMA_URL = "https://services.swpc.noaa.gov/products/solar-wind/plasma-1-day.json"
+NOAA_PLASMA_URL = "https://services.swpc.noaa.gov/json/rtsw/rtsw_wind_1m.json"
+NOAA_LEGACY_PLASMA_URL = "https://services.swpc.noaa.gov/products/solar-wind/plasma-1-day.json"
 
 
 def _cached(key: str, fetch_fn) -> Any:
@@ -85,6 +86,15 @@ def _request_noaa_json(url: str) -> Any:
             if attempt == 0:
                 time.sleep(0.25)
     return None
+
+
+def _float_or_none(value: Any) -> Optional[float]:
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _resolve_kp_level(kp: float) -> tuple[str, str]:
@@ -217,7 +227,39 @@ def _fetch_noaa_solar_wind() -> tuple[Optional[float], Optional[float]]:
 def _fetch_noaa_solar_wind_history() -> list[dict]:
     rows = _request_noaa_json(NOAA_PLASMA_URL)
     if not isinstance(rows, list) or len(rows) < 2:
+        rows = _request_noaa_json(NOAA_LEGACY_PLASMA_URL)
+    if not isinstance(rows, list) or len(rows) < 2:
         return []
+
+    if all(isinstance(row, dict) for row in rows):
+        history = []
+        for row in rows:
+            time_tag = row.get("time_tag")
+            if not time_tag:
+                continue
+            speed = _float_or_none(
+                row.get("proton_speed")
+                if row.get("proton_speed") is not None
+                else row.get("speed")
+            )
+            density = _float_or_none(
+                row.get("proton_density")
+                if row.get("proton_density") is not None
+                else row.get("density")
+            )
+            if speed is None and density is None:
+                continue
+            history.append(
+                {
+                    "time_tag": time_tag,
+                    "speed": speed,
+                    "density": density,
+                    "source": row.get("source"),
+                    "active": row.get("active"),
+                }
+            )
+        return sorted(history, key=lambda item: str(item["time_tag"]))
+
     header = rows[0]
     speed_idx = next((i for i, h in enumerate(header) if "speed" in str(h).lower()), None)
     density_idx = next((i for i, h in enumerate(header) if "density" in str(h).lower()), None)
@@ -226,17 +268,9 @@ def _fetch_noaa_solar_wind_history() -> list[dict]:
         if not isinstance(row, list) or not row:
             continue
         try:
-            speed = (
-                float(row[speed_idx])
-                if speed_idx is not None and row[speed_idx] not in (None, "")
-                else None
-            )
-            density = (
-                float(row[density_idx])
-                if density_idx is not None and row[density_idx] not in (None, "")
-                else None
-            )
-        except (TypeError, ValueError, IndexError):
+            speed = _float_or_none(row[speed_idx]) if speed_idx is not None else None
+            density = _float_or_none(row[density_idx]) if density_idx is not None else None
+        except IndexError:
             continue
         if speed is None and density is None:
             continue
@@ -277,7 +311,22 @@ def _latest_solar_wind_from_history(
 ) -> tuple[Optional[float], Optional[float]]:
     if not history:
         return None, None
-    latest = history[-1]
+    latest = next(
+        (
+            row
+            for row in reversed(history)
+            if row.get("active") is not False
+            and (row.get("speed") is not None or row.get("density") is not None)
+        ),
+        None,
+    ) or next(
+        (
+            row
+            for row in reversed(history)
+            if row.get("speed") is not None or row.get("density") is not None
+        ),
+        history[-1],
+    )
     return latest.get("speed"), latest.get("density")
 
 

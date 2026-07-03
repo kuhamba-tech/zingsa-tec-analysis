@@ -94,7 +94,7 @@ def load_config() -> BroadcastConfig:
     api_base = (os.getenv("NAVIGATION_NEWS_API_URL") or os.getenv("BROADCAST_API_URL") or "https://zingsa-gnss-tec.vercel.app").rstrip("/")
     api_key = (os.getenv("NAVIGATION_NEWS_API_KEY") or os.getenv("BROADCAST_API_KEY") or os.getenv("API_KEY") or "").strip()
     dry_run = _bool(os.getenv("BROADCAST_DRY_RUN"), default=True)
-    interval = int(os.getenv("BROADCAST_INTERVAL_MIN", "120"))
+    interval = int(os.getenv("BROADCAST_INTERVAL_MIN", "240"))
     state_path = os.getenv("BROADCAST_STATE_PATH", "static/data/broadcast_state.json")
     out_dir = os.getenv("BROADCAST_OUT_DIR", "static/data/broadcast_out")
     refresh_ntrip = _bool(os.getenv("BROADCAST_REFRESH_NTRIP"), default=False)

@@ -270,6 +270,59 @@ html, body {
   .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
 }
 
+/* ── GIC live dashboard (station overview · realtime chart · space weather) ── */
+.gic-dash-row1 { display: grid; grid-template-columns: 1fr 2fr 1fr; gap: 0.8rem; }
+@media (max-width: 1100px) {
+  .gic-dash-row1 { grid-template-columns: 1fr 1fr; }
+  .gic-dash-row1 .gic-dash-chart { grid-column: span 2; order: -1; }
+}
+@media (max-width: 560px) {
+  .gic-dash-row1 { grid-template-columns: 1fr; }
+  .gic-dash-row1 .gic-dash-chart { grid-column: auto; }
+}
+
+.gic-report-period-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 0.55rem;
+}
+.gic-report-period-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  text-align: left;
+}
+.gic-report-period-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: rgba(22, 139, 210, 0.12);
+}
+.gic-report-period-btn.is-active {
+  border-color: var(--accent);
+  background: rgba(22, 139, 210, 0.22);
+  box-shadow: inset 0 0 0 1px rgba(22, 139, 210, 0.35);
+}
+.gic-report-period-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.gic-report-period-label {
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+.gic-report-period-hint {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  opacity: 0.85;
+}
+
 /* ── Metric ── */
 .metric-value {
   font-size: clamp(1.2rem, 2.2vw, 2.4rem);
@@ -309,6 +362,58 @@ html, body {
 .btn:hover { background: rgba(22,139,210,0.12); border-color: var(--accent); }
 .btn-primary { background: var(--accent); border-color: var(--accent); color: #000; }
 .btn-primary:hover { background: #1aa3f0; }
+
+/* ── Form selects (visible options on dark theme) ── */
+.form-select,
+select.form-select {
+  appearance: auto;
+  -webkit-appearance: menulist;
+  background-color: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.4rem 0.65rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  color-scheme: dark;
+  min-width: 12rem;
+  max-width: 100%;
+}
+.form-select:focus,
+.form-select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-color: var(--accent);
+}
+.form-select option {
+  background-color: #0a1628;
+  color: #ffffff;
+}
+.form-select option:checked {
+  background-color: var(--accent);
+  color: #000000;
+  font-weight: 700;
+}
+.form-input {
+  background-color: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.4rem 0.65rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  min-width: 12rem;
+}
+.form-input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-color: var(--accent);
+}
+select option {
+  background-color: #0a1628;
+  color: #ffffff;
+}
 
 /* ── Tabs ── */
 .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); }
@@ -1299,6 +1404,14 @@ html, body {
   padding: 0.4rem 0.65rem;
   color: var(--text);
   min-width: 110px;
+  color-scheme: dark;
+  cursor: pointer;
+}
+.omni-range-grid select:focus,
+.omni-range-grid select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-color: var(--accent);
 }
 .omni-source-banner {
   display: flex;
@@ -2781,3 +2894,230 @@ html, body {
   padding-top: 0.5rem;
   border-top: 1px solid var(--border);
 }
+
+/* ── Space Weather Reports panel (dashboard) ── */
+.sw-report-panel {
+  border-left: 3px solid #a78bfa;
+  padding: 1.25rem 1.4rem;
+}
+.sw-report-header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.1rem;
+}
+.sw-report-header-copy {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+.sw-report-icon {
+  font-size: 1.5rem;
+  line-height: 1;
+  margin-top: 0.15rem;
+}
+.sw-report-title {
+  font-size: 1.35rem;
+  font-weight: 800;
+  margin-bottom: 0.25rem;
+}
+.sw-report-subtitle {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  max-width: 42rem;
+}
+.sw-report-header-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+.sw-report-share-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+}
+.sw-report-export-btn {
+  background: #7c3aed;
+  border-color: #7c3aed;
+}
+.sw-report-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: flex-end;
+  margin-bottom: 1rem;
+}
+.sw-report-control-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.sw-report-select,
+.sw-report-date {
+  min-width: 220px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: normal;
+}
+.sw-report-generate-btn {
+  background: #7c3aed;
+  border-color: #7c3aed;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.sw-report-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 0.9rem 1rem;
+  background: rgba(124, 58, 237, 0.08);
+  border: 1px solid rgba(124, 58, 237, 0.25);
+  border-radius: 8px;
+  margin-bottom: 1rem;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+.sw-report-impact-badge {
+  flex-shrink: 0;
+  padding: 0.35rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  color: #000;
+}
+.sw-report-grid {
+  display: grid;
+  grid-template-columns: 1.4fr 0.85fr;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+@media (max-width: 1100px) {
+  .sw-report-grid { grid-template-columns: 1fr; }
+}
+.sw-report-section {
+  background: rgba(10, 15, 26, 0.6);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.85rem;
+}
+.sw-report-section-title {
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 0.65rem;
+}
+.sw-report-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+}
+.sw-report-table th,
+.sw-report-table td {
+  padding: 0.35rem 0.4rem;
+  text-align: left;
+  border-bottom: 1px solid rgba(36, 77, 115, 0.35);
+}
+.sw-report-table th {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+.sw-report-empty {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+.sw-report-risk {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.sw-report-gauge-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: 0.5rem 0;
+}
+.sw-report-gauge {
+  width: 140px;
+  height: 70px;
+  border-radius: 140px 140px 0 0;
+  background: linear-gradient(90deg, #00ff88 0%, #ffcc00 45%, #ff4444 100%);
+  position: relative;
+  overflow: hidden;
+}
+.sw-report-gauge-needle {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 3px;
+  height: 62px;
+  background: #fff;
+  transform-origin: bottom center;
+  margin-left: -1.5px;
+  border-radius: 2px;
+  transition: transform 0.4s ease;
+}
+.sw-report-risk-label {
+  font-size: 1.1rem;
+  font-weight: 900;
+  margin-top: 0.5rem;
+}
+.sw-report-risk-msg {
+  font-size: 0.78rem;
+  text-align: center;
+  color: var(--text-muted);
+  margin-top: 0.35rem;
+}
+.sw-report-meta {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  margin-top: auto;
+  padding-top: 0.5rem;
+  text-align: center;
+}
+.sw-report-charts-section {
+  border-top: 1px solid var(--border);
+  padding-top: 1rem;
+}
+.sw-report-charts-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+.sw-report-view-charts-btn {
+  font-size: 0.78rem;
+  padding: 0.35rem 0.75rem;
+}
+.sw-report-charts {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.75rem;
+}
+@media (max-width: 900px) {
+  .sw-report-charts { grid-template-columns: 1fr; }
+}
+.sw-report-mini-chart {
+  background: rgba(10, 15, 26, 0.5);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.5rem;
+}
+.sw-report-mini-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  margin-bottom: 0.35rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+

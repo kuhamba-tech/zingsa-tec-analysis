@@ -21,6 +21,7 @@ from backend.routers import (
     chat,
     cors_network,
     forecast,
+    gic,
     live,
     navigation_news,
     processing,
@@ -67,6 +68,7 @@ app.include_router(forecast.router)
 app.include_router(reports.router)
 app.include_router(chat.router)
 app.include_router(theory.router)
+app.include_router(gic.router)
 
 
 STATIC_EXPORT_DIR = Path(__file__).resolve().parents[1] / "static_export"

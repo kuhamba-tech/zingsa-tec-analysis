@@ -5,6 +5,8 @@ from zgiis.api.cors_client import _api_bases
 from zgiis.space_weather.fetch_indices import (
     _CACHE,
     _cached,
+    _fetch_noaa_solar_wind_history,
+    _latest_solar_wind_from_history,
     _request_noaa_json,
     clear_space_weather_cache,
 )
@@ -55,6 +57,37 @@ class SpaceWeatherApiResilienceTests(unittest.TestCase):
         clear_space_weather_cache()
 
         self.assertNotIn("space_weather", _CACHE)
+
+    def test_noaa_rtsw_solar_wind_feed_is_parsed(self):
+        response = Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = [
+            {
+                "time_tag": "2026-07-03T04:58:00",
+                "active": False,
+                "source": "ACE",
+                "proton_speed": 425.35,
+                "proton_density": 0.05,
+            },
+            {
+                "time_tag": "2026-07-03T04:59:00",
+                "active": True,
+                "source": "SOLAR1",
+                "proton_speed": 375.2,
+                "proton_density": 2.73,
+            },
+        ]
+
+        with patch(
+            "zgiis.space_weather.fetch_indices.requests.get",
+            return_value=response,
+        ):
+            history = _fetch_noaa_solar_wind_history()
+
+        self.assertEqual(len(history), 2)
+        self.assertEqual(history[-1]["speed"], 375.2)
+        self.assertEqual(history[-1]["density"], 2.73)
+        self.assertEqual(_latest_solar_wind_from_history(history), (375.2, 2.73))
 
 
 if __name__ == "__main__":

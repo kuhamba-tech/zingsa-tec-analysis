@@ -107,6 +107,47 @@ export interface SpaceWeatherCorrelationResponse {
   pairs: CorrelationPair[];
 }
 
+export type SpaceWeatherReportPeriod = "hourly" | "daily" | "weekly" | "monthly" | "yearly";
+
+export interface SpaceWeatherReportParameter {
+  name: string;
+  current: number | null;
+  unit?: string | null;
+  trend: string;
+  interpretation: string;
+}
+
+export interface SpaceWeatherReportGnssStation {
+  station_code: string | null;
+  station_name: string | null;
+  availability_pct: number | null;
+  rtk_note: string;
+}
+
+export interface SpaceWeatherReportCharts {
+  labels: string[];
+  kp: (number | null)[];
+  dst: (number | null)[];
+  tec: (number | null)[];
+}
+
+export interface SpaceWeatherReport {
+  period: SpaceWeatherReportPeriod;
+  period_label: string;
+  window_start: string;
+  window_end: string;
+  generated_utc: string;
+  sample_count: number;
+  impact: { label: string; color: string; risk: string };
+  executive_summary: string;
+  parameters: SpaceWeatherReportParameter[];
+  gnss_stations: SpaceWeatherReportGnssStation[];
+  overall_availability_pct: number | null;
+  risk_score: number | null;
+  risk_message: string;
+  charts: SpaceWeatherReportCharts;
+}
+
 export interface SolarActivity {
   flare_count: number | null;
   cme_count: number | null;
@@ -414,6 +455,82 @@ export interface CelestrakAnalysisResponse {
   fetched_at: string | null;
 }
 
+export interface GfzKpDailyPoint {
+  date: string;
+  kp: number | null;
+  kp_mean: number | null;
+  ap: number | null;
+  ap_daily: number | null;
+  cp: number | null;
+  storm_flag: boolean;
+  storm_class: string;
+  mean_vtec: number | null;
+}
+
+export interface GfzKpStormDay {
+  date: string;
+  kp: number | null;
+  ap: number | null;
+  cp: number | null;
+  storm_class: string;
+  mean_vtec: number | null;
+}
+
+export interface GfzKpAnalysisResponse {
+  source: string;
+  start_date: string | null;
+  end_date: string | null;
+  days: number;
+  storm_days: number;
+  max_kp: number | null;
+  max_ap: number | null;
+  mean_cp: number | null;
+  mean_vtec_storm: number | null;
+  mean_vtec_quiet: number | null;
+  series: GfzKpDailyPoint[];
+  storms: GfzKpStormDay[];
+  fetched_at: string | null;
+}
+
+export interface IntermagnetDailyPoint {
+  date: string;
+  mean_h: number | null;
+  range_h: number | null;
+  max_dbdt: number | null;
+  gic_est_a: number | null;
+  samples: number;
+  storm_flag: boolean;
+  storm_class: string;
+  mean_vtec: number | null;
+}
+
+export interface IntermagnetStormDay {
+  date: string;
+  max_dbdt: number | null;
+  range_h: number | null;
+  gic_est_a: number | null;
+  storm_class: string;
+  mean_vtec: number | null;
+}
+
+export interface IntermagnetAnalysisResponse {
+  source: string;
+  observatory: string;
+  observatory_name: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  days: number;
+  storm_days: number;
+  max_dbdt: number | null;
+  max_range_h: number | null;
+  max_gic_est_a: number | null;
+  mean_vtec_storm: number | null;
+  mean_vtec_quiet: number | null;
+  series: IntermagnetDailyPoint[];
+  storms: IntermagnetStormDay[];
+  fetched_at: string | null;
+}
+
 export interface PrnRow {
   prn: string;
   constellation: string;
@@ -594,7 +711,195 @@ export interface NavigationNewsBriefApi {
 
 export interface NavigationNewsBundleApi {
   computed_at: string;
+  last_updated_at: string;
+  next_update_at: string;
+  update_interval_hours: number;
+  update_history: string[];
   input_summary: string;
   sources: { spaceWeather?: boolean; corsStations?: boolean; ntripProbe?: boolean };
   briefs: NavigationNewsBriefApi[];
+}
+
+export interface NavigationNewsScheduleApi {
+  last_updated_at: string;
+  next_update_at: string;
+  update_interval_hours: number;
+  updates_per_day: number;
+  update_history: string[];
+}
+
+// ── GIC Monitor ──────────────────────────────────────────────────────────────
+
+export interface GicSubstation {
+  code: string;
+  name: string;
+  lat: number;
+  lon: number;
+}
+
+export interface GicLine {
+  from: string;
+  to: string;
+  kv: number;
+  coords: [number, number][];
+}
+
+export interface GicMonitoringStationMeta {
+  station_id: string;
+  name: string;
+  substation: string;
+  sensor: string;
+  datalogger: string;
+  gateway: string;
+  notes: string;
+}
+
+export interface GicRiskBand {
+  level: string;
+  min_abs_a: number;
+  color: string;
+  meaning: string;
+}
+
+export interface GicNetwork {
+  substations: GicSubstation[];
+  lines: GicLine[];
+  monitoring_stations: GicMonitoringStationMeta[];
+  risk_bands: GicRiskBand[];
+}
+
+export interface GicStationStatus {
+  station_id: string;
+  name: string;
+  substation: string | null;
+  sensor: string | null;
+  datalogger: string | null;
+  gateway: string | null;
+  record_count: number;
+  first_sample: string | null;
+  last_sample: string | null;
+  latest_gic_a: number | null;
+  latest_level: string | null;
+  has_data: boolean;
+}
+
+export interface GicStatusResponse {
+  stations: GicStationStatus[];
+  total_records: number;
+}
+
+export interface GicSeriesPoint {
+  t: string;
+  observed: number | null;
+  predicted: number | null;
+  error: number | null;
+  confidence: number | null;
+  rate_a_per_min: number | null;
+}
+
+export interface GicSpaceWeatherPoint {
+  t: string;
+  kp: number | null;
+  dst: number | null;
+}
+
+export interface GicDeviationStatus {
+  available: boolean;
+  observed: number | null;
+  predicted: number | null;
+  error: number | null;
+  threshold: number | null;
+  ratio: number | null;
+  severity: string;
+  timestamp: string | null;
+}
+
+export interface GicSeriesResponse {
+  station_id: string;
+  hours: number;
+  resample: string | null;
+  count: number;
+  points: GicSeriesPoint[];
+  space_weather: GicSpaceWeatherPoint[];
+  deviation: GicDeviationStatus | null;
+  alerts: EkfAlert[];
+  banner: string | null;
+}
+
+export interface GicUploadResult {
+  filename: string;
+  station_id: string;
+  parsed: number;
+  inserted: number;
+  from: string;
+  to: string;
+}
+
+export interface GicReportStatistics {
+  mean_a: number;
+  std_a: number;
+  min_a: number;
+  max_a: number;
+  peak_abs_a: number;
+  peak_time: string;
+  p95_abs_a: number;
+  first_sample: string;
+  last_sample: string;
+}
+
+export interface GicBandMinutes {
+  level: string;
+  minutes: number;
+  samples: number;
+}
+
+export interface GicEvent {
+  start: string;
+  end: string;
+  duration_min: number;
+  peak_gic_a: number;
+  peak_time: string;
+  level: string;
+}
+
+export interface GicKpCorrelation {
+  kp_r: number | null;
+  dst_r: number | null;
+  samples: number;
+}
+
+export interface GicLiveModelPoint {
+  t: string;
+  b_total: number;
+  dbdt: number | null;
+  gic_est_a: number | null;
+}
+
+export interface GicLiveModel {
+  available: boolean;
+  reason?: string;
+  model?: string;
+  coefficient_a_per_nt_min?: number;
+  source?: string;
+  disclaimer?: string;
+  latest?: GicLiveModelPoint | null;
+  count?: number;
+  points: GicLiveModelPoint[];
+}
+
+export type GicReportPeriod = "hourly" | "daily" | "weekly" | "monthly" | "yearly";
+
+export interface GicReport {
+  station_id: string;
+  period: GicReportPeriod;
+  period_label: string;
+  window_start: string;
+  window_end: string;
+  generated_utc: string;
+  sample_count: number;
+  statistics: GicReportStatistics | null;
+  band_minutes: GicBandMinutes[];
+  events: GicEvent[];
+  kp_correlation: GicKpCorrelation | null;
+  interpretation: string[];
 }

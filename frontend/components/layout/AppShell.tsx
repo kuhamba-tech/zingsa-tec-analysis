@@ -38,6 +38,7 @@ const NAV_GROUPS: { section: string; items: NavItem[] }[] = [
       { href: "/space-weather", label: "Space Weather", icon: "🌌" },
       { href: "/space-weather/gnss-intelligence", label: "Navigation Weather", icon: "🛰️" },
       { href: "/storm-watch", label: "Storm Watch", icon: "🌩️" },
+      { href: "/gic-monitor", label: "GIC Monitor", icon: "🧲" },
       { href: "/vtec-theory", label: "VTEC Theory", icon: "📚" },
     ],
   },

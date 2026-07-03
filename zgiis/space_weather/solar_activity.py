@@ -13,12 +13,22 @@ except ImportError:
     _REQUESTS_AVAILABLE = False
 
 NOAA_XRAY_1D_URL = "https://services.swpc.noaa.gov/json/goes/primary/xrays-1-day.json"
-NOAA_PLASMA_1D_URL = "https://services.swpc.noaa.gov/products/solar-wind/plasma-1-day.json"
-NOAA_MAG_1D_URL = "https://services.swpc.noaa.gov/products/solar-wind/mag-1-day.json"
+NOAA_PLASMA_1D_URL = "https://services.swpc.noaa.gov/json/rtsw/rtsw_wind_1m.json"
+NOAA_MAG_1D_URL = "https://services.swpc.noaa.gov/json/rtsw/rtsw_mag_1m.json"
 NOAA_ALERTS_URL = "https://services.swpc.noaa.gov/products/alerts.json"
 NASA_DONKI_BASE_URL = "https://api.nasa.gov/DONKI"
-NASA_API_KEY = os.environ.get("NASA_API_KEY", "").strip()
+# NASA issues free keys at https://api.nasa.gov/ — DEMO_KEY works for dev (rate-limited).
+NASA_DEMO_KEY = "DEMO_KEY"
 TIMEOUT_SECONDS = 15
+DONKI_TIMEOUT_SECONDS = 45
+
+
+def _nasa_api_key() -> tuple[str, bool]:
+    """Return (api_key, is_demo). Empty env falls back to NASA DEMO_KEY."""
+    key = os.environ.get("NASA_API_KEY", "").strip()
+    if key:
+        return key, key.upper() == NASA_DEMO_KEY
+    return NASA_DEMO_KEY, True
 
 _CACHE: Dict[str, Any] = {}
 _CACHE_TTL_SECONDS = 600        # 10 minutes for live data
@@ -44,13 +54,14 @@ def _cached(key: str, fetch_fn) -> Dict[str, Any]:
     return data
 
 
-def _fetch_json(url: str) -> Any:
+def _fetch_json(url: str, *, timeout: int | None = None) -> Any:
     if not _REQUESTS_AVAILABLE:
         raise RuntimeError("requests not installed")
     import time
+    wait = timeout if timeout is not None else TIMEOUT_SECONDS
     for attempt in range(2):
         try:
-            res = requests.get(url, timeout=TIMEOUT_SECONDS, headers=_NOAA_HEADERS)
+            res = requests.get(url, timeout=wait, headers=_NOAA_HEADERS)
             res.raise_for_status()
             return res.json()
         except Exception:
@@ -65,12 +76,11 @@ def _iso_date(days_ago: int = 0) -> str:
 
 
 def _donki_url(product: str) -> str:
-    if not NASA_API_KEY:
-        raise RuntimeError("NASA_API_KEY is not configured")
+    api_key, _ = _nasa_api_key()
     params = {
         "startDate": _iso_date(6),
         "endDate": _iso_date(0),
-        "api_key": NASA_API_KEY,
+        "api_key": api_key,
     }
     qs = "&".join(f"{k}={v}" for k, v in params.items())
     return f"{NASA_DONKI_BASE_URL}/{product}?{qs}"
@@ -109,6 +119,43 @@ def _parse_table_product(rows: Any) -> Dict[str, List]:
 def _value_from_table(row: list, header: list, key: str) -> Any:
     index = next((i for i, h in enumerate(header) if key in str(h).lower()), -1)
     return row[index] if index >= 0 else None
+
+
+def _float_or_zero(value: Any) -> float:
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _latest_product_row(rows: Any) -> dict | list | None:
+    if not isinstance(rows, list) or not rows:
+        return None
+    if all(isinstance(row, dict) for row in rows):
+        ordered = sorted(
+            (row for row in rows if row.get("time_tag")),
+            key=lambda row: str(row["time_tag"]),
+        )
+        return next((row for row in reversed(ordered) if row.get("active") is not False), None) or (ordered[-1] if ordered else None)
+    table = _parse_table_product(rows)
+    return table["data"][-1] if table["data"] else None
+
+
+def _product_value(rows: Any, row: dict | list | None, *keys: str) -> Any:
+    if row is None:
+        return None
+    if isinstance(row, dict):
+        for key in keys:
+            if row.get(key) is not None:
+                return row.get(key)
+        return None
+    if isinstance(row, list):
+        table = _parse_table_product(rows)
+        for key in keys:
+            value = _value_from_table(row, table["header"], key)
+            if value is not None:
+                return value
+    return None
 
 
 def format_utc_short(iso: Optional[str]) -> str:
@@ -224,19 +271,25 @@ def fetch_solar_activity() -> Dict[str, Any]:
         alerts = _fetch_json(NOAA_ALERTS_URL)
 
         donki_status = "unavailable"
-        donki_note = "NASA_API_KEY is not configured."
+        _, using_demo = _nasa_api_key()
+        donki_note = (
+            "NASA DONKI via DEMO_KEY (rate-limited). Set NASA_API_KEY in backend/.env — free at https://api.nasa.gov/"
+            if using_demo
+            else "NASA DONKI live feed."
+        )
         flares: list[dict] = []
         cmes: list[dict] = []
         storms: list[dict] = []
-        if NASA_API_KEY:
-            try:
-                flares = _fetch_json(_donki_url("FLR"))
-                cmes = _fetch_json(_donki_url("CME"))
-                storms = _fetch_json(_donki_url("GST"))
-                donki_status = "live"
+        try:
+            flares = _fetch_json(_donki_url("FLR"), timeout=DONKI_TIMEOUT_SECONDS)
+            cmes = _fetch_json(_donki_url("CME"), timeout=DONKI_TIMEOUT_SECONDS)
+            storms = _fetch_json(_donki_url("GST"), timeout=DONKI_TIMEOUT_SECONDS)
+            donki_status = "live"
+            if not using_demo:
                 donki_note = "NASA DONKI live feed."
-            except Exception as exc:
-                donki_note = f"NASA DONKI unavailable: {exc}"
+        except Exception as exc:
+            hint = " Check internet access to api.nasa.gov or set your own NASA_API_KEY in backend/.env."
+            donki_note = f"NASA DONKI unavailable: {exc}.{hint if using_demo else ''}"
 
         xray_latest = xrays[-1] if isinstance(xrays, list) and xrays else {}
         flux = float(xray_latest.get("flux") or 0)
@@ -247,23 +300,27 @@ def fetch_solar_activity() -> Dict[str, Any]:
             if row.get("energy") == "0.1-0.8nm"
         ][-36:]
 
-        plasma = _parse_table_product(plasma_rows)
-        plasma_latest = plasma["data"][-1] if plasma["data"] else None
-        speed = float(_value_from_table(plasma_latest, plasma["header"], "speed") or 0)
-        density = float(_value_from_table(plasma_latest, plasma["header"], "density") or 0)
-        temperature = float(_value_from_table(plasma_latest, plasma["header"], "temperature") or 0)
+        plasma_latest = _latest_product_row(plasma_rows)
+        speed = _float_or_zero(_product_value(plasma_rows, plasma_latest, "proton_speed", "speed"))
+        density = _float_or_zero(_product_value(plasma_rows, plasma_latest, "proton_density", "density"))
+        temperature = _float_or_zero(_product_value(plasma_rows, plasma_latest, "proton_temperature", "temperature"))
 
-        mag = _parse_table_product(mag_rows)
-        mag_latest = mag["data"][-1] if mag["data"] else None
-        bt = float(_value_from_table(mag_latest, mag["header"], "bt") or 0)
-        bz = float(_value_from_table(mag_latest, mag["header"], "bz") or 0)
+        mag_latest = _latest_product_row(mag_rows)
+        bt = _float_or_zero(_product_value(mag_rows, mag_latest, "bt"))
+        bz = _float_or_zero(_product_value(mag_rows, mag_latest, "bz_gsm", "bz"))
 
         alert_list = list(reversed(alerts[-5:])) if isinstance(alerts, list) else []
         level = activity_level(flare_class, len(alert_list))
 
         return {
             "mode": "live",
-            "updated": xray_latest.get("time_tag") or datetime.datetime.utcnow().isoformat() + "Z",
+            "updated": (
+                (plasma_latest or {}).get("time_tag")
+                if isinstance(plasma_latest, dict)
+                else xray_latest.get("time_tag")
+            )
+            or xray_latest.get("time_tag")
+            or datetime.datetime.utcnow().isoformat() + "Z",
             "flareClass": flare_class,
             "flux": flux,
             "xraySeries": xray_series,

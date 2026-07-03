@@ -1,11 +1,13 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
-import { getArchiveMeta, getTimeSeries, getDiurnal, getSeasonal, getSolarCycle, getOmniAnalysis, getCelestrakAnalysis } from "@/lib/api";
+import { getArchiveMeta, getTimeSeries, getDiurnal, getSeasonal, getSolarCycle, getOmniAnalysis, getCelestrakAnalysis, getGfzKpAnalysis, getIntermagnetAnalysis } from "@/lib/api";
 import LineChart from "@/components/charts/LineChart";
 import BarChart from "@/components/charts/BarChart";
 import GeomagneticAnalysisPanel from "@/components/timeSeries/GeomagneticAnalysisPanel";
 import CelestrakAnalysisPanel from "@/components/timeSeries/CelestrakAnalysisPanel";
-import type { ArchiveMeta, TecObservation, DiurnalPoint, SeasonalRow, SolarCycleRow, OmniAnalysisResponse, CelestrakAnalysisResponse } from "@/lib/types";
+import GfzKpAnalysisPanel from "@/components/timeSeries/GfzKpAnalysisPanel";
+import IntermagnetAnalysisPanel from "@/components/timeSeries/IntermagnetAnalysisPanel";
+import type { ArchiveMeta, TecObservation, DiurnalPoint, SeasonalRow, SolarCycleRow, OmniAnalysisResponse, CelestrakAnalysisResponse, GfzKpAnalysisResponse, IntermagnetAnalysisResponse } from "@/lib/types";
 
 const STATION_COLORS = ["#168bd2","#ff4444","#00ff88","#ff8c00","#a78bfa","#ffcc00","#34d399","#f472b6"];
 const MONTHS = [
@@ -43,7 +45,14 @@ function percentile(arr: number[], p: number): number {
   return sorted[Math.min(idx, sorted.length - 1)] ?? 0;
 }
 
-type Tab = "daily" | "monthly" | "seasonal" | "diurnal" | "storms" | "celestrak";
+const INTERMAGNET_OBSERVATORIES = [
+  { code: "HER", label: "HER — Hermanus, South Africa" },
+  { code: "HBK", label: "HBK — Hartebeesthoek, South Africa" },
+  { code: "TSU", label: "TSU — Tsumeb, Namibia" },
+  { code: "KMH", label: "KMH — Keetmanshoop, Namibia" },
+];
+
+type Tab = "daily" | "monthly" | "seasonal" | "diurnal" | "storms" | "celestrak" | "gfz" | "intermagnet";
 
 export default function TimeSeriesPage() {
   const [meta, setMeta]       = useState<ArchiveMeta | null>(null);
@@ -61,6 +70,13 @@ export default function TimeSeriesPage() {
   const [celestrak, setCelestrak] = useState<CelestrakAnalysisResponse | null>(null);
   const [celestrakLoading, setCelestrakLoading] = useState(false);
   const [celestrakError, setCelestrakError] = useState<string | null>(null);
+  const [gfz, setGfz] = useState<GfzKpAnalysisResponse | null>(null);
+  const [gfzLoading, setGfzLoading] = useState(false);
+  const [gfzError, setGfzError] = useState<string | null>(null);
+  const [intermagnet, setIntermagnet] = useState<IntermagnetAnalysisResponse | null>(null);
+  const [intermagnetLoading, setIntermagnetLoading] = useState(false);
+  const [intermagnetError, setIntermagnetError] = useState<string | null>(null);
+  const [imagObservatory, setImagObservatory] = useState("HER");
 
   // filters
   const [station, setStation] = useState("");
@@ -74,6 +90,14 @@ export default function TimeSeriesPage() {
   const [celestrakStartMonth, setCelestrakStartMonth] = useState(4);
   const [celestrakEndYear, setCelestrakEndYear] = useState(2024);
   const [celestrakEndMonth, setCelestrakEndMonth] = useState(6);
+  const [gfzStartYear, setGfzStartYear] = useState(2024);
+  const [gfzStartMonth, setGfzStartMonth] = useState(4);
+  const [gfzEndYear, setGfzEndYear] = useState(2024);
+  const [gfzEndMonth, setGfzEndMonth] = useState(6);
+  const [imagStartYear, setImagStartYear] = useState(2024);
+  const [imagStartMonth, setImagStartMonth] = useState(4);
+  const [imagEndYear, setImagEndYear] = useState(2024);
+  const [imagEndMonth, setImagEndMonth] = useState(6);
 
   const yearOptions = Array.from({ length: 12 }, (_, i) => new Date().getFullYear() - 6 + i);
 
@@ -124,6 +148,14 @@ export default function TimeSeriesPage() {
     setCelestrakStartMonth(s.m);
     setCelestrakEndYear(e.y);
     setCelestrakEndMonth(e.m);
+    setGfzStartYear(s.y);
+    setGfzStartMonth(s.m);
+    setGfzEndYear(e.y);
+    setGfzEndMonth(e.m);
+    setImagStartYear(s.y);
+    setImagStartMonth(s.m);
+    setImagEndYear(e.y);
+    setImagEndMonth(e.m);
     const r = rangeFromMonths(s.y, s.m, e.y, e.m);
     setStart(r.start);
     setEnd(r.end);
@@ -162,6 +194,38 @@ export default function TimeSeriesPage() {
     }
     setCelestrakLoading(false);
   }, [station, celestrakStartYear, celestrakStartMonth, celestrakEndYear, celestrakEndMonth]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const loadGfz = useCallback(async () => {
+    const r = rangeFromMonths(gfzStartYear, gfzStartMonth, gfzEndYear, gfzEndMonth);
+    setGfzLoading(true);
+    setGfzError(null);
+    try {
+      await loadAll(station, r.start, r.end);
+      const data = await getGfzKpAnalysis(r.start, r.end, station || undefined);
+      setGfz(data);
+      setTab("gfz");
+    } catch (err) {
+      setGfz(null);
+      setGfzError(err instanceof Error ? err.message : "Failed to load GFZ Kp data");
+    }
+    setGfzLoading(false);
+  }, [station, gfzStartYear, gfzStartMonth, gfzEndYear, gfzEndMonth]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const loadIntermagnet = useCallback(async () => {
+    const r = rangeFromMonths(imagStartYear, imagStartMonth, imagEndYear, imagEndMonth);
+    setIntermagnetLoading(true);
+    setIntermagnetError(null);
+    setTab("intermagnet");
+    try {
+      await loadAll(station, r.start, r.end);
+      const data = await getIntermagnetAnalysis(r.start, r.end, imagObservatory, station || undefined);
+      setIntermagnet(data);
+    } catch (err) {
+      setIntermagnet(null);
+      setIntermagnetError(err instanceof Error ? err.message : "Failed to load INTERMAGNET data");
+    }
+    setIntermagnetLoading(false);
+  }, [station, imagObservatory, imagStartYear, imagStartMonth, imagEndYear, imagEndMonth]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Build daily mean per station ──────────────────────────────────────────
   const dailyByStation: Record<string, Record<string, number[]>> = {};
@@ -379,6 +443,152 @@ export default function TimeSeriesPage() {
         })()}
       </div>
 
+      {/* GFZ Potsdam Kp date range — official Kp index */}
+      <div className="omni-range-card">
+        <div className="omni-range-title">GFZ Potsdam date range (Kp · ap · Ap · Cp)</div>
+        <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", margin: 0 }}>
+          Pull the official geomagnetic Kp index from{" "}
+          <a href="https://kp.gfz.de/en/data" target="_blank" rel="noreferrer">
+            GFZ Potsdam
+          </a>{" "}
+          for the same interval as your TEC archive, then overlay storm days on VTEC. Uses the GFZ JSON web
+          service (3-hourly Kp/ap aggregated to daily; daily Ap and Cp).
+        </p>
+        <div className="omni-range-grid">
+          <label>
+            From month
+            <select value={gfzStartMonth} onChange={(e) => setGfzStartMonth(Number(e.target.value))}>
+              {MONTHS.map((m) => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            From year
+            <select value={gfzStartYear} onChange={(e) => setGfzStartYear(Number(e.target.value))}>
+              {yearOptions.map((y) => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            To month
+            <select value={gfzEndMonth} onChange={(e) => setGfzEndMonth(Number(e.target.value))}>
+              {MONTHS.map((m) => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            To year
+            <select value={gfzEndYear} onChange={(e) => setGfzEndYear(Number(e.target.value))}>
+              {yearOptions.map((y) => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Station (VTEC correlation)
+            <select value={station} onChange={(e) => setStation(e.target.value)}
+              style={{ minWidth: "140px" }}>
+              <option value="">All stations (network mean)</option>
+              {(meta?.stations ?? []).map((s) => (
+                <option key={s} value={s}>{s.toUpperCase()}</option>
+              ))}
+            </select>
+          </label>
+          <button className="btn btn-primary" onClick={loadGfz} disabled={gfzLoading || loading}>
+            {gfzLoading ? "Loading GFZ Kp…" : "Load GFZ Kp analysis"}
+          </button>
+        </div>
+        {(() => {
+          const r = rangeFromMonths(gfzStartYear, gfzStartMonth, gfzEndYear, gfzEndMonth);
+          return (
+            <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+              Selected range: {r.start} → {r.end}
+            </div>
+          );
+        })()}
+      </div>
+
+      {/* INTERMAGNET date range — ground magnetometer H / dB/dt */}
+      <div className="omni-range-card">
+        <div className="omni-range-title">INTERMAGNET date range (H field · dB/dt · modelled GIC)</div>
+        <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", margin: 0 }}>
+          Pull 1-minute ground-magnetometer data from{" "}
+          <a href="https://imag-data.bgs.ac.uk/GIN_V1/GINForms2" target="_blank" rel="noreferrer">
+            INTERMAGNET (BGS GIN)
+          </a>{" "}
+          observatories nearest Zimbabwe, then overlay locally-measured geomagnetic storm days on VTEC. Storms
+          are detected from dH/dt and daily H range — the same physics that drives GICs.
+        </p>
+        <div className="omni-range-grid">
+          <label>
+            From month
+            <select value={imagStartMonth} onChange={(e) => setImagStartMonth(Number(e.target.value))}>
+              {MONTHS.map((m) => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            From year
+            <select value={imagStartYear} onChange={(e) => setImagStartYear(Number(e.target.value))}>
+              {yearOptions.map((y) => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            To month
+            <select value={imagEndMonth} onChange={(e) => setImagEndMonth(Number(e.target.value))}>
+              {MONTHS.map((m) => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            To year
+            <select value={imagEndYear} onChange={(e) => setImagEndYear(Number(e.target.value))}>
+              {yearOptions.map((y) => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Observatory
+            <select value={imagObservatory} onChange={(e) => setImagObservatory(e.target.value)}
+              style={{ minWidth: "180px" }}>
+              {INTERMAGNET_OBSERVATORIES.map((o) => (
+                <option key={o.code} value={o.code}>{o.label}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Station (VTEC correlation)
+            <select value={station} onChange={(e) => setStation(e.target.value)}
+              style={{ minWidth: "140px" }}>
+              <option value="">All stations (network mean)</option>
+              {(meta?.stations ?? []).map((s) => (
+                <option key={s} value={s}>{s.toUpperCase()}</option>
+              ))}
+            </select>
+          </label>
+          <button className="btn btn-primary" onClick={loadIntermagnet} disabled={intermagnetLoading || loading}>
+            {intermagnetLoading ? "Loading INTERMAGNET…" : "Load INTERMAGNET analysis"}
+          </button>
+        </div>
+        {(() => {
+          const r = rangeFromMonths(imagStartYear, imagStartMonth, imagEndYear, imagEndMonth);
+          return (
+            <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+              Selected range: {r.start} → {r.end} · minute data is aggregated to daily statistics (fetch may take
+              ~30–60 s per month)
+            </div>
+          );
+        })()}
+      </div>
+
       {/* Expandable coverage detail */}
       {meta?.available && (
         <div className="card" style={{ padding: "0.6rem 1rem", cursor: "pointer" }} onClick={() => setCoverageOpen((v) => !v)}>
@@ -429,7 +639,7 @@ export default function TimeSeriesPage() {
 
       {/* Tabs */}
       <div className="tabs">
-        {([["daily","Daily Variation"],["monthly","Monthly Averages"],["seasonal","Seasonal / Yearly"],["diurnal","Diurnal Pattern"],["storms","Geomagnetic Storms"],["celestrak","CelesTrak Storms"]] as [Tab,string][]).map(([id, label]) => (
+        {([["daily","Daily Variation"],["monthly","Monthly Averages"],["seasonal","Seasonal / Yearly"],["diurnal","Diurnal Pattern"],["storms","Geomagnetic Storms"],["celestrak","CelesTrak Storms"],["gfz","GFZ Kp Storms"],["intermagnet","INTERMAGNET"]] as [Tab,string][]).map(([id, label]) => (
           <button key={id} className={`tab${tab === id ? " active" : ""}`} onClick={() => setTab(id)}>{label}</button>
         ))}
       </div>
@@ -561,6 +771,28 @@ export default function TimeSeriesPage() {
           vtecDatasets={dailyDatasets}
           loading={celestrakLoading}
           error={celestrakError}
+        />
+      )}
+
+      {/* ── GFZ Kp analysis ── */}
+      {tab === "gfz" && (
+        <GfzKpAnalysisPanel
+          gfz={gfz}
+          vtecLabels={allDates}
+          vtecDatasets={dailyDatasets}
+          loading={gfzLoading}
+          error={gfzError}
+        />
+      )}
+
+      {/* ── INTERMAGNET analysis ── */}
+      {tab === "intermagnet" && (
+        <IntermagnetAnalysisPanel
+          intermagnet={intermagnet}
+          vtecLabels={allDates}
+          vtecDatasets={dailyDatasets}
+          loading={intermagnetLoading}
+          error={intermagnetError}
         />
       )}
 

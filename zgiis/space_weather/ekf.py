@@ -51,6 +51,9 @@ PARAM_CONFIGS: dict[str, EkfConfig] = {
     "s4": EkfConfig(bounds=(0.0, 1.0), q_pos=0.01, q_vel=0.005, r=0.01, scale=0.5),
     "gnss_risk": EkfConfig(bounds=(0.0, 3.0), q_pos=0.05, q_vel=0.01, r=0.3, scale=3.0),
     "stations_online": EkfConfig(bounds=(0.0, 30.0), q_pos=0.5, q_vel=0.1, r=2.0, scale=24.0),
+    # Transformer-neutral GIC (A). Signed, physically unbounded in practice;
+    # noise/typical-magnitude tuning follows the ~10 A "large event" scale.
+    "gic": EkfConfig(bounds=(-500.0, 500.0), q_pos=0.3, q_vel=0.05, r=1.5, scale=10.0),
 }
 
 
