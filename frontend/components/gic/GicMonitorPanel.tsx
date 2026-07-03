@@ -525,8 +525,7 @@ export default function GicMonitorPanel() {
       )}
 
       {/* ── Data ingest ── */}
-      <div className="grid-2">
-        <div className="card card-accent">
+      <div className="card card-accent">
           <div className="operations-chart-title">Upload Datalogger File</div>
           <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "0.7rem" }}>
             Offline path: Campbell CR1000 TOA5 files or CSV with TIMESTAMP + GIC current columns.
@@ -551,27 +550,6 @@ export default function GicMonitorPanel() {
               <p style={{ fontSize: "0.78rem", color: uploadMsg.startsWith("✓") ? "#00ff88" : "#ff8c00" }}>{uploadMsg}</p>
             )}
           </div>
-        </div>
-
-        <div className="card card-accent">
-          <div className="operations-chart-title">Field Station Architecture</div>
-          <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "0.5rem" }}>
-            Each monitoring site (e.g. MARIMBA_001) follows the ZINGSA/ZETDC field setup:
-          </p>
-          <ol style={{ fontSize: "0.8rem", lineHeight: 1.7, paddingLeft: "1.2rem", margin: 0 }}>
-            <li>GMW CPCO clamp sensor on the transformer neutral / ground lead</li>
-            <li>Campbell Scientific CR1000 datalogger (timestamped current samples)</li>
-            <li>RS232 → USB adapter into a Raspberry Pi 4 gateway</li>
-            <li>Pi formats JSON and forwards via 4G/LTE router</li>
-            <li>
-              This server ingests at <code>POST /gic/ingest</code> — body:{" "}
-              <code>{'{"station_id": "MARIMBA_001", "readings": [{"time": "...", "gic_a": 1.2}]}'}</code>
-            </li>
-          </ol>
-          <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "0.6rem" }}>
-            Power: 12/24 V DC (solar-backed) in an IP65 enclosure with surge protection and earthing.
-          </p>
-        </div>
       </div>
 
       {/* ── Methodology ── */}
