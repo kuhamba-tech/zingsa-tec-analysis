@@ -176,7 +176,6 @@ export default function SpaceWeatherPage() {
   const flareClass   = sa?.flare_class ?? "N/A";
   const actLabel     = sa?.activity_label ?? "Low";
   const actColor     = sa?.activity_color ?? "#22c55e";
-  const apiRoutes    = Array.isArray(sa?.api_routes) ? sa.api_routes : [];
   const alerts       = Array.isArray(sa?.alerts) ? sa.alerts : [];
   const donkiFlares  = Array.isArray(sa?.donki_flares) ? sa.donki_flares : [];
   const donkiCmes    = Array.isArray(sa?.donki_cmes) ? sa.donki_cmes : [];
@@ -280,13 +279,6 @@ export default function SpaceWeatherPage() {
 
         <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", fontSize: "0.72rem", color: "var(--text-muted)", paddingLeft: "0.2rem" }}>
           <span style={{ fontWeight: 600, color: "var(--text)" }}>Real-time solar conditions for GNSS, satellites and CORS networks</span>
-          <span>·</span>
-          {apiRoutes.length > 0 && (
-            <span style={{ fontStyle: "italic" }}>API: {apiRoutes.join(" | ")}</span>
-          )}
-          {sa?.donki_note && (
-            <span>· {sa.donki_note}</span>
-          )}
         </div>
 
         {/* Row 1: Solar Summary | Flare card | X-Ray chart */}
@@ -435,9 +427,6 @@ export default function SpaceWeatherPage() {
                 : `Flare event(s) detected.`}
             </div>
             {dateRange && <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>FLR: {dateRange}</div>}
-            {sa?.donki_status === "unavailable" && (
-              <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", marginTop: "0.3rem", fontStyle: "italic" }}>{sa.donki_note}</div>
-            )}
           </div>
         </div>
 
