@@ -57,3 +57,5 @@ Thumbs.db
 /static_export/
 .env*
 !frontend/.env.production
+
+.vercel
