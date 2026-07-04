@@ -18,6 +18,16 @@ const GIC_THRESHOLDS = [
   { value: 75, label: "Extreme (75 A)", color: "#ff2e2e" },
 ];
 
+type ChartMeta = ({ error?: number | null; confidence?: number | null } | null)[];
+
+interface ChartDataset {
+  label: string;
+  data: (number | null)[];
+  color: string;
+  dashed?: boolean;
+  meta?: ChartMeta;
+}
+
 const SEVERITY_COLOR: Record<string, string> = {
   Low: "#00ff88",
   Moderate: "#ffcc00",
@@ -36,30 +46,38 @@ interface Props {
   stationId: string;
   stationStatus: GicStationStatus | null;
   network: GicNetwork | null;
+  /** When set, parent owns the 24 h series fetch (avoids duplicate polling). */
+  series?: GicSeriesResponse | null;
 }
 
 /** Live operations dashboard for one GIC station (station overview, real-time
  *  chart/gauge, space-weather summary, risk assessment, latest readings and
  *  recent alerts). Everything is computed from real ingested data — panels
  *  show N/A until field measurements arrive. */
-export default function GicLiveDashboard({ stationId, stationStatus, network }: Props) {
-  const [series, setSeries] = useState<GicSeriesResponse | null>(null);
+export default function GicLiveDashboard({ stationId, stationStatus, network, series: externalSeries }: Props) {
+  const [internalSeries, setInternalSeries] = useState<GicSeriesResponse | null>(null);
   const [sw, setSw] = useState<SpaceWeatherCurrent | null>(null);
   const [alerts, setAlerts] = useState<EkfAlert[]>([]);
   const [liveModel, setLiveModel] = useState<GicLiveModel | null>(null);
 
+  const series = externalSeries !== undefined ? externalSeries : internalSeries;
+  const parentOwnsSeries = externalSeries !== undefined;
+
   const load = useCallback(async () => {
-    const [s, w, a, m] = await Promise.all([
-      stationId ? getGicSeries(stationId, 24).catch(() => null) : Promise.resolve(null),
-      getSpaceWeather().catch(() => null),
-      getEkfAlertLog(24).catch(() => [] as EkfAlert[]),
-      getGicLiveModel(24).catch(() => null),
-    ]);
-    setSeries(s);
-    setSw(w);
-    setAlerts(a);
-    setLiveModel(m);
-  }, [stationId]);
+    const tasks: Promise<void>[] = [
+      getSpaceWeather().then(setSw).catch(() => setSw(null)),
+      getEkfAlertLog(24).then(setAlerts).catch(() => setAlerts([])),
+      getGicLiveModel(24).then(setLiveModel).catch(() => setLiveModel(null)),
+    ];
+    if (!parentOwnsSeries && stationId) {
+      tasks.push(
+        getGicSeries(stationId, 24)
+          .then(setInternalSeries)
+          .catch(() => setInternalSeries(null)),
+      );
+    }
+    await Promise.all(tasks);
+  }, [stationId, parentOwnsSeries]);
 
   useEffect(() => {
     load();
@@ -80,16 +98,23 @@ export default function GicLiveDashboard({ stationId, stationStatus, network }: 
   const latest = observedPoints.length > 0 ? observedPoints[observedPoints.length - 1] : null;
   const latestAbs = latest?.observed != null ? Math.abs(latest.observed) : null;
 
+  const hasEkf = useMemo(
+    () => (series?.points ?? []).some((p) => p.predicted != null),
+    [series],
+  );
+
   const chart = useMemo(() => {
     if (!series || series.points.length === 0) return null;
     return {
       labels: series.points.map((p) => p.t.replace("T", " ").slice(11, 16)),
       observed: series.points.map((p) => p.observed),
+      predicted: series.points.map((p) => p.predicted),
+      meta: series.points.map((p) =>
+        p.error != null || p.confidence != null ? { error: p.error, confidence: p.confidence } : null,
+      ),
     };
   }, [series]);
 
-  // Live modelled GIC (plane-wave K·dB/dt from the live GOES magnetometer
-  // feed) — downsampled to ~5-min points so the 24 h chart stays readable.
   const modelChart = useMemo(() => {
     if (!liveModel?.available || liveModel.points.length === 0) return null;
     const pts = liveModel.points.filter((p) => p.gic_est_a != null);
@@ -106,12 +131,9 @@ export default function GicLiveDashboard({ stationId, stationStatus, network }: 
       ? Math.abs(liveModel.latest.gic_est_a)
       : null;
 
-  // Measured value when available, otherwise the live modelled estimate.
   const effectiveAbs = latestAbs ?? latestModelAbs;
   const isModelled = latestAbs == null && latestModelAbs != null;
 
-  // Composite risk from the real inputs available: |GIC| (measured or live
-  // modelled, weighted against the 75 A extreme band) and current Kp.
   const risk = useMemo(() => {
     if (effectiveAbs == null) return null;
     const gicPart = Math.min(1, effectiveAbs / 75);
@@ -120,9 +142,32 @@ export default function GicLiveDashboard({ stationId, stationStatus, network }: 
     return { score, ...riskLabel(score) };
   }, [effectiveAbs, sw]);
 
+  const gicAlerts = useMemo(() => {
+    const fromSeries = (series?.alerts ?? []).filter((a) => a.parameter === "gic");
+    if (fromSeries.length > 0) return fromSeries;
+    return alerts.filter((a) => a.parameter === "gic");
+  }, [series, alerts]);
+
   const latestRows = useMemo(() => observedPoints.slice(-5).reverse(), [observedPoints]);
 
   const lastUpdate = latest ? latest.t.replace("T", " ").slice(0, 19) + " UTC" : null;
+
+  const chartDatasets = useMemo(() => {
+    if (!chart) return [];
+    const ds: ChartDataset[] = [
+      { label: "Measured GIC (A)", data: chart.observed, color: "#00ff88" },
+    ];
+    if (hasEkf) {
+      ds.push({
+        label: "EKF Predicted (A)",
+        data: chart.predicted,
+        color: "#ff8c00",
+        dashed: true,
+        meta: chart.meta,
+      });
+    }
+    return ds;
+  }, [chart, hasEkf]);
 
   const cellHead: React.CSSProperties = {
     fontSize: "0.72rem", fontWeight: 700, textTransform: "uppercase",
@@ -138,7 +183,6 @@ export default function GicLiveDashboard({ stationId, stationStatus, network }: 
     <div className="card card-accent">
       <div className="operations-chart-title">Live Station Dashboard — {stationId || "N/A"}</div>
 
-      {/* Row 1: overview · realtime chart · space weather */}
       <div className="gic-dash-row1" style={{ marginTop: "0.6rem", alignItems: "stretch" }}>
         <div className="card" style={{ margin: 0 }}>
           <div style={cellHead}>Station Overview</div>
@@ -158,13 +202,20 @@ export default function GicLiveDashboard({ stationId, stationStatus, network }: 
         <div className="card gic-dash-chart" style={{ margin: 0 }}>
           <div style={cellHead}>Real-Time GIC Current (Amperes) — last 24 h</div>
           {chart ? (
-            <LineChart
-              labels={chart.labels}
-              datasets={[{ label: "Measured GIC (A)", data: chart.observed, color: "#00ff88" }]}
-              yLabel="Amps (A)"
-              height={190}
-              thresholds={GIC_THRESHOLDS}
-            />
+            <>
+              <LineChart
+                labels={chart.labels}
+                datasets={chartDatasets}
+                yLabel="Amps (A)"
+                height={190}
+                thresholds={GIC_THRESHOLDS}
+              />
+              {hasEkf && (
+                <p style={{ fontSize: "0.68rem", color: "var(--text-muted)", marginTop: "0.35rem" }}>
+                  Solid: measured transformer-neutral current. Dashed: EKF one-step-ahead prediction.
+                </p>
+              )}
+            </>
           ) : modelChart ? (
             <>
               <LineChart
@@ -199,18 +250,17 @@ export default function GicLiveDashboard({ stationId, stationStatus, network }: 
         </div>
       </div>
 
-      {/* Row 2: gauge · latest readings · 24h area · alerts */}
       <div className="grid-4" style={{ marginTop: "0.8rem", alignItems: "stretch" }}>
         <div className="card" style={{ margin: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
           <div style={{ ...cellHead, alignSelf: "flex-start" }}>Real-Time GIC Current</div>
           <GicGauge
-            value={effectiveAbs != null ? Math.min(effectiveAbs, 30) : null}
+            value={effectiveAbs != null ? Math.min(effectiveAbs, 75) : null}
             min={0}
-            max={30}
+            max={75}
             segments={[
-              { from: 0, to: 0.5, color: "#00c853" },
-              { from: 0.5, to: 0.833, color: "#ffcc00" },
-              { from: 0.833, to: 1, color: "#ff2e2e" },
+              { from: 0, to: 25 / 75, color: "#00c853" },
+              { from: 25 / 75, to: 50 / 75, color: "#ffcc00" },
+              { from: 50 / 75, to: 1, color: "#ff2e2e" },
             ]}
             valueText={effectiveAbs != null ? `${effectiveAbs.toFixed(1)} A` : "N/A"}
             label={
@@ -258,9 +308,15 @@ export default function GicLiveDashboard({ stationId, stationStatus, network }: 
           {chart ? (
             <LineChart
               labels={chart.labels}
-              datasets={[{ label: "|GIC| trend (A)", data: chart.observed, color: "#34d399", fill: true }]}
+              datasets={[
+                { label: "|GIC| trend (A)", data: chart.observed, color: "#34d399", fill: true },
+                ...(hasEkf
+                  ? [{ label: "EKF Predicted (A)", data: chart.predicted, color: "#ff8c00", dashed: true }]
+                  : []),
+              ]}
               yLabel="Amps (A)"
               height={170}
+              thresholds={GIC_THRESHOLDS}
             />
           ) : modelChart ? (
             <LineChart
@@ -293,8 +349,8 @@ export default function GicLiveDashboard({ stationId, stationStatus, network }: 
             />
           </div>
           <div style={{ marginTop: "0.5rem", borderTop: "1px solid var(--border)", paddingTop: "0.4rem" }}>
-            {alerts.length > 0 ? (
-              alerts.slice(0, 4).map((a) => (
+            {gicAlerts.length > 0 ? (
+              gicAlerts.slice(0, 4).map((a) => (
                 <div key={a.alert_id} style={{ display: "flex", gap: "0.4rem", fontSize: "0.72rem", padding: "0.15rem 0", alignItems: "baseline" }}>
                   <span style={{ color: SEVERITY_COLOR[a.severity] ?? "var(--text)" }}>⚠</span>
                   <span style={{ color: "var(--text-muted)", whiteSpace: "nowrap" }}>{a.timestamp.slice(11, 16)}</span>
@@ -303,7 +359,7 @@ export default function GicLiveDashboard({ stationId, stationStatus, network }: 
               ))
             ) : (
               <p style={{ fontSize: "0.74rem", color: "var(--text-muted)", margin: 0 }}>
-                No alerts in the last 24 h.
+                No GIC EKF alerts in the last 24 h.
               </p>
             )}
           </div>

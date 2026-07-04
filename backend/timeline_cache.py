@@ -1,16 +1,14 @@
 from __future__ import annotations
 
 import sqlite3
-import tempfile
 from pathlib import Path
 from typing import Iterable
 
 from backend.schemas import TimelinePoint
 
-# OS temp dir, not a project-relative path — Vercel's filesystem is read-only
-# outside of /tmp. This is a best-effort gap-filling cache, not a system of
-# record, so it's fine for it to be ephemeral per cold start.
-DB_PATH = Path(tempfile.gettempdir()) / "zgiis_space_weather_backfill.sqlite"
+# Best-effort gap-filling cache — persisted under static/data so Vercel cold
+# starts retain recent timeline backfill (not a system of record).
+DB_PATH = Path(__file__).resolve().parents[1] / "static" / "data" / "space_weather_timeline_cache.sqlite"
 
 
 def _connect() -> sqlite3.Connection:

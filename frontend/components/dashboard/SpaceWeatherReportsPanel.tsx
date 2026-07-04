@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import LineChart from "@/components/charts/LineChart";
 import { getSpaceWeatherReport } from "@/lib/api";
+import { alignEkfToReportLabels } from "@/lib/ekfAlign";
 import { conditionsForSeries } from "@/lib/spaceWeatherMetrics";
-import type { SpaceWeatherReport, SpaceWeatherReportPeriod } from "@/lib/types";
+import type { EkfStatus, SpaceWeatherReport, SpaceWeatherReportPeriod } from "@/lib/types";
 
 const PERIODS: { id: SpaceWeatherReportPeriod; label: string }[] = [
   { id: "hourly", label: "Hourly Report (Last 1 Hour)" },
@@ -18,8 +19,14 @@ function fmtUtc(iso: string): string {
   return iso.slice(0, 16).replace("T", " ") + " UTC";
 }
 
-/** Space weather report card — inserted between scale reference and metric correlations. */
-export default function SpaceWeatherReportsPanel() {
+interface Props {
+  ekf?: EkfStatus | null;
+}
+
+type EkfChartMeta = ({ error?: number | null; confidence?: number | null } | null)[];
+
+/** Space weather report card — below scale reference on the dashboard. */
+export default function SpaceWeatherReportsPanel({ ekf = null }: Props) {
   const [period, setPeriod] = useState<SpaceWeatherReportPeriod>("hourly");
   const [report, setReport] = useState<SpaceWeatherReport | null>(null);
   const [busy, setBusy] = useState(false);
@@ -48,16 +55,28 @@ export default function SpaceWeatherReportsPanel() {
   const chartsBlock = useMemo(() => {
     if (!report?.charts.labels.length) return null;
     const { labels, kp, dst, tec } = report.charts;
+    const kpEkf = alignEkfToReportLabels(labels, ekf?.series.kp?.points);
+    const dstEkf = alignEkfToReportLabels(labels, ekf?.series.dst?.points);
+    const tecEkf = alignEkfToReportLabels(labels, ekf?.series.mean_vtec?.points);
     const kpConditions = conditionsForSeries(kp, "kp");
     const dstConditions = conditionsForSeries(dst, "dst");
     const tecConditions = conditionsForSeries(tec, "tec");
+
+    const ekfDs = (label: string, ekfData: (number | null)[], meta: EkfChartMeta, color: string) =>
+      ekfData.some((v) => v != null)
+        ? [{ label, data: ekfData, color, dashed: true, meta }]
+        : [];
+
     return (
       <div className="sw-report-charts">
         <div className="sw-report-mini-chart">
           <div className="sw-report-mini-title">Kp Index</div>
           <LineChart
             labels={labels}
-            datasets={[{ label: "Kp", data: kp, color: "#a78bfa" }]}
+            datasets={[
+              { label: "Kp (Observed)", data: kp, color: "#a78bfa" },
+              ...ekfDs("Kp (EKF)", kpEkf.data, kpEkf.meta, "#d8b4fe"),
+            ]}
             yLabel="Kp"
             height={120}
             tooltipDetails={kpConditions}
@@ -69,7 +88,10 @@ export default function SpaceWeatherReportsPanel() {
           <div className="sw-report-mini-title">Dst Index (nT)</div>
           <LineChart
             labels={labels}
-            datasets={[{ label: "Dst", data: dst, color: "#168bd2" }]}
+            datasets={[
+              { label: "Dst (Observed)", data: dst, color: "#168bd2" },
+              ...ekfDs("Dst (EKF)", dstEkf.data, dstEkf.meta, "#7dd3fc"),
+            ]}
             yLabel="nT"
             height={120}
             tooltipDetails={dstConditions}
@@ -81,7 +103,10 @@ export default function SpaceWeatherReportsPanel() {
           <div className="sw-report-mini-title">TEC (TECU)</div>
           <LineChart
             labels={labels}
-            datasets={[{ label: "TEC", data: tec, color: "#00ff88" }]}
+            datasets={[
+              { label: "TEC (Observed)", data: tec, color: "#00ff88" },
+              ...ekfDs("TEC (EKF)", tecEkf.data, tecEkf.meta, "#86efac"),
+            ]}
             yLabel="TECU"
             height={120}
             tooltipDetails={tecConditions}
@@ -91,7 +116,7 @@ export default function SpaceWeatherReportsPanel() {
         </div>
       </div>
     );
-  }, [report]);
+  }, [report, ekf]);
 
   const handleExportJson = () => {
     if (!report) return;

@@ -11,6 +11,7 @@ export interface SpaceWeatherCurrent {
   stations_online: number | null;
   stations_total: number | null;
   plasma_speed: number | null;
+  mean_vtec: number | null;
   updated_utc: string | null;
 }
 
@@ -24,6 +25,7 @@ export interface SpaceWeatherTimelines {
   s4: TimelinePoint[];
   gnss_risk: TimelinePoint[];
   stations_online: TimelinePoint[];
+  mean_vtec: TimelinePoint[];
 }
 
 export interface SpaceWeatherLogStatus {
@@ -505,6 +507,43 @@ export interface GfzKpAnalysisResponse {
   fetched_at: string | null;
 }
 
+export interface WdcKyotoDailyPoint {
+  date: string;
+  kp: number | null;
+  kp_mean: number | null;
+  ap: number | null;
+  ap_daily: number | null;
+  dst: number | null;
+  storm_flag: boolean;
+  storm_class: string;
+  mean_vtec: number | null;
+}
+
+export interface WdcKyotoStormDay {
+  date: string;
+  kp: number | null;
+  dst: number | null;
+  ap: number | null;
+  storm_class: string;
+  mean_vtec: number | null;
+}
+
+export interface WdcKyotoAnalysisResponse {
+  source: string;
+  start_date: string | null;
+  end_date: string | null;
+  days: number;
+  storm_days: number;
+  max_kp: number | null;
+  min_dst: number | null;
+  max_ap: number | null;
+  mean_vtec_storm: number | null;
+  mean_vtec_quiet: number | null;
+  series: WdcKyotoDailyPoint[];
+  storms: WdcKyotoStormDay[];
+  fetched_at: string | null;
+}
+
 export interface IntermagnetDailyPoint {
   date: string;
   mean_h: number | null;
@@ -692,8 +731,12 @@ export interface VtecTheoryPayload {
   pipeline_stages: TheoryPipelineStage[];
   computation_pipeline: ComputationPipeline;
   steps: TheoryStep[];
-  ipp: { svg: string; legend_html: string };
+  ipp?: { svg: string; legend_html: string };
 }
+
+/** Same shape as VtecTheoryPayload (no IPP detail section). */
+export type GeomagneticTheoryPayload = Omit<VtecTheoryPayload, "ipp">;
+export type UnderstandingTecPayload = Omit<VtecTheoryPayload, "ipp">;
 
 export interface ComputationPipeline {
   inputs: string[];
@@ -703,7 +746,7 @@ export interface ComputationPipeline {
 
 // ── Navigation News (broadcast agent API) ───────────────────────────────────────
 
-export type AudienceId = "farmer" | "surveyor" | "citizen" | "driver";
+export type AudienceId = "farmer" | "surveyor" | "citizen" | "driver" | "aviation";
 
 export interface NavigationNewsBriefApi {
   id: AudienceId;

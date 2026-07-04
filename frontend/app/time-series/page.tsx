@@ -1,13 +1,14 @@
 "use client";
-import { useEffect, useState, useCallback } from "react";
-import { getArchiveMeta, getTimeSeries, getDiurnal, getSeasonal, getSolarCycle, getOmniAnalysis, getCelestrakAnalysis, getGfzKpAnalysis, getIntermagnetAnalysis } from "@/lib/api";
+import { useEffect, useState, useCallback, useRef } from "react";
+import { getArchiveMeta, getTimeSeries, getDiurnal, getSeasonal, getSolarCycle, getOmniAnalysis, getCelestrakAnalysis, getGfzKpAnalysis, getWdcKyotoAnalysis, getIntermagnetAnalysis } from "@/lib/api";
 import LineChart from "@/components/charts/LineChart";
 import BarChart from "@/components/charts/BarChart";
 import GeomagneticAnalysisPanel from "@/components/timeSeries/GeomagneticAnalysisPanel";
 import CelestrakAnalysisPanel from "@/components/timeSeries/CelestrakAnalysisPanel";
 import GfzKpAnalysisPanel from "@/components/timeSeries/GfzKpAnalysisPanel";
+import MultiSourceComparisonPanel from "@/components/timeSeries/MultiSourceComparisonPanel";
 import IntermagnetAnalysisPanel from "@/components/timeSeries/IntermagnetAnalysisPanel";
-import type { ArchiveMeta, TecObservation, DiurnalPoint, SeasonalRow, SolarCycleRow, OmniAnalysisResponse, CelestrakAnalysisResponse, GfzKpAnalysisResponse, IntermagnetAnalysisResponse } from "@/lib/types";
+import type { ArchiveMeta, TecObservation, DiurnalPoint, SeasonalRow, SolarCycleRow, OmniAnalysisResponse, CelestrakAnalysisResponse, GfzKpAnalysisResponse, WdcKyotoAnalysisResponse, IntermagnetAnalysisResponse } from "@/lib/types";
 
 const STATION_COLORS = ["#168bd2","#ff4444","#00ff88","#ff8c00","#a78bfa","#ffcc00","#34d399","#f472b6"];
 const MONTHS = [
@@ -52,7 +53,7 @@ const INTERMAGNET_OBSERVATORIES = [
   { code: "KMH", label: "KMH — Keetmanshoop, Namibia" },
 ];
 
-type Tab = "daily" | "monthly" | "seasonal" | "diurnal" | "storms" | "celestrak" | "gfz" | "intermagnet";
+type Tab = "daily" | "monthly" | "seasonal" | "diurnal" | "compare" | "storms" | "celestrak" | "gfz" | "intermagnet";
 
 export default function TimeSeriesPage() {
   const [meta, setMeta]       = useState<ArchiveMeta | null>(null);
@@ -65,14 +66,14 @@ export default function TimeSeriesPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [coverageOpen, setCoverageOpen] = useState(false);
   const [omni, setOmni] = useState<OmniAnalysisResponse | null>(null);
-  const [omniLoading, setOmniLoading] = useState(false);
+  const [sourcesLoading, setSourcesLoading] = useState(false);
   const [omniError, setOmniError] = useState<string | null>(null);
   const [celestrak, setCelestrak] = useState<CelestrakAnalysisResponse | null>(null);
-  const [celestrakLoading, setCelestrakLoading] = useState(false);
   const [celestrakError, setCelestrakError] = useState<string | null>(null);
   const [gfz, setGfz] = useState<GfzKpAnalysisResponse | null>(null);
-  const [gfzLoading, setGfzLoading] = useState(false);
   const [gfzError, setGfzError] = useState<string | null>(null);
+  const [kyoto, setKyoto] = useState<WdcKyotoAnalysisResponse | null>(null);
+  const [kyotoError, setKyotoError] = useState<string | null>(null);
   const [intermagnet, setIntermagnet] = useState<IntermagnetAnalysisResponse | null>(null);
   const [intermagnetLoading, setIntermagnetLoading] = useState(false);
   const [intermagnetError, setIntermagnetError] = useState<string | null>(null);
@@ -86,23 +87,19 @@ export default function TimeSeriesPage() {
   const [startMonth, setStartMonth] = useState(4);
   const [endYear, setEndYear] = useState(2024);
   const [endMonth, setEndMonth] = useState(6);
-  const [celestrakStartYear, setCelestrakStartYear] = useState(2024);
-  const [celestrakStartMonth, setCelestrakStartMonth] = useState(4);
-  const [celestrakEndYear, setCelestrakEndYear] = useState(2024);
-  const [celestrakEndMonth, setCelestrakEndMonth] = useState(6);
-  const [gfzStartYear, setGfzStartYear] = useState(2024);
-  const [gfzStartMonth, setGfzStartMonth] = useState(4);
-  const [gfzEndYear, setGfzEndYear] = useState(2024);
-  const [gfzEndMonth, setGfzEndMonth] = useState(6);
   const [imagStartYear, setImagStartYear] = useState(2024);
   const [imagStartMonth, setImagStartMonth] = useState(4);
   const [imagEndYear, setImagEndYear] = useState(2024);
   const [imagEndMonth, setImagEndMonth] = useState(6);
 
   const yearOptions = Array.from({ length: 12 }, (_, i) => new Date().getFullYear() - 6 + i);
+  const loadGen = useRef(0);
 
-  async function loadAll(st?: string, s?: string, e?: string) {
-    setLoading(true);
+  const loadAll = useCallback(async (st?: string, s?: string, e?: string, opts?: { initial?: boolean }) => {
+    const gen = ++loadGen.current;
+    if (opts?.initial !== false) {
+      setLoading(true);
+    }
     setLoadError(null);
     const results = await Promise.allSettled([
       getArchiveMeta(),
@@ -111,6 +108,8 @@ export default function TimeSeriesPage() {
       getSeasonal(),
       getSolarCycle(),
     ]);
+    if (gen !== loadGen.current) return;
+
     const errors: string[] = [];
     const labels = ["archive meta", "time series", "diurnal", "seasonal", "solar cycle"];
     results.forEach((result, i) => {
@@ -132,9 +131,10 @@ export default function TimeSeriesPage() {
       setLoadError(errors.join(" · "));
     }
     setLoading(false);
-  }
-
-  useEffect(() => { loadAll(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    void loadAll(undefined, undefined, undefined, { initial: true });
+  }, [loadAll]);
 
   useEffect(() => {
     if (!meta?.first_date || !meta?.last_date) return;
@@ -144,14 +144,6 @@ export default function TimeSeriesPage() {
     setStartMonth(s.m);
     setEndYear(e.y);
     setEndMonth(e.m);
-    setCelestrakStartYear(s.y);
-    setCelestrakStartMonth(s.m);
-    setCelestrakEndYear(e.y);
-    setCelestrakEndMonth(e.m);
-    setGfzStartYear(s.y);
-    setGfzStartMonth(s.m);
-    setGfzEndYear(e.y);
-    setGfzEndMonth(e.m);
     setImagStartYear(s.y);
     setImagStartMonth(s.m);
     setImagEndYear(e.y);
@@ -161,65 +153,81 @@ export default function TimeSeriesPage() {
     setEnd(r.end);
   }, [meta?.first_date, meta?.last_date]);
 
-  const loadOmni = useCallback(async () => {
+  const loadAllSources = useCallback(async () => {
     const r = rangeFromMonths(startYear, startMonth, endYear, endMonth);
     setStart(r.start);
     setEnd(r.end);
-    setOmniLoading(true);
+    setSourcesLoading(true);
     setOmniError(null);
-    try {
-      await loadAll(station, r.start, r.end);
-      const data = await getOmniAnalysis(r.start, r.end, station || undefined);
-      setOmni(data);
-      setTab("storms");
-    } catch (err) {
-      setOmni(null);
-      setOmniError(err instanceof Error ? err.message : "Failed to load OMNIWeb data");
-    }
-    setOmniLoading(false);
-  }, [station, startYear, startMonth, endYear, endMonth]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const loadCelestrak = useCallback(async () => {
-    const r = rangeFromMonths(celestrakStartYear, celestrakStartMonth, celestrakEndYear, celestrakEndMonth);
-    setCelestrakLoading(true);
     setCelestrakError(null);
-    try {
-      await loadAll(station, r.start, r.end);
-      const data = await getCelestrakAnalysis(r.start, r.end, station || undefined);
-      setCelestrak(data);
-      setTab("celestrak");
-    } catch (err) {
-      setCelestrak(null);
-      setCelestrakError(err instanceof Error ? err.message : "Failed to load CelesTrak data");
-    }
-    setCelestrakLoading(false);
-  }, [station, celestrakStartYear, celestrakStartMonth, celestrakEndYear, celestrakEndMonth]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const loadGfz = useCallback(async () => {
-    const r = rangeFromMonths(gfzStartYear, gfzStartMonth, gfzEndYear, gfzEndMonth);
-    setGfzLoading(true);
     setGfzError(null);
+    setKyotoError(null);
     try {
-      await loadAll(station, r.start, r.end);
-      const data = await getGfzKpAnalysis(r.start, r.end, station || undefined);
-      setGfz(data);
-      setTab("gfz");
-    } catch (err) {
-      setGfz(null);
-      setGfzError(err instanceof Error ? err.message : "Failed to load GFZ Kp data");
+      void loadAll(station, r.start, r.end, { initial: false });
+      const [omniR, celR, gfzR, kyotoR] = await Promise.allSettled([
+        getOmniAnalysis(r.start, r.end, station || undefined),
+        getCelestrakAnalysis(r.start, r.end, station || undefined),
+        getGfzKpAnalysis(r.start, r.end, station || undefined),
+        getWdcKyotoAnalysis(r.start, r.end, station || undefined),
+      ]);
+      if (omniR.status === "fulfilled") {
+        setOmni(omniR.value);
+      } else {
+        setOmni(null);
+        setOmniError(omniR.reason instanceof Error ? omniR.reason.message : "Failed to load OMNIWeb data");
+      }
+      if (celR.status === "fulfilled") {
+        setCelestrak(celR.value);
+      } else {
+        setCelestrak(null);
+        setCelestrakError(celR.reason instanceof Error ? celR.reason.message : "Failed to load CelesTrak data");
+      }
+      if (gfzR.status === "fulfilled") {
+        setGfz(gfzR.value);
+      } else {
+        setGfz(null);
+        setGfzError(gfzR.reason instanceof Error ? gfzR.reason.message : "Failed to load GFZ Kp data");
+      }
+      if (kyotoR.status === "fulfilled") {
+        setKyoto(kyotoR.value);
+      } else {
+        setKyoto(null);
+        setKyotoError(kyotoR.reason instanceof Error ? kyotoR.reason.message : "Failed to load WDC Kyoto data");
+      }
+      setTab("compare");
+    } finally {
+      setSourcesLoading(false);
     }
-    setGfzLoading(false);
-  }, [station, gfzStartYear, gfzStartMonth, gfzEndYear, gfzEndMonth]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [station, startYear, startMonth, endYear, endMonth]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadIntermagnet = useCallback(async () => {
     const r = rangeFromMonths(imagStartYear, imagStartMonth, imagEndYear, imagEndMonth);
     setIntermagnetLoading(true);
     setIntermagnetError(null);
     setTab("intermagnet");
+    setOmniError(null);
+    setCelestrakError(null);
+    setKyotoError(null);
     try {
-      await loadAll(station, r.start, r.end);
-      const data = await getIntermagnetAnalysis(r.start, r.end, imagObservatory, station || undefined);
-      setIntermagnet(data);
+      void loadAll(station, r.start, r.end, { initial: false });
+      const [imagR, omniR, celR, kyotoR] = await Promise.allSettled([
+        getIntermagnetAnalysis(r.start, r.end, imagObservatory, station || undefined),
+        getOmniAnalysis(r.start, r.end, station || undefined),
+        getCelestrakAnalysis(r.start, r.end, station || undefined),
+        getWdcKyotoAnalysis(r.start, r.end, station || undefined),
+      ]);
+      if (imagR.status === "fulfilled") {
+        setIntermagnet(imagR.value);
+      } else {
+        setIntermagnet(null);
+        throw imagR.reason;
+      }
+      if (omniR.status === "fulfilled") setOmni(omniR.value);
+      else setOmniError(omniR.reason instanceof Error ? omniR.reason.message : "NASA OMNIWeb failed");
+      if (celR.status === "fulfilled") setCelestrak(celR.value);
+      else setCelestrakError(celR.reason instanceof Error ? celR.reason.message : "CelesTrak failed");
+      if (kyotoR.status === "fulfilled") setKyoto(kyotoR.value);
+      else setKyotoError(kyotoR.reason instanceof Error ? kyotoR.reason.message : "WDC Kyoto failed");
     } catch (err) {
       setIntermagnet(null);
       setIntermagnetError(err instanceof Error ? err.message : "Failed to load INTERMAGNET data");
@@ -311,15 +319,15 @@ export default function TimeSeriesPage() {
         </div>
       )}
 
-      {/* OMNIWeb date range — NASA geomagnetic indices */}
+      {/* Multi-source geomagnetic indices — NASA · CelesTrak · GFZ */}
       <div className="omni-range-card">
-        <div className="omni-range-title">NASA OMNIWeb date range (SSN · Kp · F10.7 · Dst)</div>
+        <div className="omni-range-title">
+          Geomagnetic indices — NASA OMNIWeb · CelesTrak · GFZ Potsdam (DE) · WDC Kyoto (JP)
+        </div>
         <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", margin: 0 }}>
-          Pull daily space-weather indices from{" "}
-          <a href="https://omniweb.gsfc.nasa.gov/form/dx1.html" target="_blank" rel="noreferrer">
-            OMNIWeb
-          </a>{" "}
-          for the same interval as your TEC archive, then overlay geomagnetic storm days on VTEC.
+          Load daily space-weather indices from all four providers in one request, then compare Kp, Dst, F10.7,
+          SSN, and Ap on shared charts. GFZ is the official Kp derivation centre; WDC Kyoto hosts the Japanese
+          Dst index and definitive Kp distribution.
         </p>
         <div className="omni-range-grid">
           <label>
@@ -364,8 +372,8 @@ export default function TimeSeriesPage() {
               ))}
             </select>
           </label>
-          <button className="btn btn-primary" onClick={loadOmni} disabled={omniLoading || loading}>
-            {omniLoading ? "Loading OMNI…" : "Load OMNI analysis"}
+          <button className="btn btn-primary" onClick={loadAllSources} disabled={sourcesLoading || (loading && obs.length === 0)}>
+            {sourcesLoading ? "Loading all sources…" : "Load all sources"}
           </button>
         </div>
         {start && end && (
@@ -373,142 +381,6 @@ export default function TimeSeriesPage() {
             Selected range: {start} → {end}
           </div>
         )}
-      </div>
-
-      {/* CelesTrak date range — SSN / Kp / F10.7 / Ap */}
-      <div className="omni-range-card">
-        <div className="omni-range-title">CelesTrak date range (SSN · Kp · F10.7 · Ap)</div>
-        <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", margin: 0 }}>
-          Pull daily space-weather indices from{" "}
-          <a href="https://celestrak.org/SpaceData/" target="_blank" rel="noreferrer">
-            CelesTrak
-          </a>{" "}
-          for the same interval as your TEC archive, then overlay storm days on VTEC. CelesTrak has no Dst, so
-          storms are classified from Kp/Ap.
-        </p>
-        <div className="omni-range-grid">
-          <label>
-            From month
-            <select value={celestrakStartMonth} onChange={(e) => setCelestrakStartMonth(Number(e.target.value))}>
-              {MONTHS.map((m) => (
-                <option key={m.value} value={m.value}>{m.label}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            From year
-            <select value={celestrakStartYear} onChange={(e) => setCelestrakStartYear(Number(e.target.value))}>
-              {yearOptions.map((y) => (
-                <option key={y} value={y}>{y}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            To month
-            <select value={celestrakEndMonth} onChange={(e) => setCelestrakEndMonth(Number(e.target.value))}>
-              {MONTHS.map((m) => (
-                <option key={m.value} value={m.value}>{m.label}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            To year
-            <select value={celestrakEndYear} onChange={(e) => setCelestrakEndYear(Number(e.target.value))}>
-              {yearOptions.map((y) => (
-                <option key={y} value={y}>{y}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Station (VTEC correlation)
-            <select value={station} onChange={(e) => setStation(e.target.value)}
-              style={{ minWidth: "140px" }}>
-              <option value="">All stations (network mean)</option>
-              {(meta?.stations ?? []).map((s) => (
-                <option key={s} value={s}>{s.toUpperCase()}</option>
-              ))}
-            </select>
-          </label>
-          <button className="btn btn-primary" onClick={loadCelestrak} disabled={celestrakLoading || loading}>
-            {celestrakLoading ? "Loading CelesTrak…" : "Load CelesTrak analysis"}
-          </button>
-        </div>
-        {(() => {
-          const r = rangeFromMonths(celestrakStartYear, celestrakStartMonth, celestrakEndYear, celestrakEndMonth);
-          return (
-            <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
-              Selected range: {r.start} → {r.end}
-            </div>
-          );
-        })()}
-      </div>
-
-      {/* GFZ Potsdam Kp date range — official Kp index */}
-      <div className="omni-range-card">
-        <div className="omni-range-title">GFZ Potsdam date range (Kp · ap · Ap · Cp)</div>
-        <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", margin: 0 }}>
-          Pull the official geomagnetic Kp index from{" "}
-          <a href="https://kp.gfz.de/en/data" target="_blank" rel="noreferrer">
-            GFZ Potsdam
-          </a>{" "}
-          for the same interval as your TEC archive, then overlay storm days on VTEC. Uses the GFZ JSON web
-          service (3-hourly Kp/ap aggregated to daily; daily Ap and Cp).
-        </p>
-        <div className="omni-range-grid">
-          <label>
-            From month
-            <select value={gfzStartMonth} onChange={(e) => setGfzStartMonth(Number(e.target.value))}>
-              {MONTHS.map((m) => (
-                <option key={m.value} value={m.value}>{m.label}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            From year
-            <select value={gfzStartYear} onChange={(e) => setGfzStartYear(Number(e.target.value))}>
-              {yearOptions.map((y) => (
-                <option key={y} value={y}>{y}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            To month
-            <select value={gfzEndMonth} onChange={(e) => setGfzEndMonth(Number(e.target.value))}>
-              {MONTHS.map((m) => (
-                <option key={m.value} value={m.value}>{m.label}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            To year
-            <select value={gfzEndYear} onChange={(e) => setGfzEndYear(Number(e.target.value))}>
-              {yearOptions.map((y) => (
-                <option key={y} value={y}>{y}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Station (VTEC correlation)
-            <select value={station} onChange={(e) => setStation(e.target.value)}
-              style={{ minWidth: "140px" }}>
-              <option value="">All stations (network mean)</option>
-              {(meta?.stations ?? []).map((s) => (
-                <option key={s} value={s}>{s.toUpperCase()}</option>
-              ))}
-            </select>
-          </label>
-          <button className="btn btn-primary" onClick={loadGfz} disabled={gfzLoading || loading}>
-            {gfzLoading ? "Loading GFZ Kp…" : "Load GFZ Kp analysis"}
-          </button>
-        </div>
-        {(() => {
-          const r = rangeFromMonths(gfzStartYear, gfzStartMonth, gfzEndYear, gfzEndMonth);
-          return (
-            <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
-              Selected range: {r.start} → {r.end}
-            </div>
-          );
-        })()}
       </div>
 
       {/* INTERMAGNET date range — ground magnetometer H / dB/dt */}
@@ -618,7 +490,7 @@ export default function TimeSeriesPage() {
                   <input type="date" value={end} onChange={(e) => setEnd(e.target.value)}
                     style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "6px", padding: "0.4rem 0.7rem", color: "var(--text)" }} />
                 </div>
-                <button className="btn btn-primary" onClick={(e) => { e.stopPropagation(); loadAll(station, start, end); }} disabled={loading}>
+                <button className="btn btn-primary" onClick={(e) => { e.stopPropagation(); loadAll(station, start, end, { initial: false }); }} disabled={loading && obs.length === 0}>
                   {loading ? "Loading…" : "Apply"}
                 </button>
               </div>
@@ -639,7 +511,7 @@ export default function TimeSeriesPage() {
 
       {/* Tabs */}
       <div className="tabs">
-        {([["daily","Daily Variation"],["monthly","Monthly Averages"],["seasonal","Seasonal / Yearly"],["diurnal","Diurnal Pattern"],["storms","Geomagnetic Storms"],["celestrak","CelesTrak Storms"],["gfz","GFZ Kp Storms"],["intermagnet","INTERMAGNET"]] as [Tab,string][]).map(([id, label]) => (
+        {([["daily","Daily Variation"],["monthly","Monthly Averages"],["seasonal","Seasonal / Yearly"],["diurnal","Diurnal Pattern"],["compare","Source Comparison"],["storms","NASA OMNI"],["celestrak","CelesTrak"],["gfz","GFZ Kp"],["intermagnet","INTERMAGNET"]] as [Tab,string][]).map(([id, label]) => (
           <button key={id} className={`tab${tab === id ? " active" : ""}`} onClick={() => setTab(id)}>{label}</button>
         ))}
       </div>
@@ -650,11 +522,11 @@ export default function TimeSeriesPage() {
         </div>
       )}
 
-      {loading && <div className="banner banner-info">Loading archive data…</div>}
-
-      {/* ── Daily Variation ── */}
-      {tab === "daily" && !loading && (
+      {tab === "daily" && (
         <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+          {loading && obs.length === 0 && (
+            <div className="banner banner-info">Loading archive data…</div>
+          )}
           {dailyDatasets.length > 0 ? (
             <div className="card">
               <div style={{ fontWeight: 700, marginBottom: "0.6rem" }}>Daily VTEC — 7-day rolling mean</div>
@@ -674,7 +546,7 @@ export default function TimeSeriesPage() {
       )}
 
       {/* ── Monthly Averages ── */}
-      {tab === "monthly" && !loading && (
+      {tab === "monthly" && (
         <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
           {monthlyDatasets.length > 0 ? (
             <div className="card">
@@ -693,7 +565,7 @@ export default function TimeSeriesPage() {
       )}
 
       {/* ── Seasonal / Yearly ── */}
-      {tab === "seasonal" && !loading && (
+      {tab === "seasonal" && (
         <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
           {seasonal.length > 0 && (
             <div className="card">
@@ -729,7 +601,7 @@ export default function TimeSeriesPage() {
       )}
 
       {/* ── Diurnal Pattern ── */}
-      {tab === "diurnal" && !loading && (
+      {tab === "diurnal" && (
         <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
           {diurnal.length > 0 ? (
             <div className="card">
@@ -752,13 +624,27 @@ export default function TimeSeriesPage() {
         </div>
       )}
 
+      {/* ── Multi-source comparison ── */}
+      {tab === "compare" && (
+        <MultiSourceComparisonPanel
+          omni={omni}
+          celestrak={celestrak}
+          gfz={gfz}
+          kyoto={kyoto}
+          vtecLabels={allDates}
+          vtecDatasets={dailyDatasets}
+          loading={sourcesLoading}
+          errors={{ omni: omniError, celestrak: celestrakError, gfz: gfzError, kyoto: kyotoError }}
+        />
+      )}
+
       {/* ── Geomagnetic / OMNI analysis ── */}
       {tab === "storms" && (
         <GeomagneticAnalysisPanel
           omni={omni}
           vtecLabels={allDates}
           vtecDatasets={dailyDatasets}
-          loading={omniLoading}
+          loading={sourcesLoading}
           error={omniError}
         />
       )}
@@ -769,7 +655,7 @@ export default function TimeSeriesPage() {
           celestrak={celestrak}
           vtecLabels={allDates}
           vtecDatasets={dailyDatasets}
-          loading={celestrakLoading}
+          loading={sourcesLoading}
           error={celestrakError}
         />
       )}
@@ -780,7 +666,7 @@ export default function TimeSeriesPage() {
           gfz={gfz}
           vtecLabels={allDates}
           vtecDatasets={dailyDatasets}
-          loading={gfzLoading}
+          loading={sourcesLoading}
           error={gfzError}
         />
       )}
@@ -789,10 +675,14 @@ export default function TimeSeriesPage() {
       {tab === "intermagnet" && (
         <IntermagnetAnalysisPanel
           intermagnet={intermagnet}
+          omni={omni}
+          celestrak={celestrak}
+          kyoto={kyoto}
           vtecLabels={allDates}
           vtecDatasets={dailyDatasets}
           loading={intermagnetLoading}
           error={intermagnetError}
+          indicesLoading={intermagnetLoading}
         />
       )}
 

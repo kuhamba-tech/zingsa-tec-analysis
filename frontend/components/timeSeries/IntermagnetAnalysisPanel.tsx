@@ -1,14 +1,34 @@
 "use client";
 
 import LineChart from "@/components/charts/LineChart";
-import type { IntermagnetAnalysisResponse } from "@/lib/types";
+import type {
+  CelestrakAnalysisResponse,
+  IntermagnetAnalysisResponse,
+  OmniAnalysisResponse,
+  WdcKyotoAnalysisResponse,
+} from "@/lib/types";
+import {
+  dstApDualAxisComparison,
+  loadedSourceCount,
+  stormDatesUnion,
+  type SourceBundle,
+} from "@/lib/multiSourceIndicesMerge";
+import {
+  analyzeIntermagnetDbdtLink,
+  analyzeIntermagnetDstApChart,
+  type ChartAnalysisBlock,
+} from "@/lib/multiSourceChartAnalysis";
 
 interface Props {
   intermagnet: IntermagnetAnalysisResponse | null;
+  omni: OmniAnalysisResponse | null;
+  celestrak: CelestrakAnalysisResponse | null;
+  kyoto: WdcKyotoAnalysisResponse | null;
   vtecLabels: string[];
   vtecDatasets: { label: string; data: number[]; color?: string }[];
   loading?: boolean;
   error?: string | null;
+  indicesLoading?: boolean;
 }
 
 function fmt(v: number | null | undefined, digits = 1, suffix = "") {
@@ -16,15 +36,53 @@ function fmt(v: number | null | undefined, digits = 1, suffix = "") {
   return `${v.toFixed(digits)}${suffix}`;
 }
 
+function ChartAnalysis({ block }: { block: ChartAnalysisBlock }) {
+  if (!block.lead && !block.bullets.length) return null;
+  return (
+    <div
+      className="chart-analysis"
+      style={{
+        marginTop: "0.85rem",
+        padding: "0.75rem 0.9rem",
+        borderLeft: "3px solid var(--accent)",
+        background: "rgba(22, 139, 210, 0.08)",
+        borderRadius: "0 6px 6px 0",
+      }}
+    >
+      <div style={{ fontWeight: 700, fontSize: "0.82rem", marginBottom: "0.35rem" }}>What this chart tells you</div>
+      {block.lead && (
+        <p style={{ margin: "0 0 0.55rem", fontSize: "0.84rem", lineHeight: 1.5, color: "var(--text)" }}>{block.lead}</p>
+      )}
+      {block.bullets.length > 0 && (
+        <ul style={{ margin: 0, paddingLeft: "1.1rem", fontSize: "0.82rem", color: "var(--text-muted)", lineHeight: 1.55 }}>
+          {block.bullets.map((text, i) => (
+            <li key={i} style={{ marginBottom: "0.35rem" }}>
+              {text}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 export default function IntermagnetAnalysisPanel({
   intermagnet,
+  omni,
+  celestrak,
+  kyoto,
   vtecLabels,
   vtecDatasets,
   loading,
   error,
+  indicesLoading,
 }: Props) {
   if (loading) {
-    return <div className="banner banner-info">Fetching INTERMAGNET minute data (this can take ~30–60 s per month)…</div>;
+    return (
+      <div className="banner banner-info">
+        Fetching INTERMAGNET minute data and planetary Dst/Ap indices (NASA, Kyoto, CelesTrak)…
+      </div>
+    );
   }
   if (error) {
     return <div className="banner banner-alert">{error}</div>;
@@ -34,7 +92,7 @@ export default function IntermagnetAnalysisPanel({
       <div className="banner banner-info">
         Select a date range and observatory above and click <strong>Load INTERMAGNET analysis</strong> to pull
         ground-magnetometer data from the nearest southern-African observatories and compare geomagnetic
-        activity (H range, dB/dt) with your archived VTEC.
+        activity (H range, dB/dt) with planetary Dst/Ap and your archived VTEC.
       </div>
     );
   }
@@ -53,6 +111,14 @@ export default function IntermagnetAnalysisPanel({
             color: "#168bd2",
           },
         ];
+
+  const bundle: SourceBundle = { omni, celestrak, gfz: null, kyoto };
+  const indicesCount = loadedSourceCount(bundle);
+  const planetaryStormDates = stormDatesUnion(bundle);
+  const { datasets: dstApDatasets } = dstApDualAxisComparison(bundle, labels);
+  const dbdtAnalysis = analyzeIntermagnetDbdtLink(intermagnet, bundle);
+  const dstApAnalysis =
+    dstApDatasets.length > 0 ? analyzeIntermagnetDstApChart(bundle, labels, intermagnet, planetaryStormDates) : null;
 
   const delta =
     intermagnet.mean_vtec_storm !== null && intermagnet.mean_vtec_quiet !== null
@@ -73,9 +139,9 @@ export default function IntermagnetAnalysisPanel({
             INTERMAGNET (BGS GIN)
           </a>
           , observatory <strong>{intermagnet.observatory}</strong>
-          {intermagnet.observatory_name ? ` (${intermagnet.observatory_name})` : ""}. Storm days are classified
-          locally from the horizontal-field rate of change (max |dH/dt| ≥ 10 nT/min) or daily range (≥ 150 nT) —
-          the physical driver of GICs — rather than from planetary Kp/Dst.
+          {intermagnet.observatory_name ? ` (${intermagnet.observatory_name})` : ""}. Local storm days use
+          dH/dt ≥ 10 nT/min or H-range ≥ 150 nT. Planetary Dst (NASA + Kyoto) and Ap (CelesTrak + Kyoto) on the
+          chart below confirm global geomagnetic storms on the same dates.
         </p>
       </div>
 
@@ -154,10 +220,59 @@ export default function IntermagnetAnalysisPanel({
           highlightDates={stormDates}
           tooltipDetails={stormTypesFor(labels)}
         />
-        <p style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "0.45rem" }}>
-          dB/dt above ~10 nT/min indicates elevated GIC risk; ≥ 60 nT/min (1 nT/s) is associated with damaging
-          currents in power networks.
+        <ChartAnalysis block={dbdtAnalysis} />
+      </div>
+
+      <div className="card card-accent">
+        <div style={{ fontWeight: 700, marginBottom: "0.35rem" }}>
+          Dst &amp; Ap — NASA OMNIWeb · WDC Kyoto · CelesTrak
+          <span
+            style={{
+              display: "inline-block",
+              marginLeft: "0.5rem",
+              padding: "0.12rem 0.45rem",
+              fontSize: "0.68rem",
+              fontWeight: 600,
+              borderRadius: 4,
+              background: "rgba(255, 80, 80, 0.15)",
+              color: "var(--text-muted)",
+              verticalAlign: "middle",
+            }}
+          >
+            Planetary storm indices — global confirmation
+          </span>
+        </div>
+        <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginBottom: "0.65rem" }}>
+          Left axis: Dst from NASA OMNIWeb and WDC Kyoto (Japan). Right axis: Ap from CelesTrak and WDC Kyoto.
+          Compare with the dB/dt spike above — both should align on storm days (red shading from planetary Kp/Dst
+          flags).
         </p>
+        {indicesLoading ? (
+          <div className="banner banner-info" style={{ marginBottom: "0.65rem" }}>
+            Loading planetary indices…
+          </div>
+        ) : dstApDatasets.length > 0 ? (
+          <LineChart
+            labels={labels}
+            datasets={dstApDatasets}
+            yLabel="Dst (nT)"
+            secondaryYLabel="Ap"
+            height={260}
+            highlightDates={planetaryStormDates.filter((d) => labels.includes(d))}
+            toggleableLegend
+          />
+        ) : (
+          <div className="banner banner-warn">
+            Planetary Dst/Ap not loaded — reload INTERMAGNET analysis to fetch NASA, Kyoto, and CelesTrak indices
+            for the same date range.
+          </div>
+        )}
+        {dstApAnalysis && <ChartAnalysis block={dstApAnalysis} />}
+        {indicesCount > 0 && (
+          <p style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "0.45rem" }}>
+            {indicesCount} planetary index provider(s) loaded for this timeline.
+          </p>
+        )}
       </div>
 
       <div className="card">

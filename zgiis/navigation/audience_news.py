@@ -6,8 +6,16 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from zgiis.navigation.gnss_forecast import ForecastStatus, GnssForecastCity
+from zgiis.navigation.zingsa_contact import (
+    ZINGSA_AGENCY,
+    ZINGSA_BROADCAST_FOOTER,
+    ZINGSA_NAVIGATION_CHANNELS,
+    ZINGSA_NAVIGATION_MODERATE_ACTION,
+    ZINGSA_NAVIGATION_WARNING_ACTION,
+    ZINGSA_PHONE,
+)
 
-AudienceId = Literal["farmer", "surveyor", "citizen", "driver"]
+AudienceId = Literal["farmer", "surveyor", "citizen", "driver", "aviation"]
 
 
 @dataclass
@@ -55,6 +63,41 @@ def _national_tone(forecasts: list[GnssForecastCity]) -> ForecastStatus:
     if any(f.status == "moderate" for f in forecasts):
         return "moderate"
     return "excellent"
+
+
+_TONE_RANK: dict[ForecastStatus, int] = {"excellent": 0, "moderate": 1, "warning": 2}
+
+
+def _space_weather_floor(sw: dict[str, Any] | None) -> ForecastStatus:
+    if not sw:
+        return "excellent"
+    kp = sw.get("kp")
+    dst = sw.get("dst")
+    s4 = sw.get("s4")
+    risk = str(sw.get("gnss_risk") or "").lower()
+
+    if (
+        (kp is not None and kp >= 7)
+        or (dst is not None and dst <= -100)
+        or (s4 is not None and s4 >= 0.5)
+        or risk == "critical"
+        or (kp is not None and kp >= 5 and dst is not None and dst <= -50)
+    ):
+        return "warning"
+    if (
+        (kp is not None and kp >= 5)
+        or (dst is not None and dst <= -50)
+        or (s4 is not None and s4 >= 0.3)
+        or risk == "high"
+    ):
+        return "moderate"
+    return "excellent"
+
+
+def _effective_navigation_tone(forecasts: list[GnssForecastCity], sw: dict[str, Any] | None) -> ForecastStatus:
+    from_forecasts = _national_tone(forecasts)
+    from_sw = _space_weather_floor(sw)
+    return from_forecasts if _TONE_RANK[from_forecasts] >= _TONE_RANK[from_sw] else from_sw
 
 
 def _status_word(status: ForecastStatus) -> str:
@@ -163,17 +206,17 @@ def build_space_weather_layman(
 
     impacts: dict[ForecastStatus, str] = {
         "excellent": (
-            "For most Zimbabweans this is invisible good news: maps, mobile money location checks, emergency "
-            "call positioning, and in-car navigation should behave normally."
+            "For most Zimbabweans this is invisible good news: maps, mobile money location checks, "
+            "and in-car navigation should behave normally."
         ),
         "moderate": (
             "You may notice your phone taking longer to find you, delivery apps showing a wider blue dot, or "
             "precision equipment (surveyors, farmers) needing extra patience — especially in the afternoon."
         ),
         "warning": (
-            "Ordinary navigation can mislead you today. Do not trust a map pin alone for remote travel, emergency "
-            "response, or meeting someone at an exact spot. Space weather is temporary, but while it lasts, confirm "
-            "locations the old-fashioned way — by sight, address, or phone call."
+            "Ordinary navigation can mislead you today. Do not trust a map pin alone for remote travel or meeting "
+            "someone at an exact spot. Space weather is temporary, but while it lasts, confirm locations by sight, "
+            f"address, or phone — or call ZINGSA on {ZINGSA_PHONE} for navigation guidance."
         ),
     }
 
@@ -224,7 +267,7 @@ def _citizen_brief(
         "excellent": (
             "Did you know your phone's location comes from satellites passing through space weather? Today the Sun "
             "is quiet, Earth's magnetic field is stable, and the ionosphere over Zimbabwe is smooth. That means "
-            "Google Maps, WhatsApp live location, ride-hailing apps, and emergency services can find you reliably."
+            "Google Maps, WhatsApp live location, and ride-hailing apps can find you reliably."
         ),
         "moderate": (
             "Space weather is the 'weather in space' — solar wind and magnetic storms that ripple through the "
@@ -235,8 +278,8 @@ def _citizen_brief(
         "warning": (
             "When the Sun throws energy at Earth, navigation satellites and your phone feel it first. Today "
             "geomagnetic and ionospheric activity is high enough to disturb positioning across parts of Zimbabwe. "
-            "Maps may show the wrong place, rides may pick up at the wrong corner, and emergency callers should say "
-            "their address out loud — do not assume the operator sees your exact pin."
+            f"Maps may show the wrong place and rides may pick up at the wrong corner — call {ZINGSA_AGENCY} on {ZINGSA_PHONE} if you "
+            "need help understanding conditions in your area."
         ),
     }
 
@@ -263,8 +306,8 @@ def _citizen_brief(
 
     actions: dict[ForecastStatus, str] = {
         "excellent": "No action needed. Enjoy the day — and know that quiet space weather is why your navigation works.",
-        "moderate": "Wait a few seconds before trusting a map pin. If calling 999/993/994, confirm your address verbally.",
-        "warning": "Do not rely on GPS alone today. Confirm meeting points by phone and use street names, not just map arrows.",
+        "moderate": ZINGSA_NAVIGATION_MODERATE_ACTION,
+        "warning": ZINGSA_NAVIGATION_WARNING_ACTION,
     }
 
     broadcast = _join_script([
@@ -288,7 +331,7 @@ def _citizen_brief(
         "",
         f"👉 *Action:* {actions[status]}",
         "",
-        "_Free public service · Zimbabwe National Geospatial & Space Agency (ZINGSA)_",
+        *ZINGSA_BROADCAST_FOOTER,
     ])
 
     social = _join_script([
@@ -313,7 +356,7 @@ def _citizen_brief(
         status_tone=status,
         broadcast_script=broadcast,
         social_script=social,
-        channels=["Facebook Page", "X / Twitter", "Community WhatsApp", "Radio bulletins", "School outreach"],
+        channels=[*ZINGSA_NAVIGATION_CHANNELS, "Facebook Page", "X / Twitter", "Community WhatsApp", "Radio bulletins", "School outreach"],
     )
 
 
@@ -393,6 +436,8 @@ def _farmer_brief(
         *[f"• {b}" for b in bullets[status]],
         "",
         f"👉 *Action:* {actions[status]}",
+        "",
+        *ZINGSA_BROADCAST_FOOTER,
     ])
 
     social = _join_script([
@@ -417,7 +462,7 @@ def _farmer_brief(
         status_tone=status,
         broadcast_script=broadcast,
         social_script=social,
-        channels=["WhatsApp farmer groups", "In-app alerts", "Facebook Page"],
+        channels=[*ZINGSA_NAVIGATION_CHANNELS, "WhatsApp farmer groups", "In-app alerts", "Facebook Page"],
     )
 
 
@@ -502,6 +547,8 @@ def _surveyor_brief(
         *[f"• {b}" for b in bullets[status]],
         "",
         f"👉 *Action:* {actions[status]}",
+        "",
+        *ZINGSA_BROADCAST_FOOTER,
     ])
 
     social = _join_script([
@@ -525,7 +572,7 @@ def _surveyor_brief(
         status_tone=status,
         broadcast_script=broadcast,
         social_script=social,
-        channels=["WhatsApp surveyor groups", "In-app alerts", "LinkedIn"],
+        channels=[*ZINGSA_NAVIGATION_CHANNELS, "WhatsApp surveyor groups", "In-app alerts", "LinkedIn"],
     )
 
 
@@ -614,6 +661,8 @@ def _driver_brief(
         *[f"• {b}" for b in bullets[status]],
         "",
         f"👉 *Action:* {actions[status]}",
+        "",
+        *ZINGSA_BROADCAST_FOOTER,
     ])
 
     social = _join_script([
@@ -637,7 +686,133 @@ def _driver_brief(
         status_tone=status,
         broadcast_script=broadcast,
         social_script=social,
-        channels=["WhatsApp driver groups", "Fleet dispatch SMS", "Facebook Page"],
+        channels=[*ZINGSA_NAVIGATION_CHANNELS, "WhatsApp driver groups", "Fleet dispatch SMS", "Facebook Page"],
+    )
+
+
+def _aviation_brief(
+    forecasts: list[GnssForecastCity],
+    tone: ForecastStatus,
+    sw: dict[str, Any] | None,
+    computed_at: str,
+) -> NavigationNewsBrief:
+    status = tone
+    sw_ctx = build_space_weather_layman(sw, tone)
+    harare = next((f for f in forecasts if f.city == "HARARE"), None)
+    vicf = next((f for f in forecasts if f.city == "VICTORIA FALLS"), None)
+    if vicf and vicf.status == "warning":
+        route_note = (
+            "Victoria Falls / western routes: expect wider GNSS error and possible HF radio noise on long sectors."
+        )
+    elif harare and harare.status == "excellent":
+        route_note = (
+            "Harare and central Zimbabwe: aviation GNSS and routine approaches should be within normal limits."
+        )
+    else:
+        route_note = (
+            "Some en-route and approach sectors may show GNSS degradation when the ionosphere is disturbed."
+        )
+
+    headlines: dict[ForecastStatus, str] = {
+        "excellent": "Calm space weather — aviation GNSS and routine navigation should be reliable",
+        "moderate": "Mild space weather — monitor GPS approaches and HF communications",
+        "warning": "Space weather alert for aviation — expect GNSS and HF impacts",
+    }
+
+    summaries: dict[ForecastStatus, str] = {
+        "excellent": (
+            "Solar activity is low and the ionosphere is stable over Southern Africa. Space weather is not expected "
+            "to interfere with GPS-based navigation (RNAV/GPS approaches), en-route GNSS, or standard HF radio links "
+            "used on cross-border sectors."
+        ),
+        "moderate": (
+            "Space weather is making the ionosphere uneven. Pilots and drone operators may see slightly longer GNSS "
+            "acquisition, small position offsets on moving maps, or brief HF static on polar and long-haul HF routes. "
+            "Most commercial GNSS with RAIM will continue to operate, but monitor NOTAMs and ZINGSA briefs through "
+            "the afternoon."
+        ),
+        "warning": (
+            "Active geomagnetic and ionospheric disturbance is affecting high-altitude navigation signals. "
+            "GPS-guided approaches, unmanned aerial operations, and HF communications can all degrade during the "
+            "storm main phase. Do not assume cockpit or controller displays match actual position without "
+            "cross-checks — the same space weather affecting farmers and surveyors reaches aircraft at cruise altitude."
+        ),
+    }
+
+    bullets: dict[ForecastStatus, list[str]] = {
+        "excellent": [
+            f"Aviation GNSS outlook: {_status_word(status)}",
+            route_note,
+            "Space weather impact: minimal for RNAV/GPS and en-route GNSS",
+            "Drone ops (VLOS): normal with standard pre-flight checks",
+        ],
+        "moderate": [
+            f"Aviation GNSS outlook: {_status_word(status)}",
+            route_note,
+            "Watch for RAIM alerts or longer approach lock-on during afternoon scintillation",
+            "HF users: possible flutter on long paths; VHF/UHF mostly unaffected",
+        ],
+        "warning": [
+            f"Aviation GNSS outlook: {_status_word(status)}",
+            route_note,
+            "GPS/RNAV approaches may be unavailable or require reversion to conventional navaids",
+            "Drone operators: delay BVLOS and precision survey flights until conditions ease",
+            "Crew: elevated high-altitude radiation possible on polar/long-haul routes during strong storms",
+        ],
+    }
+
+    actions: dict[ForecastStatus, str] = {
+        "excellent": (
+            "Operate as normal. Include space weather in standard briefing — quiet ionosphere supports reliable GNSS."
+        ),
+        "moderate": (
+            "Brief crews on possible GNSS wobble and HF noise. Prefer morning sectors for precision drone or survey flights."
+        ),
+        "warning": (
+            "Activate storm procedures: verify navaid backups, delay non-essential drone ops, and monitor Kp/Dst until recovery."
+        ),
+    }
+
+    broadcast = _join_script([
+        "✈️ *ZINGSA Navigation News — Aviation*",
+        _format_utc(computed_at),
+        "",
+        f"🌌 *Space weather:* {sw_ctx.headline}",
+        *[f"• {b}" for b in sw_ctx.readout[:3]],
+        "",
+        headlines[status],
+        "",
+        summaries[status],
+        "",
+        *[f"• {b}" for b in bullets[status]],
+        "",
+        f"👉 *Action:* {actions[status]}",
+        "",
+        *ZINGSA_BROADCAST_FOOTER,
+    ])
+
+    social = _join_script([
+        "✈️ ZINGSA Navigation News | Aviation",
+        sw_ctx.headline,
+        route_note,
+        "#SpaceWeather #Aviation #GNSS #Zimbabwe",
+    ])
+
+    return NavigationNewsBrief(
+        id="aviation",
+        icon="✈️",
+        title="Aviation Brief",
+        audience="Pilots, air traffic controllers & drone operators",
+        headline=headlines[status],
+        summary=summaries[status],
+        space_weather_today=f"{sw_ctx.headline} {sw_ctx.impact}",
+        space_weather_bullets=sw_ctx.readout,
+        bullets=bullets[status],
+        action=actions[status],
+        status_tone=status,
+        broadcast_script=broadcast,
+        social_script=social,
+        channels=[*ZINGSA_NAVIGATION_CHANNELS, "ATC briefings", "Airline ops WhatsApp", "UAS operator groups"],
     )
 
 
@@ -647,12 +822,13 @@ def build_audience_news(
     sw: dict[str, Any] | None = None,
 ) -> list[NavigationNewsBrief]:
     cities = _by_city(forecasts)
-    tone = _national_tone(forecasts)
+    tone = _effective_navigation_tone(forecasts, sw)
 
     return [
         _citizen_brief(forecasts, tone, sw, computed_at),
         _farmer_brief(cities.get("HARARE"), tone, sw, computed_at),
         _surveyor_brief(cities.get("MUTARE"), cities.get("HARARE"), tone, sw, computed_at),
+        _aviation_brief(forecasts, tone, sw, computed_at),
         _driver_brief(forecasts, tone, sw, computed_at),
     ]
 

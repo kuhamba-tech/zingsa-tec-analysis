@@ -40,7 +40,7 @@ class SpaceWeatherDBTests(unittest.TestCase):
         )
         self.db.insert_snapshot(row)
         self.assertEqual(self.db.record_count(), 1)
-        df = self.db.query_dataframe(hours=48)
+        df = self.db.query_dataframe(hours=24 * 365)
         self.assertEqual(len(df), 1)
         self.assertAlmostEqual(float(df.iloc[0]["kp"]), 2.0)
 
@@ -68,7 +68,7 @@ class SpaceWeatherDBTests(unittest.TestCase):
             )
             self.db.insert_snapshot(row)
 
-        result = self.db.correlation_matrix(hours=48, resample="1h", min_samples=3)
+        result = self.db.correlation_matrix(hours=24 * 365, resample="1h", min_samples=3)
         self.assertGreaterEqual(result["sample_count"], 8)
         self.assertIn("kp", result["matrix"])
         self.assertGreater(len(result["pairs"]), 0)

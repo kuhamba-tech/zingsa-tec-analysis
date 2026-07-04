@@ -154,8 +154,21 @@ def poll_and_log(*, source: str = "scheduler", force: bool = False) -> dict[str,
     _last_poll_at = now
 
     current = _status_from_live()
-    changes = _log_status_changes(current, source=source, api_reachable=True)
     counts = _counts(current)
+    try:
+        changes = _log_status_changes(current, source=source, api_reachable=True)
+    except Exception as exc:
+        # The live dashboard must stay available even if the status archive
+        # database drops an idle connection. Reset so the next poll reconnects.
+        global _db
+        log.warning("station status archive write failed: %s", exc)
+        _db = None
+        return {
+            "ok": False,
+            "reason": "archive write failed",
+            "stations": len(current),
+            **counts,
+        }
 
     return {
         "ok": True,

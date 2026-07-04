@@ -10,8 +10,8 @@ from backend.schemas import NavigationNewsBriefOut, NavigationNewsBundleOut, Nav
 
 router = APIRouter(prefix="/navigation-news", tags=["navigation-news"])
 
-AudienceId = Literal["farmer", "surveyor", "citizen", "driver"]
-VALID_AUDIENCES = frozenset({"farmer", "surveyor", "citizen", "driver"})
+AudienceId = Literal["farmer", "surveyor", "citizen", "driver", "aviation"]
+VALID_AUDIENCES = frozenset({"farmer", "surveyor", "citizen", "driver", "aviation"})
 
 # In-process cache mirror (per worker); persisted copy in news_cache.py
 _mem_cache = None
@@ -132,7 +132,7 @@ async def navigation_news_schedule(_=Depends(require_api_key)):
 
 @router.get("", response_model=NavigationNewsBundleOut)
 async def navigation_news(
-    audience: str | None = Query(None, description="Optional filter: farmer, surveyor, citizen, driver"),
+    audience: str | None = Query(None, description="Optional filter: farmer, surveyor, citizen, driver, aviation"),
     refresh_ntrip: bool = Query(False),
     force: bool = Query(False, description="Bypass 4-hour cache and rebuild now"),
     _=Depends(require_api_key),
@@ -146,7 +146,7 @@ async def navigation_news(
     if audience is not None and audience not in VALID_AUDIENCES:
         raise HTTPException(
             status_code=422,
-            detail=f"Invalid audience '{audience}'. Use: farmer, surveyor, citizen, driver",
+            detail=f"Invalid audience '{audience}'. Use: farmer, surveyor, citizen, driver, aviation",
         )
     bundle = get_navigation_news_bundle(refresh_ntrip=refresh_ntrip, force=force)
     if audience:

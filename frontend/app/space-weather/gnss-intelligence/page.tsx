@@ -4,20 +4,29 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { getSpaceWeather, getStations } from "@/lib/api";
 import { buildGnssForecastBundle, type GnssForecastBundle } from "@/lib/gnssForecastEngine";
+import type { NavigationNewsBrief } from "@/lib/gnssAudienceNews";
 import {
+  STATUS_COLORS,
+  type GnssForecastCity,
   AI_LEARNS,
   CORS_INPUTS,
   PLATFORM_MODULES,
   SPACE_WEATHER_INPUTS,
-  STATUS_COLORS,
-  type GnssForecastCity,
 } from "@/lib/gnssWeatherIntelligence";
 import {
   DataFusionPipelineDiagram,
   NationalPlatformDiagram,
 } from "@/components/gnssIntelligence/GnssArchitectureDiagrams";
-import type { NavigationNewsBrief } from "@/lib/gnssAudienceNews";
+import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
+import { analyzeNavigationNewsBrief, analyzeNavigationNewsSection } from "@/lib/navigationNewsAnalysis";
 import type { SpaceWeatherCurrent, Station } from "@/lib/types";
+import {
+  ZINGSA_ADDRESS,
+  ZINGSA_EMAIL,
+  ZINGSA_HOURS,
+  ZINGSA_PHONE,
+  ZINGSA_WEBSITE,
+} from "@/lib/zingsaContact";
 
 function InputList({ title, subtitle, items, accent }: { title: string; subtitle: string; items: string[]; accent: string }) {
   return (
@@ -92,7 +101,15 @@ function CopyScriptButton({ text, label }: { text: string; label: string }) {
   );
 }
 
-function AudienceNewsCard({ brief }: { brief: NavigationNewsBrief }) {
+function AudienceNewsCard({
+  brief,
+  sw,
+  forecasts,
+}: {
+  brief: NavigationNewsBrief;
+  sw: SpaceWeatherCurrent | null;
+  forecasts: GnssForecastCity[];
+}) {
   return (
     <article className="card gnwi-news-card" style={{ borderColor: STATUS_COLORS[brief.statusTone] }}>
       <div className="gnwi-news-meta">
@@ -127,6 +144,10 @@ function AudienceNewsCard({ brief }: { brief: NavigationNewsBrief }) {
       <p className="gnwi-news-channels">
         <strong>Future channels:</strong> {brief.channels.join(" · ")}
       </p>
+      <ChartAnalysisBox
+        block={analyzeNavigationNewsBrief(brief, sw, forecasts)}
+        title="Analysis — why this brief says what it says"
+      />
       <details className="gnwi-news-script-details">
         <summary>Broadcast script (WhatsApp / groups)</summary>
         <div className="gnwi-script-toolbar">
@@ -147,6 +168,7 @@ function AudienceNewsCard({ brief }: { brief: NavigationNewsBrief }) {
 
 export default function GnssIntelligencePage() {
   const [bundle, setBundle] = useState<GnssForecastBundle | null>(null);
+  const [sw, setSw] = useState<SpaceWeatherCurrent | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -172,9 +194,11 @@ export default function GnssIntelligencePage() {
         if (!sw && stations.length === 0) {
           setError("Could not load space-weather or CORS station feeds.");
           setBundle(null);
+          setSw(null);
           return;
         }
 
+        setSw(sw);
         setBundle(buildGnssForecastBundle(sw, stations));
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load forecast inputs");
@@ -204,7 +228,7 @@ export default function GnssIntelligencePage() {
         <p className="page-subtitle">
           How space weather — activity on the Sun and in Earth&apos;s magnetic field — affects
           navigation in your everyday life. Plain-language news for citizens, farmers, surveyors,
-          and drivers, updated from live NOAA indices and the ZINGSA CORS network.
+          aviation, and drivers, updated from live NOAA indices and the ZINGSA CORS network.
         </p>
       </header>
 
@@ -234,9 +258,20 @@ export default function GnssIntelligencePage() {
         </p>
         <div className="gnwi-news-grid">
           {(bundle?.audienceNews ?? []).map((brief) => (
-            <AudienceNewsCard key={brief.id} brief={brief} />
+            <AudienceNewsCard
+              key={brief.id}
+              brief={brief}
+              sw={sw}
+              forecasts={bundle?.forecasts ?? []}
+            />
           ))}
         </div>
+        {bundle && (
+          <ChartAnalysisBox
+            block={analyzeNavigationNewsSection(bundle, sw)}
+            title="Analysis — how to read today's Navigation News"
+          />
+        )}
         {loading && !bundle && (
           <div className="banner banner-info">Preparing audience briefs from live inputs…</div>
         )}
@@ -369,6 +404,36 @@ export default function GnssIntelligencePage() {
           national positioning reliability service.
         </p>
         <NationalPlatformDiagram modules={PLATFORM_MODULES} />
+      </section>
+
+      <section className="gnwi-section">
+        <h2 className="gnwi-section-title">Contact ZINGSA</h2>
+        <p className="gnwi-section-lead">
+          For space-weather and navigation guidance, reach the Zimbabwe National Geospatial and Space
+          Agency using the official contact details from{" "}
+          <a href={ZINGSA_WEBSITE} target="_blank" rel="noopener noreferrer">
+            zingsa.ac.zw
+          </a>
+          .
+        </p>
+        <div className="card gnwi-input-card" style={{ borderTopColor: "var(--accent)" }}>
+          <ul className="gnwi-check-list">
+            <li>
+              <strong>Phone:</strong>{" "}
+              <a href={`tel:${ZINGSA_PHONE.replace(/\s/g, "")}`}>{ZINGSA_PHONE}</a>
+            </li>
+            <li>
+              <strong>Email:</strong>{" "}
+              <a href={`mailto:${ZINGSA_EMAIL}`}>{ZINGSA_EMAIL}</a>
+            </li>
+            <li>
+              <strong>Hours:</strong> {ZINGSA_HOURS}
+            </li>
+            <li>
+              <strong>Address:</strong> {ZINGSA_ADDRESS}
+            </li>
+          </ul>
+        </div>
       </section>
 
       <div className="gnwi-footer-links">

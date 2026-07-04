@@ -24,7 +24,7 @@ export default function VtecTheoryPage() {
   if (loading) {
     return (
       <div className="page-title" style={{ padding: "2rem 0" }}>
-        Loading VTEC Theory…
+        Loading Calculating VTEC…
       </div>
     );
   }
@@ -151,7 +151,7 @@ export default function VtecTheoryPage() {
                 </div>
               ) : null}
 
-              {step.ipp_detail ? (
+              {step.ipp_detail && data.ipp ? (
                 <div className="vtec-ipp-detail">
                   <div className="vtec-ipp-detail-title">Detailed IPP geometry reference</div>
                   <div className="vtec-ipp-detail-grid">

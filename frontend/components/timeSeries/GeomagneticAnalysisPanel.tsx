@@ -33,8 +33,9 @@ export default function GeomagneticAnalysisPanel({
   if (!omni || omni.series.length === 0) {
     return (
       <div className="banner banner-info">
-        Select a date range above and click <strong>Load OMNI analysis</strong> to pull geomagnetic indices
-        from NASA OMNIWeb and compare them with your archived VTEC.
+        Select a date range above and click <strong>Load all sources</strong> to pull geomagnetic indices
+        from NASA OMNIWeb and compare them with your archived VTEC. See the <strong>Source Comparison</strong> tab
+        for overlaid Kp from all providers.
       </div>
     );
   }

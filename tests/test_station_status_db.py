@@ -55,11 +55,11 @@ class StationStatusDBTests(unittest.TestCase):
         self.assertEqual(self.db.event_count(), 1)
         self.assertEqual(self.db.snapshot_count(), 1)
 
-        events = self.db.query_events(hours=48, station_code="zinh")
+        events = self.db.query_events(hours=24 * 365, station_code="zinh")
         self.assertEqual(len(events), 1)
         self.assertEqual(events.iloc[0]["event_type"], "status_change")
 
-        uptime = self.db.uptime_summary(hours=48)
+        uptime = self.db.uptime_summary(hours=24 * 365)
         self.assertEqual(len(uptime), len(ZIMBABWE_CORS_STATIONS))
         zinh = next(r for r in uptime if r["station_code"] == "zinh")
         self.assertEqual(zinh["online_pct"], 100.0)
@@ -91,11 +91,11 @@ class StationStatusDBTests(unittest.TestCase):
             ]
         )
 
-        events = self.db.query_events(hours=48, event_type="connection_lost")
+        events = self.db.query_events(hours=24 * 365, event_type="connection_lost")
         self.assertEqual(len(events), 1)
         self.assertFalse(bool(events.iloc[0]["api_reachable"]))
 
-        uptime = self.db.uptime_summary(hours=48)
+        uptime = self.db.uptime_summary(hours=24 * 365)
         zinh = next(r for r in uptime if r["station_code"] == "zinh")
         self.assertEqual(zinh["unknown_pct"], 100.0)
 

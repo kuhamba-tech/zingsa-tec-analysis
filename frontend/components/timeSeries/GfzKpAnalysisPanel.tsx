@@ -33,7 +33,7 @@ export default function GfzKpAnalysisPanel({
   if (!gfz || gfz.series.length === 0) {
     return (
       <div className="banner banner-info">
-        Select a date range above and click <strong>Load GFZ Kp analysis</strong> to pull geomagnetic indices from
+        Select a date range above and click <strong>Load all sources</strong> to pull geomagnetic indices from
         GFZ Potsdam and compare them with your archived VTEC.
       </div>
     );

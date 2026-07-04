@@ -83,6 +83,7 @@ export default function LivePipelinePage() {
   const chartData = obs.slice(-200).map((o) => o.vtec_tecu ?? 0);
   const online = stationStatus.filter((s) => !s.stale).length;
   const total = stationStatus.length;
+  const configuredStreams = pipelineStatus ? Object.keys(pipelineStatus.streams ?? {}).length : 0;
   const ntripState = pipelineStatus
     ? pipelineStatus.ingest_enabled
       ? pipelineStatus.active_streams > 0
@@ -105,7 +106,7 @@ export default function LivePipelinePage() {
         <MetricCard
           label="NTRIP Collector"
           value={ntripState}
-          sub={pipelineStatus ? `${pipelineStatus.active_streams}/24 stream workers` : ""}
+          sub={pipelineStatus ? `${pipelineStatus.active_streams}/${configuredStreams || 24} connected station streams` : ""}
           color={ntripState === "Streaming" ? "#00ff88" : "#ef9f27"}
           variant={ntripVariant}
         />

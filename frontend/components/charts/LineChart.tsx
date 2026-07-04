@@ -1,4 +1,5 @@
 "use client";
+import { useEffect, useMemo, useState } from "react";
 import {
   CategoryScale,
   Chart as ChartJS,
@@ -27,6 +28,8 @@ interface Dataset {
   fill?: boolean;
   dashed?: boolean;
   meta?: (PointMeta | null)[];
+  /** Chart.js y-axis id — use "y2" for secondary scale (dual-axis charts). */
+  yAxisId?: "y" | "y2";
 }
 
 interface ThresholdLine {
@@ -48,6 +51,74 @@ interface Props {
   tooltipDetailLabel?: string;
   /** Smaller charts — larger points and nearest-point hover for report mini charts. */
   compact?: boolean;
+  /** Right-hand Y-axis label when any dataset uses yAxisId "y2". */
+  secondaryYLabel?: string;
+  /** Checkbox legend — show/hide individual series. */
+  toggleableLegend?: boolean;
+}
+
+function DatasetToggleLegend({
+  datasets,
+  visible,
+  onToggle,
+  colors,
+}: {
+  datasets: Dataset[];
+  visible: boolean[];
+  onToggle: (index: number) => void;
+  colors: string[];
+}) {
+  return (
+    <div
+      role="group"
+      aria-label="Chart series visibility"
+      style={{
+        display: "flex",
+        flexWrap: "wrap",
+        gap: "0.65rem 1rem",
+        marginBottom: "0.65rem",
+      }}
+    >
+      {datasets.map((ds, i) => {
+        const color = ds.color ?? colors[i % colors.length];
+        const on = visible[i] ?? true;
+        return (
+          <label
+            key={`${ds.label}-${i}`}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.4rem",
+              fontSize: "0.78rem",
+              color: on ? "#fff" : "var(--text-muted)",
+              cursor: "pointer",
+              userSelect: "none",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={on}
+              onChange={() => onToggle(i)}
+              style={{ width: 14, height: 14, accentColor: color, cursor: "pointer" }}
+            />
+            <span
+              aria-hidden="true"
+              style={{
+                display: "inline-block",
+                width: 18,
+                height: 0,
+                borderTop: `2px ${ds.dashed ? "dashed" : "solid"} ${color}`,
+                opacity: on ? 1 : 0.35,
+              }}
+            />
+            <span style={{ textDecoration: on ? "none" : "line-through", opacity: on ? 1 : 0.65 }}>
+              {ds.label}
+            </span>
+          </label>
+        );
+      })}
+    </div>
+  );
 }
 
 export default function LineChart({
@@ -61,8 +132,24 @@ export default function LineChart({
   tooltipDetails,
   tooltipDetailLabel = "Geomagnetic condition",
   compact = false,
+  secondaryYLabel,
+  toggleableLegend = false,
 }: Props) {
   const COLORS = ["#168bd2", "#ff8c00", "#00ff88", "#ff4444", "#a78bfa", "#34d399"];
+  const useSecondary = datasets.some((ds) => ds.yAxisId === "y2");
+  const datasetKey = useMemo(() => datasets.map((d) => d.label).join("\0"), [datasets]);
+  const [visible, setVisible] = useState<boolean[]>(() => datasets.map(() => true));
+
+  useEffect(() => {
+    setVisible((prev) => {
+      if (prev.length === datasets.length) return prev;
+      return datasets.map((_, i) => prev[i] ?? true);
+    });
+  }, [datasetKey, datasets.length]);
+
+  const toggleDataset = (index: number) => {
+    setVisible((prev) => prev.map((on, i) => (i === index ? !on : on)));
+  };
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const plugins: any[] = [];
@@ -120,13 +207,23 @@ export default function LineChart({
   }
 
   return (
-    <div style={{ height, position: "relative" }}>
+    <div>
+      {toggleableLegend && (
+        <DatasetToggleLegend
+          datasets={datasets}
+          visible={visible}
+          onToggle={toggleDataset}
+          colors={COLORS}
+        />
+      )}
+      <div style={{ height, position: "relative" }}>
       <Line
         data={{
           labels,
           datasets: datasets.map((ds, i) => ({
             label: ds.label,
             data: ds.data,
+            hidden: !(visible[i] ?? true),
             borderColor: ds.color ?? COLORS[i % COLORS.length],
             backgroundColor: ds.fill ? `${ds.color ?? COLORS[i % COLORS.length]}22` : "transparent",
             fill: ds.fill ?? false,
@@ -136,6 +233,7 @@ export default function LineChart({
             pointHoverRadius: compact ? 7 : 4,
             tension: 0.3,
             spanGaps: true,
+            yAxisID: ds.yAxisId ?? "y",
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             meta: ds.meta as any,
           })),
@@ -149,7 +247,10 @@ export default function LineChart({
             axis: "x",
           },
           plugins: {
-            legend: { labels: { color: "#fff", boxWidth: 12 } },
+            legend: {
+              display: !toggleableLegend,
+              labels: { color: "#fff", boxWidth: 12 },
+            },
             tooltip: {
               mode: compact ? "nearest" : "index",
               intersect: compact,
@@ -179,11 +280,27 @@ export default function LineChart({
           },
           scales: {
             x: { ticks: { color: "#ffffff", maxTicksLimit: 8 }, grid: { color: "#244d73" } },
-            y: { title: { display: true, text: yLabel, color: "#ffffff" }, ticks: { color: "#ffffff" }, grid: { color: "#244d73" } },
+            y: {
+              position: "left",
+              title: { display: true, text: yLabel, color: "#ffffff" },
+              ticks: { color: "#ffffff" },
+              grid: { color: "#244d73" },
+            },
+            ...(useSecondary
+              ? {
+                  y2: {
+                    position: "right",
+                    title: { display: true, text: secondaryYLabel ?? "", color: "#ffffff" },
+                    ticks: { color: "#ffffff" },
+                    grid: { drawOnChartArea: false },
+                  },
+                }
+              : {}),
           },
         }}
         plugins={plugins as never}
       />
+      </div>
     </div>
   );
 }

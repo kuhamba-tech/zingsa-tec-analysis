@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import LineChart from "@/components/charts/LineChart";
-import { getGicLiveModel, getGicSeries } from "@/lib/api";
+import Link from "next/link";
 import type { GicLiveModel, GicSeriesResponse } from "@/lib/types";
+import LineChart from "@/components/charts/LineChart";
+import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
+import { analyzeGicTimeline } from "@/lib/dashboardChartAnalysis";
 
 const GIC_THRESHOLDS = [
   { value: 25, label: "Moderate (25 A)", color: "#ffcc00" },
@@ -11,39 +12,48 @@ const GIC_THRESHOLDS = [
   { value: 75, label: "Extreme (75 A)", color: "#ff2e2e" },
 ];
 
-/** Live GIC timeline for the operations dashboard — measured transformer-neutral
- *  current when field data exists, otherwise the real GOES magnetometer model. */
-export default function GicLiveTimelinePanel() {
-  const [liveModel, setLiveModel] = useState<GicLiveModel | null>(null);
-  const [series, setSeries] = useState<GicSeriesResponse | null>(null);
+export interface GicTimelineBundle {
+  stationId: string;
+  series: GicSeriesResponse | null;
+  liveModel: GicLiveModel | null;
+}
 
-  const load = useCallback(async () => {
-    const [m, s] = await Promise.all([
-      getGicLiveModel(24).catch(() => null),
-      getGicSeries("MARIMBA_001", 24).catch(() => null),
-    ]);
-    setLiveModel(m);
-    setSeries(s?.points?.length ? s : null);
-  }, []);
+interface Props {
+  data: GicTimelineBundle | null;
+}
 
-  useEffect(() => {
-    load();
-    const id = window.setInterval(load, 60000);
-    return () => window.clearInterval(id);
-  }, [load]);
+interface ChartDataset {
+  label: string;
+  data: (number | null)[];
+  color: string;
+  dashed?: boolean;
+  meta?: ({ error?: number | null; confidence?: number | null } | null)[];
+}
 
-  const measuredChart = useMemo(() => {
+/** Live GIC timeline — data supplied by the dashboard parent poll. */
+export default function GicLiveTimelinePanel({ data }: Props) {
+  const series = data?.series ?? null;
+  const liveModel = data?.liveModel ?? null;
+  const stationId = data?.stationId ?? "MARIMBA_001";
+
+  const hasEkf = (series?.points ?? []).some((p) => p.predicted != null);
+
+  const measuredChart = (() => {
     const pts = (series?.points ?? []).filter((p) => p.observed != null);
     if (pts.length === 0) return null;
     const step = Math.max(1, Math.floor(pts.length / 288));
     const sampled = pts.filter((_, i) => i % step === 0);
     return {
       labels: sampled.map((p) => p.t.replace("T", " ").slice(11, 16)),
-      data: sampled.map((p) => p.observed),
+      observed: sampled.map((p) => p.observed),
+      predicted: sampled.map((p) => p.predicted),
+      meta: sampled.map((p) =>
+        p.error != null || p.confidence != null ? { error: p.error, confidence: p.confidence } : null,
+      ),
     };
-  }, [series]);
+  })();
 
-  const modelChart = useMemo(() => {
+  const modelChart = (() => {
     if (!liveModel?.available || liveModel.points.length === 0) return null;
     const pts = liveModel.points.filter((p) => p.gic_est_a != null);
     const step = Math.max(1, Math.floor(pts.length / 288));
@@ -52,30 +62,44 @@ export default function GicLiveTimelinePanel() {
       labels: sampled.map((p) => p.t.replace("T", " ").slice(11, 16)),
       data: sampled.map((p) => (p.gic_est_a != null ? Math.abs(p.gic_est_a) : null)),
     };
-  }, [liveModel]);
+  })();
 
   const chart = measuredChart ?? modelChart;
   const isModelled = !measuredChart && !!modelChart;
   const latest = liveModel?.latest?.t ?? series?.points.at(-1)?.t;
 
+  const datasets = (() => {
+    if (measuredChart) {
+      const ds: ChartDataset[] = [{ label: "Measured GIC (A)", data: measuredChart.observed, color: "#00ff88" }];
+      if (hasEkf) {
+        ds.push({
+          label: "EKF Predicted (A)",
+          data: measuredChart.predicted,
+          color: "#ff8c00",
+          dashed: true,
+          meta: measuredChart.meta,
+        });
+      }
+      return ds;
+    }
+    if (modelChart) {
+      return [{ label: "Modelled |GIC| estimate (A)", data: modelChart.data, color: "#00ff88" }];
+    }
+    return [];
+  })();
+
   return (
     <div className="card operations-chart-card">
-      <div className="operations-chart-title">Live GIC Current Timeline — last 24 h</div>
-      {chart ? (
+      <div className="operations-chart-title">
+        Live GIC Current Timeline — last 24 h{" "}
+        <Link href="/gic-monitor" style={{ fontSize: "0.72rem", marginLeft: "0.5rem" }}>
+          Open GIC Monitor →
+        </Link>
+      </div>
+      {chart && datasets.length > 0 ? (
         <>
-          <LineChart
-            labels={chart.labels}
-            datasets={[
-              {
-                label: isModelled ? "Modelled |GIC| estimate (A)" : "Measured GIC (A)",
-                data: chart.data,
-                color: "#00ff88",
-              },
-            ]}
-            yLabel="Amps (A)"
-            height={230}
-            thresholds={GIC_THRESHOLDS}
-          />
+          <LineChart labels={chart.labels} datasets={datasets} yLabel="Amps (A)" height={230} thresholds={GIC_THRESHOLDS} />
+          <ChartAnalysisBox block={analyzeGicTimeline(data)} />
           <p className="operations-source">
             {isModelled ? (
               <>
@@ -86,7 +110,8 @@ export default function GicLiveTimelinePanel() {
               </>
             ) : (
               <>
-                Source: /gic/series measured transformer-neutral current (MARIMBA_001).
+                Source: /gic/series measured transformer-neutral current ({stationId}).
+                {hasEkf && " Solid: observed · dashed: EKF predicted."}
                 {latest ? ` Latest sample: ${latest.replace("T", " ").slice(0, 16)} UTC.` : ""}
               </>
             )}

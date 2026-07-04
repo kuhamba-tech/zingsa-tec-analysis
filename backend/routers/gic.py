@@ -166,8 +166,8 @@ async def series(
     _=Depends(require_api_key),
 ) -> dict[str, Any]:
     from zgiis.db.ekf_alert_db import EkfAlertDB
+    from zgiis.gic.ekf_context import evaluate_gic_with_context
     from zgiis.space_weather.ekf import run_ekf_series
-    from zgiis.space_weather.ekf_alerts import evaluate
 
     df = _db().query_dataframe(station_id=station_id, hours=hours, resample=resample)
 
@@ -200,9 +200,10 @@ async def series(
                 "rate_a_per_min": rate[i] if i < len(rate) else None,
             })
 
-        # EKF deviation alerting per the ZGIIS geomagnetic storm alert rule.
-        result = evaluate({"gic": ekf_points})
-        deviation = result["status"].get("gic")
+        # EKF deviation alerting — cross-check GIC with Kp/Dst/S4/solar-wind context.
+        sw_df = _sw_context(hours)
+        result = evaluate_gic_with_context(ekf_points, sw_df)
+        deviation = result["status"]
         if result["alerts"]:
             db = EkfAlertDB()
             stored = [db.insert_if_new(a) for a in result["alerts"]]
@@ -214,9 +215,9 @@ async def series(
                 "Check Kp, Dst, TEC and solar wind conditions."
             )
 
-    # Kp/Dst context over the same window, aligned to the GIC timestamps by
-    # the frontend (kept as an independent series here).
-    sw_df = _sw_context(hours)
+    # Kp/Dst context over the same window (independent series for frontend charts).
+    if "sw_df" not in locals():
+        sw_df = _sw_context(hours)
     context = []
     if not sw_df.empty:
         for _, r in sw_df.iterrows():
@@ -265,7 +266,11 @@ async def report(
         )
 
     meta = REPORT_PERIODS[period]
-    df = _db().query_dataframe(station_id=station_id, hours=meta["hours"], resample=None)
+    df = _db().query_dataframe(
+        station_id=station_id,
+        hours=meta["hours"],
+        resample=meta.get("resample"),
+    )
     sw_df = _sw_context(meta["hours"])
     result = build_report(df, station_id=station_id.upper(), period=period, sw_df=sw_df)
 

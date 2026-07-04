@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import os
 from datetime import datetime, timezone
+from typing import Dict
 
 log = logging.getLogger(__name__)
 
@@ -47,7 +48,24 @@ def _parse_mountpoints() -> dict[str, str]:
 
     mountpoint = os.getenv("NTRIP_MOUNTPOINT", "").strip()
     station = os.getenv("NTRIP_STATION_CODE", "zinh").strip().lower()
-    return {station: mountpoint} if mountpoint else {}
+    if mountpoint:
+        normalized = mountpoint.lower().rstrip("_")
+        # ZINGSA_HQ is the marker name for the HQ station, not a network-wide
+        # mountpoint. For the live dashboard we need one stream per CORS site.
+        if normalized in {"zingsa_hq", "zinhq", "all", "network"}:
+            return _default_station_mountpoints()
+        return {station: mountpoint}
+    return _default_station_mountpoints()
+
+
+def _default_station_mountpoints() -> Dict[str, str]:
+    from zgiis.cors.site_details import site_meta
+    from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
+
+    return {
+        station.code.lower().rstrip("_"): site_meta(station.code)["mountpoint"]
+        for station in ZIMBABWE_CORS_STATIONS
+    }
 
 
 def get_db():
@@ -145,7 +163,7 @@ def start() -> None:
         "connection": os.getenv("NTRIP_CONNECTION", "TCP"),
     }
 
-    max_concurrent_raw = os.getenv("NTRIP_LIVE_MAX_CONCURRENT", "4").strip()
+    max_concurrent_raw = os.getenv("NTRIP_LIVE_MAX_CONCURRENT", "").strip()
     max_concurrent = int(max_concurrent_raw) if max_concurrent_raw else None
 
     manager = LiveNtripManager(ntrip_cfg, on_observation=_on_observation, max_concurrent=max_concurrent)

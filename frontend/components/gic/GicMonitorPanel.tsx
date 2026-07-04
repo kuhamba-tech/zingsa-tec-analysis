@@ -4,15 +4,25 @@ import MetricCard from "@/components/cards/MetricCard";
 import LineChart from "@/components/charts/LineChart";
 import GicLiveDashboard from "./GicLiveDashboard";
 import GicNetworkMap from "./GicNetworkMap";
+import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
 import {
+  analyzeGicObservedChart,
+  analyzeGicRateChart,
+  analyzeGicSpaceWeatherContext,
+} from "@/lib/gicChartAnalysis";
+import {
+  ackEkfAlert,
   downloadGicReportCsv,
+  getEkfAlertLog,
   getGicNetwork,
   getGicReport,
   getGicSeries,
   getGicStatus,
   uploadGicFile,
 } from "@/lib/api";
+import { STATIC_GIC_NETWORK, staticGicStatus } from "@/lib/gicNetworkStatic";
 import type {
+  EkfAlert,
   GicNetwork,
   GicReport,
   GicReportPeriod,
@@ -44,12 +54,15 @@ const SEVERITY_COLOR: Record<string, string> = {
 };
 
 export default function GicMonitorPanel() {
-  const [network, setNetwork] = useState<GicNetwork | null>(null);
-  const [status, setStatus] = useState<GicStatusResponse | null>(null);
-  const [stationId, setStationId] = useState<string>("");
+  const [network, setNetwork] = useState<GicNetwork>(STATIC_GIC_NETWORK);
+  const [status, setStatus] = useState<GicStatusResponse>(staticGicStatus());
+  const [apiConnected, setApiConnected] = useState<boolean | null>(null);
+  const [stationId, setStationId] = useState<string>("MARIMBA_001");
   const [rangeIdx, setRangeIdx] = useState(1);
   const [series, setSeries] = useState<GicSeriesResponse | null>(null);
   const [seriesLoading, setSeriesLoading] = useState(false);
+  const [dashSeries24h, setDashSeries24h] = useState<GicSeriesResponse | null>(null);
+  const [gicAlerts, setGicAlerts] = useState<EkfAlert[]>([]);
 
   const [uploadStation, setUploadStation] = useState("MARIMBA_001");
   const [uploadBusy, setUploadBusy] = useState(false);
@@ -65,14 +78,17 @@ export default function GicMonitorPanel() {
       getGicNetwork().catch(() => null),
       getGicStatus().catch(() => null),
     ]);
-    setNetwork(net);
-    setStatus(st);
-    if (st && !stationId) {
-      const withData = st.stations.find((s) => s.has_data);
-      setStationId((withData ?? st.stations[0])?.station_id ?? "");
+    if (net) setNetwork(net);
+    if (st) {
+      setStatus(st);
+      setStationId((prev) => {
+        if (prev && st.stations.some((s) => s.station_id === prev)) return prev;
+        const withData = st.stations.find((s) => s.has_data);
+        return (withData ?? st.stations[0])?.station_id ?? prev;
+      });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stationId]);
+    setApiConnected(Boolean(net || st));
+  }, []);
 
   useEffect(() => {
     loadStatic();
@@ -95,8 +111,33 @@ export default function GicMonitorPanel() {
     return () => window.clearInterval(id);
   }, [loadSeries]);
 
+  const loadDashSeries = useCallback(async () => {
+    if (!stationId || rangeIdx === 1) return;
+    const data = await getGicSeries(stationId, 24).catch(() => null);
+    setDashSeries24h(data);
+  }, [stationId, rangeIdx]);
+
+  useEffect(() => {
+    loadDashSeries();
+    const id = window.setInterval(loadDashSeries, 60000);
+    return () => window.clearInterval(id);
+  }, [loadDashSeries]);
+
+  const loadGicAlerts = useCallback(async () => {
+    const rows = await getEkfAlertLog(168).catch(() => [] as EkfAlert[]);
+    setGicAlerts(rows.filter((a) => a.parameter === "gic"));
+  }, []);
+
+  useEffect(() => {
+    loadGicAlerts();
+    const id = window.setInterval(loadGicAlerts, 120000);
+    return () => window.clearInterval(id);
+  }, [loadGicAlerts]);
+
+  const dashboardSeries = rangeIdx === 1 ? series : dashSeries24h;
+
   const selectedStatus = useMemo(
-    () => status?.stations.find((s) => s.station_id === stationId) ?? null,
+    () => status.stations.find((s) => s.station_id === stationId) ?? null,
     [status, stationId],
   );
 
@@ -122,6 +163,28 @@ export default function GicMonitorPanel() {
       dst: series.space_weather.map((p) => p.dst),
     };
   }, [series]);
+
+  const swAnalysis = useMemo(() => {
+    if (!swChart) return null;
+    return analyzeGicSpaceWeatherContext({
+      labels: swChart.labels,
+      kp: swChart.kp,
+      dst: swChart.dst,
+      gicLabels: chartData?.labels,
+      gicObserved: chartData?.observed,
+      gicRate: chartData?.rate,
+    });
+  }, [swChart, chartData]);
+
+  const gicAnalysis = useMemo(() => {
+    if (!chartData) return null;
+    return analyzeGicObservedChart(chartData.labels, chartData.observed, chartData.predicted);
+  }, [chartData]);
+
+  const rateAnalysis = useMemo(() => {
+    if (!chartData) return null;
+    return analyzeGicRateChart(chartData.labels, chartData.rate);
+  }, [chartData]);
 
   const handleUpload = async () => {
     const file = fileRef.current?.files?.[0];
@@ -188,7 +251,7 @@ export default function GicMonitorPanel() {
           }}
           className="form-select"
         >
-          {(status?.stations ?? []).map((s) => (
+          {status.stations.map((s) => (
             <option key={s.station_id} value={s.station_id}>
               {s.station_id} — {s.name}{s.has_data ? "" : " (no data)"}
             </option>
@@ -320,10 +383,16 @@ export default function GicMonitorPanel() {
     </div>
   );
 
-  const stationsWithData = status?.stations.filter((s) => s.has_data).length ?? 0;
+  const stationsWithData = status.stations.filter((s) => s.has_data).length;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.2rem" }}>
+      {apiConnected === false && (
+        <div className="banner banner-warn" role="status">
+          GIC backend unreachable — map shows static ZETDC grid geometry. Live measurements, EKF alerts, and
+          reports need the FastAPI server (run <code>dev.ps1</code> locally or set NEXT_PUBLIC_API_URL on Vercel).
+        </div>
+      )}
       {series?.banner && (
         <div className="banner banner-alert" role="alert">
           {series.banner}
@@ -334,13 +403,13 @@ export default function GicMonitorPanel() {
       <div className="grid-4">
         <MetricCard
           label="Monitoring Stations"
-          value={status ? status.stations.length : null}
+          value={status.stations.length}
           sub={`${stationsWithData} reporting field data`}
           variant={stationsWithData > 0 ? "ok" : "warn"}
         />
         <MetricCard
           label="Stored Measurements"
-          value={status ? status.total_records.toLocaleString() : null}
+          value={status.total_records.toLocaleString()}
           sub="transformer-neutral samples"
         />
         <MetricCard
@@ -376,11 +445,23 @@ export default function GicMonitorPanel() {
           ZINGSA/ZETDC GIC monitoring station (clamp sensor on the transformer neutral). Click any
           feature for details.
         </p>
-        <GicNetworkMap network={network} stationStatus={status?.stations ?? []} />
+        <GicNetworkMap
+          network={network}
+          stationStatus={status.stations}
+          onStationSelect={(id) => {
+            setStationId(id);
+            setReport(null);
+          }}
+        />
       </div>
 
       {/* ── Live station dashboard (Diagram 2 display) ── */}
-      <GicLiveDashboard stationId={stationId} stationStatus={selectedStatus} network={network} />
+      <GicLiveDashboard
+        stationId={stationId}
+        stationStatus={selectedStatus}
+        network={network}
+        series={dashboardSeries}
+      />
 
       {/* ── Series controls + charts ── */}
       <div className="card card-accent">
@@ -392,7 +473,7 @@ export default function GicMonitorPanel() {
             onChange={(e) => setStationId(e.target.value)}
             className="form-select"
           >
-            {(status?.stations ?? []).map((s) => (
+            {status.stations.map((s) => (
               <option key={s.station_id} value={s.station_id}>
                 {s.station_id} — {s.name}{s.has_data ? "" : " (no data)"}
               </option>
@@ -446,11 +527,7 @@ export default function GicMonitorPanel() {
                 { value: 75, label: "Extreme (75 A)", color: "#ff2e2e" },
               ]}
             />
-            <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "0.4rem" }}>
-              Solid line: measured transformer-neutral current. Dashed line: one-step-ahead Extended
-              Kalman Filter prediction. A persistent gap between them (beyond mean + 3σ of recent
-              errors) triggers the geomagnetic disturbance alert.
-            </p>
+            {gicAnalysis && <ChartAnalysisBox block={gicAnalysis} />}
 
             <div className="operations-chart-title" style={{ marginTop: "1.1rem" }}>
               Rate of Change (GIC analogue of dB/dt)
@@ -461,10 +538,7 @@ export default function GicMonitorPanel() {
               yLabel="A / min"
               height={200}
             />
-            <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "0.4rem" }}>
-              Impulsive changes track dB/dt of the geomagnetic field — the physical driver of GIC.
-              Sharp spikes during storm sudden commencements are the moments of highest transformer stress.
-            </p>
+            {rateAnalysis && <ChartAnalysisBox block={rateAnalysis} />}
           </>
         )}
 
@@ -474,30 +548,109 @@ export default function GicMonitorPanel() {
               Space-Weather Context (same window)
             </div>
             <div className="grid-2">
-              <LineChart
-                labels={swChart.labels}
-                datasets={[{ label: "Kp Index", data: swChart.kp, color: "#00ff88" }]}
-                yLabel="Kp"
-                height={190}
-                threshold={{ value: 5, label: "Storm (Kp 5)" }}
-              />
-              <LineChart
-                labels={swChart.labels}
-                datasets={[{ label: "Dst (nT)", data: swChart.dst, color: "#ff4444" }]}
-                yLabel="Dst (nT)"
-                height={190}
-                threshold={{ value: -50, label: "Storm (−50 nT)" }}
-              />
+              <div>
+                <LineChart
+                  labels={swChart.labels}
+                  datasets={[{ label: "Kp Index", data: swChart.kp, color: "#00ff88" }]}
+                  yLabel="Kp"
+                  height={190}
+                  threshold={{ value: 5, label: "Storm (Kp 5)" }}
+                />
+              </div>
+              <div>
+                <LineChart
+                  labels={swChart.labels}
+                  datasets={[{ label: "Dst (nT)", data: swChart.dst, color: "#ff4444" }]}
+                  yLabel="Dst (nT)"
+                  height={190}
+                  threshold={{ value: -50, label: "Storm (−50 nT)" }}
+                />
+              </div>
             </div>
-            <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "0.4rem" }}>
-              GIC episodes that coincide with elevated Kp / depressed Dst are geomagnetically driven;
-              activity without space-weather support points to local engineering sources.
-            </p>
+            {swAnalysis && <ChartAnalysisBox block={swAnalysis} title="What Kp & Dst tell you about GIC" />}
           </>
         )}
       </div>
 
       {reportPanel}
+
+      {/* ── GIC EKF deviation alerts ── */}
+      <div className="card card-accent">
+        <div className="operations-chart-title">GIC EKF Deviation Alerts</div>
+        <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "0.75rem" }}>
+          When measured GIC at a monitoring station diverges from the Extended Kalman Filter prediction beyond
+          mean + 3σ of recent errors, an alert is logged. Severity escalates when Kp, Dst, S4, or solar wind
+          also show abnormal behaviour.
+        </p>
+        {gicAlerts.length === 0 ? (
+          <p style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
+            No GIC deviation alerts in the last 7 days.
+          </p>
+        ) : (
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.82rem" }}>
+            <thead>
+              <tr style={{ borderBottom: "1px solid var(--border)" }}>
+                <th style={{ textAlign: "left", padding: "0.35rem 0.5rem" }}>Time (UTC)</th>
+                <th style={{ textAlign: "left", padding: "0.35rem 0.5rem" }}>Station</th>
+                <th style={{ textAlign: "right", padding: "0.35rem 0.5rem" }}>Observed (A)</th>
+                <th style={{ textAlign: "right", padding: "0.35rem 0.5rem" }}>EKF (A)</th>
+                <th style={{ textAlign: "right", padding: "0.35rem 0.5rem" }}>Error</th>
+                <th style={{ textAlign: "left", padding: "0.35rem 0.5rem" }}>Severity</th>
+                <th style={{ textAlign: "left", padding: "0.35rem 0.5rem" }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {gicAlerts.map((alert) => (
+                <tr key={alert.alert_id} style={{ borderBottom: "1px solid rgba(36,77,115,0.35)" }}>
+                  <td style={{ padding: "0.35rem 0.5rem", whiteSpace: "nowrap" }}>
+                    {alert.timestamp.replace("T", " ").slice(0, 19)}
+                  </td>
+                  <td style={{ padding: "0.35rem 0.5rem" }}>{alert.parameter_label}</td>
+                  <td style={{ padding: "0.35rem 0.5rem", textAlign: "right" }}>
+                    {alert.observed_value?.toFixed(2) ?? "N/A"}
+                  </td>
+                  <td style={{ padding: "0.35rem 0.5rem", textAlign: "right" }}>
+                    {alert.ekf_predicted_value?.toFixed(2) ?? "N/A"}
+                  </td>
+                  <td style={{ padding: "0.35rem 0.5rem", textAlign: "right" }}>
+                    {alert.prediction_error?.toFixed(2) ?? "N/A"}
+                  </td>
+                  <td
+                    style={{
+                      padding: "0.35rem 0.5rem",
+                      color: SEVERITY_COLOR[alert.severity] ?? "var(--text)",
+                      fontWeight: 600,
+                    }}
+                  >
+                    {alert.severity}
+                  </td>
+                  <td style={{ padding: "0.35rem 0.5rem" }}>
+                    {alert.acknowledged_status ? (
+                      <span style={{ color: "var(--text-muted)" }}>Acknowledged</span>
+                    ) : (
+                      <button
+                        type="button"
+                        className="btn"
+                        style={{ fontSize: "0.75rem", padding: "0.25rem 0.6rem" }}
+                        onClick={async () => {
+                          await ackEkfAlert(alert.alert_id);
+                          setGicAlerts((prev) =>
+                            prev.map((a) =>
+                              a.alert_id === alert.alert_id ? { ...a, acknowledged_status: true } : a,
+                            ),
+                          );
+                        }}
+                      >
+                        Acknowledge
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
 
       {/* ── Risk bands reference ── */}
       {network && (
@@ -538,7 +691,7 @@ export default function GicMonitorPanel() {
               className="form-select"
               style={{ alignSelf: "flex-start" }}
             >
-              {(status?.stations ?? [{ station_id: "MARIMBA_001" }]).map((s) => (
+              {status.stations.map((s) => (
                 <option key={s.station_id} value={s.station_id}>{s.station_id}</option>
               ))}
             </select>

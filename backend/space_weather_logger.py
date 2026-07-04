@@ -74,7 +74,14 @@ def _loop() -> None:
     interval = max(30.0, float(os.getenv("SW_LOG_INTERVAL_SEC", "60")))
     log.info("Space weather logger started (every %.0fs)", interval)
     while not _stop.wait(interval):
-        log_snapshot(source="scheduler")
+        if log_snapshot(source="scheduler"):
+            try:
+                from zgiis.space_weather.ekf_service import compute_ekf_status
+                from zgiis.space_weather.fetch_indices import get_space_weather
+
+                compute_ekf_status(get_space_weather(use_third_party=False), dispatch_notifications=True)
+            except Exception as exc:
+                log.debug("scheduled EKF notify skipped: %s", exc)
 
 
 def start() -> None:

@@ -20,6 +20,7 @@ import type {
   GicStatusResponse,
   GicUploadResult,
   GfzKpAnalysisResponse,
+  WdcKyotoAnalysisResponse,
   IntermagnetAnalysisResponse,
   LiveObservation,
   LivePipelineStatus,
@@ -53,41 +54,84 @@ import type {
   TecHourlyRow,
   TecPlotSeries,
   VtecTheoryPayload,
+  GeomagneticTheoryPayload,
+  UnderstandingTecPayload,
 } from "./types";
 
 function apiBase(): string {
   const configured = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "");
   if (configured) return configured;
-  if (typeof window !== "undefined") return window.location.origin;
+  if (typeof window !== "undefined") {
+    const { hostname, origin } = window.location;
+    // Next.js dev server — FastAPI runs on 8000, not the Next port.
+    if (hostname === "localhost" || hostname === "127.0.0.1") {
+      return "http://localhost:8000";
+    }
+    return origin;
+  }
   return "http://localhost:8000";
 }
 
-const BASE = apiBase();
 const KEY = process.env.NEXT_PUBLIC_API_KEY ?? "";
 const FETCH_TIMEOUT_MS = 28_000;
+const ANALYSIS_TIMEOUT_MS = 120_000;
+
+function baseUrl(): string {
+  return apiBase();
+}
+
+function friendlyFetchError(err: unknown, path: string): Error {
+  if (err instanceof DOMException && err.name === "AbortError") {
+    return new Error(
+      `API ${path} timed out — ensure the FastAPI backend is running on port 8000 (run dev.ps1)`,
+    );
+  }
+  const msg = err instanceof Error ? err.message : String(err);
+  if (msg.includes("aborted") || msg.includes("AbortError")) {
+    return new Error(
+      `API ${path} timed out — ensure the FastAPI backend is running on port 8000 (run dev.ps1)`,
+    );
+  }
+  if (msg.includes("Failed to fetch") || msg.includes("NetworkError")) {
+    return new Error(`API ${path} unreachable — start the backend with dev.ps1`);
+  }
+  return err instanceof Error ? err : new Error(msg);
+}
 
 async function fetchWithTimeout(url: string, init?: RequestInit, timeoutMs = FETCH_TIMEOUT_MS): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     return await fetch(url, { ...init, signal: controller.signal, cache: "no-store" });
+  } catch (err) {
+    throw friendlyFetchError(err, url);
   } finally {
     clearTimeout(timer);
   }
 }
 
-async function get<T>(path: string, params?: Record<string, string | number | undefined>): Promise<T> {
-  const url = new URL(BASE + path);
+async function get<T>(
+  path: string,
+  params?: Record<string, string | number | undefined>,
+  timeoutMs = FETCH_TIMEOUT_MS,
+): Promise<T> {
+  const url = new URL(baseUrl() + path);
   if (params) {
     Object.entries(params).forEach(([k, v]) => {
       if (v !== undefined) url.searchParams.set(k, String(v));
     });
   }
-  const res = await fetchWithTimeout(url.toString(), {
-    headers: KEY ? { "X-API-Key": KEY } : {},
-  });
-  if (!res.ok) throw new Error(`API ${path} → ${res.status}`);
-  return res.json();
+  try {
+    const res = await fetchWithTimeout(
+      url.toString(),
+      { headers: KEY ? { "X-API-Key": KEY } : {} },
+      timeoutMs,
+    );
+    if (!res.ok) throw new Error(`API ${path} → ${res.status}`);
+    return res.json();
+  } catch (err) {
+    throw friendlyFetchError(err, path);
+  }
 }
 
 /** GET with one retry — helps Vercel cold starts on the home page. */
@@ -104,7 +148,7 @@ export async function getWithRetry<T>(
 }
 
 async function post<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetchWithTimeout(BASE + path, {
+  const res = await fetchWithTimeout(baseUrl() + path, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...(KEY ? { "X-API-Key": KEY } : {}) },
     body: JSON.stringify(body),
@@ -117,9 +161,10 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 export const getSpaceWeather = () =>
   getWithRetry<SpaceWeatherCurrent>("/space-weather/current", { _ts: Date.now() });
 export const getSolarActivity = () => get<SolarActivityFull>("/space-weather/solar-activity");
-export const getTimelines = () => get<SpaceWeatherTimelines>("/space-weather/timelines", { _ts: Date.now() });
+export const getTimelines = () =>
+  getWithRetry<SpaceWeatherTimelines>("/space-weather/timelines", { _ts: Date.now() });
 export const refreshSpaceWeather = () =>
-  fetch(BASE + "/space-weather/refresh", { method: "POST", headers: KEY ? { "X-API-Key": KEY } : {} });
+  fetch(baseUrl() + "/space-weather/refresh", { method: "POST", headers: KEY ? { "X-API-Key": KEY } : {} });
 export const getSpaceWeatherLogStatus = () => get<SpaceWeatherLogStatus>("/space-weather/log/status");
 export const getSpaceWeatherHistory = (hours = 168, resample?: string) =>
   get<SpaceWeatherHistoryResponse>("/space-weather/history", { hours, resample });
@@ -127,11 +172,14 @@ export const getSpaceWeatherCorrelations = (hours = 168, resample = "1h") =>
   get<SpaceWeatherCorrelationResponse>("/space-weather/correlations", { hours, resample });
 export const getSpaceWeatherReport = (period: SpaceWeatherReportPeriod = "hourly") =>
   get<SpaceWeatherReport>("/space-weather/report", { period, _ts: Date.now() });
-export const getEkfStatus = () => getWithRetry<EkfStatus>("/space-weather/ekf", { _ts: Date.now() });
+export const getEkfStatus = () => get<EkfStatus>("/space-weather/ekf", { _ts: Date.now() });
+/** Retried EKF fetch — use on manual refresh only; avoid blocking the 60s poll. */
+export const getEkfStatusWithRetry = () =>
+  getWithRetry<EkfStatus>("/space-weather/ekf", { _ts: Date.now() });
 export const getStormAlertStatus = () => get<StormAlertStatus>("/space-weather/storm-alerts/status");
 export const getEkfAlertLog = (hours = 24) => get<EkfAlert[]>("/space-weather/ekf/alerts", { hours });
 export const ackEkfAlert = (alertId: string) =>
-  fetch(BASE + `/space-weather/ekf/alerts/${alertId}/ack`, {
+  fetch(baseUrl() + `/space-weather/ekf/alerts/${alertId}/ack`, {
     method: "POST",
     headers: KEY ? { "X-API-Key": KEY } : {},
   });
@@ -186,7 +234,7 @@ export async function uploadCmn(file: File, opts?: ProcessingOptions): Promise<P
   const fd = new FormData();
   fd.append("file", file);
   appendProcessingOptions(fd, opts);
-  const res = await fetch(BASE + "/processing/cmn", {
+  const res = await fetch(baseUrl() + "/processing/cmn", {
     method: "POST",
     headers: KEY ? { "X-API-Key": KEY } : {},
     body: fd,
@@ -200,7 +248,7 @@ export async function uploadRinex(obs: File[], nav: File[], opts?: ProcessingOpt
   obs.forEach((f) => fd.append("obs", f));
   nav.forEach((f) => fd.append("nav", f));
   appendProcessingOptions(fd, opts);
-  const res = await fetch(BASE + "/processing/rinex", {
+  const res = await fetch(baseUrl() + "/processing/rinex", {
     method: "POST",
     headers: KEY ? { "X-API-Key": KEY } : {},
     body: fd,
@@ -213,7 +261,7 @@ export async function convertRinex(files: File[], config: RinexConvertConfig): P
   const fd = new FormData();
   files.forEach((f) => fd.append("files", f));
   fd.append("config", JSON.stringify(config));
-  const res = await fetchWithTimeout(BASE + "/processing/rinex-convert", {
+  const res = await fetchWithTimeout(baseUrl() + "/processing/rinex-convert", {
     method: "POST",
     headers: KEY ? { "X-API-Key": KEY } : {},
     body: fd,
@@ -244,7 +292,7 @@ export const getSessionTecPlot = (id: string, raw = false) =>
 export const getSessionBias = (id: string) => get<BiasRow[]>(`/processing/${id}/bias`);
 
 export async function downloadSessionRaw(id: string): Promise<Blob> {
-  const res = await fetch(BASE + `/processing/${id}/raw`, {
+  const res = await fetch(baseUrl() + `/processing/${id}/raw`, {
     headers: KEY ? { "X-API-Key": KEY } : {},
   });
   if (!res.ok) throw new Error(`API /processing/${id}/raw → ${res.status}`);
@@ -261,13 +309,19 @@ export const getDiurnal = () => get<DiurnalPoint[]>("/tec/diurnal");
 export const getSeasonal = () => get<SeasonalRow[]>("/tec/seasonal");
 export const getSolarCycle = () => get<SolarCycleRow[]>("/tec/solar-cycle");
 export const getOmniAnalysis = (start: string, end: string, station?: string) =>
-  get<OmniAnalysisResponse>("/tec/omni-analysis", { start, end, station, _ts: Date.now() });
+  get<OmniAnalysisResponse>("/tec/omni-analysis", { start, end, station, _ts: Date.now() }, ANALYSIS_TIMEOUT_MS);
 export const getCelestrakAnalysis = (start: string, end: string, station?: string) =>
-  get<CelestrakAnalysisResponse>("/tec/celestrak-analysis", { start, end, station, _ts: Date.now() });
+  get<CelestrakAnalysisResponse>("/tec/celestrak-analysis", { start, end, station, _ts: Date.now() }, ANALYSIS_TIMEOUT_MS);
 export const getGfzKpAnalysis = (start: string, end: string, station?: string) =>
-  get<GfzKpAnalysisResponse>("/tec/gfz-kp-analysis", { start, end, station, _ts: Date.now() });
+  get<GfzKpAnalysisResponse>("/tec/gfz-kp-analysis", { start, end, station, _ts: Date.now() }, ANALYSIS_TIMEOUT_MS);
+export const getWdcKyotoAnalysis = (start: string, end: string, station?: string) =>
+  get<WdcKyotoAnalysisResponse>("/tec/wdc-kyoto-analysis", { start, end, station, _ts: Date.now() }, ANALYSIS_TIMEOUT_MS);
 export const getIntermagnetAnalysis = (start: string, end: string, observatory: string, station?: string) =>
-  get<IntermagnetAnalysisResponse>("/tec/intermagnet-analysis", { start, end, observatory, station, _ts: Date.now() });
+  get<IntermagnetAnalysisResponse>(
+    "/tec/intermagnet-analysis",
+    { start, end, observatory, station, _ts: Date.now() },
+    ANALYSIS_TIMEOUT_MS,
+  );
 export const getPrn = (constellation?: string) => get<PrnRow[]>("/tec/prn", { constellation });
 
 // ── Live ──────────────────────────────────────────────────────────────────────
@@ -281,7 +335,7 @@ export const getNtripStatus = (refresh = false, listen_sec = 4) =>
     listen_sec,
   });
 export async function runNtripProbe(listen_sec = 6) {
-  const url = new URL(BASE + "/live/ntrip-probe");
+  const url = new URL(baseUrl() + "/live/ntrip-probe");
   url.searchParams.set("listen_sec", String(listen_sec));
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 120_000);
@@ -306,13 +360,15 @@ export const getCnnGruForecast = () => get<ForecastPoint[]>("/forecast/cnn-gru")
 
 // ── Theory ────────────────────────────────────────────────────────────────────
 export const getVtecTheory = () => get<VtecTheoryPayload>("/theory/vtec");
+export const getGeomagneticTheory = () => get<GeomagneticTheoryPayload>("/theory/geomagnetic");
+export const getUnderstandingTec = () => get<UnderstandingTecPayload>("/theory/understanding-tec");
 
 // ── Chat ──────────────────────────────────────────────────────────────────────
 export const sendChat = (messages: ChatMessage[], api_key?: string) =>
   post<ChatResponse>("/chat", { messages, api_key });
 
 // ── GIC Monitor ───────────────────────────────────────────────────────────────
-export const getGicNetwork = () => get<GicNetwork>("/gic/network");
+export const getGicNetwork = () => getWithRetry<GicNetwork>("/gic/network", { _ts: Date.now() });
 export const getGicStatus = () => get<GicStatusResponse>("/gic/status", { _ts: Date.now() });
 export const getGicSeries = (station_id: string, hours = 24, resample?: string) =>
   get<GicSeriesResponse>("/gic/series", { station_id, hours, resample, _ts: Date.now() });
@@ -325,7 +381,7 @@ export async function uploadGicFile(file: File, stationId: string): Promise<GicU
   const fd = new FormData();
   fd.append("file", file);
   fd.append("station_id", stationId);
-  const res = await fetch(BASE + "/gic/upload", {
+  const res = await fetch(baseUrl() + "/gic/upload", {
     method: "POST",
     headers: KEY ? { "X-API-Key": KEY } : {},
     body: fd,
@@ -345,7 +401,7 @@ export async function uploadGicFile(file: File, stationId: string): Promise<GicU
 }
 
 export async function downloadGicReportCsv(station_id: string, period: GicReportPeriod): Promise<Blob> {
-  const url = new URL(BASE + "/gic/report");
+  const url = new URL(baseUrl() + "/gic/report");
   url.searchParams.set("station_id", station_id);
   url.searchParams.set("period", period);
   url.searchParams.set("format", "csv");

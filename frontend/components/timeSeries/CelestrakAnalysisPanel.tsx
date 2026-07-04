@@ -33,7 +33,7 @@ export default function CelestrakAnalysisPanel({
   if (!celestrak || celestrak.series.length === 0) {
     return (
       <div className="banner banner-info">
-        Select a date range above and click <strong>Load CelesTrak analysis</strong> to pull space-weather indices
+        Select a date range above and click <strong>Load all sources</strong> to pull space-weather indices
         from CelesTrak and compare them with your archived VTEC.
       </div>
     );

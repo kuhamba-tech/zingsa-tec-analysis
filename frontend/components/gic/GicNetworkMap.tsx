@@ -24,9 +24,10 @@ interface Props {
   network: GicNetwork | null;
   stationStatus: GicStationStatus[];
   height?: number;
+  onStationSelect?: (stationId: string) => void;
 }
 
-export default function GicNetworkMap({ network, stationStatus, height = 460 }: Props) {
+export default function GicNetworkMap({ network, stationStatus, height = 460, onStationSelect }: Props) {
   const mapRef = useRef<HTMLDivElement>(null);
   const popupRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -40,21 +41,22 @@ export default function GicNetworkMap({ network, stationStatus, height = 460 }: 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const olHelpersRef = useRef<any>(null);
   const [layer, setLayer] = useState<MapLayer>("Hybrid");
-  const dataRef = useRef<{ network: GicNetwork | null; status: GicStationStatus[] }>({
-    network,
-    status: stationStatus,
-  });
-  dataRef.current = { network, status: stationStatus };
+  const [mapReady, setMapReady] = useState(false);
+  const networkRef = useRef(network);
+  const statusRef = useRef(stationStatus);
+  const dataRef = useRef<{ onSelect?: (id: string) => void }>({ onSelect: onStationSelect });
+  networkRef.current = network;
+  statusRef.current = stationStatus;
+  dataRef.current = { onSelect: onStationSelect };
 
-  const buildFeatures = () => {
+  const buildFeatures = (net: GicNetwork | null, status: GicStationStatus[]) => {
     const helpers = olHelpersRef.current;
-    const { network: net, status } = dataRef.current;
-    if (!helpers || !net) return [];
+    if (!helpers || !net?.substations?.length) return [];
     const { fromLonLat, Feature, Point, LineString, Style, RegularShape, Circle, Fill, Stroke, Text } = helpers;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const features: any[] = [];
 
-    for (const line of net.lines) {
+    for (const line of net.lines ?? []) {
       const geom = new LineString(line.coords.map(([lat, lon]: [number, number]) => fromLonLat([lon, lat])));
       const f = new Feature({ geometry: geom, kind: "line", info: line });
       f.setStyle(
@@ -114,11 +116,15 @@ export default function GicNetworkMap({ network, stationStatus, height = 460 }: 
     return features;
   };
 
-  const syncFeatures = () => {
+  const syncFeatures = (net: GicNetwork | null, status: GicStationStatus[]) => {
     const source = vectorSourceRef.current;
     if (!source) return;
     source.clear();
-    source.addFeatures(buildFeatures());
+    source.addFeatures(buildFeatures(net, status));
+    const map = olMapRef.current;
+    if (map) {
+      map.updateSize();
+    }
   };
 
   useEffect(() => {
@@ -160,7 +166,6 @@ export default function GicNetworkMap({ network, stationStatus, height = 460 }: 
 
       const vectorSource = new VectorSource();
       vectorSourceRef.current = vectorSource;
-      syncFeatures();
 
       const popup = new Overlay({ element: popupEl, positioning: "bottom-center", offset: [0, -14] });
 
@@ -171,6 +176,12 @@ export default function GicNetworkMap({ network, stationStatus, height = 460 }: 
         overlays: [popup],
         controls: [],
       });
+
+      olMapRef.current = map;
+      baseTileRef.current = baseTile;
+      labelTileRef.current = labelTile;
+      syncFeatures(networkRef.current, statusRef.current);
+      setMapReady(true);
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (map as any).on("pointermove", (evt: { pixel: [number, number] }) => {
@@ -187,6 +198,9 @@ export default function GicNetworkMap({ network, stationStatus, height = 460 }: 
           const info = f.get("info");
           if (kind === "substation") {
             const mon = info.monitoring as GicStationStatus | null;
+            if (mon?.station_id) {
+              dataRef.current.onSelect?.(mon.station_id);
+            }
             popupEl.innerHTML =
               `<b>${info.name}</b><br/>ZETDC substation` +
               (mon
@@ -206,13 +220,11 @@ export default function GicNetworkMap({ network, stationStatus, height = 460 }: 
         }
       });
 
-      olMapRef.current = map;
-      baseTileRef.current = baseTile;
-      labelTileRef.current = labelTile;
     })();
 
     return () => {
       disposed = true;
+      setMapReady(false);
       if (olMapRef.current) {
         olMapRef.current.dispose();
         olMapRef.current = null;
@@ -230,9 +242,10 @@ export default function GicNetworkMap({ network, stationStatus, height = 460 }: 
   }, []);
 
   useEffect(() => {
-    syncFeatures();
+    if (!mapReady) return;
+    syncFeatures(network, stationStatus);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [network, stationStatus]);
+  }, [mapReady, network, stationStatus]);
 
   useEffect(() => {
     if (!baseTileRef.current || !labelTileRef.current) return;

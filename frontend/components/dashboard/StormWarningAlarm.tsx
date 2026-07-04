@@ -16,24 +16,34 @@ function isMuted(): boolean {
 export default function StormWarningAlarm({
   ekf,
   sw,
+  pendingAlerts: externalPending,
 }: {
   ekf: EkfStatus | null;
   sw: SpaceWeatherCurrent | null;
+  pendingAlerts?: EkfAlert[];
 }) {
   const [muted, setMuted] = useState(false);
-  const [pendingAlerts, setPendingAlerts] = useState<EkfAlert[]>([]);
+  const [pendingAlerts, setPendingAlerts] = useState<EkfAlert[]>(externalPending ?? []);
 
   const loadAlerts = useCallback(async () => {
+    if (externalPending !== undefined) return;
     const rows = await getEkfAlertLog(24).catch(() => []);
     setPendingAlerts(rows.filter((a) => !a.acknowledged_status));
-  }, []);
+  }, [externalPending]);
 
   useEffect(() => {
     setMuted(isMuted());
+  }, []);
+
+  useEffect(() => {
+    if (externalPending !== undefined) {
+      setPendingAlerts(externalPending);
+      return;
+    }
     loadAlerts();
     const id = window.setInterval(loadAlerts, 120000);
     return () => window.clearInterval(id);
-  }, [loadAlerts]);
+  }, [loadAlerts, externalPending]);
 
   const kp = sw?.kp ?? null;
   const activeStorm = kp != null && kp >= 5;

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { SpaceWeatherCurrent } from "@/lib/types";
+import type { LiveStationCounts } from "@/lib/liveStationStatus";
 import {
   METRIC_EXPLANATIONS,
   buildMetricCards,
@@ -13,6 +14,7 @@ interface Props {
   sw: SpaceWeatherCurrent | null;
   updatedUtc?: string | null;
   showHint?: boolean;
+  liveStationCounts?: LiveStationCounts | null;
 }
 
 function MetricCardButton({
@@ -73,9 +75,9 @@ function ExplanationPanel({
   );
 }
 
-export default function ClickableMetricGrid({ sw, updatedUtc, showHint = true }: Props) {
+export default function ClickableMetricGrid({ sw, updatedUtc, showHint = true, liveStationCounts = null }: Props) {
   const [selected, setSelected] = useState<MetricKey | null>(null);
-  const cards = buildMetricCards(sw);
+  const cards = buildMetricCards(sw, { liveStationCounts });
 
   const updatedNote = updatedUtc
     ? ` · Updated ${updatedUtc.slice(0, 16).replace("T", " ")} UTC`

@@ -1,7 +1,15 @@
 import type { SpaceWeatherCurrent } from "./types";
 import type { ForecastStatus, GnssForecastCity } from "./gnssWeatherIntelligence";
+import {
+  ZINGSA_AGENCY,
+  ZINGSA_BROADCAST_FOOTER,
+  ZINGSA_NAVIGATION_CHANNELS,
+  ZINGSA_NAVIGATION_MODERATE_ACTION,
+  ZINGSA_NAVIGATION_WARNING_ACTION,
+  ZINGSA_PHONE,
+} from "./zingsaContact";
 
-export type AudienceId = "farmer" | "surveyor" | "citizen" | "driver";
+export type AudienceId = "farmer" | "surveyor" | "citizen" | "driver" | "aviation";
 
 export interface NavigationNewsBrief {
   id: AudienceId;
@@ -40,6 +48,46 @@ function nationalTone(forecasts: GnssForecastCity[]): ForecastStatus {
   if (forecasts.some((f) => f.status === "warning")) return "warning";
   if (forecasts.some((f) => f.status === "moderate")) return "moderate";
   return "excellent";
+}
+
+const TONE_RANK: Record<ForecastStatus, number> = { excellent: 0, moderate: 1, warning: 2 };
+
+/** Minimum tone from live NOAA indices — storms must not read as "good news" because CORS feeds are up. */
+export function spaceWeatherFloor(sw: SpaceWeatherCurrent | null): ForecastStatus {
+  if (!sw) return "excellent";
+  const kp = sw.kp;
+  const dst = sw.dst;
+  const s4 = sw.s4;
+  const risk = (sw.gnss_risk ?? "").toLowerCase();
+
+  if (
+    (kp != null && kp >= 7) ||
+    (dst != null && dst <= -100) ||
+    (s4 != null && s4 >= 0.5) ||
+    risk === "critical" ||
+    (kp != null && kp >= 5 && dst != null && dst <= -50)
+  ) {
+    return "warning";
+  }
+  if (
+    (kp != null && kp >= 5) ||
+    (dst != null && dst <= -50) ||
+    (s4 != null && s4 >= 0.3) ||
+    risk === "high"
+  ) {
+    return "moderate";
+  }
+  return "excellent";
+}
+
+/** Regional CORS outlook merged with live Kp/Dst/S4 — the more severe wins. */
+export function effectiveNavigationTone(
+  forecasts: GnssForecastCity[],
+  sw: SpaceWeatherCurrent | null,
+): ForecastStatus {
+  const fromForecasts = nationalTone(forecasts);
+  const fromSw = spaceWeatherFloor(sw);
+  return TONE_RANK[fromForecasts] >= TONE_RANK[fromSw] ? fromForecasts : fromSw;
 }
 
 function statusWord(status: ForecastStatus): string {
@@ -121,11 +169,11 @@ export function buildSpaceWeatherLayman(
 
   const impacts: Record<ForecastStatus, string> = {
     excellent:
-      "For most Zimbabweans this is invisible good news: maps, mobile money location checks, emergency call positioning, and in-car navigation should behave normally.",
+      "For most Zimbabweans this is invisible good news: maps, mobile money location checks, and in-car navigation should behave normally.",
     moderate:
       "You may notice your phone taking longer to find you, delivery apps showing a wider blue dot, or precision equipment (surveyors, farmers) needing extra patience — especially in the afternoon.",
     warning:
-      "Ordinary navigation can mislead you today. Do not trust a map pin alone for remote travel, emergency response, or meeting someone at an exact spot. Space weather is temporary, but while it lasts, confirm locations the old-fashioned way — by sight, address, or phone call.",
+      `Ordinary navigation can mislead you today. Do not trust a map pin alone for remote travel or meeting someone at an exact spot. Space weather is temporary, but while it lasts, confirm locations by sight, address, or phone — or call ZINGSA on ${ZINGSA_PHONE} for navigation guidance.`,
   };
 
   const readout: string[] = [
@@ -175,11 +223,11 @@ function citizenBrief(
 
   const summaries: Record<ForecastStatus, string> = {
     excellent:
-      "Did you know your phone's location comes from satellites passing through space weather? Today the Sun is quiet, Earth's magnetic field is stable, and the ionosphere over Zimbabwe is smooth. That means Google Maps, WhatsApp live location, ride-hailing apps, and emergency services can find you reliably.",
+      "Did you know your phone's location comes from satellites passing through space weather? Today the Sun is quiet, Earth's magnetic field is stable, and the ionosphere over Zimbabwe is smooth. That means Google Maps, WhatsApp live location, and ride-hailing apps can find you reliably.",
     moderate:
       "Space weather is the 'weather in space' — solar wind and magnetic storms that ripple through the ionosphere where GPS signals travel. Today those ripples are small but real. Your phone might take a few extra seconds to lock on, or show you standing across the street from where you actually are. It is not your phone breaking; it is the sky above you shifting.",
     warning:
-      "When the Sun throws energy at Earth, navigation satellites and your phone feel it first. Today geomagnetic and ionospheric activity is high enough to disturb positioning across parts of Zimbabwe. Maps may show the wrong place, rides may pick up at the wrong corner, and emergency callers should say their address out loud — do not assume the operator sees your exact pin.",
+      `When the Sun throws energy at Earth, navigation satellites and your phone feel it first. Today geomagnetic and ionospheric activity is high enough to disturb positioning across parts of Zimbabwe. Maps may show the wrong place and rides may pick up at the wrong corner — call ${ZINGSA_AGENCY} on ${ZINGSA_PHONE} if you need help understanding conditions in your area.`,
   };
 
   const bullets: Record<ForecastStatus, string[]> = {
@@ -205,8 +253,8 @@ function citizenBrief(
 
   const actions: Record<ForecastStatus, string> = {
     excellent: "No action needed. Enjoy the day — and know that quiet space weather is why your navigation works.",
-    moderate: "Wait a few seconds before trusting a map pin. If calling 999/993/994, confirm your address verbally.",
-    warning: "Do not rely on GPS alone today. Confirm meeting points by phone and use street names, not just map arrows.",
+    moderate: ZINGSA_NAVIGATION_MODERATE_ACTION,
+    warning: ZINGSA_NAVIGATION_WARNING_ACTION,
   };
 
   const broadcast = joinScript([
@@ -230,7 +278,7 @@ function citizenBrief(
     "",
     `👉 *Action:* ${actions[status]}`,
     "",
-    "_Free public service · Zimbabwe National Geospatial & Space Agency (ZINGSA)_",
+    ...ZINGSA_BROADCAST_FOOTER,
   ]);
 
   const social = joinScript([
@@ -255,7 +303,7 @@ function citizenBrief(
     statusTone: status,
     broadcastScript: broadcast,
     socialScript: social,
-    channels: ["Facebook Page", "X / Twitter", "Community WhatsApp", "Radio bulletins", "School outreach"],
+    channels: [...ZINGSA_NAVIGATION_CHANNELS, "Facebook Page", "X / Twitter", "Community WhatsApp", "Radio bulletins", "School outreach"],
   };
 }
 
@@ -327,6 +375,8 @@ function farmerBrief(
     ...bullets[status].map((b) => `• ${b}`),
     "",
     `👉 *Action:* ${actions[status]}`,
+    "",
+    ...ZINGSA_BROADCAST_FOOTER,
   ]);
 
   const social = joinScript([
@@ -351,7 +401,7 @@ function farmerBrief(
     statusTone: status,
     broadcastScript: broadcast,
     socialScript: social,
-    channels: ["WhatsApp farmer groups", "In-app alerts", "Facebook Page"],
+    channels: [...ZINGSA_NAVIGATION_CHANNELS, "WhatsApp farmer groups", "In-app alerts", "Facebook Page"],
   };
 }
 
@@ -426,6 +476,8 @@ function surveyorBrief(
     ...bullets[status].map((b) => `• ${b}`),
     "",
     `👉 *Action:* ${actions[status]}`,
+    "",
+    ...ZINGSA_BROADCAST_FOOTER,
   ]);
 
   const social = joinScript([
@@ -449,7 +501,7 @@ function surveyorBrief(
     statusTone: status,
     broadcastScript: broadcast,
     socialScript: social,
-    channels: ["WhatsApp surveyor groups", "In-app alerts", "LinkedIn"],
+    channels: [...ZINGSA_NAVIGATION_CHANNELS, "WhatsApp surveyor groups", "In-app alerts", "LinkedIn"],
   };
 }
 
@@ -526,6 +578,8 @@ function driverBrief(
     ...bullets[status].map((b) => `• ${b}`),
     "",
     `👉 *Action:* ${actions[status]}`,
+    "",
+    ...ZINGSA_BROADCAST_FOOTER,
   ]);
 
   const social = joinScript([
@@ -549,7 +603,110 @@ function driverBrief(
     statusTone: status,
     broadcastScript: broadcast,
     socialScript: social,
-    channels: ["WhatsApp driver groups", "Fleet dispatch SMS", "Facebook Page"],
+    channels: [...ZINGSA_NAVIGATION_CHANNELS, "WhatsApp driver groups", "Fleet dispatch SMS", "Facebook Page"],
+  };
+}
+
+function aviationBrief(
+  forecasts: GnssForecastCity[],
+  tone: ForecastStatus,
+  sw: SpaceWeatherCurrent | null,
+  computedAt: string,
+): NavigationNewsBrief {
+  const status = tone;
+  const swCtx = buildSpaceWeatherLayman(sw, tone);
+  const harare = forecasts.find((f) => f.city === "HARARE");
+  const vicf = forecasts.find((f) => f.city === "VICTORIA FALLS");
+  const routeNote =
+    vicf?.status === "warning"
+      ? "Victoria Falls / western routes: expect wider GNSS error and possible HF radio noise on long sectors."
+      : harare?.status === "excellent"
+        ? "Harare and central Zimbabwe: aviation GNSS and routine approaches should be within normal limits."
+        : "Some en-route and approach sectors may show GNSS degradation when the ionosphere is disturbed.";
+
+  const headlines: Record<ForecastStatus, string> = {
+    excellent: "Calm space weather — aviation GNSS and routine navigation should be reliable",
+    moderate: "Mild space weather — monitor GPS approaches and HF communications",
+    warning: "Space weather alert for aviation — expect GNSS and HF impacts",
+  };
+
+  const summaries: Record<ForecastStatus, string> = {
+    excellent:
+      "Solar activity is low and the ionosphere is stable over Southern Africa. Space weather is not expected to interfere with GPS-based navigation (RNAV/GPS approaches), en-route GNSS, or standard HF radio links used on cross-border sectors.",
+    moderate:
+      "Space weather is making the ionosphere uneven. Pilots and drone operators may see slightly longer GNSS acquisition, small position offsets on moving maps, or brief HF static on polar and long-haul HF routes. Most commercial GNSS with RAIM will continue to operate, but monitor NOTAMs and ZINGSA briefs through the afternoon.",
+    warning:
+      "Active geomagnetic and ionospheric disturbance is affecting high-altitude navigation signals. GPS-guided approaches, unmanned aerial operations, and HF communications can all degrade during the storm main phase. Do not assume cockpit or controller displays match actual position without cross-checks — the same space weather affecting farmers and surveyors reaches aircraft at cruise altitude.",
+  };
+
+  const bullets: Record<ForecastStatus, string[]> = {
+    excellent: [
+      `Aviation GNSS outlook: ${statusWord(status)}`,
+      routeNote,
+      "Space weather impact: minimal for RNAV/GPS and en-route GNSS",
+      "Drone ops (VLOS): normal with standard pre-flight checks",
+    ],
+    moderate: [
+      `Aviation GNSS outlook: ${statusWord(status)}`,
+      routeNote,
+      "Watch for RAIM alerts or longer approach lock-on during afternoon scintillation",
+      "HF users: possible flutter on long paths; VHF/UHF mostly unaffected",
+    ],
+    warning: [
+      `Aviation GNSS outlook: ${statusWord(status)}`,
+      routeNote,
+      "GPS/RNAV approaches may be unavailable or require reversion to conventional navaids",
+      "Drone operators: delay BVLOS and precision survey flights until conditions ease",
+      "Crew: elevated high-altitude radiation possible on polar/long-haul routes during strong storms",
+    ],
+  };
+
+  const actions: Record<ForecastStatus, string> = {
+    excellent: "Operate as normal. Include space weather in standard briefing — quiet ionosphere supports reliable GNSS.",
+    moderate: "Brief crews on possible GNSS wobble and HF noise. Prefer morning sectors for precision drone or survey flights.",
+    warning: "Activate storm procedures: verify navaid backups, delay non-essential drone ops, and monitor Kp/Dst until recovery.",
+  };
+
+  const broadcast = joinScript([
+    "✈️ *ZINGSA Navigation News — Aviation*",
+    formatUtc(computedAt),
+    "",
+    `🌌 *Space weather:* ${swCtx.headline}`,
+    ...swCtx.readout.slice(0, 3).map((b) => `• ${b}`),
+    "",
+    headlines[status],
+    "",
+    summaries[status],
+    "",
+    ...bullets[status].map((b) => `• ${b}`),
+    "",
+    `👉 *Action:* ${actions[status]}`,
+    "",
+    ...ZINGSA_BROADCAST_FOOTER,
+  ]);
+
+  const social = joinScript([
+    "✈️ ZINGSA Navigation News | Aviation",
+    swCtx.headline,
+    routeNote,
+    "#SpaceWeather #Aviation #GNSS #Zimbabwe",
+  ]);
+
+  return {
+    id: "aviation",
+    icon: "✈️",
+    title: "Aviation Brief",
+    audience: "Pilots, air traffic controllers & drone operators",
+    headline: headlines[status],
+    summary: summaries[status],
+    spaceWeatherToday: `${swCtx.headline} ${swCtx.impact}`,
+    spaceWeatherBullets: swCtx.readout,
+    bullets: bullets[status],
+    action: actions[status],
+    statusTone: status,
+    broadcastScript: broadcast,
+    socialScript: social,
+    channels: [...ZINGSA_NAVIGATION_CHANNELS, "ATC briefings", "Airline ops WhatsApp", "UAS operator groups"],
   };
 }
 
@@ -560,12 +717,13 @@ export function buildAudienceNews(
   sw: SpaceWeatherCurrent | null = null,
 ): NavigationNewsBrief[] {
   const cities = byCity(forecasts);
-  const tone = nationalTone(forecasts);
+  const tone = effectiveNavigationTone(forecasts, sw);
 
   return [
     citizenBrief(forecasts, tone, sw, computedAt),
     farmerBrief(cities.HARARE, tone, sw, computedAt),
     surveyorBrief(cities.MUTARE, cities.HARARE, tone, sw, computedAt),
+    aviationBrief(forecasts, tone, sw, computedAt),
     driverBrief(forecasts, tone, sw, computedAt),
   ];
 }

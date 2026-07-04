@@ -19,6 +19,7 @@ class SpaceWeatherCurrent(BaseModel):
     stations_online: int | None = None
     stations_total: int | None = None
     plasma_speed: float | None = None
+    mean_vtec: float | None = None
     updated_utc: str | None = None
 
 
@@ -79,6 +80,7 @@ class SpaceWeatherTimelines(BaseModel):
     s4: list[TimelinePoint] = []
     gnss_risk: list[TimelinePoint] = []
     stations_online: list[TimelinePoint] = []
+    mean_vtec: list[TimelinePoint] = []
 
 
 class SpaceWeatherHistoryRow(BaseModel):
@@ -499,6 +501,43 @@ class GfzKpAnalysisResponse(BaseModel):
     mean_vtec_quiet: float | None = None
     series: list[GfzKpDailyPoint] = []
     storms: list[GfzKpStormDay] = []
+    fetched_at: str | None = None
+
+
+class WdcKyotoDailyPoint(BaseModel):
+    date: str
+    kp: float | None = None
+    kp_mean: float | None = None
+    ap: float | None = None
+    ap_daily: float | None = None
+    dst: float | None = None
+    storm_flag: bool = False
+    storm_class: str = "Quiet"
+    mean_vtec: float | None = None
+
+
+class WdcKyotoStormDay(BaseModel):
+    date: str
+    kp: float | None = None
+    dst: float | None = None
+    ap: float | None = None
+    storm_class: str
+    mean_vtec: float | None = None
+
+
+class WdcKyotoAnalysisResponse(BaseModel):
+    source: str
+    start_date: str | None = None
+    end_date: str | None = None
+    days: int = 0
+    storm_days: int = 0
+    max_kp: float | None = None
+    min_dst: float | None = None
+    max_ap: float | None = None
+    mean_vtec_storm: float | None = None
+    mean_vtec_quiet: float | None = None
+    series: list[WdcKyotoDailyPoint] = []
+    storms: list[WdcKyotoStormDay] = []
     fetched_at: str | None = None
 
 

@@ -87,14 +87,14 @@ export function buildMetricCards(
   const ekfSuffix = (key: string) => (ekfFilled.has(key) ? " · EKF predicted" : "");
 
   const dstValue = dst !== null ? `${dst >= 0 ? "+" : ""}${dst} nT` : "N/A";
-  const stationsOnlineCount = liveCounts ? liveCounts.online : online;
+  const stationsOnlineCount = liveCounts ? liveCounts.online + liveCounts.degraded : online;
   const stationsTotal = liveCounts?.total ?? total;
   const stationsLabel =
     stationsOnlineCount !== null && stationsTotal ? `${stationsOnlineCount}/${stationsTotal}` : "N/A";
   const windValue = wind !== null ? `${wind} km/s` : "N/A";
 
   const stationsNote = liveCounts
-    ? `Online ${liveCounts.online} · Degraded ${liveCounts.degraded} · Offline ${liveCounts.offline} · Unavailable ${liveCounts.unavailable}`
+    ? `Receiving ${liveCounts.online} · Idle ${liveCounts.degraded} · Offline ${liveCounts.offline} · Unavailable ${liveCounts.unavailable}`
     : "Live stream status";
 
   return [
@@ -157,7 +157,7 @@ export function buildMetricCards(
     {
       key: "stations",
       icon: "📡",
-      label: "Stations Online",
+      label: liveCounts ? "CORS Streams Connected" : "Stations Online",
       value: stationsLabel,
       note: stationsNote,
       valueColor: "#168bd2",
@@ -309,11 +309,28 @@ export function tecIonosphericCondition(tec: number | null | undefined): string 
   return "Severe storm level";
 }
 
+export function s4ScintillationCondition(s4: number | null | undefined): string | null {
+  if (s4 == null || !Number.isFinite(s4)) return null;
+  if (s4 < 0.1) return "None";
+  if (s4 < 0.2) return "Negligible";
+  if (s4 < 0.3) return "Weak";
+  if (s4 < 0.5) return "Moderate";
+  if (s4 < 0.7) return "Strong";
+  if (s4 < 0.9) return "Severe";
+  return "Full outage risk";
+}
+
 export function conditionsForSeries(
   values: (number | null)[],
-  kind: "kp" | "dst" | "tec",
+  kind: "kp" | "dst" | "tec" | "s4",
 ): (string | null)[] {
   const fn =
-    kind === "kp" ? kpGeomagneticCondition : kind === "dst" ? dstGeomagneticCondition : tecIonosphericCondition;
+    kind === "kp"
+      ? kpGeomagneticCondition
+      : kind === "dst"
+        ? dstGeomagneticCondition
+        : kind === "tec"
+          ? tecIonosphericCondition
+          : s4ScintillationCondition;
   return values.map((v) => fn(v));
 }

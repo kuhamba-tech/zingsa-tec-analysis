@@ -44,6 +44,7 @@ export function mergeSpaceWeatherWithEkf(
     stations_online: null,
     stations_total: 24,
     plasma_speed: null,
+    mean_vtec: null,
     updated_utc: null,
   };
 

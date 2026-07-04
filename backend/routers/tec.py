@@ -15,6 +15,7 @@ from backend.schemas import (
     GfzKpAnalysisResponse,
     IntermagnetAnalysisResponse,
     OmniAnalysisResponse,
+    WdcKyotoAnalysisResponse,
     PrnRow,
     SeasonalRow,
     SolarCycleRow,
@@ -194,6 +195,34 @@ async def gfz_kp_analysis(
     vtec_by_date = _vtec_by_date(start, end, station)
     payload = build_gfz_analysis(rows, vtec_by_date)
     return GfzKpAnalysisResponse(**payload)
+
+
+@router.get("/wdc-kyoto-analysis", response_model=WdcKyotoAnalysisResponse)
+async def wdc_kyoto_analysis(
+    start: str = Query(..., description="Start date YYYY-MM-DD"),
+    end: str = Query(..., description="End date YYYY-MM-DD"),
+    station: str | None = Query(None),
+    _=Depends(require_api_key),
+):
+    """Fetch WDC Kyoto Dst and definitive Kp/ap/Ap indices; correlate with archived VTEC."""
+    try:
+        start_d = date.fromisoformat(start[:10])
+        end_d = date.fromisoformat(end[:10])
+    except ValueError as exc:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=422, detail="Invalid date format; use YYYY-MM-DD") from exc
+
+    from zgiis.space_weather.wdc_kyoto_client import build_analysis as build_kyoto_analysis, fetch_kyoto_daily
+
+    try:
+        rows = fetch_kyoto_daily(start_d, end_d)
+    except Exception as exc:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=502, detail=f"WDC Kyoto fetch failed: {exc}") from exc
+
+    vtec_by_date = _vtec_by_date(start, end, station)
+    payload = build_kyoto_analysis(rows, vtec_by_date)
+    return WdcKyotoAnalysisResponse(**payload)
 
 
 @router.get("/intermagnet-analysis", response_model=IntermagnetAnalysisResponse)

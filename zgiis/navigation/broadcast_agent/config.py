@@ -7,10 +7,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
-AudienceId = Literal["farmer", "surveyor", "citizen", "driver"]
+AudienceId = Literal["farmer", "surveyor", "citizen", "driver", "aviation"]
 ScriptKind = Literal["broadcast", "social"]
 
-ALL_AUDIENCES: tuple[AudienceId, ...] = ("citizen", "farmer", "surveyor", "driver")
+ALL_AUDIENCES: tuple[AudienceId, ...] = ("citizen", "farmer", "surveyor", "aviation", "driver")
 
 
 @dataclass
@@ -99,7 +99,7 @@ def load_config() -> BroadcastConfig:
     out_dir = os.getenv("BROADCAST_OUT_DIR", "static/data/broadcast_out")
     refresh_ntrip = _bool(os.getenv("BROADCAST_REFRESH_NTRIP"), default=False)
 
-    raw_audiences = (os.getenv("BROADCAST_AUDIENCES") or "citizen,farmer,surveyor,driver").strip()
+    raw_audiences = (os.getenv("BROADCAST_AUDIENCES") or "citizen,farmer,surveyor,aviation,driver").strip()
     audiences: list[AudienceId] = []
     for part in raw_audiences.split(","):
         part = part.strip().lower()

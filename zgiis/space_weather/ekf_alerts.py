@@ -15,6 +15,7 @@ same time, severity is escalated.
 """
 from __future__ import annotations
 
+import math
 import statistics
 import uuid
 from datetime import datetime, timezone
@@ -29,6 +30,7 @@ PARAM_LABELS: dict[str, str] = {
     "s4": "Scintillation S4",
     "gnss_risk": "GNSS Risk Score",
     "stations_online": "CORS Stations Online",
+    "mean_vtec": "Network Mean TEC",
     "gic": "GIC (Transformer Neutral Current)",
 }
 
@@ -38,8 +40,17 @@ MIN_HISTORY = 6
 
 def _recent_errors(points: list[EkfPoint]) -> list[float]:
     """All-but-the-latest valid prediction errors, oldest first."""
-    errs = [p.error for p in points if p.error is not None]
+    errs = [_finite_float(p.error) for p in points if p.error is not None]
+    errs = [err for err in errs if err is not None]
     return errs[:-1] if errs else errs
+
+
+def _finite_float(value: object) -> float | None:
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return None
+    return v if math.isfinite(v) else None
 
 
 def _severity(ratio: float) -> str:
@@ -57,8 +68,9 @@ def evaluate(series_by_param: dict[str, list[EkfPoint]]) -> dict:
     for param, points in series_by_param.items():
         latest = next((p for p in reversed(points) if p.error is not None), None)
         history = _recent_errors(points)
+        latest_error = _finite_float(latest.error) if latest else None
 
-        if latest is None or len(history) < MIN_HISTORY:
+        if latest is None or latest_error is None or len(history) < MIN_HISTORY:
             status[param] = {
                 "available": False,
                 "observed": latest.observed if latest else None,
@@ -75,15 +87,15 @@ def evaluate(series_by_param: dict[str, list[EkfPoint]]) -> dict:
         std_err = statistics.pstdev(history) if len(history) > 1 else 0.0
         threshold = mean_err + 3 * std_err
         if threshold > 1e-9:
-            ratio = latest.error / threshold
+            ratio = latest_error / threshold
         else:
-            ratio = 0.0 if latest.error <= 1e-9 else 999.0
+            ratio = 0.0 if latest_error <= 1e-9 else 999.0
 
         status[param] = {
             "available": True,
             "observed": latest.observed,
             "predicted": latest.predicted,
-            "error": latest.error,
+            "error": latest_error,
             "threshold": round(threshold, 4),
             "ratio": round(ratio, 3),
             "severity": _severity(ratio),

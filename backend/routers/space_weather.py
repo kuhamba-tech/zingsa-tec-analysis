@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import datetime as dt
-
 from fastapi import APIRouter, Depends, HTTPException
 
 from backend.deps import require_api_key
@@ -24,7 +22,7 @@ from backend.schemas import (
     TimelinePoint,
 )
 from backend.space_weather_logger import log_snapshot, status as log_status
-from backend.timeline_cache import merge_timeline
+from backend.timeline_builder import build_timelines
 
 router = APIRouter(prefix="/space-weather", tags=["space-weather"])
 
@@ -61,6 +59,7 @@ async def current(_=Depends(require_api_key)):
         stations_online=sw.get("stations_online"),
         stations_total=sw.get("stations_total"),
         plasma_speed=sw.get("solar_wind_speed") or sw.get("plasma_speed"),
+        mean_vtec=sw.get("mean_vtec") or sw.get("vtec_tecu"),
         updated_utc=sw.get("updated_utc") or sw.get("timestamp"),
     )
 
@@ -119,95 +118,20 @@ async def solar_activity(_=Depends(require_api_key)):
     )
 
 
-def _build_timelines(sw: dict) -> SpaceWeatherTimelines:
-    from zgiis.space_weather.fetch_indices import _parse_kp_value
-
-    def _pts_keyed(raw: list | None, value_key: str) -> list[TimelinePoint]:
-        if not raw:
-            return []
-        out = []
-        for p in raw:
-            if not isinstance(p, dict) or not p.get("time_tag"):
-                continue
-            v = p.get(value_key)
-            try:
-                v = float(v) if v is not None else None
-            except (TypeError, ValueError):
-                v = None
-            out.append(TimelinePoint(t=str(p["time_tag"]), v=v))
-        return out
-
-    def _pts_kp(raw: list | None) -> list[TimelinePoint]:
-        if not raw:
-            return []
-        out = []
-        for p in raw:
-            if not isinstance(p, dict) or not p.get("time_tag"):
-                continue
-            v = _parse_kp_value(p)
-            out.append(TimelinePoint(t=str(p["time_tag"]), v=v))
-        return out
-
-    def _single_current_point(value: object, timestamp: object) -> list[TimelinePoint]:
-        if value is None:
-            return []
-        try:
-            v = float(value)
-        except (TypeError, ValueError):
-            return []
-        t = str(timestamp or dt.datetime.utcnow().replace(microsecond=0).isoformat())
-        return [TimelinePoint(t=t, v=v)]
-
-    def _use_live_series_or_current_snapshot(
-        raw: list | None,
-        value_key: str,
-        current_value: object,
-        timestamp: object,
-    ) -> list[TimelinePoint]:
-        points = _pts_keyed(raw, value_key)
-        values = {point.v for point in points if point.v is not None}
-        if len(points) > 1 and len(values) > 1:
-            return points
-        return _single_current_point(current_value, timestamp)
-
-    kp = merge_timeline("kp", _pts_kp(sw.get("kp_history")))
-    dst = merge_timeline("dst", _pts_keyed(sw.get("dst_history"), "dst"))
-    f107 = merge_timeline("f107", _pts_keyed(sw.get("f107_history"), "flux"))
-    solar_wind = merge_timeline(
-        "solar_wind",
-        _pts_keyed(sw.get("solar_wind_history"), "speed"),
-    )
-    s4 = merge_timeline(
-        "s4",
-        _use_live_series_or_current_snapshot(
-            sw.get("s4_history"),
-            "s4",
-            sw.get("s4"),
-            sw.get("updated_utc") or sw.get("timestamp"),
-        ),
-    )
-
-    return SpaceWeatherTimelines(
-        kp=kp,
-        dst=dst,
-        f107=f107,
-        solar_wind=solar_wind,
-        s4=s4,
-        gnss_risk=_pts_keyed(sw.get("gnss_risk_history"), "risk_score"),
-        stations_online=_pts_keyed(sw.get("stations_online_history"), "online"),
-    )
-
-
 @router.get("/timelines", response_model=SpaceWeatherTimelines)
 async def timelines(_=Depends(require_api_key)):
-    return _build_timelines(_sw())
+    return build_timelines(_sw())
 
 
 @router.post("/refresh", status_code=204)
 async def refresh(_=Depends(require_api_key)):
+    from zgiis.space_weather.ekf_service import compute_ekf_status
     from zgiis.space_weather.fetch_indices import clear_space_weather_cache
+
     clear_space_weather_cache()
     log_snapshot(source="refresh", force=True)
+    sw = _sw()
+    compute_ekf_status(sw, dispatch_notifications=True)
 
 
 @router.get("/log/status", response_model=SpaceWeatherLogStatus)
@@ -297,78 +221,13 @@ async def correlations(
     )
 
 
-_EKF_PARAMS = ("kp", "dst", "f107", "solar_wind", "s4", "gnss_risk", "stations_online")
-
-
 @router.get("/ekf", response_model=EkfStatusOut)
 async def ekf_status(_=Depends(require_api_key)):
-    """EKF-predicted overlay for every existing dashboard timeline, plus any
-    newly triggered deviation alerts (also persisted to the event log)."""
-    from zgiis.space_weather.ekf import run_ekf_series
-    from zgiis.space_weather.ekf_alerts import evaluate
-    from zgiis.space_weather.storm_notifier import (
-        build_alarm_summary,
-        channels_configured,
-        dispatch_storm_notifications,
-        kp_storm_level,
-        last_kp_notify_key,
-    )
-    from zgiis.db.ekf_alert_db import EkfAlertDB
+    """EKF overlay for dashboard timelines. Alerts are persisted; notifications
+    are dispatched only on manual refresh or the background logger — not on read."""
+    from zgiis.space_weather.ekf_service import compute_ekf_status
 
-    sw = _sw()
-    tl = _build_timelines(sw)
-    raw_series = {name: getattr(tl, name) for name in _EKF_PARAMS}
-
-    ekf_series = {
-        name: run_ekf_series([(p.t, p.v) for p in points], name)
-        for name, points in raw_series.items()
-        if points
-    }
-    result = evaluate(ekf_series)
-
-    db = EkfAlertDB()
-    newly_created: list[dict] = []
-    stored_alerts: list[dict] = []
-    for alert in result["alerts"]:
-        stored = db.insert_if_new(alert)
-        stored_alerts.append(stored)
-        if stored.get("alert_id") == alert.get("alert_id"):
-            newly_created.append(stored)
-
-    kp = _float_or_none(sw.get("kp"))
-    dst = _float_or_none(sw.get("dst"))
-    storm = kp_storm_level(kp)
-    prev_storm = last_kp_notify_key()
-    kp_storm_changed = storm is not None and (kp or 0) >= 5 and prev_storm != f"kp_storm_{int(kp or 0)}"
-
-    dispatch_storm_notifications(
-        new_alerts=newly_created,
-        kp=kp,
-        dst=dst,
-        kp_storm_changed=kp_storm_changed,
-    )
-
-    recent = db.list_alerts(hours=6)
-    alarm = build_alarm_summary(kp=kp, dst=dst, alerts=stored_alerts or recent)
-    notify = channels_configured()
-
-    return EkfStatusOut(
-        series={
-            name: EkfSeriesOut(
-                parameter=name,
-                points=[
-                    EkfPointOut(t=p.t, observed=p.observed, predicted=p.predicted, error=p.error, confidence=p.confidence)
-                    for p in points
-                ],
-            )
-            for name, points in ekf_series.items()
-        },
-        alerts=[EkfAlertOut(**a) for a in stored_alerts],
-        banner=alarm.get("banner"),
-        active_alert_count=int(alarm.get("active_count") or 0),
-        kp_storm_level=alarm.get("kp_storm_level"),
-        notification_channels=notify,
-    )
+    return compute_ekf_status(_sw(), dispatch_notifications=False)
 
 
 @router.get("/storm-alerts/status", response_model=StormAlertStatus)
