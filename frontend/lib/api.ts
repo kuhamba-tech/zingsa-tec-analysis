@@ -29,6 +29,8 @@ import type {
   NavigationNewsScheduleApi,
   NtripProbeResponse,
   OmniAnalysisResponse,
+  PrnExplorerResponse,
+  PrnConstellationPayload,
   PrnRow,
   ProcessingOptions,
   ProcessingSession,
@@ -322,7 +324,29 @@ export const getIntermagnetAnalysis = (start: string, end: string, observatory: 
     { start, end, observatory, station, _ts: Date.now() },
     ANALYSIS_TIMEOUT_MS,
   );
-export const getPrn = (constellation?: string) => get<PrnRow[]>("/tec/prn", { constellation });
+export const getPrn = (params?: {
+  constellation?: string;
+  station?: string;
+  hours?: number;
+  elev_min?: number;
+}) => get<PrnRow[]>("/tec/prn", params);
+
+export type PrnExplorerParams = {
+  constellation?: string;
+  station?: string;
+  start?: string;
+  end?: string;
+  hours?: number;
+  elev_min?: number;
+  prns?: string;
+  limit?: number;
+};
+
+export const getPrnExplorer = (params?: PrnExplorerParams) =>
+  get<PrnExplorerResponse>("/tec/prn/explorer", params);
+
+export const getPrnConstellations = () =>
+  get<PrnConstellationPayload>("/theory/prn-constellations");
 
 // ── Live ──────────────────────────────────────────────────────────────────────
 export const getLiveVtec = (hours = 2) => get<LiveObservation[]>("/live/vtec", { hours });

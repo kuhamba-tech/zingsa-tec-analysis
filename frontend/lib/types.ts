@@ -594,6 +594,65 @@ export interface PrnRow {
   samples: number | null;
 }
 
+export interface PrnObservation {
+  timestamp: string;
+  station: string;
+  prn: string;
+  constellation: string | null;
+  vtec: number | null;
+  stec: number | null;
+  elevation_deg: number | null;
+  azimuth_deg: number | null;
+  quality: number | null;
+}
+
+export interface PrnMeta {
+  source: string;
+  record_count: number;
+  stations: string[];
+  prns: string[];
+  has_azimuth: boolean;
+  has_elevation: boolean;
+  has_quality: boolean;
+  time_start: string | null;
+  time_end: string | null;
+  message: string | null;
+}
+
+export interface PrnExplorerResponse {
+  meta: PrnMeta;
+  summary: PrnRow[];
+  observations: PrnObservation[];
+}
+
+export interface PrnConstellationMetric {
+  label: string;
+  text: string;
+}
+
+export interface PrnConstellationInfo {
+  id: string;
+  label: string;
+  icon: string;
+  prefix: string;
+  max_prn: number;
+  color: string;
+  prn_range: string;
+  section: string;
+  summary: string;
+  frequencies: string;
+  metrics: PrnConstellationMetric[];
+  formula_caption: string;
+  formula: string;
+  zgiis: string;
+}
+
+export interface PrnConstellationPayload {
+  constellations: PrnConstellationInfo[];
+  citation: string;
+  quality_note: string;
+}
+
 // ── Live ──────────────────────────────────────────────────────────────────────
 export interface LiveObservation {
   time: string;

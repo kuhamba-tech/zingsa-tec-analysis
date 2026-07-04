@@ -6,7 +6,9 @@ _FONT = "Arial,Helvetica,sans-serif"
 _BG = "#000000"
 _WHITE = "#ffffff"
 _W = 340
-_H = 280
+_H = 300
+_FOOTER_Y = _H - 30
+_FOOTER_H = 24
 
 _ILLUSTRATIONS: dict[str, tuple[str, str]] = {}
 
@@ -41,9 +43,24 @@ def _canvas(inner: str, *, width: int = _W, height: int = _H) -> str:
 
 
 def _footer(text: str) -> str:
+    ty = _FOOTER_Y + 15
     return (
-        f'<text x="{_W // 2}" y="{_H - 12}" text-anchor="middle" fill="{_WHITE}" '
-        f'font-size="9" font-family="{_FONT}">{text}</text>'
+        f'<rect x="24" y="{_FOOTER_Y}" width="{_W - 48}" height="{_FOOTER_H}" rx="5" '
+        f'fill="#111827" stroke="#244d73"/>'
+        f'<text x="{_W // 2}" y="{ty}" text-anchor="middle" fill="{_WHITE}" '
+        f'font-size="8" font-family="{_FONT}">{text}</text>'
+    )
+
+
+def _footer_two(line1: str, line2: str) -> str:
+    box_y = _H - 38
+    return (
+        f'<rect x="24" y="{box_y}" width="{_W - 48}" height="32" rx="5" '
+        f'fill="#111827" stroke="#244d73"/>'
+        f'<text x="{_W // 2}" y="{box_y + 13}" text-anchor="middle" fill="{_WHITE}" '
+        f'font-size="8" font-family="{_FONT}">{line1}</text>'
+        f'<text x="{_W // 2}" y="{box_y + 25}" text-anchor="middle" fill="{_WHITE}" '
+        f'font-size="8" font-family="{_FONT}">{line2}</text>'
     )
 
 
@@ -74,10 +91,8 @@ def _step2_svg() -> str:
   <text x="60" y="40" fill="#ffcc00" font-size="10" font-weight="800" font-family="{_FONT}">Satellite *</text>
   <line x1="80" y1="48" x2="130" y2="120" stroke="#e2e8f0" stroke-width="1.5"/>
   {dots}
-  <text x="60" y="230" fill="#00ff88" font-size="10" font-weight="800" font-family="{_FONT}">Receiver</text>
-  <rect x="48" y="238" width="244" height="28" rx="6" fill="#111827" stroke="#f59e0b"/>
-  <text x="170" y="256" text-anchor="middle" fill="{_WHITE}" font-size="9" font-family="{_FONT}">TEC = count all electrons along the path</text>
-  {_footer("Each electron is like a grain of sand in the signal path")}
+  <text x="60" y="218" fill="#00ff88" font-size="10" font-weight="800" font-family="{_FONT}">Receiver</text>
+  {_footer_two("TEC = count all electrons along the path", "Each electron is like a grain of sand")}
 """
     )
 
@@ -107,12 +122,12 @@ def _step4_svg() -> str:
   <text x="305" y="78" fill="#168bd2" font-size="9" font-weight="700" font-family="{_FONT}">L1</text>
   <line x1="40" y1="200" x2="300" y2="110" stroke="#f59e0b" stroke-width="3"/>
   <text x="305" y="112" fill="#f59e0b" font-size="9" font-weight="700" font-family="{_FONT}">L2</text>
-  <rect x="48" y="210" width="110" height="44" rx="6" fill="#111827" stroke="#168bd2"/>
-  <text x="103" y="228" text-anchor="middle" fill="#168bd2" font-size="9" font-family="{_FONT}">L1 1575 MHz</text>
-  <text x="103" y="244" text-anchor="middle" fill="{_WHITE}" font-size="8" font-family="{_FONT}">less delay</text>
-  <rect x="182" y="210" width="110" height="44" rx="6" fill="#111827" stroke="#f59e0b"/>
-  <text x="237" y="228" text-anchor="middle" fill="#f59e0b" font-size="9" font-family="{_FONT}">L2 1228 MHz</text>
-  <text x="237" y="244" text-anchor="middle" fill="{_WHITE}" font-size="8" font-family="{_FONT}">more delay</text>
+  <rect x="48" y="198" width="110" height="44" rx="6" fill="#111827" stroke="#168bd2"/>
+  <text x="103" y="216" text-anchor="middle" fill="#168bd2" font-size="9" font-family="{_FONT}">L1 1575 MHz</text>
+  <text x="103" y="232" text-anchor="middle" fill="{_WHITE}" font-size="8" font-family="{_FONT}">less delay</text>
+  <rect x="182" y="198" width="110" height="44" rx="6" fill="#111827" stroke="#f59e0b"/>
+  <text x="237" y="216" text-anchor="middle" fill="#f59e0b" font-size="9" font-family="{_FONT}">L2 1228 MHz</text>
+  <text x="237" y="232" text-anchor="middle" fill="{_WHITE}" font-size="8" font-family="{_FONT}">more delay</text>
   {_footer("Comparing L1 and L2 reveals electron content")}
 """
     )
@@ -144,8 +159,8 @@ def _step6_svg() -> str:
   <text x="237" y="62" text-anchor="middle" fill="#00ff88" font-size="9" font-weight="700" font-family="{_FONT}">STEC</text>
   <text x="237" y="82" text-anchor="middle" fill="{_WHITE}" font-size="8" font-family="{_FONT}">integrate Ne</text>
   <text x="237" y="98" text-anchor="middle" fill="{_WHITE}" font-size="8" font-family="{_FONT}">along whole path</text>
-  <line x1="170" y1="130" x2="170" y2="210" stroke="#e2e8f0" stroke-width="2"/>
-  <text x="170" y="228" text-anchor="middle" fill="{_WHITE}" font-size="9" font-family="{_FONT}">∫ Ne ds along satellite → receiver</text>
+  <line x1="170" y1="130" x2="170" y2="198" stroke="#e2e8f0" stroke-width="2"/>
+  <text x="170" y="216" text-anchor="middle" fill="{_WHITE}" font-size="9" font-family="{_FONT}">∫ Ne ds along satellite → receiver</text>
   {_footer("TEC counts electrons along the slant path")}
 """
     )
@@ -159,8 +174,8 @@ def _step7_svg() -> str:
   <text x="265" y="210" fill="#168bd2" font-size="9" font-family="{_FONT}">Rx</text>
   <text x="170" y="115" fill="#00ff88" font-size="10" font-weight="700" font-family="{_FONT}">Slant TEC</text>
   <text x="170" y="145" text-anchor="middle" fill="{_WHITE}" font-size="14" font-family="{_FONT}">↓ S(E)</text>
-  <line x1="170" y1="165" x2="170" y2="215" stroke="#168bd2" stroke-width="2"/>
-  <text x="170" y="235" text-anchor="middle" fill="#168bd2" font-size="10" font-weight="700" font-family="{_FONT}">Vertical TEC</text>
+  <line x1="170" y1="155" x2="170" y2="205" stroke="#168bd2" stroke-width="2"/>
+  <text x="170" y="225" text-anchor="middle" fill="#168bd2" font-size="10" font-weight="700" font-family="{_FONT}">Vertical TEC</text>
   {_footer("Mapping function converts slant to vertical TEC")}
 """
     )
@@ -212,8 +227,7 @@ def _step10_svg() -> str:
   <circle cx="160" cy="210" r="8" fill="#ff4444" opacity="0.9"/>
   <text x="48" y="48" fill="{_WHITE}" font-size="9" font-weight="700" font-family="{_FONT}">GPS 1 · 2 · 3 · 4</text>
   <text x="48" y="68" fill="{_WHITE}" font-size="8" font-family="{_FONT}">each SV → one slant TEC</text>
-  <text x="170" y="256" text-anchor="middle" fill="#00ff88" font-size="9" font-family="{_FONT}">→ VTEC map on ZGIIS dashboard</text>
-  {_footer("Many satellites build the ionosphere picture over Zimbabwe")}
+  {_footer_two("→ VTEC map on ZGIIS dashboard", "Many satellites build the ionosphere picture")}
 """
     )
 

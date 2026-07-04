@@ -8,7 +8,9 @@ _FONT = "Arial,Helvetica,sans-serif"
 _BG = "#000000"
 _WHITE = "#ffffff"
 _W = 340
-_H = 280
+_H = 300
+_FOOTER_Y = _H - 30
+_FOOTER_H = 24
 
 _ILLUSTRATIONS: dict[str, tuple[str, str]] = {}
 
@@ -41,9 +43,44 @@ def _canvas(inner: str, *, width: int = _W, height: int = _H) -> str:
 
 
 def _footer(text: str) -> str:
+    """Single-line caption band — keeps clear of diagram content above."""
+    ty = _FOOTER_Y + 15
     return (
-        f'<text x="{_W // 2}" y="{_H - 12}" text-anchor="middle" fill="{_WHITE}" '
-        f'font-size="9" font-family="{_FONT}">{text}</text>'
+        f'<rect x="24" y="{_FOOTER_Y}" width="{_W - 48}" height="{_FOOTER_H}" rx="5" '
+        f'fill="#111827" stroke="#244d73"/>'
+        f'<text x="{_W // 2}" y="{ty}" text-anchor="middle" fill="{_WHITE}" '
+        f'font-size="8" font-family="{_FONT}">{text}</text>'
+    )
+
+
+def _footer_two(line1: str, line2: str) -> str:
+    """Two-line caption band for longer summaries."""
+    box_y = _H - 38
+    box_h = 32
+    return (
+        f'<rect x="24" y="{box_y}" width="{_W - 48}" height="{box_h}" rx="5" '
+        f'fill="#111827" stroke="#244d73"/>'
+        f'<text x="{_W // 2}" y="{box_y + 13}" text-anchor="middle" fill="{_WHITE}" '
+        f'font-size="8" font-family="{_FONT}">{line1}</text>'
+        f'<text x="{_W // 2}" y="{box_y + 25}" text-anchor="middle" fill="{_WHITE}" '
+        f'font-size="8" font-family="{_FONT}">{line2}</text>'
+    )
+
+
+def _callout_box(y: int, h: int, lines: list[str], *, stroke: str = "#244d73", accent: str | None = None) -> str:
+    """Multi-line info box — stays above the footer band."""
+    inner = ""
+    start_y = y + 14 if len(lines) == 1 else y + 12
+    for i, line in enumerate(lines):
+        fill = accent if accent and i == 0 else _WHITE
+        weight = ' font-weight="700"' if accent and i == 0 else ""
+        inner += (
+            f'<text x="{_W // 2}" y="{start_y + i * 14}" text-anchor="middle" fill="{fill}" '
+            f'font-size="9" font-family="{_FONT}"{weight}>{line}</text>'
+        )
+    return (
+        f'<rect x="28" y="{y}" width="{_W - 56}" height="{h}" rx="8" fill="#111827" stroke="{stroke}"/>'
+        f"{inner}"
     )
 
 
@@ -84,9 +121,9 @@ def _step2_svg() -> str:
   <line x1="28" y1="100" x2="312" y2="100" stroke="#ff7a00" stroke-width="1.5" stroke-dasharray="6,4"/>
   <text x="312" y="96" text-anchor="end" fill="#ff7a00" font-size="9" font-weight="700" font-family="{_FONT}">Kp = 5 (G1 storm)</text>
   <text x="170" y="28" text-anchor="middle" fill="{_WHITE}" font-size="11" font-weight="800" font-family="{_FONT}">Planetary K-index (0–9)</text>
-  <text x="48" y="252" fill="{_WHITE}" font-size="8" font-family="{_FONT}">quiet</text>
-  <text x="268" y="252" fill="{_WHITE}" font-size="8" font-family="{_FONT}">storm</text>
-  {_footer("Each 3-hour block gets a Kp value; ≥ 5 = geomagnetic storm")}
+  <text x="48" y="248" fill="{_WHITE}" font-size="8" font-family="{_FONT}">quiet</text>
+  <text x="268" y="248" fill="{_WHITE}" font-size="8" font-family="{_FONT}">storm</text>
+  {_footer("Each 3-hour block: Kp ≥ 5 = geomagnetic storm")}
 """
     )
 
@@ -102,9 +139,7 @@ def _step3_svg() -> str:
   <text x="248" y="118" fill="#ff4444" font-size="10" font-weight="800" font-family="{_FONT}">Ring current</text>
   <text x="248" y="134" fill="#ff4444" font-size="9" font-family="{_FONT}">Dst more negative</text>
   <text x="248" y="150" fill="{_WHITE}" font-size="9" font-family="{_FONT}">= stronger storm</text>
-  <rect x="28" y="210" width="284" height="44" rx="8" fill="#111827" stroke="#244d73"/>
-  <text x="170" y="228" text-anchor="middle" fill="#ff4444" font-size="10" font-weight="700" font-family="{_FONT}">Dst ≤ −50 nT → storm threshold</text>
-  <text x="170" y="244" text-anchor="middle" fill="{_WHITE}" font-size="9" font-family="{_FONT}">measured at equatorial stations (WDC Kyoto)</text>
+  {_callout_box(208, 44, ["Dst ≤ −50 nT → storm threshold", "WDC Kyoto equatorial stations"], stroke="#244d73", accent="#ff4444")}
   <defs>
     <marker id="dst-arr" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
       <path d="M0,0 L6,3 L0,6 Z" fill="#ff4444"/>
@@ -125,9 +160,8 @@ def _step4_svg() -> str:
   <text x="302" y="114" fill="#ff7a00" font-size="8" font-family="{_FONT}">Ap=50</text>
   <line x1="140" y1="200" x2="140" y2="95" stroke="#a78bfa" stroke-width="1" stroke-dasharray="3,3"/>
   <text x="140" y="88" text-anchor="middle" fill="#a78bfa" font-size="9" font-weight="700" font-family="{_FONT}">daily max</text>
-  <rect x="48" y="218" width="244" height="36" rx="6" fill="#111827" stroke="#244d73"/>
-  <text x="170" y="240" text-anchor="middle" fill="#a78bfa" font-size="9" font-family="{_FONT}">Ap ≥ 50 → storm-level daily activity</text>
-  {_footer("Ap summarises one full UTC day of geomagnetic disturbance")}
+  {_callout_box(218, 28, ["Ap ≥ 50 → storm-level daily activity"], stroke="#244d73", accent="#a78bfa")}
+  {_footer("Ap summarises one UTC day of geomagnetic disturbance")}
 """
     )
 
@@ -143,11 +177,12 @@ def _step5_svg() -> str:
   <text x="170" y="72" fill="#f59e0b" font-size="10" font-weight="800" font-family="{_FONT}">F10.7 solar radio flux</text>
   <text x="170" y="92" fill="{_WHITE}" font-size="9" font-family="{_FONT}">2800 MHz · units: sfu</text>
   <text x="170" y="112" fill="{_WHITE}" font-size="9" font-family="{_FONT}">(10⁻²² W m⁻² Hz⁻¹)</text>
-  <rect x="48" y="168" width="244" height="88" rx="8" fill="#111827" stroke="#f59e0b"/>
-  <text x="170" y="192" text-anchor="middle" fill="{_WHITE}" font-size="9" font-family="{_FONT}">Low F10.7 (~70 sfu) → quiet Sun</text>
-  <text x="170" y="212" text-anchor="middle" fill="{_WHITE}" font-size="9" font-family="{_FONT}">High F10.7 (~200 sfu) → active Sun</text>
-  <text x="170" y="236" text-anchor="middle" fill="#f59e0b" font-size="9" font-weight="700" font-family="{_FONT}">Does not prove a storm today — watch Kp/Dst</text>
-  {_footer("F10.7 tracks long-term solar activity and ionospheric background")}
+  {_callout_box(158, 72, [
+      "Low F10.7 (~70 sfu) → quiet Sun",
+      "High F10.7 (~200 sfu) → active Sun",
+      "Does not prove a storm — watch Kp/Dst",
+  ], stroke="#f59e0b")}
+  {_footer("F10.7 tracks long-term solar activity")}
 """
     )
 
@@ -192,9 +227,8 @@ def _step7_svg() -> str:
   <text x="48" y="148" fill="#00ff88" font-size="8" font-family="{_FONT}">Kp ↑</text>
   <path d="M 40 175 Q 120 170, 190 115 T 300 165" fill="none" stroke="#ff4444" stroke-width="2"/>
   <text x="48" y="168" fill="#ff4444" font-size="8" font-family="{_FONT}">Dst ↓</text>
-  <rect x="48" y="238" width="244" height="28" rx="6" fill="#111827" stroke="#244d73"/>
-  <text x="170" y="256" text-anchor="middle" fill="{_WHITE}" font-size="9" font-family="{_FONT}">Compare all indices on the same time window</text>
-  {_footer("Kp rises first; Dst reaches minimum in the main phase")}
+  {_callout_box(228, 28, ["Compare all indices on the same time window"], stroke="#244d73")}
+  {_footer("Kp rises first; Dst minimum in main phase")}
 """
     )
 
@@ -202,18 +236,19 @@ def _step7_svg() -> str:
 def _step8_svg() -> str:
     return _canvas(
         f"""
-  <path d="M 120 220 L 140 180 L 170 170 L 210 175 L 230 200 L 200 230 L 150 235 Z"
+  <path d="M 120 195 L 140 155 L 170 145 L 210 150 L 230 175 L 200 205 L 150 210 Z"
         fill="#1e3a5f" stroke="#00ff88" stroke-width="1.5"/>
-  <text x="175" y="205" text-anchor="middle" fill="#00ff88" font-size="9" font-weight="700" font-family="{_FONT}">Zimbabwe</text>
-  <rect x="148" y="148" width="54" height="28" rx="4" fill="#111827" stroke="#168bd2"/>
-  <text x="175" y="166" text-anchor="middle" fill="#168bd2" font-size="8" font-family="{_FONT}">ZETDC GIC</text>
-  <circle cx="95" cy="155" r="10" fill="none" stroke="#a78bfa" stroke-width="1.5"/>
-  <text x="95" y="158" text-anchor="middle" fill="#a78bfa" font-size="7" font-family="{_FONT}">GNSS</text>
-  <ellipse cx="175" cy="125" rx="70" ry="18" fill="none" stroke="#f59e0b" stroke-width="1.2" stroke-dasharray="4,3"/>
-  <text x="175" y="108" text-anchor="middle" fill="#f59e0b" font-size="8" font-family="{_FONT}">ionosphere / TEC</text>
-  <rect x="28" y="248" width="284" height="22" rx="4" fill="#111827" stroke="#244d73"/>
-  <text x="170" y="262" text-anchor="middle" fill="{_WHITE}" font-size="8" font-family="{_FONT}">Storms affect power grid, navigation &amp; radio</text>
-  {_footer("ZINGSA monitors indices to protect national infrastructure")}
+  <text x="175" y="180" text-anchor="middle" fill="#00ff88" font-size="9" font-weight="700" font-family="{_FONT}">Zimbabwe</text>
+  <rect x="148" y="123" width="54" height="28" rx="4" fill="#111827" stroke="#168bd2"/>
+  <text x="175" y="141" text-anchor="middle" fill="#168bd2" font-size="8" font-family="{_FONT}">ZETDC GIC</text>
+  <circle cx="95" cy="130" r="10" fill="none" stroke="#a78bfa" stroke-width="1.5"/>
+  <text x="95" y="133" text-anchor="middle" fill="#a78bfa" font-size="7" font-family="{_FONT}">GNSS</text>
+  <ellipse cx="175" cy="100" rx="70" ry="18" fill="none" stroke="#f59e0b" stroke-width="1.2" stroke-dasharray="4,3"/>
+  <text x="175" y="83" text-anchor="middle" fill="#f59e0b" font-size="8" font-family="{_FONT}">ionosphere / TEC</text>
+  {_footer_two(
+      "Storms affect power grid, navigation &amp; radio",
+      "ZINGSA monitors indices to protect national infrastructure",
+  )}
 """
     )
 

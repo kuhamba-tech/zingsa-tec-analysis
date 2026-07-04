@@ -22,6 +22,13 @@ async def get_geomagnetic_theory():
     return build_geomagnetic_theory_payload()
 
 
+@router.get("/prn-constellations")
+async def get_prn_constellations():
+    """Chapter 4 constellation explanations for the PRN Explorer."""
+    from zgiis.gnss_prn.constellation_content import build_prn_constellation_payload
+    return build_prn_constellation_payload()
+
+
 @router.get("/understanding-tec")
 async def get_understanding_tec():
     """Plain-language guide to Total Electron Content for Zimbabwe CORS users."""

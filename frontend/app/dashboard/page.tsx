@@ -450,7 +450,12 @@ export default function DashboardPage() {
         </p>
       )}
 
-      <StormWarningAlarm ekf={ekf} sw={sw} pendingAlerts={pendingAlerts} />
+      <StormWarningAlarm
+        ekf={ekf}
+        sw={sw}
+        pendingAlerts={pendingAlerts}
+        onAcknowledged={() => setPendingAlerts([])}
+      />
 
       <p style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
         Operational snapshot of every index — for solar flare, CME, and NOAA alert detail see{" "}

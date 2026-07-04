@@ -937,6 +937,7 @@ select option {
 .banner-info  { background: rgba(22,139,210,0.1); border-color: var(--accent); color: var(--text); }
 .banner-warn  { background: rgba(255,140,0,0.1); border-color: var(--accent-warn); color: var(--text); }
 .banner-alert { background: rgba(255,68,68,0.1); border-color: var(--accent-alert); color: var(--text); }
+.banner-ok    { background: rgba(0,255,136,0.08); border-color: var(--accent-ok, #00ff88); color: var(--text); }
 
 /* ── Geomagnetic storm warning alarm bar ── */
 .storm-alarm-bar {
@@ -2213,9 +2214,14 @@ select option {
 }
 .vtec-illus-caption {
   font-size: 0.78rem;
-  line-height: 1.45;
-  margin-bottom: 0.5rem;
+  line-height: 1.5;
+  margin-bottom: 0.55rem;
   color: var(--text);
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+.vtec-illus-svg-wrap {
+  margin-top: 0.15rem;
 }
 .vtec-illus-svg-wrap svg {
   display: block;

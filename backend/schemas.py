@@ -591,6 +591,37 @@ class PrnRow(BaseModel):
     samples: int | None = None
 
 
+class PrnObservation(BaseModel):
+    timestamp: str
+    station: str
+    prn: str
+    constellation: str | None = None
+    vtec: float | None = None
+    stec: float | None = None
+    elevation_deg: float | None = None
+    azimuth_deg: float | None = None
+    quality: float | None = None
+
+
+class PrnMeta(BaseModel):
+    source: str
+    record_count: int = 0
+    stations: list[str] = []
+    prns: list[str] = []
+    has_azimuth: bool = False
+    has_elevation: bool = False
+    has_quality: bool = False
+    time_start: str | None = None
+    time_end: str | None = None
+    message: str | None = None
+
+
+class PrnExplorerResponse(BaseModel):
+    meta: PrnMeta
+    summary: list[PrnRow]
+    observations: list[PrnObservation]
+
+
 # ── Live Pipeline ──────────────────────────────────────────────────────────────
 
 class LiveObservation(BaseModel):

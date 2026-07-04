@@ -16,6 +16,9 @@ from backend.schemas import (
     IntermagnetAnalysisResponse,
     OmniAnalysisResponse,
     WdcKyotoAnalysisResponse,
+    PrnExplorerResponse,
+    PrnMeta,
+    PrnObservation,
     PrnRow,
     SeasonalRow,
     SolarCycleRow,
@@ -338,29 +341,91 @@ async def solar_cycle(_=Depends(require_api_key)):
     ]
 
 
+@router.get("/prn/explorer", response_model=PrnExplorerResponse)
+async def prn_explorer(
+    constellation: str | None = Query(None),
+    station: str | None = Query(None),
+    start: str | None = Query(None),
+    end: str | None = Query(None),
+    hours: float = Query(168.0, ge=1, le=8760),
+    elev_min: float = Query(20.0, ge=0, le=90),
+    prns: str | None = Query(None, description="Comma-separated PRN list, e.g. G01,G02"),
+    limit: int = Query(5000, ge=100, le=20000),
+    _=Depends(require_api_key),
+):
+    from zgiis.gnss_prn.prn_data import aggregate_prn_rows, load_prn_observations
+
+    prn_list = [p.strip() for p in prns.split(",") if p.strip()] if prns else None
+    df, meta_raw = load_prn_observations(
+        hours=hours,
+        station=station,
+        constellation=constellation,
+        prns=prn_list,
+        elev_min=elev_min,
+        start=start,
+        end=end,
+        limit=limit,
+    )
+    meta = PrnMeta(**meta_raw)
+    summary = [PrnRow(**row) for row in aggregate_prn_rows(df)]
+    observations: list[PrnObservation] = []
+    for _, row in df.iterrows():
+        observations.append(PrnObservation(
+            timestamp=str(row.get("timestamp", "")),
+            station=str(row.get("station", "")),
+            prn=str(row.get("prn", "")),
+            constellation=str(row.get("constellation", "")) if pd.notna(row.get("constellation")) else None,
+            vtec=float(row["vtec"]) if "vtec" in row and pd.notna(row["vtec"]) else None,
+            stec=float(row["stec"]) if "stec" in row and pd.notna(row["stec"]) else None,
+            elevation_deg=float(row["elevation_deg"]) if "elevation_deg" in row and pd.notna(row.get("elevation_deg")) else None,
+            azimuth_deg=float(row["azimuth_deg"]) if "azimuth_deg" in row and pd.notna(row.get("azimuth_deg")) else None,
+            quality=float(row["quality"]) if "quality" in row and pd.notna(row.get("quality")) else None,
+        ))
+    return PrnExplorerResponse(meta=meta, summary=summary, observations=observations)
+
+
 @router.get("/prn", response_model=list[PrnRow])
 async def prn(
     constellation: str | None = Query(None),
+    station: str | None = Query(None),
+    hours: float = Query(168.0, ge=1, le=8760),
+    elev_min: float = Query(20.0, ge=0, le=90),
     _=Depends(require_api_key),
 ):
-    df = _archive()
-    if df.empty or "prn" not in df.columns:
+    from zgiis.gnss_prn.prn_data import aggregate_prn_rows, load_prn_observations
+
+    df, _ = load_prn_observations(
+        hours=hours,
+        station=station,
+        constellation=constellation,
+        elev_min=elev_min,
+        limit=20000,
+    )
+    if not df.empty:
+        return [PrnRow(**row) for row in aggregate_prn_rows(df)]
+
+    # Legacy archive path (non-ALL rows only)
+    archive_df = _archive()
+    if archive_df.empty or "prn" not in archive_df.columns:
         return []
-    if constellation and "constellation" in df.columns:
-        df = df[df["constellation"].str.upper() == constellation.upper()]
-    grp_keys = ["prn", "constellation"] if "constellation" in df.columns else ["prn"]
+    archive_df = archive_df[~archive_df["prn"].astype(str).str.upper().isin({"ALL", ""})]
+    if constellation and "constellation" in archive_df.columns:
+        archive_df = archive_df[archive_df["constellation"].str.upper() == constellation.upper()]
+    if archive_df.empty:
+        return []
+    grp_keys = ["prn", "constellation"] if "constellation" in archive_df.columns else ["prn"]
     agg_spec: dict = {
         "mean_vtec": ("vtec", "mean"),
         "max_vtec":  ("vtec", "max"),
         "samples":   ("vtec", "count"),
     }
-    if "stec" in df.columns:
+    if "stec" in archive_df.columns:
         agg_spec["mean_stec"] = ("stec", "mean")
-    if "elevation_deg" in df.columns:
+    if "elevation_deg" in archive_df.columns:
         agg_spec["mean_elevation"] = ("elevation_deg", "mean")
-    if "quality" in df.columns:
+    if "quality" in archive_df.columns:
         agg_spec["mean_qual"] = ("quality", "mean")
-    grp = df.groupby(grp_keys).agg(**agg_spec).reset_index()
+    grp = archive_df.groupby(grp_keys).agg(**agg_spec).reset_index()
     result = []
     for _, r in grp.iterrows():
         result.append(PrnRow(

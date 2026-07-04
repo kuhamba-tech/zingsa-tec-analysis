@@ -195,6 +195,49 @@ class TecDB:
             return pd.read_sql(sql, self._conn, params=params)
         return pd.read_sql_query(sql, self._conn, params=params)
 
+    def query_prn_observations(
+        self,
+        hours: float = 168.0,
+        station: Optional[str] = None,
+        constellation: Optional[str] = None,
+        prns: Optional[list[str]] = None,
+        elev_min: float = 0.0,
+        limit: int = 10000,
+    ) -> pd.DataFrame:
+        """Per-satellite VTEC rows from the live database (excludes empty PRNs)."""
+        since = (datetime.now(tz=timezone.utc) - timedelta(hours=hours)).isoformat()
+        clauses = ["time >= ?", "prn IS NOT NULL", "prn != ''", "UPPER(prn) != 'ALL'"]
+        params: list = [since]
+        if station:
+            clauses.append("LOWER(station) = LOWER(?)")
+            params.append(station)
+        if constellation:
+            clauses.append("UPPER(constellation) = UPPER(?)")
+            params.append(constellation)
+        if elev_min > 0:
+            clauses.append("(elevation_deg IS NULL OR elevation_deg >= ?)")
+            params.append(elev_min)
+        if prns:
+            placeholders = ", ".join(["?"] * len(prns))
+            clauses.append(f"prn IN ({placeholders})")
+            params.extend(prns)
+
+        sql = (
+            f"SELECT time AS timestamp, station, constellation, prn, "
+            f"stec_tecu AS stec, vtec_tecu AS vtec, elevation_deg, cnr_dbhz "
+            f"FROM vtec_obs WHERE {' AND '.join(clauses)} "
+            f"ORDER BY time DESC LIMIT ?"
+        )
+        params.append(int(limit))
+        if self._is_pg:
+            sql = sql.replace("?", "%s")
+            df = pd.read_sql(sql, self._conn, params=params)
+        else:
+            df = pd.read_sql_query(sql, self._conn, params=params)
+        if df.empty:
+            return df
+        return df.sort_values("timestamp").reset_index(drop=True)
+
     def mean_vtec_timeseries(
         self,
         hours: float = 24.0,
