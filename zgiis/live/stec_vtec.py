@@ -127,9 +127,10 @@ class LiveVtecAccumulator:
         freq1 = obs1.get("freq1_hz") or obs.get("freq1_hz", 1575.42e6)
         freq2 = obs2.get("freq2_hz") or obs.get("freq2_hz", 1227.60e6)
 
-        # Elevation: comes from nav-derived computation; default 45° until
-        # elevation is injected by the pipeline (see LiveVtecPipeline below)
-        elevation = obs.get("elevation_deg") or 45.0
+        # Elevation must come from nav-derived geometry (RTCM 1019 + station coords).
+        elevation = obs.get("elevation_deg")
+        if elevation is None:
+            return None
         if elevation < self.elevation_mask:
             self._buf[key].clear()
             return None
@@ -175,6 +176,7 @@ class LiveVtecPipeline:
         self,
         db=None,
         on_vtec=None,
+        nav_cache=None,
         ipp_height_km: float = _IPP_KM,
         elevation_mask_deg: float = _ELEV_MASK,
         db_flush_n: int = 50,
@@ -182,10 +184,20 @@ class LiveVtecPipeline:
         self._acc = LiveVtecAccumulator(ipp_height_km, elevation_mask_deg)
         self._db = db
         self._on_vtec = on_vtec
+        self._nav_cache = nav_cache
         self._pending: list[dict] = []
         self._flush_n = db_flush_n
 
     def ingest(self, obs: dict) -> None:
+        if self._nav_cache is not None and obs.get("elevation_deg") is None:
+            elev = self._nav_cache.elevation_deg(
+                obs.get("station", ""),
+                obs.get("prn", ""),
+                obs.get("epoch"),
+            )
+            if elev is not None:
+                obs = {**obs, "elevation_deg": elev}
+
         vtec = self._acc.ingest(obs)
         if vtec is None:
             return

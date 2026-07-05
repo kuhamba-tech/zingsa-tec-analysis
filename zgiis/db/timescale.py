@@ -160,14 +160,26 @@ class TecDB:
             (time, station, constellation, prn, stec_tecu, vtec_tecu, elevation_deg, cnr_dbhz)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """
-        if self._is_pg:
-            sql = sql.replace("?", "%s")
-            with self._conn.cursor() as cur:
-                cur.executemany(sql, rows)
-            self._conn.commit()
-        else:
-            self._conn.executemany(sql, rows)
-            self._conn.commit()
+        try:
+            if self._is_pg:
+                sql = sql.replace("?", "%s")
+                with self._conn.cursor() as cur:
+                    cur.executemany(sql, rows)
+                self._conn.commit()
+            else:
+                self._conn.executemany(sql, rows)
+                self._conn.commit()
+        except Exception as exc:
+            log.warning("insert_vtec failed (%s)", exc)
+            if self._is_pg:
+                try:
+                    self._conn.rollback()
+                except Exception:
+                    pass
+                self._is_pg = False
+                self._init_sqlite()
+                return self.insert_vtec(records)
+            raise
         return len(rows)
 
     # ── Read ──────────────────────────────────────────────────────────────────

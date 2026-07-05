@@ -3,20 +3,20 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
-  getAnomalies,
-  getDiurnal,
-  getSeasonal,
-  getSolarCycle,
+  getAnomalyAnalysis,
   getStatisticalForecast,
+  getCnnGruForecast,
 } from "@/lib/api";
 import LineChart from "@/components/charts/LineChart";
 import BarChart from "@/components/charts/BarChart";
 import type {
   AnomalyDay,
   DiurnalPoint,
+  EiaSummary,
   ForecastPoint,
   SeasonalRow,
   SolarCycleRow,
+  StormComparisonDoy,
 } from "@/lib/types";
 
 const TABS = [
@@ -47,13 +47,26 @@ function fmt(value: number | null | undefined, digits = 2) {
   return typeof value === "number" && Number.isFinite(value) ? value.toFixed(digits) : "N/A";
 }
 
+function timeSeriesLink(date: string, station: string) {
+  const params = new URLSearchParams({ start: date, end: date, tab: "storms" });
+  if (station) params.set("station", station);
+  return `/time-series?${params.toString()}`;
+}
+
 export default function AnomalyDetectionPage() {
   const [tab, setTab] = useState(0);
   const [anomalies, setAnomalies] = useState<AnomalyDay[]>([]);
+  const [stormComparison, setStormComparison] = useState<StormComparisonDoy[]>([]);
+  const [eia, setEia] = useState<EiaSummary | null>(null);
+  const [stations, setStations] = useState<string[]>([]);
+  const [kpAvailable, setKpAvailable] = useState(false);
+  const [dstAvailable, setDstAvailable] = useState(false);
+  const [station, setStation] = useState("");
   const [diurnal, setDiurnal] = useState<DiurnalPoint[]>([]);
   const [seasonal, setSeasonal] = useState<SeasonalRow[]>([]);
   const [solar, setSolar] = useState<SolarCycleRow[]>([]);
   const [forecast, setForecast] = useState<ForecastPoint[]>([]);
+  const [forecastModel, setForecastModel] = useState<"statistical" | "cnn-gru">("statistical");
   const [pct, setPct] = useState(95);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -61,19 +74,36 @@ export default function AnomalyDetectionPage() {
   useEffect(() => {
     setLoading(true);
     setError(null);
-    Promise.all([getAnomalies(pct), getDiurnal(), getSeasonal(), getSolarCycle(), getStatisticalForecast(30)])
-      .then(([a, d, s, sc, f]) => {
-        setAnomalies(a);
-        setDiurnal(d);
-        setSeasonal(s);
-        setSolar(sc);
+    const st = station || undefined;
+    Promise.all([getAnomalyAnalysis(pct, st), getStatisticalForecast(30)])
+      .then(([analysis, f]) => {
+        setAnomalies(analysis.days);
+        setStormComparison(analysis.storm_comparison);
+        setEia(analysis.eia);
+        setStations(analysis.stations);
+        setKpAvailable(analysis.kp_available);
+        setDstAvailable(analysis.dst_available);
+        setDiurnal(analysis.diurnal);
+        setSeasonal(analysis.seasonal);
+        setSolar(analysis.solar_cycle);
         setForecast(f);
       })
       .catch((exc) => setError(exc instanceof Error ? exc.message : "Could not load anomaly data"))
       .finally(() => setLoading(false));
-  }, [pct]);
+  }, [pct, station]);
+
+  useEffect(() => {
+    if (forecastModel !== "cnn-gru") return;
+    getCnnGruForecast()
+      .then(setForecast)
+      .catch((exc) => setError(exc instanceof Error ? exc.message : "CNN-GRU forecast unavailable"));
+  }, [forecastModel]);
 
   const anomalyDays = useMemo(() => anomalies.filter((a) => a.anomaly), [anomalies]);
+  const stormConfirmed = useMemo(
+    () => anomalies.filter((a) => a.anomaly && a.storm_flag),
+    [anomalies],
+  );
   const threshold = anomalies[0]?.threshold ?? 0;
   const meanTec = anomalies.length
     ? anomalies.reduce((sum, item) => sum + item.mean_vtec, 0) / anomalies.length
@@ -91,6 +121,11 @@ export default function AnomalyDetectionPage() {
     (best, item) => (!best || item.mean_vtec > best.mean_vtec ? item : best),
     null,
   );
+  const postSunsetDiurnal = diurnal.filter((d) => d.hour >= 18 && d.hour <= 23);
+  const postSunsetPeak = postSunsetDiurnal.reduce<DiurnalPoint | null>(
+    (best, item) => (!best || item.mean_vtec > best.mean_vtec ? item : best),
+    null,
+  );
 
   return (
     <div className="anomaly-page">
@@ -99,6 +134,30 @@ export default function AnomalyDetectionPage() {
         <p className="page-subtitle">
           Storm analysis, diurnal and seasonal variation, solar-cycle context, EIA study, and TEC prediction.
         </p>
+      </div>
+
+      <div className="anomaly-control-card card">
+        <div>
+          <div className="metric-label">Station</div>
+          <select
+            aria-label="Archive station filter"
+            value={station}
+            onChange={(event) => setStation(event.target.value)}
+          >
+            <option value="">All stations</option>
+            {stations.map((st) => (
+              <option key={st} value={st}>
+                {st}
+              </option>
+            ))}
+          </select>
+        </div>
+        {!kpAvailable && !loading && anomalies.length > 0 && (
+          <p className="small-note">GFZ Kp index unavailable — storm flags may be incomplete.</p>
+        )}
+        {!dstAvailable && !loading && anomalies.length > 0 && (
+          <p className="small-note">WDC Kyoto Dst unavailable — storm cross-check uses Kp only.</p>
+        )}
       </div>
 
       <div className="tabs anomaly-tabs">
@@ -125,9 +184,9 @@ export default function AnomalyDetectionPage() {
           <p className="small-note">VTEC at or above {pct}th percentile</p>
         </div>
         <div className="card card-warn">
-          <div className="metric-label">Threshold</div>
-          <div className="metric-value">{fmt(threshold)}</div>
-          <p className="small-note">TECU cutoff for anomaly flagging</p>
+          <div className="metric-label">Storm-confirmed</div>
+          <div className="metric-value">{eia?.storm_confirmed_count ?? stormConfirmed.length}</div>
+          <p className="small-note">Anomaly days with Kp storm (G1+)</p>
         </div>
         <div className="card card-ok">
           <div className="metric-label">Mean VTEC</div>
@@ -166,6 +225,9 @@ export default function AnomalyDetectionPage() {
                     mean_vtec: day.mean_vtec,
                     threshold: day.threshold,
                     anomaly: day.anomaly,
+                    kp: day.kp ?? "",
+                    storm_flag: day.storm_flag ?? false,
+                    tec_response: day.tec_response ?? "",
                   })),
                 )
               }
@@ -181,6 +243,11 @@ export default function AnomalyDetectionPage() {
               datasets={[
                 { label: "VTEC (TECU)", data: anomalies.map((a) => a.mean_vtec), color: "#168bd2" },
                 { label: "Anomaly days", data: anomalies.map((a) => (a.anomaly ? a.mean_vtec : NaN)), color: "#ff4444" },
+                {
+                  label: "Kp storm days",
+                  data: anomalies.map((a) => (a.storm_flag ? a.mean_vtec : NaN)),
+                  color: "#ff8c00",
+                },
               ]}
               threshold={{ value: threshold, label: `${pct}th pct: ${fmt(threshold)} TECU` }}
               height={330}
@@ -193,7 +260,7 @@ export default function AnomalyDetectionPage() {
                 <div className="metric-label">Flagged anomaly days</div>
                 <strong>{anomalyDays.length} days detected</strong>
               </div>
-              <span className="small-note">Top 20 by VTEC intensity</span>
+              <span className="small-note">Top 20 by VTEC intensity — click date for time series</span>
             </div>
             <div className="table-scroll">
               <table className="dark-table">
@@ -201,7 +268,10 @@ export default function AnomalyDetectionPage() {
                   <tr>
                     <th>Date</th>
                     <th>Mean VTEC</th>
-                    <th>Threshold</th>
+                    <th>Kp</th>
+                    <th>Dst</th>
+                    <th>Storm</th>
+                    <th>TEC response</th>
                     <th>Status</th>
                   </tr>
                 </thead>
@@ -212,9 +282,22 @@ export default function AnomalyDetectionPage() {
                     .slice(0, 20)
                     .map((day) => (
                       <tr key={day.date}>
-                        <td>{day.date}</td>
+                        <td>
+                          <Link href={timeSeriesLink(day.date, station)} className="link-inline">
+                            {day.date}
+                          </Link>
+                        </td>
                         <td>{fmt(day.mean_vtec)} TECU</td>
-                        <td>{fmt(day.threshold)} TECU</td>
+                        <td>{day.kp != null ? fmt(day.kp, 1) : "—"}</td>
+                        <td>{day.dst != null ? fmt(day.dst, 0) : "—"}</td>
+                        <td>
+                          {day.storm_flag ? (
+                            <span className="status-pill warn">{day.kp_severity ?? "Storm"}</span>
+                          ) : (
+                            <span className="status-pill">Quiet</span>
+                          )}
+                        </td>
+                        <td>{day.tec_response ?? "—"}</td>
                         <td><span className="status-pill alert">Anomaly</span></td>
                       </tr>
                     ))}
@@ -226,13 +309,12 @@ export default function AnomalyDetectionPage() {
       )}
 
       {tab === 1 && (
-        <section className="anomaly-two-col">
+        <section className="anomaly-stack">
           <div className="card">
-            <div className="metric-label">Storm comparison proxy</div>
+            <div className="metric-label">Quiet vs storm VTEC by day of year</div>
             <p className="body-copy">
-              The converted backend does not yet expose a day-by-day Kp storm endpoint, so this panel compares quiet
-              archive days against high-VTEC anomaly days. This avoids showing false storm values while still showing
-              which days need geomagnetic cross-checking.
+              Compares archive mean VTEC on quiet days (Kp &lt; 3) against geomagnetic storm days (Kp ≥ 5) from GFZ.
+              {kpAvailable ? " Kp data loaded from GFZ Potsdam." : " Kp overlay unavailable — showing archive stats only."}
             </p>
             <div className="comparison-grid">
               <div>
@@ -244,20 +326,123 @@ export default function AnomalyDetectionPage() {
                 <strong>{fmt(anomalyRate, 1)}%</strong>
               </div>
               <div>
-                <span className="small-note">Highest VTEC</span>
-                <strong>{fmt(maxDay?.mean_vtec)} TECU</strong>
+                <span className="small-note">Storm-confirmed anomalies</span>
+                <strong>{stormConfirmed.length}</strong>
               </div>
             </div>
           </div>
-          <div className="card">
-            <div className="metric-label">Days to inspect against Kp storm records</div>
+
+          {stormComparison.length > 0 ? (
+            <div className="card">
+              <div className="metric-label">Mean VTEC by day of year (DOY)</div>
+              <LineChart
+                labels={stormComparison.map((r) => String(r.doy))}
+                datasets={[
+                  {
+                    label: "Quiet days (Kp < 3)",
+                    data: stormComparison.map((r) => r.quiet_mean_vtec ?? NaN),
+                    color: "#00ff88",
+                  },
+                  {
+                    label: "Storm days (Kp ≥ 5)",
+                    data: stormComparison.map((r) => r.storm_mean_vtec ?? NaN),
+                    color: "#ff4444",
+                  },
+                ]}
+                height={310}
+              />
+            </div>
+          ) : (
+            <div className="banner banner-info">
+              Storm comparison chart needs overlapping archive and GFZ Kp data for the selected range.
+            </div>
+          )}
+
+          {anomalies.length > 0 && kpAvailable && (
+            <div className="card">
+              <div className="metric-label">Archive VTEC vs geomagnetic Kp</div>
+              <p className="small-note">Dual-axis view — mean VTEC (TECU) with daily Kp from GFZ Potsdam.</p>
+              <LineChart
+                labels={anomalies.map((a) => a.date)}
+                datasets={[
+                  {
+                    label: "Mean VTEC (TECU)",
+                    data: anomalies.map((a) => a.mean_vtec),
+                    color: "#168bd2",
+                  },
+                  {
+                    label: "Kp index",
+                    data: anomalies.map((a) => a.kp ?? null),
+                    color: "#ff8c00",
+                    dashed: true,
+                    yAxisId: "y2",
+                  },
+                ]}
+                yLabel="VTEC (TECU)"
+                secondaryYLabel="Kp"
+                height={310}
+              />
+            </div>
+          )}
+
+          {anomalyDays.length > 0 && dstAvailable && (
+            <div className="card">
+              <div className="metric-label">Anomaly-day Dst index (WDC Kyoto)</div>
+              <LineChart
+                labels={anomalyDays.map((a) => a.date)}
+                datasets={[
+                  {
+                    label: "Mean VTEC",
+                    data: anomalyDays.map((a) => a.mean_vtec),
+                    color: "#168bd2",
+                  },
+                  {
+                    label: "Dst (nT)",
+                    data: anomalyDays.map((a) => a.dst ?? null),
+                    color: "#a78bfa",
+                    dashed: true,
+                    yAxisId: "y2",
+                  },
+                ]}
+                yLabel="VTEC (TECU)"
+                secondaryYLabel="Dst (nT)"
+                height={280}
+              />
+            </div>
+          )}
+
+          <div className="card anomaly-table-card">
+            <div className="metric-label">Storm-confirmed anomaly days</div>
             <div className="table-scroll compact">
               <table className="dark-table">
-                <thead><tr><th>Date</th><th>Mean VTEC</th></tr></thead>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Mean VTEC</th>
+                    <th>Kp</th>
+                    <th>Dst</th>
+                    <th>TEC response</th>
+                  </tr>
+                </thead>
                 <tbody>
-                  {anomalyDays.slice(0, 12).map((day) => (
-                    <tr key={day.date}><td>{day.date}</td><td>{fmt(day.mean_vtec)} TECU</td></tr>
+                  {stormConfirmed.slice(0, 15).map((day) => (
+                    <tr key={day.date}>
+                      <td>
+                        <Link href={timeSeriesLink(day.date, station)} className="link-inline">
+                          {day.date}
+                        </Link>
+                      </td>
+                      <td>{fmt(day.mean_vtec)} TECU</td>
+                      <td>{day.kp != null ? fmt(day.kp, 1) : "—"}</td>
+                      <td>{day.dst != null ? fmt(day.dst, 0) : "—"}</td>
+                      <td>{day.tec_response ?? "—"}</td>
+                    </tr>
                   ))}
+                  {stormConfirmed.length === 0 && (
+                    <tr>
+                      <td colSpan={5}>No anomaly days coincided with Kp storm conditions in this archive.</td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -268,7 +453,10 @@ export default function AnomalyDetectionPage() {
       {tab === 2 && (
         <div className="card">
           <div className="metric-label">24-hour VTEC variation, UTC</div>
-          <p className="small-note">Zimbabwe local time is UTC + 2h. Peak hour: {peakHour ? `${peakHour.hour}:00 UTC` : "N/A"}.</p>
+          <p className="small-note">
+            Zimbabwe local time is UTC + 2h. Peak hour: {peakHour ? `${peakHour.hour}:00 UTC` : "N/A"}.
+            {station ? ` Station: ${station}.` : ""}
+          </p>
           <LineChart
             labels={diurnal.map((d) => `${d.hour}:00`)}
             datasets={[{ label: "Mean VTEC (TECU)", data: diurnal.map((d) => d.mean_vtec), color: "#168bd2", fill: true }]}
@@ -306,24 +494,97 @@ export default function AnomalyDetectionPage() {
             <div className="metric-label">Equatorial Ionospheric Anomaly study</div>
             <p className="body-copy">
               Zimbabwe lies under low-latitude ionospheric dynamics where post-sunset plasma redistribution and
-              solar-cycle forcing can increase TEC gradients. Use this view to connect anomaly days with diurnal peaks,
-              seasonal maxima, and solar-cycle years.
+              solar-cycle forcing can increase TEC gradients. Post-sunset hours (18–23 UTC) often show EIA-related
+              structure distinct from daytime means.
+            </p>
+            <p className="body-copy">
+              View spatial TEC structure on the{" "}
+              <Link href="/tec-heatmap">TEC Heatmap</Link> to correlate regional gradients with anomaly days.
             </p>
           </div>
           <div className="card">
-            <div className="metric-label">Current EIA indicators from archive</div>
+            <div className="metric-label">EIA indicators from archive</div>
             <div className="comparison-grid">
-              <div><span className="small-note">Peak UTC hour</span><strong>{peakHour ? `${peakHour.hour}:00` : "N/A"}</strong></div>
-              <div><span className="small-note">Peak season</span><strong>{highSeason?.season ?? "N/A"}</strong></div>
-              <div><span className="small-note">Peak archive day</span><strong>{maxDay?.date ?? "N/A"}</strong></div>
+              <div>
+                <span className="small-note">Peak UTC hour</span>
+                <strong>{eia?.peak_hour_utc != null ? `${eia.peak_hour_utc}:00` : peakHour ? `${peakHour.hour}:00` : "N/A"}</strong>
+              </div>
+              <div>
+                <span className="small-note">Post-sunset peak</span>
+                <strong>
+                  {eia?.post_sunset_peak_hour_utc != null
+                    ? `${eia.post_sunset_peak_hour_utc}:00`
+                    : postSunsetPeak
+                      ? `${postSunsetPeak.hour}:00`
+                      : "N/A"}
+                </strong>
+              </div>
+              <div>
+                <span className="small-note">Post-sunset mean VTEC</span>
+                <strong>{fmt(eia?.post_sunset_mean_vtec ?? null)} TECU</strong>
+              </div>
+              <div>
+                <span className="small-note">Daytime mean VTEC</span>
+                <strong>{fmt(eia?.daytime_mean_vtec ?? null)} TECU</strong>
+              </div>
+              <div>
+                <span className="small-note">Peak season</span>
+                <strong>{eia?.peak_season ?? highSeason?.season ?? "N/A"}</strong>
+              </div>
+              <div>
+                <span className="small-note">Storm-confirmed anomalies</span>
+                <strong>{eia?.storm_confirmed_count ?? stormConfirmed.length}</strong>
+              </div>
             </div>
           </div>
+          {postSunsetDiurnal.length > 0 && (
+            <div className="card" style={{ gridColumn: "1 / -1" }}>
+              <div className="metric-label">Post-sunset diurnal profile (18–23 UTC)</div>
+              <LineChart
+                labels={postSunsetDiurnal.map((d) => `${d.hour}:00`)}
+                datasets={[
+                  {
+                    label: "Post-sunset VTEC",
+                    data: postSunsetDiurnal.map((d) => d.mean_vtec),
+                    color: "#a78bfa",
+                    fill: true,
+                  },
+                ]}
+                height={260}
+              />
+            </div>
+          )}
         </section>
       )}
 
       {tab === 6 && (
         <div className="card">
-          <div className="metric-label">30-day TEC forecast, Fourier plus linear trend model</div>
+          <div className="anomaly-control-card" style={{ marginBottom: "1rem" }}>
+            <div>
+              <div className="metric-label">Forecast model</div>
+              <strong>{forecastModel === "statistical" ? "Fourier + linear trend" : "CNN-GRU neural network"}</strong>
+            </div>
+            <div className="tabs" style={{ margin: 0 }}>
+              <button
+                type="button"
+                className={`tab${forecastModel === "statistical" ? " active" : ""}`}
+                onClick={() => {
+                  setForecastModel("statistical");
+                  getStatisticalForecast(30).then(setForecast).catch(() => {});
+                }}
+              >
+                Statistical
+              </button>
+              <button
+                type="button"
+                className={`tab${forecastModel === "cnn-gru" ? " active" : ""}`}
+                onClick={() => setForecastModel("cnn-gru")}
+              >
+                CNN-GRU
+              </button>
+            </div>
+          </div>
+          <div className="metric-label">30-day TEC forecast</div>
           {forecast.length > 0 ? (
             <LineChart
               labels={forecast.map((f) => f.t)}

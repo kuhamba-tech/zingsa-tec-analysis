@@ -62,6 +62,7 @@ export default function TimeSeriesPage() {
   const [seasonal, setSeasonal] = useState<SeasonalRow[]>([]);
   const [solarCycle, setSolarCycle] = useState<SolarCycleRow[]>([]);
   const [tab, setTab]         = useState<Tab>("daily");
+  const urlInit = useRef(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [coverageOpen, setCoverageOpen] = useState(false);
@@ -152,6 +153,38 @@ export default function TimeSeriesPage() {
     setStart(r.start);
     setEnd(r.end);
   }, [meta?.first_date, meta?.last_date]);
+
+  useEffect(() => {
+    if (urlInit.current) return;
+    const params = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
+    const startParam = params.get("start");
+    const endParam = params.get("end");
+    const stationParam = params.get("station");
+    const tabParam = params.get("tab");
+    if (!startParam && !endParam && !stationParam && !tabParam) return;
+    urlInit.current = true;
+    if (stationParam) setStation(stationParam);
+    if (tabParam === "storms" || tabParam === "daily" || tabParam === "monthly" || tabParam === "seasonal"
+      || tabParam === "diurnal" || tabParam === "compare" || tabParam === "celestrak"
+      || tabParam === "gfz" || tabParam === "intermagnet") {
+      setTab(tabParam);
+    }
+    if (startParam) {
+      const s = parseYm(startParam, { y: 2024, m: 4 });
+      setStartYear(s.y);
+      setStartMonth(s.m);
+      setStart(startParam);
+    }
+    if (endParam) {
+      const e = parseYm(endParam, { y: 2024, m: 6 });
+      setEndYear(e.y);
+      setEndMonth(e.m);
+      setEnd(endParam);
+    }
+    if (startParam || endParam) {
+      void loadAll(stationParam || undefined, startParam || undefined, endParam || undefined, { initial: true });
+    }
+  }, [loadAll]);
 
   const loadAllSources = useCallback(async () => {
     const r = rangeFromMonths(startYear, startMonth, endYear, endMonth);

@@ -104,6 +104,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   }, [pathname]);
 
   useEffect(() => {
+    document.body.classList.toggle("mobile-nav-open", mobileOpen);
+    return () => document.body.classList.remove("mobile-nav-open");
+  }, [mobileOpen]);
+
+  useEffect(() => {
     const sync = () => setLocationHash(window.location.hash);
     sync();
     window.addEventListener("hashchange", sync);

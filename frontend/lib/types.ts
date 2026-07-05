@@ -388,6 +388,87 @@ export interface AnomalyDay {
   mean_vtec: number;
   anomaly: boolean;
   threshold: number;
+  max_vtec?: number | null;
+  tec_anomaly_flag?: boolean;
+  storm_flag?: boolean;
+  kp_storm_flag?: boolean;
+  kp?: number | null;
+  dst?: number | null;
+  kp_severity?: string | null;
+  tec_response?: string | null;
+  tec_response_z?: number | null;
+  tec_deviation_tecu?: number | null;
+}
+
+export interface StormComparisonDoy {
+  doy: number;
+  quiet_mean_vtec: number | null;
+  storm_mean_vtec: number | null;
+}
+
+export interface EiaSummary {
+  peak_hour_utc: number | null;
+  post_sunset_peak_hour_utc: number | null;
+  post_sunset_mean_vtec: number | null;
+  daytime_mean_vtec: number | null;
+  peak_season: string | null;
+  anomaly_day_count: number;
+  storm_confirmed_count: number;
+}
+
+export interface GeomagneticDailyPoint {
+  date: string;
+  kp: number | null;
+  dst: number | null;
+}
+
+export interface AnomalyAnalysisResponse {
+  days: AnomalyDay[];
+  storm_comparison: StormComparisonDoy[];
+  eia: EiaSummary;
+  stations: string[];
+  kp_available: boolean;
+  dst_available: boolean;
+  geomagnetic_daily: GeomagneticDailyPoint[];
+  diurnal: DiurnalPoint[];
+  seasonal: SeasonalRow[];
+  solar_cycle: SolarCycleRow[];
+}
+
+export interface TecHeatmapResponse {
+  available: boolean;
+  stations: TecHeatmapStation[];
+  heat_points: TecHeatmapPoint[];
+  grid: TecHeatmapGrid | null;
+  bounds: number[];
+  tec_min: number | null;
+  tec_max: number | null;
+  station_count: number;
+  updated_at: string | null;
+  message: string | null;
+}
+
+export interface TecHeatmapStation {
+  code: string;
+  name: string;
+  lat: number;
+  lon: number;
+  vtec: number;
+  obs_count: number;
+}
+
+export interface TecHeatmapPoint {
+  lon: number;
+  lat: number;
+  vtec: number;
+  weight: number;
+  code: string | null;
+}
+
+export interface TecHeatmapGrid {
+  lons: number[][];
+  lats: number[][];
+  vtec: (number | null)[][];
 }
 
 export interface DiurnalPoint { hour: number; mean_vtec: number; std_vtec: number; }
@@ -675,10 +756,17 @@ export interface StationLiveStatus {
   last_vtec: number | null;
 }
 
+export interface LivePipelineStreamStatus {
+  mountpoint: string;
+  connected: boolean;
+  last_seen: string | null;
+  msg_count: number;
+}
+
 export interface LivePipelineStatus {
   ntrip_configured: boolean;
   active_streams: number;
-  streams: Record<string, unknown>;
+  streams: Record<string, LivePipelineStreamStatus>;
   db_backend: string;
   record_count: number;
   runtime_mode: string;
@@ -737,8 +825,19 @@ export interface ForecastPoint {
 }
 
 // ── Chat ──────────────────────────────────────────────────────────────────────
+export interface ChatContextSummary {
+  lines: string[];
+  tec?: Record<string, unknown> | null;
+  space_weather?: Record<string, unknown> | null;
+  ekf_alerts?: Record<string, unknown> | null;
+  live_pipeline?: Record<string, unknown> | null;
+}
 export interface ChatMessage { role: "user" | "assistant"; content: string; }
-export interface ChatResponse { reply: string; context_injected: boolean; }
+export interface ChatResponse {
+  reply: string;
+  context_injected: boolean;
+  context?: ChatContextSummary | null;
+}
 
 // ── VTEC Theory ───────────────────────────────────────────────────────────────
 export interface TheoryEquation {

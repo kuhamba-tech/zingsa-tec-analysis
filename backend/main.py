@@ -1,9 +1,13 @@
 """ZGIIS FastAPI backend — wraps the existing Python processing engine."""
 from __future__ import annotations
 
+import logging
 import sys
+import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 # Make the project root importable so tec_core and zgiis can be found
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -34,7 +38,12 @@ from backend.routers import (
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    live_manager.start()
+    # NTRIP ingest can take time to connect 24 mountpoints — do not block API startup.
+    threading.Thread(
+        target=live_manager.start,
+        daemon=True,
+        name="zgiis-live-pipeline-start",
+    ).start()
     space_weather_logger.start()
     station_status_logger.start()
     yield

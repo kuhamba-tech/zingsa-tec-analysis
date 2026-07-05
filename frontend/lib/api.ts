@@ -1,5 +1,6 @@
 import type {
   ArchiveMeta,
+  AnomalyAnalysisResponse,
   AnomalyDay,
   AudienceId,
   BiasRow,
@@ -51,6 +52,7 @@ import type {
   StationStatusEvent,
   StationStatusLogStatus,
   StationUptimeRow,
+  TecHeatmapResponse,
   TecObservation,
   TecSummaryRow,
   TecHourlyRow,
@@ -307,9 +309,12 @@ export const getTimeSeries = (params?: { station?: string; start?: string; end?:
   get<TecObservation[]>("/tec/time-series", params);
 export const getAnomalies = (threshold_pct = 95, station?: string) =>
   get<AnomalyDay[]>("/tec/anomalies", { threshold_pct, station });
-export const getDiurnal = () => get<DiurnalPoint[]>("/tec/diurnal");
-export const getSeasonal = () => get<SeasonalRow[]>("/tec/seasonal");
-export const getSolarCycle = () => get<SolarCycleRow[]>("/tec/solar-cycle");
+export const getAnomalyAnalysis = (threshold_pct = 95, station?: string) =>
+  get<AnomalyAnalysisResponse>("/tec/anomaly-analysis", { threshold_pct, station });
+export const getTecHeatmap = (hours = 2) => get<TecHeatmapResponse>("/tec/heatmap", { hours });
+export const getDiurnal = (station?: string) => get<DiurnalPoint[]>("/tec/diurnal", { station });
+export const getSeasonal = (station?: string) => get<SeasonalRow[]>("/tec/seasonal", { station });
+export const getSolarCycle = (station?: string) => get<SolarCycleRow[]>("/tec/solar-cycle", { station });
 export const getOmniAnalysis = (start: string, end: string, station?: string) =>
   get<OmniAnalysisResponse>("/tec/omni-analysis", { start, end, station, _ts: Date.now() }, ANALYSIS_TIMEOUT_MS);
 export const getCelestrakAnalysis = (start: string, end: string, station?: string) =>
@@ -385,11 +390,23 @@ export const getCnnGruForecast = () => get<ForecastPoint[]>("/forecast/cnn-gru")
 // ── Theory ────────────────────────────────────────────────────────────────────
 export const getVtecTheory = () => get<VtecTheoryPayload>("/theory/vtec");
 export const getGeomagneticTheory = () => get<GeomagneticTheoryPayload>("/theory/geomagnetic");
-export const getUnderstandingTec = () => get<UnderstandingTecPayload>("/theory/understanding-tec");
+export const getUnderstandingTec = async (): Promise<UnderstandingTecPayload> => {
+  try {
+    return await get<UnderstandingTecPayload>("/theory/understanding-tec", undefined, 4_000);
+  } catch {
+    const res = await fetch("/data/understanding-tec.json", { cache: "force-cache" });
+    if (!res.ok) {
+      throw new Error(
+        "Could not load Understanding TEC — run dev.ps1 to restart the FastAPI backend on port 8000.",
+      );
+    }
+    return res.json();
+  }
+};
 
 // ── Chat ──────────────────────────────────────────────────────────────────────
-export const sendChat = (messages: ChatMessage[], api_key?: string) =>
-  post<ChatResponse>("/chat", { messages, api_key });
+export const sendChat = (messages: ChatMessage[], api_key?: string, station?: string) =>
+  post<ChatResponse>("/chat", { messages, api_key, station });
 
 // ── GIC Monitor ───────────────────────────────────────────────────────────────
 export const getGicNetwork = () => getWithRetry<GicNetwork>("/gic/network", { _ts: Date.now() });

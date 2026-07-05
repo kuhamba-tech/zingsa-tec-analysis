@@ -181,6 +181,10 @@ def poll_and_log(*, source: str = "scheduler", force: bool = False) -> dict[str,
 def _loop() -> None:
     interval = max(30.0, float(os.getenv("STATION_STATUS_POLL_SEC", "60")))
     log.info("Station status logger started (every %.0fs)", interval)
+    try:
+        poll_and_log(source="startup", force=True)
+    except Exception as exc:
+        log.warning("station status startup poll failed: %s", exc)
     while not _stop.wait(interval):
         poll_and_log(source="scheduler")
 
@@ -190,10 +194,6 @@ def start() -> None:
     if _thread and _thread.is_alive():
         return
     _stop.clear()
-    try:
-        poll_and_log(source="startup", force=True)
-    except Exception as exc:
-        log.warning("station status startup poll failed: %s", exc)
     _thread = threading.Thread(target=_loop, name="station-status-logger", daemon=True)
     _thread.start()
 

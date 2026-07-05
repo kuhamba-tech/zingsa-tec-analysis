@@ -367,6 +367,51 @@ class AnomalyDay(BaseModel):
     mean_vtec: float
     anomaly: bool
     threshold: float
+    max_vtec: float | None = None
+    tec_anomaly_flag: bool = False
+    storm_flag: bool = False
+    kp_storm_flag: bool = False
+    kp: float | None = None
+    dst: float | None = None
+    kp_severity: str | None = None
+    tec_response: str | None = None
+    tec_response_z: float | None = None
+    tec_deviation_tecu: float | None = None
+
+
+class StormComparisonDoy(BaseModel):
+    doy: int
+    quiet_mean_vtec: float | None = None
+    storm_mean_vtec: float | None = None
+
+
+class EiaSummary(BaseModel):
+    peak_hour_utc: int | None = None
+    post_sunset_peak_hour_utc: int | None = None
+    post_sunset_mean_vtec: float | None = None
+    daytime_mean_vtec: float | None = None
+    peak_season: str | None = None
+    anomaly_day_count: int = 0
+    storm_confirmed_count: int = 0
+
+
+class GeomagneticDailyPoint(BaseModel):
+    date: str
+    kp: float | None = None
+    dst: float | None = None
+
+
+class AnomalyAnalysisResponse(BaseModel):
+    days: list[AnomalyDay]
+    storm_comparison: list[StormComparisonDoy]
+    eia: EiaSummary
+    stations: list[str]
+    kp_available: bool
+    dst_available: bool = False
+    geomagnetic_daily: list[GeomagneticDailyPoint] = []
+    diurnal: list["DiurnalPoint"] = []
+    seasonal: list["SeasonalRow"] = []
+    solar_cycle: list["SolarCycleRow"] = []
 
 
 class DiurnalPoint(BaseModel):
@@ -622,6 +667,42 @@ class PrnExplorerResponse(BaseModel):
     observations: list[PrnObservation]
 
 
+class TecHeatmapStation(BaseModel):
+    code: str
+    name: str
+    lat: float
+    lon: float
+    vtec: float
+    obs_count: int = 0
+
+
+class TecHeatmapPoint(BaseModel):
+    lon: float
+    lat: float
+    vtec: float
+    weight: float
+    code: str | None = None
+
+
+class TecHeatmapGrid(BaseModel):
+    lons: list[list[float]]
+    lats: list[list[float]]
+    vtec: list[list[float | None]]
+
+
+class TecHeatmapResponse(BaseModel):
+    available: bool
+    stations: list[TecHeatmapStation]
+    heat_points: list[TecHeatmapPoint]
+    grid: TecHeatmapGrid | None = None
+    bounds: list[float]
+    tec_min: float | None = None
+    tec_max: float | None = None
+    station_count: int = 0
+    updated_at: str | None = None
+    message: str | None = None
+
+
 # ── Live Pipeline ──────────────────────────────────────────────────────────────
 
 class LiveObservation(BaseModel):
@@ -754,11 +835,21 @@ class ChatMessage(BaseModel):
     content: str
 
 
+class ChatContextSummary(BaseModel):
+    lines: list[str] = []
+    tec: dict | None = None
+    space_weather: dict | None = None
+    ekf_alerts: dict | None = None
+    live_pipeline: dict | None = None
+
+
 class ChatRequest(BaseModel):
     messages: list[ChatMessage]
     api_key: str | None = None
+    station: str | None = None
 
 
 class ChatResponse(BaseModel):
     reply: str
     context_injected: bool = False
+    context: ChatContextSummary | None = None

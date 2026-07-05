@@ -225,7 +225,7 @@ export default function SpaceWeatherPage() {
   const alertTime   = latestAlert?.issue_datetime ?? null;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "1.2rem" }}>
+    <div className="page-stack">
 
       {/* ── Title ── */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "1rem", flexWrap: "wrap" }}>
@@ -365,7 +365,7 @@ export default function SpaceWeatherPage() {
         </div>
 
         {/* Row 2: Solar Wind | Alerts | Flares count */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.8rem" }}>
+        <div className="sw-triple-grid">
 
           {/* Solar Wind */}
           <div className="card">
@@ -431,7 +431,7 @@ export default function SpaceWeatherPage() {
         </div>
 
         {/* Row 3: CME | Geomagnetic Storms | GNSS Impact */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.8rem" }}>
+        <div className="sw-triple-grid">
 
           {/* CME count */}
           <div className="card" style={{ textAlign: "center" }}>
@@ -456,7 +456,7 @@ export default function SpaceWeatherPage() {
           {/* Impact on GNSS & CORS Networks (compact) */}
           <div className="card">
             <div style={{ fontSize: "0.62rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "0.7rem" }}>Impact on GNSS &amp; CORS Networks</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
+            <div className="sw-double-grid">
               {[
                 { label: "GNSS / CORS",  val: impact.rtk },
                 { label: "HF Radio",     val: impact.hf },
@@ -597,7 +597,7 @@ export default function SpaceWeatherPage() {
           </div>
 
           {/* Active Regions + CME table side by side */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.8rem" }}>
+          <div className="sw-double-grid">
             <div className="card">
               <div style={{ display: "flex", gap: "0.7rem", alignItems: "center", marginBottom: "0.7rem" }}>
                 {/* Mini sun icon */}
@@ -647,7 +647,7 @@ export default function SpaceWeatherPage() {
           {/* Solar Cycle Progress */}
           <div className="card">
             <div className="metric-label" style={{ marginBottom: "0.8rem" }}>Solar Cycle Progress</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", alignItems: "center" }}>
+            <div className="sw-double-grid sw-double-grid--center">
               <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.8rem" }}>
                   <span style={{ color: "var(--text-muted)" }}>Solar Cycle</span>
@@ -674,7 +674,7 @@ export default function SpaceWeatherPage() {
           {/* Impact on GNSS & CORS Networks (detailed row) */}
           <div className="card">
             <div className="metric-label" style={{ marginBottom: "0.8rem" }}>Impact on GNSS &amp; CORS Networks</div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.6rem", marginBottom: "0.5rem" }}>
+            <div className="sw-triple-grid sw-triple-grid--tight">
               {[
                 { label: "RTK Accuracy",        val: impact.rtk },
                 { label: "PPP Convergence",     val: impact.ppp },

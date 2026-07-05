@@ -131,9 +131,12 @@ export default function CorsMapWithLayers({
               Markers and counts use only the current live NTRIP stream status. Click a marker for site Details.
             </div>
           </div>
-          {layer === "TEC Heat Map" && <TecHeatMapLegend />}
         </div>
       </div>
+
+      {layer === "TEC Heat Map" && (
+        <TecHeatMapLegend className="tec-heatmap-legend-below" />
+      )}
     </div>
   );
 }

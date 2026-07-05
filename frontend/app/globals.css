@@ -1363,6 +1363,32 @@ select option {
 .tec-map-frame {
   position: relative;
 }
+.tec-map-legend-stack {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  pointer-events: none;
+  max-width: calc(100% - 28px);
+}
+.tec-map-legend-stack .tec-map-legend {
+  position: static;
+}
+.tec-map-legend-stack .tec-heatmap-legend {
+  max-width: min(520px, 100%);
+}
+
+.tec-heatmap-legend-below {
+  position: static;
+  width: 100%;
+  max-width: none;
+  margin-top: 0.75rem;
+  pointer-events: auto;
+}
+
 .tec-map-frame .map-container {
   border-radius: 7px;
 }
@@ -1924,6 +1950,16 @@ select option {
   width: min(260px, 100%);
   accent-color: var(--accent);
 }
+
+.link-inline {
+  color: var(--accent, #168bd2);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.link-inline:hover {
+  color: #5eb8f0;
+}
+
 .anomaly-two-col {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -3211,5 +3247,273 @@ select option {
   margin-bottom: 0.35rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+
+/* ── Reusable layout utilities ── */
+.page-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1.2rem;
+}
+.page-content-narrow {
+  display: flex;
+  flex-direction: column;
+  gap: 1.2rem;
+  max-width: 860px;
+  width: 100%;
+}
+.metrics-auto-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.8rem;
+}
+.page-split-charts {
+  display: grid;
+  grid-template-columns: 3fr 2fr;
+  gap: 1rem;
+}
+.constellation-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+.prn-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(150px, 1fr)) auto;
+  gap: 0.75rem;
+  align-items: end;
+}
+.prn-sky-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 420px) minmax(180px, 1fr);
+  gap: 1rem;
+  align-items: center;
+}
+.prn-constellation-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(220px, 0.7fr);
+  gap: 1rem;
+  align-items: start;
+}
+.prn-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+.sw-triple-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+.sw-triple-grid--tight {
+  gap: 0.6rem;
+  margin-bottom: 0.5rem;
+}
+.sw-double-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+.sw-double-grid--center {
+  gap: 1rem;
+  align-items: center;
+}
+.form-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .dashboard-metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .comparison-grid,
+  .anomaly-two-col {
+    grid-template-columns: 1fr;
+  }
+  .constellation-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .page-split-charts {
+    grid-template-columns: 1fr;
+  }
+  .sw-triple-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body.mobile-nav-open {
+    overflow: hidden;
+    touch-action: none;
+  }
+
+  .app-topbar {
+    padding-left: max(1rem, env(safe-area-inset-left));
+    padding-right: max(1rem, env(safe-area-inset-right));
+    padding-top: env(safe-area-inset-top, 0px);
+    height: calc(52px + env(safe-area-inset-top, 0px));
+  }
+
+  .app-sidebar {
+    top: calc(52px + env(safe-area-inset-top, 0px));
+    height: calc(100dvh - 52px - env(safe-area-inset-top, 0px));
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .app-main {
+    padding-left: max(1rem, env(safe-area-inset-left));
+    padding-right: max(1rem, env(safe-area-inset-right));
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  }
+
+  .page-title {
+    font-size: clamp(1.35rem, 6.5vw, 1.85rem);
+    line-height: 1.25;
+  }
+
+  .page-subtitle {
+    font-size: 0.92rem;
+    line-height: 1.5;
+  }
+
+  .page-content-narrow {
+    max-width: 100%;
+  }
+
+  .vtec-theory-hero {
+    padding: 1.1rem 1rem;
+  }
+
+  .vtec-theory-step-header {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .vtec-theory-step-title {
+    font-size: 1rem;
+  }
+
+  .card {
+    padding: 0.9rem 1rem;
+  }
+
+  .btn {
+    min-height: 44px;
+    padding: 0.55rem 1rem;
+  }
+
+  .form-input,
+  .form-select {
+    font-size: 16px;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .prn-filter-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .prn-filter-grid .btn-primary {
+    width: 100%;
+  }
+
+  .prn-sky-layout,
+  .prn-constellation-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .prn-stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sw-double-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .tabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .table-scroll {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .dashboard-metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .metrics-auto-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .home-map-layer-btn {
+    min-height: 40px;
+  }
+
+  .tec-map-layer-buttons {
+    width: 100%;
+  }
+
+  .tec-map-layer-buttons button {
+    flex: 1 1 calc(50% - 0.25rem);
+    min-height: 40px;
+  }
+
+  .tec-map-frame .map-container {
+    min-height: min(420px, 58vh);
+  }
+
+  .processing-action-row {
+    padding-bottom: max(0.65rem, env(safe-area-inset-bottom));
+  }
+
+  .app-nav-item {
+    min-height: 44px;
+  }
+
+  .cors-map-shell {
+    height: min(480px, 55vh) !important;
+    min-height: 300px;
+  }
+}
+
+@media (max-width: 560px) {
+  .metrics-auto-grid,
+  .constellation-grid,
+  .dashboard-metric-grid,
+  .home-metric-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .prn-stat-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .vtec-journey-pill {
+    min-width: 3.8rem;
+  }
+
+  .home-map-toolbar-center {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+  }
 }
 

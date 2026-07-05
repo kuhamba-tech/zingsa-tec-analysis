@@ -1,7 +1,8 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import type { Station } from "@/lib/types";
+import type { Station, TecHeatmapResponse } from "@/lib/types";
 import { getLiveStationStatus } from "@/lib/liveStationStatus";
+import { vtecToRgba } from "@/lib/tecHeatmapColors";
 import type { MapLayer } from "./CorsMapWithLayers";
 import SiteDetailsPanel from "./SiteDetailsPanel";
 
@@ -9,6 +10,7 @@ interface Props {
   stations: Station[];
   height?: number;
   layer?: MapLayer;
+  heatmap?: TecHeatmapResponse | null;
 }
 
 const STATUS_COLOR: Record<string, string> = {
@@ -18,17 +20,34 @@ const STATUS_COLOR: Record<string, string> = {
   unavailable: "#666",
 };
 
-const TILE_URLS: Record<MapLayer, string> = {
-  Hybrid: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-  Satellite: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-  Street: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
-  "TEC Heat Map": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-};
-
+const SATELLITE_URL =
+  "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
+const STREET_URL =
+  "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}";
 const LABEL_URL =
   "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}";
+const TRANSPORT_URL =
+  "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}";
 
-export default function CorsMap({ stations, height = 420, layer = "Hybrid" }: Props) {
+function baseTileUrl(layer: MapLayer): string {
+  return layer === "Street" ? STREET_URL : SATELLITE_URL;
+}
+
+function usesHybridOverlays(layer: MapLayer): boolean {
+  return layer === "Hybrid" || layer === "TEC Heat Map";
+}
+
+function heatOverlayOpacity(layer: MapLayer): number {
+  if (layer === "TEC Heat Map") return 0.78;
+  if (layer === "Hybrid") return 0.65;
+  return 0.55;
+}
+
+function shouldShowHeatOverlay(layer: MapLayer, heatmap: TecHeatmapResponse | null | undefined): boolean {
+  return Boolean(heatmap?.available && heatmap.grid);
+}
+
+export default function CorsMap({ stations, height = 420, layer = "Hybrid", heatmap = null }: Props) {
   const mapRef = useRef<HTMLDivElement>(null);
   const popupRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -38,14 +57,22 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid" }: Pr
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const labelTileRef = useRef<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const transportTileRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const heatLayerRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const vectorSourceRef = useRef<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const olHelpersRef = useRef<any>(null);
   const stationsRef = useRef(stations);
+  const heatmapRef = useRef(heatmap);
+  const layerRef = useRef(layer);
   const [selected, setSelected] = useState<Station | null>(null);
   const setSelectedRef = useRef(setSelected);
   setSelectedRef.current = setSelected;
   stationsRef.current = stations;
+  heatmapRef.current = heatmap;
+  layerRef.current = layer;
 
   const buildFeatures = (list: Station[]) => {
     const helpers = olHelpersRef.current;
@@ -80,6 +107,101 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid" }: Pr
     source.addFeatures(buildFeatures(list));
   };
 
+  const buildHeatLayer = async () => {
+    const data = heatmapRef.current;
+    const currentLayer = layerRef.current;
+    if (!shouldShowHeatOverlay(currentLayer, data) || !data?.grid) return null;
+
+    const { fromLonLat } = await import("ol/proj");
+    const ImageLayer = (await import("ol/layer/Image")).default;
+    const ImageCanvas = (await import("ol/source/ImageCanvas")).default;
+    const { grid, tec_min: tMin, tec_max: tMax } = data;
+    const gridLons = grid.lons;
+    const gridLats = grid.lats;
+    const gridVtec = grid.vtec;
+
+    const source = new ImageCanvas({
+      projection: "EPSG:3857",
+      canvasFunction: (extent, _resolution, _pixelRatio, size) => {
+        const canvas = document.createElement("canvas");
+        canvas.width = size[0];
+        canvas.height = size[1];
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return canvas;
+
+        const [minX, minY, maxX, maxY] = extent;
+        const rows = gridLats.length;
+        const cols = gridLons[0]?.length ?? 0;
+
+        for (let i = 0; i < rows - 1; i++) {
+          for (let j = 0; j < cols - 1; j++) {
+            const vtec = gridVtec[i]?.[j];
+            if (vtec == null || !Number.isFinite(vtec)) continue;
+
+            const lon0 = gridLons[i][j];
+            const lat0 = gridLats[i][j];
+            const lon1 = gridLons[i + 1]?.[j + 1] ?? gridLons[i][j + 1] ?? lon0;
+            const lat1 = gridLats[i + 1]?.[j + 1] ?? gridLats[i][j + 1] ?? lat0;
+
+            const [x0, y0] = fromLonLat([lon0, lat0]);
+            const [x1, y1] = fromLonLat([lon1, lat1]);
+            const px0 = ((x0 - minX) / (maxX - minX)) * size[0];
+            const px1 = ((x1 - minX) / (maxX - minX)) * size[0];
+            const py0 = ((maxY - y0) / (maxY - minY)) * size[1];
+            const py1 = ((maxY - y1) / (maxY - minY)) * size[1];
+
+            const left = Math.min(px0, px1);
+            const top = Math.min(py0, py1);
+            const width = Math.max(Math.abs(px1 - px0), 2);
+            const heightPx = Math.max(Math.abs(py1 - py0), 2);
+
+            ctx.fillStyle = vtecToRgba(vtec, heatOverlayOpacity(currentLayer));
+            ctx.fillRect(left, top, width, heightPx);
+          }
+        }
+
+        if (tMin != null && tMax != null) {
+          for (const station of data.stations) {
+            const [x, y] = fromLonLat([station.lon, station.lat]);
+            const px = ((x - minX) / (maxX - minX)) * size[0];
+            const py = ((maxY - y) / (maxY - minY)) * size[1];
+            ctx.beginPath();
+            ctx.arc(px, py, 5, 0, Math.PI * 2);
+            ctx.fillStyle = vtecToRgba(station.vtec, 0.95);
+            ctx.fill();
+            ctx.strokeStyle = "rgba(255,255,255,0.9)";
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+          }
+        }
+
+        return canvas;
+      },
+    });
+
+    return new ImageLayer({
+      source,
+      opacity: heatOverlayOpacity(currentLayer),
+      zIndex: 1.5,
+    });
+  };
+
+  const syncHeatLayer = async () => {
+    const map = olMapRef.current;
+    if (!map) return;
+
+    if (heatLayerRef.current) {
+      map.removeLayer(heatLayerRef.current);
+      heatLayerRef.current = null;
+    }
+
+    const next = await buildHeatLayer();
+    if (next) {
+      map.getLayers().insertAt(3, next);
+      heatLayerRef.current = next;
+    }
+  };
+
   useEffect(() => {
     const container = mapRef.current;
     const popupEl = popupRef.current;
@@ -105,13 +227,20 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid" }: Pr
       olHelpersRef.current = { fromLonLat, Feature, Point, Style, Circle, Fill, Stroke, Text };
 
       const baseTile = new TileLayer({
-        source: new XYZ({ url: TILE_URLS[layer], attributions: "Esri / OSM" }),
+        source: new XYZ({ url: baseTileUrl(layerRef.current), attributions: "Esri" }),
         zIndex: 0,
       });
       const labelTile = new TileLayer({
-        source: new XYZ({ url: LABEL_URL }),
-        visible: layer === "Hybrid",
-        zIndex: 1,
+        source: new XYZ({ url: LABEL_URL, attributions: "Esri Reference" }),
+        visible: usesHybridOverlays(layerRef.current),
+        zIndex: 2,
+        opacity: 0.95,
+      });
+      const transportTile = new TileLayer({
+        source: new XYZ({ url: TRANSPORT_URL, attributions: "Esri Reference" }),
+        visible: usesHybridOverlays(layerRef.current),
+        zIndex: 2,
+        opacity: 0.85,
       });
 
       const vectorSource = new VectorSource();
@@ -120,9 +249,10 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid" }: Pr
 
       const popup = new Overlay({ element: popupEl, positioning: "bottom-center", offset: [0, -14] });
 
+      const layers = [baseTile, labelTile, transportTile, new VectorLayer({ source: vectorSource, zIndex: 4 })];
       const map = new ol.Map({
         target: container,
-        layers: [baseTile, labelTile, new VectorLayer({ source: vectorSource, zIndex: 2 })],
+        layers,
         view: new View({ center: fromLonLat([29.5, -19.0]), zoom: 6 }),
         overlays: [popup],
         controls: [],
@@ -154,6 +284,8 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid" }: Pr
       olMapRef.current = map;
       baseTileRef.current = baseTile;
       labelTileRef.current = labelTile;
+      transportTileRef.current = transportTile;
+      await syncHeatLayer();
     })();
 
     return () => {
@@ -164,6 +296,8 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid" }: Pr
       }
       baseTileRef.current = null;
       labelTileRef.current = null;
+      transportTileRef.current = null;
+      heatLayerRef.current = null;
       vectorSourceRef.current = null;
       olHelpersRef.current = null;
       if (popupEl) {
@@ -179,16 +313,22 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid" }: Pr
   }, [stations]);
 
   useEffect(() => {
-    if (!baseTileRef.current || !labelTileRef.current) return;
+    if (!baseTileRef.current || !labelTileRef.current || !transportTileRef.current) return;
     (async () => {
       const XYZ = (await import("ol/source/XYZ")).default;
-      baseTileRef.current.setSource(new XYZ({ url: TILE_URLS[layer], attributions: "Esri / OSM" }));
-      labelTileRef.current.setVisible(layer === "Hybrid");
+      baseTileRef.current.setSource(new XYZ({ url: baseTileUrl(layer), attributions: "Esri" }));
+      const hybrid = usesHybridOverlays(layer);
+      labelTileRef.current.setVisible(hybrid);
+      transportTileRef.current.setVisible(hybrid);
+      await syncHeatLayer();
     })();
-  }, [layer]);
+  }, [layer, heatmap]);
 
   return (
-    <div style={{ position: "relative", width: "100%", height, display: "flex" }}>
+    <div
+      className="cors-map-shell"
+      style={{ position: "relative", width: "100%", height, display: "flex" }}
+    >
       <div style={{ flex: 1, position: "relative", minWidth: 0 }}>
         <div ref={mapRef} className="map-container" style={{ width: "100%", height: "100%" }} />
         <div
@@ -207,9 +347,7 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid" }: Pr
           }}
         />
       </div>
-      {selected && (
-        <SiteDetailsPanel station={selected} onClose={() => setSelected(null)} />
-      )}
+      {selected && <SiteDetailsPanel station={selected} onClose={() => setSelected(null)} />}
     </div>
   );
 }

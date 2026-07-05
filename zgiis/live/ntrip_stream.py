@@ -183,6 +183,7 @@ class StationStream(threading.Thread):
         max_reconnect_delay: float = 120.0,
         connection_slots: Optional[threading.Semaphore] = None,
         start_delay: float = 0.0,
+        nav_cache=None,
     ):
         super().__init__(name=f"ntrip-{station}", daemon=True)
         self.station = station
@@ -201,6 +202,7 @@ class StationStream(threading.Thread):
         # so most get rejected with "too many concurrent connections".
         self._slots = connection_slots
         self._start_delay = start_delay
+        self._nav_cache = nav_cache
         self._consecutive_failures = 0
 
         self._stop = threading.Event()
@@ -310,6 +312,14 @@ class StationStream(threading.Thread):
                     msg_type = int(msg.identity)
                 except (AttributeError, ValueError):
                     continue
+
+                if msg_type == 1019 and self._nav_cache is not None:
+                    try:
+                        self._nav_cache.update_gps_ephemeris(msg)
+                    except Exception:
+                        pass
+                    continue
+
                 if msg_type not in _ALL_MSM:
                     continue
 
@@ -341,9 +351,11 @@ class LiveNtripManager:
         on_observation: Optional[Callable[[dict], None]] = None,
         *,
         max_concurrent: Optional[int] = None,
+        nav_cache=None,
     ):
         self._cfg = ntrip_cfg
         self._on_obs = on_observation or (lambda _: None)
+        self._nav_cache = nav_cache
         self._streams: dict[str, StationStream] = {}
         # One shared account opening 24 mountpoints at once exceeds the
         # caster's per-account concurrent-connection limit (see
@@ -376,6 +388,7 @@ class LiveNtripManager:
                 use_tls=tls,
                 connection_slots=self._slots,
                 start_delay=i * stagger_sec,
+                nav_cache=self._nav_cache,
             )
             self._streams[station] = s
             s.start()

@@ -9,12 +9,16 @@ from fastapi import APIRouter, Depends, Query
 from backend.deps import require_api_key
 from backend.schemas import (
     ArchiveMeta,
+    AnomalyAnalysisResponse,
     AnomalyDay,
     CelestrakAnalysisResponse,
     DiurnalPoint,
+    EiaSummary,
+    GeomagneticDailyPoint,
     GfzKpAnalysisResponse,
     IntermagnetAnalysisResponse,
     OmniAnalysisResponse,
+    StormComparisonDoy,
     WdcKyotoAnalysisResponse,
     PrnExplorerResponse,
     PrnMeta,
@@ -22,6 +26,10 @@ from backend.schemas import (
     PrnRow,
     SeasonalRow,
     SolarCycleRow,
+    TecHeatmapGrid,
+    TecHeatmapPoint,
+    TecHeatmapResponse,
+    TecHeatmapStation,
     TecObservation,
 )
 
@@ -269,76 +277,89 @@ async def anomalies(
     station: str | None = Query(None),
     _=Depends(require_api_key),
 ):
-    df = _archive()
-    if df.empty:
-        return []
-    if station and "station" in df.columns:
-        df = df[df["station"] == station]
-    df["date"] = pd.to_datetime(df.get("date", df.get("timestamp")))
-    daily = df.groupby("date")["vtec"].mean().reset_index()
-    daily.columns = ["date", "mean_vtec"]
-    threshold = float(daily["mean_vtec"].quantile(threshold_pct / 100))
-    return [
-        AnomalyDay(
-            date=str(row["date"].date()),
-            mean_vtec=float(row["mean_vtec"]),
-            anomaly=bool(row["mean_vtec"] >= threshold),
-            threshold=threshold,
-        )
-        for _, row in daily.iterrows()
-    ]
+    from zgiis.processing.anomaly_analysis import build_anomaly_analysis
+
+    payload = build_anomaly_analysis(_archive(), station=station, threshold_pct=threshold_pct)
+    return [AnomalyDay(**day) for day in payload["days"]]
+
+
+@router.get("/anomaly-analysis", response_model=AnomalyAnalysisResponse)
+async def anomaly_analysis(
+    threshold_pct: int = Query(95, ge=50, le=99),
+    station: str | None = Query(None),
+    _=Depends(require_api_key),
+):
+    from zgiis.processing.anomaly_analysis import build_anomaly_analysis
+
+    payload = build_anomaly_analysis(_archive(), station=station, threshold_pct=threshold_pct)
+    return AnomalyAnalysisResponse(
+        days=[AnomalyDay(**day) for day in payload["days"]],
+        storm_comparison=[StormComparisonDoy(**row) for row in payload["storm_comparison"]],
+        eia=EiaSummary(**payload["eia"]),
+        stations=payload["stations"],
+        kp_available=payload["kp_available"],
+        dst_available=payload["dst_available"],
+        geomagnetic_daily=[GeomagneticDailyPoint(**row) for row in payload["geomagnetic_daily"]],
+        diurnal=[DiurnalPoint(**row) for row in payload["diurnal"]],
+        seasonal=[SeasonalRow(**row) for row in payload["seasonal"]],
+        solar_cycle=[SolarCycleRow(**row) for row in payload["solar_cycle"]],
+    )
 
 
 @router.get("/diurnal", response_model=list[DiurnalPoint])
-async def diurnal(_=Depends(require_api_key)):
-    df = _archive()
-    if df.empty:
-        return []
-    if "time_hours" in df.columns:
-        df["hour"] = df["time_hours"].astype(int) % 24
-    elif "timestamp" in df.columns:
-        df["hour"] = pd.to_datetime(df["timestamp"]).dt.hour
-    else:
-        df["hour"] = pd.to_datetime(df["date"]).dt.hour
-    grp = df.groupby("hour")["vtec"].agg(["mean", "std"]).reset_index()
-    return [
-        DiurnalPoint(hour=int(r["hour"]), mean_vtec=float(r["mean"]), std_vtec=float(r["std"] or 0))
-        for _, r in grp.iterrows()
-    ]
+async def diurnal(
+    station: str | None = Query(None),
+    _=Depends(require_api_key),
+):
+    from zgiis.processing.anomaly_analysis import compute_diurnal
+
+    rows = compute_diurnal(_archive(), station)
+    return [DiurnalPoint(**row) for row in rows]
 
 
 @router.get("/seasonal", response_model=list[SeasonalRow])
-async def seasonal(_=Depends(require_api_key)):
-    df = _archive()
-    if df.empty:
-        return []
-    df["date"] = pd.to_datetime(df.get("date", df.get("timestamp")))
-    df["month"] = df["date"].dt.month
-    df["season"] = pd.cut(
-        df["month"], bins=[0, 3, 6, 9, 12],
-        labels=["Jan–Mar (Summer)", "Apr–Jun (Autumn)", "Jul–Sep (Winter)", "Oct–Dec (Spring)"],
-    )
-    grp = df.groupby("season", observed=True)["vtec"].agg(["mean", "max", "min", "std"]).reset_index()
-    return [
-        SeasonalRow(season=str(r["season"]), mean=float(r["mean"]), max=float(r["max"]),
-                    min=float(r["min"]), std=float(r["std"] or 0))
-        for _, r in grp.iterrows()
-    ]
+async def seasonal(
+    station: str | None = Query(None),
+    _=Depends(require_api_key),
+):
+    from zgiis.processing.anomaly_analysis import compute_seasonal
+
+    rows = compute_seasonal(_archive(), station)
+    return [SeasonalRow(**row) for row in rows]
 
 
 @router.get("/solar-cycle", response_model=list[SolarCycleRow])
-async def solar_cycle(_=Depends(require_api_key)):
-    df = _archive()
-    if df.empty:
-        return []
-    df["date"] = pd.to_datetime(df.get("date", df.get("timestamp")))
-    df["year"] = df["date"].dt.year
-    grp = df.groupby("year")["vtec"].agg(["mean", "max", "min"]).reset_index()
-    return [
-        SolarCycleRow(year=int(r["year"]), mean_vtec=float(r["mean"]),
-                      max_vtec=float(r["max"]), min_vtec=float(r["min"]))
-        for _, r in grp.iterrows()
-    ]
+async def solar_cycle(
+    station: str | None = Query(None),
+    _=Depends(require_api_key),
+):
+    from zgiis.processing.anomaly_analysis import compute_solar_cycle
+
+    rows = compute_solar_cycle(_archive(), station)
+    return [SolarCycleRow(**row) for row in rows]
+
+
+@router.get("/heatmap", response_model=TecHeatmapResponse)
+async def tec_heatmap(
+    hours: float = Query(2.0, ge=0.5, le=24),
+    _=Depends(require_api_key),
+):
+    from zgiis.maps.heatmap_data import build_tec_heatmap
+
+    payload = build_tec_heatmap(hours=hours)
+    grid = payload.get("grid")
+    return TecHeatmapResponse(
+        available=payload["available"],
+        stations=[TecHeatmapStation(**s) for s in payload["stations"]],
+        heat_points=[TecHeatmapPoint(**p) for p in payload["heat_points"]],
+        grid=TecHeatmapGrid(**grid) if grid else None,
+        bounds=payload["bounds"],
+        tec_min=payload["tec_min"],
+        tec_max=payload["tec_max"],
+        station_count=payload["station_count"],
+        updated_at=payload["updated_at"],
+        message=payload["message"],
+    )
 
 
 @router.get("/prn/explorer", response_model=PrnExplorerResponse)

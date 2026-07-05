@@ -4,6 +4,8 @@ from __future__ import annotations
 import os
 from typing import List, Dict, Optional
 
+from zgiis.ai.context import build_context_block, trim_messages
+
 SYSTEM_PROMPT = """You are the ZGIIS AI Ionosphere Assistant — an expert system for the Zimbabwe GNSS Ionosphere Intelligence System.
 
 You specialise in:
@@ -19,36 +21,20 @@ Behaviour rules:
 - Give precise, scientific answers with appropriate units (TECU, sfu, nT).
 - When asked about TEC values, explain what they mean for GNSS users.
 - When space weather is mentioned, link it to GNSS positioning implications.
+- If live context is injected below, treat it as current platform data and reference it explicitly.
 - If the user provides data (numbers, station names, dates), use them in your analysis.
 - Keep answers concise unless the user asks for detail.
 - You represent the ZGIIS platform operated by ZINGSA for Zimbabwe.
+- Never invent live measurements — if context is missing, say so and answer from theory.
 """
-
-
-def build_context_block(tec_summary: Optional[dict] = None, sw: Optional[dict] = None) -> str:
-    """Build a context string injected before the user question."""
-    parts = []
-    if tec_summary:
-        parts.append(
-            f"[Current TEC data — station: {tec_summary.get('station', 'N/A')}, "
-            f"mean VTEC: {tec_summary.get('mean_vtec', 'N/A'):.1f} TECU, "
-            f"max VTEC: {tec_summary.get('max_vtec', 'N/A'):.1f} TECU, "
-            f"samples: {tec_summary.get('samples', 'N/A')}]"
-        )
-    if sw:
-        parts.append(
-            f"[Space weather — Kp: {sw.get('kp', 'N/A')}, "
-            f"condition: {sw.get('kp_condition', 'N/A')}, "
-            f"F10.7: {sw.get('f107', 'N/A')} sfu, "
-            f"GNSS risk: {sw.get('gnss_risk', 'N/A')}]"
-        )
-    return "\n".join(parts)
 
 
 def chat(
     messages: List[Dict[str, str]],
     tec_summary: Optional[dict] = None,
     sw: Optional[dict] = None,
+    ekf_summary: Optional[dict] = None,
+    live_summary: Optional[dict] = None,
     api_key: Optional[str] = None,
 ) -> str:
     """Send chat messages to Claude and return the assistant reply."""
@@ -66,16 +52,23 @@ def chat(
 
     client = anthropic.Anthropic(api_key=key)
 
-    context = build_context_block(tec_summary, sw)
+    context_text, _, _ = build_context_block(tec_summary, sw, ekf_summary, live_summary)
     system = SYSTEM_PROMPT
-    if context:
-        system += f"\n\nLive context injected by ZGIIS platform:\n{context}"
+    if context_text:
+        system += f"\n\nLive context injected by ZGIIS platform:\n{context_text}"
 
-    api_messages = [{"role": m["role"], "content": m["content"]} for m in messages]
+    api_messages = [
+        {"role": m["role"], "content": m["content"]}
+        for m in trim_messages(messages)
+        if m.get("role") in {"user", "assistant"} and m.get("content")
+    ]
+
+    model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+    max_tokens = int(os.environ.get("ANTHROPIC_MAX_TOKENS", "1024"))
 
     response = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=1024,
+        model=model,
+        max_tokens=max_tokens,
         system=system,
         messages=api_messages,
     )

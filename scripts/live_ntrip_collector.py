@@ -45,28 +45,14 @@ def _load_env() -> None:
 
 
 def _parse_mountpoints() -> dict[str, str]:
-    raw = os.getenv("NTRIP_MOUNTPOINTS", "").strip()
-    if raw:
-        pairs: dict[str, str] = {}
-        for pair in raw.split(","):
-            if ":" not in pair:
-                continue
-            station, mountpoint = pair.split(":", 1)
-            station = station.strip().lower()
-            mountpoint = mountpoint.strip()
-            if station and mountpoint:
-                pairs[station] = mountpoint
-        if pairs:
-            only = {
-                item.strip().lower()
-                for item in os.getenv("ZGIIS_COLLECTOR_STATIONS", "").split(",")
-                if item.strip()
-            }
-            return {station: mp for station, mp in pairs.items() if station in only} if only else pairs
+    only = {
+        item.strip().lower()
+        for item in os.getenv("ZGIIS_COLLECTOR_STATIONS", "").split(",")
+        if item.strip()
+    }
+    from zgiis.live.mountpoints import parse_mountpoints
 
-    station = os.getenv("NTRIP_STATION_CODE", "zinh").strip().lower()
-    mountpoint = os.getenv("NTRIP_MOUNTPOINT", "").strip()
-    return {station: mountpoint} if mountpoint else {}
+    return parse_mountpoints(station_filter=only or None)
 
 
 def main() -> int:
@@ -89,7 +75,7 @@ def main() -> int:
             "NTRIP_HOST": host,
             "NTRIP_USERNAME": username,
             "NTRIP_PASSWORD": password,
-            "NTRIP_MOUNTPOINTS": mountpoints,
+            "NTRIP_MOUNTPOINTS or NTRIP_MOUNTPOINT": mountpoints,
             "TSDB_DSN": os.getenv("TSDB_DSN", "").strip(),
         }.items()
         if not value
@@ -100,6 +86,7 @@ def main() -> int:
 
     from zgiis.db.timescale import TecDB
     from zgiis.live.ntrip_stream import LiveNtripManager
+    from zgiis.live.satellite_geometry import LiveNavCache
     from zgiis.live.stec_vtec import LiveVtecPipeline
 
     stop = False
@@ -113,7 +100,8 @@ def main() -> int:
 
     db = TecDB()
     before = db.record_count()
-    pipeline = LiveVtecPipeline(db=db, db_flush_n=int(os.getenv("ZGIIS_DB_FLUSH_N", "1")))
+    nav_cache = LiveNavCache()
+    pipeline = LiveVtecPipeline(db=db, nav_cache=nav_cache, db_flush_n=int(os.getenv("ZGIIS_DB_FLUSH_N", "1")))
     manager = LiveNtripManager(
         {
             "host": host,
@@ -123,6 +111,7 @@ def main() -> int:
             "connection": connection,
         },
         on_observation=pipeline.ingest,
+        nav_cache=nav_cache,
     )
     manager.start(mountpoints)
     log.info(

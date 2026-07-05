@@ -1,9 +1,25 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
-import { getLiveVtec, getLiveStations, getForecastStatus, getLivePipelineStatus, runNtripProbe } from "@/lib/api";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  getLiveVtec,
+  getLiveStations,
+  getForecastStatus,
+  getLivePipelineStatus,
+  runNtripProbe,
+  getCnnGruForecast,
+} from "@/lib/api";
 import MetricCard from "@/components/cards/MetricCard";
 import LineChart from "@/components/charts/LineChart";
-import type { LiveObservation, StationLiveStatus, ForecastStatus, LivePipelineStatus, NtripProbeResponse } from "@/lib/types";
+import type {
+  LiveObservation,
+  StationLiveStatus,
+  ForecastStatus,
+  LivePipelineStatus,
+  NtripProbeResponse,
+  ForecastPoint,
+} from "@/lib/types";
+
+const POLL_MS = 30_000;
 
 const VERDICT_COLOR: Record<string, string> = {
   msm_streaming: "#00ff88",
@@ -30,6 +46,7 @@ export default function LivePipelinePage() {
   const [obs, setObs] = useState<LiveObservation[]>([]);
   const [stationStatus, setStationStatus] = useState<StationLiveStatus[]>([]);
   const [fcStatus, setFcStatus] = useState<ForecastStatus | null>(null);
+  const [forecast, setForecast] = useState<ForecastPoint[]>([]);
   const [pipelineStatus, setPipelineStatus] = useState<LivePipelineStatus | null>(null);
   const [probe, setProbe] = useState<NtripProbeResponse | null>(null);
   const [probeLoading, setProbeLoading] = useState(false);
@@ -37,11 +54,29 @@ export default function LivePipelinePage() {
   const wsRef = useRef<WebSocket | null>(null);
   const [wsConnected, setWsConnected] = useState(false);
 
+  const refreshLive = useCallback(async () => {
+    const [vtec, stations, pipe, fc] = await Promise.allSettled([
+      getLiveVtec(2),
+      getLiveStations(),
+      getLivePipelineStatus(),
+      getForecastStatus(),
+    ]);
+    if (vtec.status === "fulfilled") setObs(vtec.value);
+    if (stations.status === "fulfilled") setStationStatus(stations.value);
+    if (pipe.status === "fulfilled") setPipelineStatus(pipe.value);
+    if (fc.status === "fulfilled") {
+      setFcStatus(fc.value);
+      if (fc.value.model_exists && fc.value.torch_ok) {
+        getCnnGruForecast()
+          .then(setForecast)
+          .catch(() => setForecast([]));
+      }
+    }
+  }, []);
+
   useEffect(() => {
-    getLiveVtec(2).then(setObs).catch(() => {});
-    getLiveStations().then(setStationStatus).catch(() => {});
-    getForecastStatus().then(setFcStatus).catch(() => {});
-    getLivePipelineStatus().then(setPipelineStatus).catch(() => {});
+    void refreshLive();
+    const timer = window.setInterval(() => void refreshLive(), POLL_MS);
 
     const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
     const wsUrl = API.replace(/^http/, "ws") + "/live/stream";
@@ -54,12 +89,19 @@ export default function LivePipelinePage() {
         try {
           const rows: LiveObservation[] = JSON.parse(ev.data);
           setObs((prev) => [...prev.slice(-500), ...rows]);
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
       };
-    } catch { /* ws unavailable */ }
+    } catch {
+      /* ws unavailable */
+    }
 
-    return () => { wsRef.current?.close(); };
-  }, []);
+    return () => {
+      window.clearInterval(timer);
+      wsRef.current?.close();
+    };
+  }, [refreshLive]);
 
   async function handleProbe() {
     setProbeLoading(true);
@@ -84,6 +126,7 @@ export default function LivePipelinePage() {
   const online = stationStatus.filter((s) => !s.stale).length;
   const total = stationStatus.length;
   const configuredStreams = pipelineStatus ? Object.keys(pipelineStatus.streams ?? {}).length : 0;
+  const streamRows = pipelineStatus?.streams ? Object.entries(pipelineStatus.streams) : [];
   const ntripState = pipelineStatus
     ? pipelineStatus.ingest_enabled
       ? pipelineStatus.active_streams > 0
@@ -96,13 +139,15 @@ export default function LivePipelinePage() {
   const ntripVariant = ntripState === "Streaming" ? "ok" : ntripState === "Checking" ? "accent" : "warn";
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "1.4rem" }}>
+    <div className="page-stack">
       <div>
         <h1 className="page-title">⚡ Live VTEC Pipeline</h1>
-        <p className="page-subtitle">NTRIP → RTCM → STEC → VTEC → TimescaleDB → CNN-GRU Forecast</p>
+        <p className="page-subtitle">
+          NTRIP → RTCM MSM + GPS ephemeris → STEC → VTEC (nav-derived elevation) → TecDB → CNN-GRU forecast
+        </p>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "0.8rem" }}>
+      <div className="metrics-auto-grid">
         <MetricCard
           label="NTRIP Collector"
           value={ntripState}
@@ -115,7 +160,12 @@ export default function LivePipelinePage() {
           value={pipelineStatus?.db_backend ?? "Checking"}
           sub={pipelineStatus ? `${pipelineStatus.record_count.toLocaleString()} records` : ""}
         />
-        <MetricCard label="CNN-GRU Model" value={fcStatus ? (fcStatus.torch_ok ? (fcStatus.model_exists ? "Ready" : "No model") : "PyTorch N/A") : "…"} sub={fcStatus ? `Forecast horizon: ${fcStatus.forecast_h} h` : ""} variant={fcStatus?.model_exists ? "ok" : "warn"} />
+        <MetricCard
+          label="CNN-GRU Model"
+          value={fcStatus ? (fcStatus.torch_ok ? (fcStatus.model_exists ? "Ready" : "No model") : "PyTorch N/A") : "…"}
+          sub={fcStatus ? `Forecast horizon: ${fcStatus.forecast_h} h` : ""}
+          variant={fcStatus?.model_exists ? "ok" : "warn"}
+        />
         <MetricCard label="CORS Network" value={total > 0 ? `${online}/${total}` : "24"} sub="Stations with live VTEC" variant="accent" />
       </div>
 
@@ -125,16 +175,42 @@ export default function LivePipelinePage() {
         </div>
       ) : null}
 
+      {streamRows.length > 0 && (
+        <div className="card">
+          <div className="metric-label" style={{ marginBottom: "0.6rem" }}>Active NTRIP stream status</div>
+          <div className="table-scroll compact">
+            <table className="dark-table">
+              <thead>
+                <tr>
+                  <th>Station</th>
+                  <th>Mountpoint</th>
+                  <th>Connected</th>
+                  <th>Messages</th>
+                  <th>Last seen</th>
+                </tr>
+              </thead>
+              <tbody>
+                {streamRows.map(([code, row]) => (
+                  <tr key={code}>
+                    <td>{code.toUpperCase()}</td>
+                    <td>{row.mountpoint}</td>
+                    <td>{row.connected ? "Yes" : "No"}</td>
+                    <td>{row.msg_count ?? 0}</td>
+                    <td>{row.last_seen ? String(row.last_seen).slice(11, 19) : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       <div className="card">
         <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", alignItems: "center", justifyContent: "space-between", marginBottom: "0.75rem" }}>
           <div>
             <div style={{ fontWeight: 700 }}>NTRIP mountpoint verification</div>
             <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", margin: "0.35rem 0 0" }}>
-              Tests each mountpoint for ~6 seconds and decodes RTCM message types.
-              <strong> MSM streaming</strong> means MSM4/MSM7 observations (required for VTEC).
-              <strong> RTCM only, no MSM</strong> means the caster accepts the site but sends non-observation RTCM
-              (e.g. 1029, 4092) — common when vendor Site Status shows &quot;up&quot; but no observation stream is forwarded.
-              If the live collector already holds a connection, a short probe may see only a handshake burst.
+              Requires <code>ENABLE_NTRIP_PROBE=true</code> in backend env. Tests each mountpoint for MSM4/MSM7 observations.
             </p>
           </div>
           <button className="btn btn-primary" onClick={handleProbe} disabled={probeLoading}>
@@ -150,8 +226,7 @@ export default function LivePipelinePage() {
               Probed {probe.host}:{probe.port} at {probe.probed_at} —{" "}
               <span style={{ color: "#00ff88", fontWeight: 700 }}>{probe.summary.msm_streaming} MSM streaming</span> ·{" "}
               <span style={{ color: "#ff8c00", fontWeight: 700 }}>{probe.summary.rtcm_no_msm} RTCM, no MSM</span> ·{" "}
-              {probe.summary.connected_no_data} connected (no RTCM) ·{" "}
-              {probe.summary.offline} offline
+              {probe.summary.connected_no_data} connected (no RTCM) · {probe.summary.offline} offline
             </div>
             <div style={{ overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.8rem" }}>
@@ -162,8 +237,6 @@ export default function LivePipelinePage() {
                     <th style={{ padding: "0.4rem" }}>Verdict</th>
                     <th style={{ padding: "0.4rem" }}>RTCM</th>
                     <th style={{ padding: "0.4rem" }}>MSM</th>
-                    <th style={{ padding: "0.4rem" }}>RTCM types</th>
-                    <th style={{ padding: "0.4rem" }}>MSM types</th>
                     <th style={{ padding: "0.4rem" }}>Note</th>
                   </tr>
                 </thead>
@@ -176,15 +249,7 @@ export default function LivePipelinePage() {
                         {VERDICT_LABEL[row.verdict] ?? row.verdict}
                       </td>
                       <td style={{ padding: "0.4rem" }}>{row.rtcm_total ?? row.rtcm_frames}</td>
-                      <td style={{ padding: "0.4rem", color: row.msm_count > 0 ? "#00ff88" : "inherit", fontWeight: row.msm_count > 0 ? 700 : 400 }}>
-                        {row.msm_count ?? 0}
-                      </td>
-                      <td style={{ padding: "0.4rem", fontFamily: "monospace", fontSize: "0.75rem" }}>
-                        {formatMsgTypes(row.msg_types)}
-                      </td>
-                      <td style={{ padding: "0.4rem", fontFamily: "monospace", fontSize: "0.75rem", color: row.msm_count > 0 ? "#00ff88" : "var(--text-muted)" }}>
-                        {formatMsgTypes(row.msm_types)}
-                      </td>
+                      <td style={{ padding: "0.4rem", color: row.msm_count > 0 ? "#00ff88" : "inherit" }}>{row.msm_count ?? 0}</td>
                       <td style={{ padding: "0.4rem", color: "var(--text-muted)" }}>{row.error ?? row.note}</td>
                     </tr>
                   ))}
@@ -195,9 +260,11 @@ export default function LivePipelinePage() {
         )}
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "3fr 2fr", gap: "1rem" }}>
+      <div className="page-split-charts">
         <div className="card">
-          <div className="metric-label" style={{ marginBottom: "0.6rem" }}>Live VTEC — last 2 hours{wsConnected ? " · 🟢 live" : ""}</div>
+          <div className="metric-label" style={{ marginBottom: "0.6rem" }}>
+            Live VTEC — last 2 hours{wsConnected ? " · 🟢 live" : ""} · refreshes every 30s
+          </div>
           {chartData.length > 0 ? (
             <LineChart labels={chartLabels} datasets={[{ label: "VTEC (TECU)", data: chartData, color: "#168bd2" }]} height={260} />
           ) : (
@@ -206,16 +273,22 @@ export default function LivePipelinePage() {
         </div>
 
         <div className="card">
-          <div className="metric-label" style={{ marginBottom: "0.6rem" }}>CNN-GRU Forecast (next 6 h)</div>
+          <div className="metric-label" style={{ marginBottom: "0.6rem" }}>CNN-GRU Forecast</div>
           {fcStatus && !fcStatus.torch_ok && (
             <div className="banner banner-info">CNN-GRU forecasting requires PyTorch. See backend/requirements.txt.</div>
           )}
           {fcStatus && fcStatus.torch_ok && !fcStatus.model_exists && (
-            <div className="banner banner-info">No trained model yet. Collect 30 days of data, then use Train below.</div>
+            <div className="banner banner-info">No trained model yet. Collect 30 days of data, then train the model.</div>
           )}
-          {fcStatus && fcStatus.model_exists && (
-            <div className="banner banner-info">Model ready. Forecast will appear once live data is streaming.</div>
-          )}
+          {forecast.length > 0 ? (
+            <LineChart
+              labels={forecast.map((f) => f.t)}
+              datasets={[{ label: "Forecast VTEC", data: forecast.map((f) => f.predicted_vtec), color: "#ff8c00" }]}
+              height={260}
+            />
+          ) : fcStatus?.model_exists ? (
+            <div className="banner banner-info">Model ready — forecast will appear once enough live archive data is available.</div>
+          ) : null}
         </div>
       </div>
 
@@ -226,22 +299,24 @@ export default function LivePipelinePage() {
             <div key={s.code} className="card" style={{ padding: "0.5rem 0.7rem", minHeight: "70px" }}>
               <div className="metric-label" style={{ fontSize: "0.62rem" }}>{s.code.toUpperCase()}</div>
               <div style={{ fontWeight: 800, fontSize: "1.1rem", color: s.stale ? "#444466" : "#00cc55" }}>
-                {s.last_vtec !== null && s.last_vtec !== undefined ? s.last_vtec.toFixed(1) : "N/A"}
+                {s.last_vtec != null ? s.last_vtec.toFixed(1) : "N/A"}
               </div>
               <div className="metric-label" style={{ fontSize: "0.58rem" }}>{s.name.slice(0, 14)}</div>
             </div>
           ))}
-          {stationStatus.length === 0 && [...Array(24)].map((_, i) => (
-            <div key={i} className="card" style={{ padding: "0.5rem 0.7rem", minHeight: "70px", opacity: 0.4 }}>
-              <div className="metric-label" style={{ fontSize: "0.62rem" }}>—</div>
-              <div style={{ fontWeight: 800, fontSize: "1.1rem", color: "#444466" }}>N/A</div>
-            </div>
-          ))}
+          {stationStatus.length === 0 &&
+            [...Array(24)].map((_, i) => (
+              <div key={i} className="card" style={{ padding: "0.5rem 0.7rem", minHeight: "70px", opacity: 0.4 }}>
+                <div className="metric-label" style={{ fontSize: "0.62rem" }}>—</div>
+                <div style={{ fontWeight: 800, fontSize: "1.1rem", color: "#444466" }}>N/A</div>
+              </div>
+            ))}
         </div>
       </div>
 
       <div className="banner banner-info" style={{ fontSize: "0.78rem" }}>
-        Live charts use stored observations when no fresh NTRIP MSM messages are being ingested by the collector.
+        VTEC uses GPS broadcast ephemeris (RTCM 1019) and station coordinates for satellite elevation — no synthetic 45° default.
+        Charts refresh every 30 seconds and via WebSocket when new DB rows arrive.
       </div>
     </div>
   );

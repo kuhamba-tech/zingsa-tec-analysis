@@ -158,22 +158,24 @@ async def live_stream(ws: WebSocket):
     await ws.accept()
     db = _db()
     try:
-        last_count = 0
+        last_latest_time: str | None = None
         while True:
             if db:
                 try:
                     df = db.query_recent(hours=0.1)
-                    if not df.empty and len(df) != last_count:
-                        last_count = len(df)
-                        latest = df.tail(10)
-                        rows = []
-                        for _, row in latest.iterrows():
-                            rows.append({
-                                "time": str(row.get("time", "")),
-                                "station": str(row.get("station", "")),
-                                "vtec_tecu": float(row["vtec_tecu"]) if "vtec_tecu" in row else None,
-                            })
-                        await ws.send_text(json.dumps(rows))
+                    if not df.empty:
+                        latest_time = str(df["time"].max())
+                        if latest_time != last_latest_time:
+                            last_latest_time = latest_time
+                            latest = df.tail(10)
+                            rows = []
+                            for _, row in latest.iterrows():
+                                rows.append({
+                                    "time": str(row.get("time", "")),
+                                    "station": str(row.get("station", "")),
+                                    "vtec_tecu": float(row["vtec_tecu"]) if "vtec_tecu" in row else None,
+                                })
+                            await ws.send_text(json.dumps(rows))
                 except Exception:
                     pass
             await asyncio.sleep(5)

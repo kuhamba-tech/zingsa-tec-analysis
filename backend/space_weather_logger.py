@@ -73,6 +73,7 @@ def log_snapshot(*, source: str = "scheduler", force: bool = False) -> bool:
 def _loop() -> None:
     interval = max(30.0, float(os.getenv("SW_LOG_INTERVAL_SEC", "60")))
     log.info("Space weather logger started (every %.0fs)", interval)
+    log_snapshot(source="startup", force=True)
     while not _stop.wait(interval):
         if log_snapshot(source="scheduler"):
             try:
@@ -89,7 +90,6 @@ def start() -> None:
     if _thread and _thread.is_alive():
         return
     _stop.clear()
-    log_snapshot(source="startup", force=True)
     _thread = threading.Thread(target=_loop, name="space-weather-logger", daemon=True)
     _thread.start()
 

@@ -43,7 +43,7 @@ export default function PrnFilters({
 
   return (
     <div className="card">
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(150px, 1fr)) auto", gap: "0.75rem", alignItems: "end" }}>
+      <div className="prn-filter-grid">
         <label className="form-label">
           Station
           <select className="form-select" value={station} onChange={(e) => onStation(e.target.value)}>

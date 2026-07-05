@@ -13,6 +13,7 @@ if str(root) not in sys.path:
     sys.path.insert(0, str(root))
 
 from zgiis.ai.assistant import chat
+from zgiis.ai.context import fetch_ekf_summary
 from zgiis.space_weather.fetch_indices import get_space_weather
 from zgiis.theme import inject
 
@@ -80,6 +81,12 @@ if use_context:
         f"☀️ Space weather: Kp={sw['kp']}, {sw['kp_condition']}, "
         f"F10.7={sw['f107']} sfu, GNSS risk={sw['gnss_risk']}"
     )
+    ekf_summary = fetch_ekf_summary(hours=6.0)
+    if ekf_summary:
+        ctx_parts.append(
+            f"⚠ EKF alerts: {ekf_summary['recent_count']} recent, "
+            f"{ekf_summary['unacknowledged_count']} unacknowledged"
+        )
     c1, c2 = st.columns(2)
     with c1:
         st.markdown(
@@ -106,6 +113,7 @@ if use_context:
 else:
     sw = {}
     tec_summary = None
+    ekf_summary = None
 
 st.markdown("---")
 
@@ -157,6 +165,7 @@ if messages and messages[-1]["role"] == "user":
                 messages=messages,
                 tec_summary=tec_summary if use_context else None,
                 sw=sw if use_context else None,
+                ekf_summary=ekf_summary if use_context else None,
                 api_key=api_key or None,
             )
         st.markdown(response)

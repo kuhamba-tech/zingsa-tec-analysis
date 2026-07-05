@@ -22,7 +22,7 @@ export default function PrnConstellationPanel({ info, stats }: Props) {
 
   return (
     <div className="card card-accent">
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.5fr) minmax(220px, 0.7fr)", gap: "1rem", alignItems: "start" }}>
+      <div className="prn-constellation-layout">
         <div>
           <div style={{ display: "flex", gap: "0.65rem", alignItems: "center", marginBottom: "0.4rem" }}>
             <span style={{ fontSize: "1.8rem" }}>{info.icon}</span>
@@ -35,7 +35,7 @@ export default function PrnConstellationPanel({ info, stats }: Props) {
             {info.summary}
           </p>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.55rem" }}>
+        <div className="prn-stat-grid">
           <Metric label="Satellites" value={stats.count ? String(stats.count) : "N/A"} color={info.color} />
           <Metric label="Mean VTEC" value={stats.meanVtec != null ? `${stats.meanVtec.toFixed(1)}` : "N/A"} color="#00ff88" />
           <Metric label="Quality" value={stats.meanQual != null ? `${stats.meanQual.toFixed(0)}%` : "N/A"} color="#ffcc00" />

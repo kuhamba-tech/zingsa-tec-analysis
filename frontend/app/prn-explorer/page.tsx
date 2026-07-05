@@ -187,7 +187,7 @@ export default function PrnExplorerPage() {
     : "No per-PRN source";
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "1.4rem" }}>
+    <div className="page-stack">
       <div>
         <h1 className="page-title">🛸 Satellite PRN Explorer</h1>
         <p className="page-subtitle">
@@ -201,7 +201,7 @@ export default function PrnExplorerPage() {
         explanation of satellites, VTEC, quality, and PRN range.
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.8rem" }}>
+      <div className="constellation-grid">
         {constellations.map((c: PrnConstellationInfo) => {
           const stats = constellationStats(data?.summary ?? [], c.id);
           const isActive = selected === c.id;

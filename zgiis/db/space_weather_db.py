@@ -139,10 +139,14 @@ class SpaceWeatherDB:
             self._conn = psycopg2.connect(self._dsn)
             with self._conn.cursor() as cur:
                 cur.execute(_PG_DDL)
-                try:
+            self._conn.commit()
+            try:
+                with self._conn.cursor() as cur:
                     cur.execute(_PG_HYPER)
-                except Exception:
-                    pass
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+            with self._conn.cursor() as cur:
                 cur.execute(_PG_IDX)
             self._conn.commit()
         except Exception as exc:

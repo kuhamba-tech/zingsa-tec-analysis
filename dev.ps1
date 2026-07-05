@@ -50,7 +50,7 @@ Write-Host "Starting backend (uvicorn) on port $BackendPort..."
 $backendLog = Join-Path $projectRoot "backend-dev.log"
 $backendErrLog = Join-Path $projectRoot "backend-dev.err.log"
 Start-Process -FilePath $venvPython `
-    -ArgumentList "-m", "uvicorn", "backend.main:app", "--host", "127.0.0.1", "--port", "$BackendPort", "--reload" `
+    -ArgumentList "-m", "uvicorn", "backend.main:app", "--host", "127.0.0.1", "--port", "$BackendPort" `
     -WorkingDirectory $projectRoot `
     -RedirectStandardOutput $backendLog `
     -RedirectStandardError $backendErrLog `

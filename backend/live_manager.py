@@ -18,6 +18,7 @@ _db = None
 _monitor = None
 _pipeline = None
 _ntrip_manager = None
+_nav_cache = None
 _configured = False
 _status_message = "Live pipeline has not been started."
 
@@ -34,38 +35,24 @@ def _runtime_mode() -> str:
 
 
 def _parse_mountpoints() -> dict[str, str]:
-    raw = os.getenv("NTRIP_MOUNTPOINTS", "").strip()
-    if raw:
-        out: dict[str, str] = {}
-        for pair in raw.split(","):
-            pair = pair.strip()
-            if not pair or ":" not in pair:
-                continue
-            station, mp = pair.split(":", 1)
-            out[station.strip().lower()] = mp.strip()
-        if out:
-            return out
+    from zgiis.live.mountpoints import parse_mountpoints
 
-    mountpoint = os.getenv("NTRIP_MOUNTPOINT", "").strip()
-    station = os.getenv("NTRIP_STATION_CODE", "zinh").strip().lower()
-    if mountpoint:
-        normalized = mountpoint.lower().rstrip("_")
-        # ZINGSA_HQ is the marker name for the HQ station, not a network-wide
-        # mountpoint. For the live dashboard we need one stream per CORS site.
-        if normalized in {"zingsa_hq", "zinhq", "all", "network"}:
-            return _default_station_mountpoints()
-        return {station: mountpoint}
-    return _default_station_mountpoints()
+    return parse_mountpoints()
 
 
 def _default_station_mountpoints() -> Dict[str, str]:
-    from zgiis.cors.site_details import site_meta
-    from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
+    from zgiis.live.mountpoints import default_station_mountpoints
 
-    return {
-        station.code.lower().rstrip("_"): site_meta(station.code)["mountpoint"]
-        for station in ZIMBABWE_CORS_STATIONS
-    }
+    return default_station_mountpoints()
+
+
+def get_nav_cache():
+    global _nav_cache
+    if _nav_cache is None:
+        from zgiis.live.satellite_geometry import LiveNavCache
+
+        _nav_cache = LiveNavCache()
+    return _nav_cache
 
 
 def get_db():
@@ -73,6 +60,7 @@ def get_db():
     global _db
     if _db is None:
         from zgiis.db.timescale import TecDB
+
         _db = TecDB()
     return _db
 
@@ -82,6 +70,7 @@ def get_monitor():
     global _monitor
     if _monitor is None:
         from zgiis.live.rtk_monitor import RTKMonitor
+
         _monitor = RTKMonitor()
     return _monitor
 
@@ -141,16 +130,18 @@ def start() -> None:
 
     db = get_db()
     monitor = get_monitor()
+    nav_cache = get_nav_cache()
 
     def _on_vtec(vtec: dict) -> None:
         epoch = vtec.get("epoch")
         latency_ms = (
             (datetime.now(tz=timezone.utc) - epoch).total_seconds() * 1000.0
-            if isinstance(epoch, datetime) else 0.0
+            if isinstance(epoch, datetime)
+            else 0.0
         )
         monitor.record(vtec["station"], max(latency_ms, 0.0))
 
-    pipeline = LiveVtecPipeline(db=db, on_vtec=_on_vtec)
+    pipeline = LiveVtecPipeline(db=db, on_vtec=_on_vtec, nav_cache=nav_cache)
 
     def _on_observation(obs: dict) -> None:
         pipeline.ingest(obs)
@@ -166,7 +157,12 @@ def start() -> None:
     max_concurrent_raw = os.getenv("NTRIP_LIVE_MAX_CONCURRENT", "").strip()
     max_concurrent = int(max_concurrent_raw) if max_concurrent_raw else None
 
-    manager = LiveNtripManager(ntrip_cfg, on_observation=_on_observation, max_concurrent=max_concurrent)
+    manager = LiveNtripManager(
+        ntrip_cfg,
+        on_observation=_on_observation,
+        max_concurrent=max_concurrent,
+        nav_cache=nav_cache,
+    )
     manager.start(mountpoints)
 
     _pipeline = pipeline
@@ -177,8 +173,14 @@ def start() -> None:
 
 
 def stop() -> None:
-    global _ntrip_manager, _configured
+    global _pipeline, _ntrip_manager, _configured
+    if _pipeline is not None:
+        try:
+            _pipeline.flush_db()
+        except Exception as exc:
+            log.warning("Live pipeline DB flush on stop failed: %s", exc)
     if _ntrip_manager is not None:
         _ntrip_manager.stop()
         _ntrip_manager = None
+    _pipeline = None
     _configured = False
