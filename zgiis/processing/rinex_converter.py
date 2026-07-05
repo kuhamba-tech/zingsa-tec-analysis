@@ -16,7 +16,7 @@ import pandas as pd
 log = logging.getLogger("zgiis.rinex_converter")
 
 RINEX_EXTS = {".o", ".obs", ".rnx", ".24o", ".25o", ".26o", ".o.gz", ".obs.gz"}
-NAV_EXTS = {".n", ".nav", ".24n", ".25n", ".26n", ".g", ".gnav"}
+NAV_EXTS = {".n", ".nav", ".24n", ".25n", ".26n", ".g", ".gnav", ".24g", ".25g", ".26g"}
 RAW_EXTS = {".mdb", ".dat", ".tgd", ".t02", ".t04", ".bin"}
 
 

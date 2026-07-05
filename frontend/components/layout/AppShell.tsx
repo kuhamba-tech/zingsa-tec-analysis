@@ -39,9 +39,14 @@ const NAV_GROUPS: { section: string; items: NavItem[] }[] = [
       { href: "/space-weather/gnss-intelligence", label: "Navigation Weather", icon: "🛰️" },
       { href: "/storm-watch", label: "Storm Watch", icon: "🌩️" },
       { href: "/gic-monitor", label: "GIC Monitor", icon: "🧲" },
+    ],
+  },
+  {
+    section: "Theory",
+    items: [
       { href: "/understanding-tec", label: "Understanding TEC", icon: "🌐" },
       { href: "/vtec-theory", label: "Calculating VTEC", icon: "📚" },
-      { href: "/geomagnetic-storm-theory", label: "Storm Metrics Theory", icon: "🧲" },
+      { href: "/geomagnetic-storm-theory", label: "Storm Metrics Theory", icon: "📐" },
     ],
   },
   {
