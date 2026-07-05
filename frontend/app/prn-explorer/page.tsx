@@ -4,9 +4,9 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import BarChart from "@/components/charts/BarChart";
 import LineChart from "@/components/charts/LineChart";
-import PrnConstellationPanel from "@/components/prn/PrnConstellationPanel";
-import PrnFilters from "@/components/prn/PrnFilters";
-import PrnSkyPlot from "@/components/prn/PrnSkyPlot";
+import PrnConstellationPanel from "@/components/prnExplorer/PrnConstellationPanel";
+import PrnFilters from "@/components/prnExplorer/PrnFilters";
+import PrnSkyPlot from "@/components/prnExplorer/PrnSkyPlot";
 import { getPrnConstellations, getPrnExplorer } from "@/lib/api";
 import type {
   PrnConstellationInfo,
