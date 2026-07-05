@@ -20,7 +20,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from backend import live_manager, space_weather_logger, station_status_logger
+from backend import live_manager, navigation_broadcast_scheduler, space_weather_logger, station_status_logger
 from backend.routers import (
     chat,
     cors_network,
@@ -46,7 +46,9 @@ async def lifespan(app: FastAPI):
     ).start()
     space_weather_logger.start()
     station_status_logger.start()
+    navigation_broadcast_scheduler.start()
     yield
+    navigation_broadcast_scheduler.stop()
     station_status_logger.stop()
     space_weather_logger.stop()
     live_manager.stop()

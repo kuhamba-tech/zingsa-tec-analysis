@@ -26,6 +26,7 @@ export interface SpaceWeatherTimelines {
   gnss_risk: TimelinePoint[];
   stations_online: TimelinePoint[];
   mean_vtec: TimelinePoint[];
+  gic: TimelinePoint[];
 }
 
 export interface SpaceWeatherLogStatus {
@@ -904,7 +905,7 @@ export interface ComputationPipeline {
 
 // ── Navigation News (broadcast agent API) ───────────────────────────────────────
 
-export type AudienceId = "farmer" | "surveyor" | "citizen" | "driver" | "aviation";
+export type AudienceId = "farmer" | "surveyor" | "citizen" | "driver" | "aviation" | "scientist";
 
 export interface NavigationNewsBriefApi {
   id: AudienceId;
@@ -940,6 +941,90 @@ export interface NavigationNewsScheduleApi {
   update_interval_hours: number;
   updates_per_day: number;
   update_history: string[];
+}
+
+export interface BroadcastRecipient {
+  recipient_id: string;
+  recipient_type: "phone";
+  whatsapp_to: string;
+  display_name: string;
+  audience: AudienceId;
+  audience_role?: string | null;
+  audience_title?: string | null;
+  audience_description?: string | null;
+  audience_icon?: string | null;
+  script_kind: string;
+  language?: string;
+  language_label?: string | null;
+  accessibility?: string;
+  accessibility_label?: string | null;
+  active: boolean;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BroadcastRecipientCreate {
+  recipient_type: "phone";
+  whatsapp_to: string;
+  display_name: string;
+  audience?: AudienceId;
+  script_kind?: string;
+  language?: "en" | "sn" | "nd";
+  accessibility?: "standard" | "deaf" | "blind";
+  notes?: string;
+  active?: boolean;
+}
+
+export interface BroadcastDelivery {
+  delivery_id: string;
+  recipient_id: string | null;
+  display_name: string | null;
+  whatsapp_to: string | null;
+  audience: string | null;
+  ok: boolean;
+  detail: string | null;
+  dry_run: boolean;
+  sent_at: string;
+}
+
+export interface NavigationBroadcastOverview {
+  recipients: BroadcastRecipient[];
+  status: NavigationBroadcastStatus;
+}
+
+export interface NavigationBroadcastStatus {
+  enabled: boolean;
+  running: boolean;
+  interval_hours: number;
+  last_broadcast_at: string | null;
+  next_broadcast_at: string | null;
+  active_recipient_count: number;
+  whatsapp_configured: boolean;
+  dry_run: boolean;
+  recent_deliveries: BroadcastDelivery[];
+  facebook?: NavigationFacebookStatus | null;
+}
+
+export interface NavigationFacebookStatus {
+  enabled: boolean;
+  configured: boolean;
+  dry_run: boolean;
+  page_id: string;
+  page_url: string;
+}
+
+export interface NavigationFacebookPostResult {
+  ok: boolean;
+  skipped?: boolean;
+  reason?: string | null;
+  dry_run: boolean;
+  page_id: string;
+  page_url: string;
+  detail?: string | null;
+  message_preview?: string | null;
+  message_length?: number | null;
+  computed_at?: string | null;
 }
 
 // ── GIC Monitor ──────────────────────────────────────────────────────────────

@@ -5,13 +5,41 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from backend.deps import require_api_key
-from backend.schemas import NavigationNewsBriefOut, NavigationNewsBundleOut, NavigationNewsScheduleOut
+from backend.deps import is_broadcast_admin, require_api_key, require_broadcast_admin
+from backend.schemas import (
+    BroadcastRecipientCreate,
+    BroadcastRecipientOut,
+    BroadcastRecipientUpdate,
+    NavigationBroadcastOverviewOut,
+    NavigationBroadcastRunOut,
+    NavigationBroadcastStatusOut,
+    NavigationFacebookPostOut,
+    NavigationFacebookStatusOut,
+    NavigationNewsAudienceRoleOut,
+    NavigationNewsBriefOut,
+    NavigationNewsBundleOut,
+    NavigationNewsScheduleOut,
+    NavigationDeliveryOptionsOut,
+    DeliveryOptionOut,
+)
 
 router = APIRouter(prefix="/navigation-news", tags=["navigation-news"])
 
-AudienceId = Literal["farmer", "surveyor", "citizen", "driver", "aviation"]
-VALID_AUDIENCES = frozenset({"farmer", "surveyor", "citizen", "driver", "aviation"})
+AudienceId = Literal["farmer", "surveyor", "citizen", "driver", "aviation", "scientist"]
+VALID_AUDIENCES = frozenset({"farmer", "surveyor", "citizen", "driver", "aviation", "scientist"})
+
+
+def _recipient_out(rec: dict, *, redact: bool = False) -> BroadcastRecipientOut:
+    from zgiis.navigation.audience_roles import enrich_recipient
+
+    data = enrich_recipient(rec)
+    if redact:
+        data = {
+            **data,
+            "whatsapp_to": "private",
+            "notes": None,
+        }
+    return BroadcastRecipientOut(**data)
 
 # In-process cache mirror (per worker); persisted copy in news_cache.py
 _mem_cache = None
@@ -177,3 +205,194 @@ async def navigation_news_brief(
     if not match:
         raise HTTPException(status_code=404, detail=f"No brief for audience '{audience}'")
     return match
+
+
+@router.get("/audiences", response_model=list[NavigationNewsAudienceRoleOut])
+async def navigation_news_audiences(_=Depends(require_api_key)):
+    """Role classifications for tailored WhatsApp registration (matches GNSS Intelligence briefs)."""
+    from zgiis.navigation.audience_roles import AUDIENCE_ROLES
+
+    return [NavigationNewsAudienceRoleOut(**r) for r in AUDIENCE_ROLES]
+
+
+@router.get("/delivery-options", response_model=NavigationDeliveryOptionsOut)
+async def navigation_delivery_options(_=Depends(require_api_key)):
+    """Languages and accessibility formats for Navigation News WhatsApp delivery."""
+    from zgiis.navigation.delivery_preferences import delivery_options_payload
+
+    payload = delivery_options_payload()
+    return NavigationDeliveryOptionsOut(
+        languages=[DeliveryOptionOut(**x) for x in payload["languages"]],
+        accessibility=[DeliveryOptionOut(**x) for x in payload["accessibility"]],
+    )
+
+
+@router.get("/recipients", response_model=list[BroadcastRecipientOut])
+async def list_broadcast_recipients(
+    _=Depends(require_api_key),
+    admin: bool = Depends(is_broadcast_admin),
+):
+    """Registered WhatsApp recipients (IDs redacted unless broadcast admin)."""
+    from zgiis.db.broadcast_recipient_db import BroadcastRecipientDB
+
+    return [_recipient_out(r, redact=not admin) for r in BroadcastRecipientDB().list_recipients()]
+
+
+@router.get("/broadcast/recipients", response_model=list[BroadcastRecipientOut])
+async def list_broadcast_recipients_alias(
+    _=Depends(require_api_key),
+    admin: bool = Depends(is_broadcast_admin),
+):
+    """Alias — same as GET /navigation-news/recipients."""
+    from zgiis.db.broadcast_recipient_db import BroadcastRecipientDB
+
+    return [_recipient_out(r, redact=not admin) for r in BroadcastRecipientDB().list_recipients()]
+
+
+@router.get("/broadcast/overview", response_model=NavigationBroadcastOverviewOut)
+async def broadcast_overview(
+    _=Depends(require_api_key),
+    admin: bool = Depends(is_broadcast_admin),
+):
+    """Recipients + scheduler status in one call for the GNSS Intelligence broadcast UI."""
+    from backend import navigation_broadcast_scheduler
+    from zgiis.db.broadcast_recipient_db import BroadcastRecipientDB
+
+    st = navigation_broadcast_scheduler.status()
+    if not admin:
+        for delivery in st.get("recent_deliveries", []):
+            delivery["whatsapp_to"] = "private"
+
+    return NavigationBroadcastOverviewOut(
+        recipients=[_recipient_out(r, redact=not admin) for r in BroadcastRecipientDB().list_recipients()],
+        status=NavigationBroadcastStatusOut(**st),
+    )
+
+
+@router.post("/recipients", response_model=BroadcastRecipientOut, status_code=201)
+async def create_broadcast_recipient(
+    body: BroadcastRecipientCreate,
+    _=Depends(require_api_key),
+    __=Depends(require_broadcast_admin),
+):
+    from zgiis.db.broadcast_recipient_db import BroadcastRecipientDB
+
+    try:
+        return _recipient_out(BroadcastRecipientDB().create_recipient(**body.model_dump()))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.patch("/recipients/{recipient_id}", response_model=BroadcastRecipientOut)
+async def update_broadcast_recipient(
+    recipient_id: str,
+    body: BroadcastRecipientUpdate,
+    _=Depends(require_api_key),
+    __=Depends(require_broadcast_admin),
+):
+    from zgiis.db.broadcast_recipient_db import BroadcastRecipientDB
+
+    try:
+        updated = BroadcastRecipientDB().update_recipient(
+            recipient_id,
+            **body.model_dump(exclude_unset=True),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if not updated:
+        raise HTTPException(status_code=404, detail="Recipient not found")
+    return _recipient_out(updated)
+
+
+@router.delete("/recipients/{recipient_id}", status_code=204)
+async def delete_broadcast_recipient(
+    recipient_id: str,
+    _=Depends(require_api_key),
+    __=Depends(require_broadcast_admin),
+):
+    from zgiis.db.broadcast_recipient_db import BroadcastRecipientDB
+
+    if not BroadcastRecipientDB().delete_recipient(recipient_id):
+        raise HTTPException(status_code=404, detail="Recipient not found")
+
+
+@router.get("/broadcast/status", response_model=NavigationBroadcastStatusOut)
+async def navigation_broadcast_status(
+    _=Depends(require_api_key),
+    admin: bool = Depends(is_broadcast_admin),
+):
+    """Scheduler state, registered recipient count, and recent WhatsApp deliveries."""
+    from backend import navigation_broadcast_scheduler
+
+    payload = navigation_broadcast_scheduler.status()
+    if not admin:
+        for delivery in payload.get("recent_deliveries", []):
+            delivery["whatsapp_to"] = "private"
+    return NavigationBroadcastStatusOut(**payload)
+
+
+@router.get("/facebook/status", response_model=NavigationFacebookStatusOut)
+async def navigation_facebook_status(_=Depends(require_api_key)):
+    """Facebook Page config for Navigation News (ZINGSA official page)."""
+    from zgiis.navigation.facebook_status import facebook_status_payload
+
+    return NavigationFacebookStatusOut(**facebook_status_payload())
+
+
+@router.get("/broadcast/facebook/status", response_model=NavigationFacebookStatusOut)
+async def navigation_facebook_status_alias(_=Depends(require_api_key)):
+    """Alias for clients where /facebook/status may be blocked or unavailable."""
+    from zgiis.navigation.facebook_status import facebook_status_payload
+
+    return NavigationFacebookStatusOut(**facebook_status_payload())
+
+
+@router.post("/facebook/test-post", response_model=NavigationFacebookPostOut)
+async def navigation_facebook_test_post(
+    live: bool = Query(False, description="When true and credentials are set, post to Facebook (not dry-run)"),
+    _=Depends(require_api_key),
+):
+    """Verify Navigation News can be posted to the ZINGSA Facebook Page.
+
+    Default is dry-run (logs only). Set `live=true` with FACEBOOK_PAGE_ACCESS_TOKEN
+    configured to publish a real test post.
+    """
+    from zgiis.navigation.facebook_publish import publish_navigation_news_to_facebook
+
+    result = publish_navigation_news_to_facebook(dry_run=not live)
+    return NavigationFacebookPostOut(**result)
+
+
+@router.post("/broadcast/facebook/test-post", response_model=NavigationFacebookPostOut)
+async def navigation_facebook_test_post_alias(
+    live: bool = Query(False),
+    _=Depends(require_api_key),
+):
+    """Alias for Facebook test post."""
+    from zgiis.navigation.facebook_publish import publish_navigation_news_to_facebook
+
+    result = publish_navigation_news_to_facebook(dry_run=not live)
+    return NavigationFacebookPostOut(**result)
+
+
+@router.post("/broadcast/recipients/sync")
+async def sync_broadcast_recipients_file(
+    _=Depends(require_api_key),
+    __=Depends(require_broadcast_admin),
+):
+    """Load recipients from the private server-side JSON file into the registry."""
+    from zgiis.navigation.broadcast_recipients_file import sync_recipients_from_file
+
+    return sync_recipients_from_file()
+
+
+@router.post("/broadcast/run", response_model=NavigationBroadcastRunOut)
+async def navigation_broadcast_run(
+    _=Depends(require_api_key),
+    __=Depends(require_broadcast_admin),
+):
+    """Manually send Navigation News now to WhatsApp recipients and Facebook (admin only)."""
+    from backend import navigation_broadcast_scheduler
+
+    result = navigation_broadcast_scheduler.run_broadcast_now(force=True)
+    return NavigationBroadcastRunOut(**result)

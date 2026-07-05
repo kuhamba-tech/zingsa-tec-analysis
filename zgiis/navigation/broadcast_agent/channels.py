@@ -94,7 +94,13 @@ class WebhookChannel:
 
 
 class WhatsAppCloudChannel:
-    """Meta WhatsApp Cloud API — text messages to a phone or group recipient id."""
+    """Meta WhatsApp Cloud API — text messages to one or more individual recipients.
+
+    The Cloud API has no endpoint to list or post into a WhatsApp group; "to"
+    only ever accepts individual phone numbers. To reach everyone in a group,
+    list each member's number in "to" (comma-separated) — each gets the same
+    message sent to their personal chat.
+    """
 
     name = "whatsapp"
 
@@ -103,9 +109,10 @@ class WhatsAppCloudChannel:
 
         token = os.getenv("WHATSAPP_ACCESS_TOKEN", "").strip()
         phone_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "").strip()
-        to = options.get("to") or os.getenv(f"BROADCAST_{audience.upper()}_WHATSAPP_TO", "").strip()
+        raw_to = options.get("to") or os.getenv(f"BROADCAST_{audience.upper()}_WHATSAPP_TO", "")
+        recipients = [r.strip() for r in raw_to.split(",") if r.strip()]
 
-        if not all([token, phone_id, to]):
+        if not token or not phone_id or not recipients:
             return DeliveryResult(
                 self.name, audience, script_kind, False,
                 "missing WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID, or recipient 'to'",
@@ -115,23 +122,39 @@ class WhatsAppCloudChannel:
         body = text if len(text) <= 4000 else text[:3950] + "\n\n…(truncated)"
 
         if dry_run:
-            log.info("DRY-RUN WhatsApp to=%s len=%d", to, len(body))
-            return DeliveryResult(self.name, audience, script_kind, True, f"dry-run to {to}", dry_run=True)
+            log.info("DRY-RUN WhatsApp to=%s len=%d", recipients, len(body))
+            return DeliveryResult(
+                self.name, audience, script_kind, True,
+                f"dry-run to {len(recipients)} recipient(s)", dry_run=True,
+            )
 
         url = f"https://graph.facebook.com/v19.0/{phone_id}/messages"
-        res = requests.post(
-            url,
-            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-            json={
-                "messaging_product": "whatsapp",
-                "to": to,
-                "type": "text",
-                "text": {"preview_url": False, "body": body},
-            },
-            timeout=30,
-        )
-        ok = res.status_code < 400
-        detail = res.text[:200] if not ok else "sent"
+        failures: list[str] = []
+        for to in recipients:
+            try:
+                res = requests.post(
+                    url,
+                    headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                    json={
+                        "messaging_product": "whatsapp",
+                        "recipient_type": "individual",
+                        "to": to,
+                        "type": "text",
+                        "text": {"preview_url": False, "body": body},
+                    },
+                    timeout=30,
+                )
+                if res.status_code >= 400:
+                    failures.append(f"{to}: HTTP {res.status_code} {res.text[:120]}")
+            except requests.RequestException as exc:
+                failures.append(f"{to}: {exc}")
+
+        sent = len(recipients) - len(failures)
+        ok = sent > 0
+        if failures:
+            detail = f"sent {sent}/{len(recipients)}; failed: " + "; ".join(failures[:5])
+        else:
+            detail = f"sent to {sent} recipient(s)"
         return DeliveryResult(self.name, audience, script_kind, ok, detail)
 
 
@@ -145,14 +168,29 @@ class FacebookPageChannel:
 
         token = options.get("page_token") or os.getenv("FACEBOOK_PAGE_ACCESS_TOKEN", "").strip()
         page_id = options.get("page_id") or os.getenv("FACEBOOK_PAGE_ID", "").strip()
-        if not token or not page_id:
-            return DeliveryResult(self.name, audience, script_kind, False, "missing FACEBOOK_PAGE_ACCESS_TOKEN or FACEBOOK_PAGE_ID")
+        if not page_id:
+            try:
+                from zgiis.navigation.facebook_publish import resolve_facebook_page_id
+
+                page_id = resolve_facebook_page_id()
+            except Exception:
+                page_id = ""
 
         message = text if len(text) <= 5000 else text[:4950] + "…"
 
         if dry_run:
-            log.info("DRY-RUN Facebook page %s", page_id)
+            if not page_id:
+                return DeliveryResult(
+                    self.name, audience, script_kind, False, "missing FACEBOOK_PAGE_ID"
+                )
+            log.info("DRY-RUN Facebook page %s len=%d", page_id, len(message))
             return DeliveryResult(self.name, audience, script_kind, True, "dry-run", dry_run=True)
+
+        if not token or not page_id:
+            return DeliveryResult(
+                self.name, audience, script_kind, False,
+                "missing FACEBOOK_PAGE_ACCESS_TOKEN or FACEBOOK_PAGE_ID",
+            )
 
         url = f"https://graph.facebook.com/v19.0/{page_id}/feed"
         res = requests.post(url, params={"access_token": token, "message": message}, timeout=30)

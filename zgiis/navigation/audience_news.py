@@ -15,7 +15,7 @@ from zgiis.navigation.zingsa_contact import (
     ZINGSA_PHONE,
 )
 
-AudienceId = Literal["farmer", "surveyor", "citizen", "driver", "aviation"]
+AudienceId = Literal["farmer", "surveyor", "citizen", "driver", "aviation", "scientist"]
 
 
 @dataclass
@@ -816,6 +816,132 @@ def _aviation_brief(
     )
 
 
+def _scientist_brief(
+    forecasts: list[GnssForecastCity],
+    tone: ForecastStatus,
+    sw: dict[str, Any] | None,
+    computed_at: str,
+) -> NavigationNewsBrief:
+    status = tone
+    sw_ctx = build_space_weather_layman(sw, tone)
+    kp = sw.get("kp") if sw else None
+    dst = sw.get("dst") if sw else None
+    s4 = sw.get("s4") if sw else None
+    vtec = sw.get("vtec") if sw else None
+    gnss_risk = str(sw.get("gnss_risk") or "unknown") if sw else "unknown"
+    national = _national_tone(forecasts)
+    degraded_stations = sum(1 for f in forecasts if f.status != "excellent")
+
+    headlines: dict[ForecastStatus, str] = {
+        "excellent": "Quiet ionosphere — favourable window for GNSS science and CORS QC",
+        "moderate": "Elevated space weather — expect measurable TEC bias and scintillation in afternoon data",
+        "warning": "Storm conditions — flag CORS arcs, widen uncertainty on TEC/GNSS products",
+    }
+
+    summaries: dict[ForecastStatus, str] = {
+        "excellent": (
+            "Geomagnetic and ionospheric drivers are subdued over Zimbabwe. CORS-derived VTEC, dual-frequency "
+            "combinations, and EKF-monitored residuals should stay within typical quiet-day envelopes — suitable "
+            "for calibration runs, model validation, and publication-quality extracts from the ZINGSA archive."
+        ),
+        "moderate": (
+            "Space weather is injecting extra delay and phase noise into the ionosphere. Researchers should expect "
+            "elevated TEC gradients, higher S4 on low-elevation satellites, and longer RTK re-convergence in "
+            "CORS time series — especially post-noon. Compare live Kp/Dst with ZINGSA EKF deviation alerts before "
+            "assimilating data into storm studies."
+        ),
+        "warning": (
+            "Active geomagnetic disturbance is dominating the ionospheric state. TEC maps, ROTI proxies, and "
+            "carrier-phase solutions may contain outliers; do not treat automatic QC as sufficient without manual "
+            "review. Cross-check NOAA/SWPC indices, WDC Kyoto Dst, and ZINGSA storm-watch logs — this is a high-value "
+            "event for case studies but a poor window for baseline inter-comparisons."
+        ),
+    }
+
+    metrics_line = (
+        f"Live indices: Kp {_fmt_num(kp)} · Dst {_fmt_num(dst, 0)} nT · S4 {_fmt_num(s4, 2)} · "
+        f"VTEC {_fmt_num(vtec, 2)} TECU · GNSS risk {gnss_risk}"
+    )
+
+    bullets: dict[ForecastStatus, list[str]] = {
+        "excellent": [
+            f"National GNSS outlook: {_status_word(national)} across {len(forecasts)} forecast cities",
+            metrics_line,
+            f"CORS network: {degraded_stations} cities outside excellent — routine QC only",
+            "EKF pipeline: residuals expected near climatology; good day for filter tuning",
+            "Data use: archive pulls, student labs, and inter-station TEC comparisons",
+        ],
+        "moderate": [
+            f"National GNSS outlook: {_status_word(national)}",
+            metrics_line,
+            f"CORS network: {degraded_stations} cities showing moderate/warning positioning stress",
+            "Watch afternoon scintillation (S4) on east-west baselines and low elevations",
+            "EKF deviation alerts may fire on TEC/S4 — treat as science signal, not sensor fault",
+        ],
+        "warning": [
+            f"National GNSS outlook: {_status_word(national)}",
+            metrics_line,
+            f"CORS network: {degraded_stations} cities degraded — flag RINEX before ingestion",
+            "Prioritise storm case logging: Kp, Dst, solar wind, GIC if available",
+            "Delay cm-level RTK research products; publish event bulletin instead",
+        ],
+    }
+
+    actions: dict[ForecastStatus, str] = {
+        "excellent": (
+            "Proceed with routine processing and research extracts. Document quiet-day baselines for the archive."
+        ),
+        "moderate": (
+            "Enable enhanced QC flags on CORS ingest; compare ZINGSA TEC with IGS/global maps; note EKF alerts in lab books."
+        ),
+        "warning": (
+            "Activate storm-data protocol: snapshot indices hourly, segregate contaminated arcs, coordinate with ZINGSA ops before releasing operational TEC products."
+        ),
+    }
+
+    broadcast = _join_script([
+        "🔬 *ZINGSA Navigation News — Scientists & Researchers*",
+        _format_utc(computed_at),
+        "",
+        f"🌌 *Space weather:* {sw_ctx.headline}",
+        *[f"• {b}" for b in sw_ctx.readout[:4]],
+        "",
+        headlines[status],
+        "",
+        summaries[status],
+        "",
+        *[f"• {b}" for b in bullets[status]],
+        "",
+        f"👉 *Action:* {actions[status]}",
+        "",
+        *ZINGSA_BROADCAST_FOOTER,
+    ])
+
+    social = _join_script([
+        "🔬 ZINGSA Navigation News | Scientists",
+        sw_ctx.headline,
+        metrics_line,
+        "#SpaceWeather #Ionosphere #GNSS #Research #Zimbabwe",
+    ])
+
+    return NavigationNewsBrief(
+        id="scientist",
+        icon="🔬",
+        title="Scientist Brief",
+        audience="Researchers, geophysicists & GNSS data analysts",
+        headline=headlines[status],
+        summary=summaries[status],
+        space_weather_today=f"{sw_ctx.headline} {sw_ctx.explainer}",
+        space_weather_bullets=sw_ctx.readout,
+        bullets=bullets[status],
+        action=actions[status],
+        status_tone=status,
+        broadcast_script=broadcast,
+        social_script=social,
+        channels=[*ZINGSA_NAVIGATION_CHANNELS, "Research WhatsApp", "University mailing lists", "Data portal RSS"],
+    )
+
+
 def build_audience_news(
     forecasts: list[GnssForecastCity],
     computed_at: str,
@@ -830,6 +956,7 @@ def build_audience_news(
         _surveyor_brief(cities.get("MUTARE"), cities.get("HARARE"), tone, sw, computed_at),
         _aviation_brief(forecasts, tone, sw, computed_at),
         _driver_brief(forecasts, tone, sw, computed_at),
+        _scientist_brief(forecasts, tone, sw, computed_at),
     ]
 
 

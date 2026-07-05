@@ -1,0 +1,29 @@
+[
+  {
+    "recipient_type": "phone",
+    "whatsapp_to": "263771234501",
+    "display_name": "ZINGSA Farmer Updates — Lead",
+    "audience": "farmer",
+    "language": "sn",
+    "accessibility": "deaf",
+    "active": true
+  },
+  {
+    "recipient_type": "phone",
+    "whatsapp_to": "263771234502",
+    "display_name": "ZINGSA Surveyor Network — Lead",
+    "audience": "surveyor",
+    "language": "en",
+    "accessibility": "standard",
+    "active": true
+  },
+  {
+    "recipient_type": "phone",
+    "whatsapp_to": "263771234568",
+    "display_name": "ZINGSA Research & Scientists — Lead",
+    "audience": "scientist",
+    "language": "en",
+    "accessibility": "standard",
+    "active": true
+  }
+]

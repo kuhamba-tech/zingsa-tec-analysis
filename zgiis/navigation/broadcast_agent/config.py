@@ -7,10 +7,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
-AudienceId = Literal["farmer", "surveyor", "citizen", "driver", "aviation"]
+AudienceId = Literal["farmer", "surveyor", "citizen", "driver", "aviation", "scientist"]
 ScriptKind = Literal["broadcast", "social"]
 
-ALL_AUDIENCES: tuple[AudienceId, ...] = ("citizen", "farmer", "surveyor", "aviation", "driver")
+ALL_AUDIENCES: tuple[AudienceId, ...] = ("citizen", "farmer", "surveyor", "aviation", "driver", "scientist")
 
 
 @dataclass
@@ -47,7 +47,7 @@ def _parse_routes(raw: str | None) -> dict[str, list[ChannelTarget]]:
     Example:
     {
       "farmer": [
-        {"channel": "whatsapp", "script": "broadcast", "options": {"to": "263771234567"}},
+        {"channel": "whatsapp", "script": "broadcast", "options": {"to": "263771234567,263779876543"}},
         {"channel": "webhook", "script": "broadcast", "options": {"url": "https://..."}}
       ],
       "citizen": [

@@ -8,13 +8,12 @@ import {
   LinearScale,
   LineElement,
   PointElement,
-  TimeScale,
   Title,
   Tooltip,
 } from "chart.js";
 import { Line } from "react-chartjs-2";
 
-ChartJS.register(CategoryScale, LinearScale, TimeScale, PointElement, LineElement, Title, Tooltip, Legend, Filler);
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler);
 
 interface PointMeta {
   error?: number | null;

@@ -28,6 +28,19 @@ function flareColor(cls: string): string {
   return FLARE_SCALE.find((f) => f.cls === letter)?.color ?? "#ffffff";
 }
 
+function displayText(value: unknown): string | null {
+  if (value == null) return null;
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return null;
+}
+
+function displayFlux(flux: unknown): string | null {
+  const n = typeof flux === "number" ? flux : Number(flux);
+  if (!Number.isFinite(n)) return null;
+  return `${n.toExponential(2)} W/m²`;
+}
+
 // ── KP scale bands ────────────────────────────────────────────────────────────
 const KP_BANDS = [
   { range: "0–2", label: "Quiet",          color: "#22c55e" },
@@ -220,9 +233,13 @@ export default function SpaceWeatherPage() {
     : "";
 
   // ── Alert text ────────────────────────────────────────────────────────────
-  const latestAlert = alerts[0] as Record<string, string> | undefined;
-  const alertMsg    = latestAlert?.message ?? latestAlert?.product_id ?? null;
-  const alertTime   = latestAlert?.issue_datetime ?? null;
+  const latestAlert = alerts[0] as Record<string, unknown> | undefined;
+  const alertMsg =
+    displayText(latestAlert?.message) ??
+    displayText(latestAlert?.product_id) ??
+    null;
+  const alertTime = displayText(latestAlert?.issue_datetime);
+  const fluxLabel = displayFlux(sa?.flux);
 
   return (
     <div className="page-stack">
@@ -324,9 +341,9 @@ export default function SpaceWeatherPage() {
             <div style={{ fontSize: "2.4rem", fontWeight: 900, lineHeight: 1, color: flareColor(flareClass), marginBottom: "0.3rem" }}>
               {flareClass}
             </div>
-            {sa?.flux !== null && sa?.flux !== undefined && (
+            {fluxLabel && (
               <div style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
-                Flux: {sa.flux.toExponential(2)} W/m²
+                Flux: {fluxLabel}
               </div>
             )}
             {/* Flare class scale */}

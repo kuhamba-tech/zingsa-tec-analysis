@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 # ── Space Weather ──────────────────────────────────────────────────────────────
@@ -81,6 +81,7 @@ class SpaceWeatherTimelines(BaseModel):
     gnss_risk: list[TimelinePoint] = []
     stations_online: list[TimelinePoint] = []
     mean_vtec: list[TimelinePoint] = []
+    gic: list[TimelinePoint] = []
 
 
 class SpaceWeatherHistoryRow(BaseModel):
@@ -826,6 +827,132 @@ class NavigationNewsScheduleOut(BaseModel):
     update_interval_hours: int = 4
     updates_per_day: int = 6
     update_history: list[str] = []
+
+
+class BroadcastRecipientOut(BaseModel):
+    recipient_id: str
+    recipient_type: str
+    whatsapp_to: str
+    display_name: str
+    audience: str
+    audience_role: str | None = None
+    audience_title: str | None = None
+    audience_description: str | None = None
+    audience_icon: str | None = None
+    script_kind: str = "broadcast"
+    language: str = "en"
+    language_label: str | None = None
+    accessibility: str = "standard"
+    accessibility_label: str | None = None
+    active: bool = True
+    notes: str | None = None
+    created_at: str
+    updated_at: str
+
+
+class NavigationNewsAudienceRoleOut(BaseModel):
+    id: str
+    role: str
+    title: str
+    description: str
+    icon: str
+
+
+class DeliveryOptionOut(BaseModel):
+    id: str
+    label: str
+
+
+class NavigationDeliveryOptionsOut(BaseModel):
+    languages: list[DeliveryOptionOut]
+    accessibility: list[DeliveryOptionOut]
+
+
+class BroadcastRecipientCreate(BaseModel):
+    recipient_type: str = Field(..., description="phone")
+    whatsapp_to: str = Field(..., description="E.164 digits")
+    display_name: str = Field(..., min_length=2, description="Contact name on the platform")
+    audience: str = "citizen"
+    script_kind: str = "broadcast"
+    language: str = "en"
+    accessibility: str = "standard"
+    notes: str | None = None
+    active: bool = True
+
+
+class BroadcastRecipientUpdate(BaseModel):
+    recipient_type: str | None = None
+    whatsapp_to: str | None = None
+    display_name: str | None = Field(None, min_length=2)
+    audience: str | None = None
+    script_kind: str | None = None
+    language: str | None = None
+    accessibility: str | None = None
+    notes: str | None = None
+    active: bool | None = None
+
+
+class BroadcastDeliveryOut(BaseModel):
+    delivery_id: str
+    recipient_id: str | None = None
+    display_name: str | None = None
+    whatsapp_to: str | None = None
+    audience: str | None = None
+    ok: bool
+    detail: str | None = None
+    dry_run: bool = False
+    sent_at: str
+
+
+class NavigationFacebookStatusOut(BaseModel):
+    enabled: bool
+    configured: bool
+    dry_run: bool
+    page_id: str
+    page_url: str
+
+
+class NavigationBroadcastStatusOut(BaseModel):
+    enabled: bool
+    running: bool
+    interval_hours: float
+    last_broadcast_at: str | None = None
+    next_broadcast_at: str | None = None
+    active_recipient_count: int
+    whatsapp_configured: bool
+    dry_run: bool
+    recent_deliveries: list[BroadcastDeliveryOut] = []
+    facebook: NavigationFacebookStatusOut | None = None
+
+
+class NavigationBroadcastOverviewOut(BaseModel):
+    recipients: list[BroadcastRecipientOut]
+    status: NavigationBroadcastStatusOut
+
+
+class NavigationBroadcastRunOut(BaseModel):
+    ok: bool
+    skipped: bool = False
+    reason: str | None = None
+    recipient_count: int = 0
+    dry_run: bool = False
+    headline: str | None = None
+    computed_at: str | None = None
+    deliveries: list[dict] = []
+    facebook: dict | None = None
+
+
+class NavigationFacebookPostOut(BaseModel):
+    ok: bool
+    skipped: bool = False
+    reason: str | None = None
+    dry_run: bool = False
+    page_id: str
+    page_url: str
+    detail: str | None = None
+    message_preview: str | None = None
+    message_length: int | None = None
+    computed_at: str | None = None
 
 
 # ── Chat ───────────────────────────────────────────────────────────────────────

@@ -22,6 +22,8 @@ static/data/*.sqlite
 static/data/*.sqlite3
 static/data/*.sqlite-journal
 static/data/storm_notify_state.json
+static/data/broadcast_recipients.private.json
+static/data/navigation_news_cache.json
 
 # Cache / tools
 .pytest_cache/

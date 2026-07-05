@@ -36,6 +36,7 @@ const AUDIENCE_PRIORITY: Record<NavigationNewsBrief["id"], string> = {
   farmer: "autosteer and field mapping — needs continuous RTK; pauses cost planting/harvest windows",
   driver: "ride-hailing and fleet routing — metre-level phone GPS degrades before survey-grade kit",
   citizen: "everyday maps and emergency location — usually tolerates brief wobble unless storm is severe",
+  scientist: "research and QC workflows - TEC gradients, CORS residuals, and storm tags need careful review",
 };
 
 export function analyzeNavigationNewsSection(
@@ -181,7 +182,15 @@ export function analyzeNavigationNewsBrief(
 
   if (kp != null && kp >= 5) {
     bullets.push(
-      `Kp ${fmt(kp)} = geomagnetic storm — ${brief.id === "surveyor" || brief.id === "farmer" ? "do not rely on RTK/autosteer today" : brief.id === "aviation" ? "verify navaid backups and delay BVLOS drone ops" : "expect map and route errors"}.`,
+      `Kp ${fmt(kp)} = geomagnetic storm — ${
+        brief.id === "surveyor" || brief.id === "farmer"
+          ? "do not rely on RTK/autosteer today"
+          : brief.id === "aviation"
+            ? "verify navaid backups and delay BVLOS drone ops"
+            : brief.id === "scientist"
+              ? "flag CORS arcs and widen TEC product uncertainty"
+              : "expect map and route errors"
+      }.`,
     );
   }
   if (dst != null && dst <= -50) {

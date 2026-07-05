@@ -118,6 +118,16 @@ def build_timelines(sw: dict) -> SpaceWeatherTimelines:
 
     mean_vtec = merge_timeline("mean_vtec", _archive_points("mean_vtec"))
 
+    gic_pts: list[TimelinePoint] = []
+    try:
+        from zgiis.gic.timeline import load_gic_timeline
+
+        _, gic_raw = load_gic_timeline(hours=168.0, resample="1h")
+        gic_pts = [TimelinePoint(t=t, v=v) for t, v in gic_raw]
+    except Exception:
+        gic_pts = []
+    gic = merge_timeline("gic", gic_pts)
+
     return SpaceWeatherTimelines(
         kp=kp,
         dst=dst,
@@ -127,4 +137,5 @@ def build_timelines(sw: dict) -> SpaceWeatherTimelines:
         gnss_risk=gnss_risk,
         stations_online=stations_online,
         mean_vtec=mean_vtec,
+        gic=gic,
     )

@@ -1016,6 +1016,121 @@ select option {
   border-color: rgba(0, 255, 136, 0.5);
 }
 
+/* ── Storm Watch summary + log ── */
+.storm-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.storm-summary--ok {
+  border-left: 3px solid var(--accent-ok, #00ff88);
+}
+.storm-summary--warn {
+  border-left: 3px solid var(--accent-warn, #ffb000);
+}
+.storm-summary--alert {
+  border-left: 3px solid var(--accent-alert, #ff4444);
+}
+.storm-summary-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.storm-summary-banner {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text);
+}
+.storm-summary-muted {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+.storm-summary-link {
+  font-size: 0.78rem;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.storm-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr));
+  gap: 0.75rem;
+}
+.storm-summary-metric {
+  padding: 0.65rem 0.75rem;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--border);
+}
+.storm-summary-label {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.storm-summary-metric strong {
+  display: block;
+  font-size: 1.35rem;
+  margin-top: 0.2rem;
+}
+.storm-summary-sub {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: 0.15rem;
+}
+.storm-log-intro {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin: 0 0 0.75rem;
+}
+.storm-log-table-wrap {
+  max-height: min(70vh, 520px);
+}
+.storm-log-table {
+  min-width: 720px;
+}
+.storm-log-time {
+  white-space: nowrap;
+}
+.storm-log-related {
+  max-width: 140px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+.storm-log-detail-toggle {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent, #168bd2);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.storm-log-detail-row td {
+  background: rgba(0, 0, 0, 0.25);
+  padding: 0.5rem 0.75rem 0.75rem !important;
+}
+.storm-log-detail-msg {
+  margin: 0 0 0.35rem;
+  font-size: 0.82rem;
+}
+.storm-log-detail-related {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+.storm-log-footer {
+  margin: 0.75rem 0 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
 
 /* ── Map container ── */
 .map-container { border-radius: 10px; overflow: hidden; border: 1px solid var(--border); }
@@ -2975,6 +3090,172 @@ select option {
 .gnwi-agent-api-list code {
   font-size: 0.78rem;
   color: var(--accent);
+}
+
+/* WhatsApp broadcast recipient panel */
+.gnwi-broadcast-panel {
+  margin-top: 1rem;
+  border-left: 3px solid #25d366;
+}
+.gnwi-broadcast-muted {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+.gnwi-broadcast-status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 130px), 1fr));
+  gap: 0.65rem;
+  margin: 0.75rem 0 1rem;
+}
+.gnwi-broadcast-stat {
+  padding: 0.55rem 0.65rem;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--border);
+}
+.gnwi-broadcast-stat-label {
+  display: block;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.gnwi-broadcast-stat strong {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 1rem;
+}
+.gnwi-broadcast-stat-sub {
+  display: block;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+.gnwi-broadcast-actions {
+  margin-bottom: 1rem;
+}
+.gnwi-broadcast-form-title {
+  margin: 0 0 0.65rem;
+  font-size: 0.9rem;
+}
+.gnwi-broadcast-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  gap: 0.65rem;
+  margin-bottom: 0.75rem;
+}
+.gnwi-broadcast-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+.gnwi-broadcast-form input,
+.gnwi-broadcast-form select {
+  padding: 0.45rem 0.55rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--text);
+  font-size: 0.85rem;
+}
+.gnwi-broadcast-notes {
+  grid-column: 1 / -1;
+}
+.gnwi-broadcast-table {
+  min-width: 560px;
+  font-size: 0.8rem;
+}
+.gnwi-broadcast-toggle,
+.gnwi-broadcast-delete {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.2rem 0.45rem;
+  font-size: 0.72rem;
+  cursor: pointer;
+  color: var(--text);
+}
+.gnwi-broadcast-delete {
+  color: #ff8888;
+}
+.gnwi-broadcast-delivery-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 0.78rem;
+}
+.gnwi-broadcast-delivery-list li {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 0.6fr 1fr;
+  gap: 0.5rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid rgba(36, 77, 115, 0.35);
+}
+.gnwi-delivery-ok { color: var(--text-muted); }
+.gnwi-delivery-fail { color: #ff8888; }
+
+.gnwi-broadcast-role-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr));
+  gap: 0.55rem;
+  margin-bottom: 0.75rem;
+}
+.gnwi-broadcast-role-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  padding: 0.65rem 0.7rem;
+  border-radius: 8px;
+  border: 2px solid var(--border);
+  background: rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+  text-align: left;
+  color: var(--text);
+  transition: border-color 0.15s, background 0.15s;
+}
+.gnwi-broadcast-role-card:hover {
+  border-color: var(--accent);
+}
+.gnwi-broadcast-role-card--selected {
+  border-color: #25d366;
+  background: rgba(37, 211, 102, 0.08);
+}
+.gnwi-broadcast-role-icon {
+  font-size: 1.35rem;
+  line-height: 1;
+}
+.gnwi-broadcast-role-name {
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+.gnwi-broadcast-role-title {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  line-height: 1.3;
+}
+.gnwi-broadcast-role-preview {
+  margin: 0 0 1rem;
+  padding: 0.55rem 0.7rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+  border-left: 3px solid #25d366;
+}
+.gnwi-facebook-panel {
+  border-left-color: #1877f2;
+}
+.gnwi-broadcast-audience-select {
+  max-width: 100%;
+  min-width: 10rem;
+  padding: 0.3rem 0.4rem;
+  font-size: 0.75rem;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--text);
 }
 .gnwi-news-script {
   margin: 0.5rem 0 0;

@@ -17,6 +17,8 @@ import {
   DataFusionPipelineDiagram,
   NationalPlatformDiagram,
 } from "@/components/gnssIntelligence/GnssArchitectureDiagrams";
+import BroadcastRecipientsPanel from "@/components/gnssIntelligence/BroadcastRecipientsPanel";
+import FacebookPostPanel from "@/components/gnssIntelligence/FacebookPostPanel";
 import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
 import { analyzeNavigationNewsBrief, analyzeNavigationNewsSection } from "@/lib/navigationNewsAnalysis";
 import type { SpaceWeatherCurrent, Station } from "@/lib/types";
@@ -283,17 +285,20 @@ export default function GnssIntelligencePage() {
           </p>
           <ul className="gnwi-agent-api-list">
             <li>
-              <code>GET /navigation-news</code> — all four audience briefs
+              <code>GET /navigation-news</code> — all audience briefs
             </li>
             <li>
               <code>GET /navigation-news/briefs/citizen</code> — single brief (also{" "}
-              <code>farmer</code>, <code>surveyor</code>, <code>driver</code>)
+              <code>farmer</code>, <code>surveyor</code>, <code>driver</code>, <code>aviation</code>,{" "}
+              <code>scientist</code>)
             </li>
             <li>
-              <code>?audience=farmer</code> — filter on the bundle endpoint
+              WhatsApp group delivery is configured privately on the server (not via this public page).
             </li>
           </ul>
         </div>
+        <BroadcastRecipientsPanel />
+        <FacebookPostPanel />
       </section>
 
       <section className="gnwi-section">

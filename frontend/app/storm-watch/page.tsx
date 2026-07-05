@@ -1,7 +1,12 @@
 "use client";
+
 import StormWatchLog from "@/components/spaceWeather/StormWatchLog";
+import StormWatchSummary from "@/components/spaceWeather/StormWatchSummary";
+import { useStormWatchFeed } from "@/lib/useStormWatchFeed";
 
 export default function StormWatchPage() {
+  const { alerts, setAlerts, sw, stormStatus, ekf, loading } = useStormWatchFeed(168);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.4rem" }}>
       <div className="dashboard-header-copy">
@@ -11,7 +16,9 @@ export default function StormWatchPage() {
           storms and ionospheric disturbance over Zimbabwe.
         </p>
       </div>
-      <StormWatchLog />
+
+      <StormWatchSummary sw={sw} stormStatus={stormStatus} ekf={ekf} loading={loading} />
+      <StormWatchLog alerts={alerts} onAlertsChange={setAlerts} hours={168} />
     </div>
   );
 }

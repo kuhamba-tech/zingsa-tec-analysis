@@ -28,6 +28,12 @@ import type {
   NavigationNewsBriefApi,
   NavigationNewsBundleApi,
   NavigationNewsScheduleApi,
+  BroadcastRecipient,
+  BroadcastRecipientCreate,
+  NavigationBroadcastOverview,
+  NavigationBroadcastStatus,
+  NavigationFacebookPostResult,
+  NavigationFacebookStatus,
   NtripProbeResponse,
   OmniAnalysisResponse,
   PrnExplorerResponse,
@@ -66,12 +72,18 @@ function apiBase(): string {
   const configured = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "");
   if (configured) return configured;
   if (typeof window !== "undefined") {
-    const { hostname, origin } = window.location;
-    // Next.js dev server — FastAPI runs on 8000, not the Next port.
+    const { hostname, port, protocol } = window.location;
+    const host =
+      hostname === "[::1]" ? "127.0.0.1" : hostname;
+    // Next.js dev (port 3000) — FastAPI is always on 8000 on the same machine.
+    if (port === "3000" || port === "3001") {
+      return `${protocol}//${host}:8000`;
+    }
     if (hostname === "localhost" || hostname === "127.0.0.1") {
       return "http://localhost:8000";
     }
-    return origin;
+    // Combined Vercel/static_export deploy — API shares the same origin.
+    return window.location.origin;
   }
   return "http://localhost:8000";
 }
@@ -131,7 +143,9 @@ async function get<T>(
       { headers: KEY ? { "X-API-Key": KEY } : {} },
       timeoutMs,
     );
-    if (!res.ok) throw new Error(`API ${path} → ${res.status}`);
+    if (!res.ok) {
+      throw new Error(`API ${path} → ${res.status} (${url.origin})`);
+    }
     return res.json();
   } catch (err) {
     throw friendlyFetchError(err, path);
@@ -210,6 +224,109 @@ export const getNavigationNewsBrief = (audience: AudienceId, refreshNtrip = fals
     ...(refreshNtrip ? { refresh_ntrip: "true" } : {}),
     ...(force ? { force: "true" } : {}),
   });
+
+export const getBroadcastRecipients = async (): Promise<BroadcastRecipient[]> => {
+  const paths = ["/navigation-news/broadcast/overview", "/navigation-news/recipients", "/navigation-news/broadcast/recipients"];
+  for (const path of paths) {
+    try {
+      if (path.endsWith("/overview")) {
+        const overview = await get<NavigationBroadcastOverview>(path, { _ts: Date.now() });
+        return overview.recipients;
+      }
+      return await get<BroadcastRecipient[]>(path, { _ts: Date.now() });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "";
+      if (!msg.includes("404")) throw e;
+    }
+  }
+  throw new Error(`API /navigation-news/recipients → 404 (${baseUrl()}) — restart backend with dev.ps1`);
+};
+
+export const getBroadcastOverview = () =>
+  getWithRetry<NavigationBroadcastOverview>("/navigation-news/broadcast/overview", { _ts: Date.now() });
+
+export const createBroadcastRecipient = (body: BroadcastRecipientCreate) =>
+  post<BroadcastRecipient>("/navigation-news/recipients", body);
+
+export const updateBroadcastRecipient = (
+  recipientId: string,
+  body: Partial<BroadcastRecipientCreate> & { active?: boolean },
+) =>
+  fetch(baseUrl() + `/navigation-news/recipients/${recipientId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...(KEY ? { "X-API-Key": KEY } : {}) },
+    body: JSON.stringify(body),
+  }).then(async (res) => {
+    if (!res.ok) throw new Error(`API PATCH /navigation-news/recipients → ${res.status}`);
+    return res.json() as Promise<BroadcastRecipient>;
+  });
+
+export const deleteBroadcastRecipient = (recipientId: string) =>
+  fetch(baseUrl() + `/navigation-news/recipients/${recipientId}`, {
+    method: "DELETE",
+    headers: KEY ? { "X-API-Key": KEY } : {},
+  }).then((res) => {
+    if (!res.ok) throw new Error(`API DELETE /navigation-news/recipients → ${res.status}`);
+  });
+
+export const getNavigationBroadcastStatus = async (): Promise<NavigationBroadcastStatus> => {
+  try {
+    return await getWithRetry<NavigationBroadcastStatus>("/navigation-news/broadcast/status");
+  } catch (primary) {
+    try {
+      const overview = await getWithRetry<NavigationBroadcastOverview>("/navigation-news/broadcast/overview");
+      return overview.status;
+    } catch {
+      throw primary;
+    }
+  }
+};
+
+export const getNavigationFacebookStatus = async (): Promise<NavigationFacebookStatus> => {
+  const paths = [
+    "/navigation-news/facebook/status",
+    "/navigation-news/broadcast/facebook/status",
+  ];
+  let lastError = "Facebook status unavailable";
+  for (const path of paths) {
+    try {
+      return await getWithRetry<NavigationFacebookStatus>(path);
+    } catch (e) {
+      lastError = e instanceof Error ? e.message : lastError;
+      if (!lastError.includes("404")) throw e;
+    }
+  }
+  throw new Error(lastError);
+};
+
+export const runNavigationBroadcast = () =>
+  fetch(baseUrl() + "/navigation-news/broadcast/run", {
+    method: "POST",
+    headers: KEY ? { "X-API-Key": KEY } : {},
+  }).then(async (res) => {
+    if (!res.ok) throw new Error(`API POST /navigation-news/broadcast/run → ${res.status}`);
+    return res.json();
+  });
+
+export const testNavigationFacebookPost = async (live = false): Promise<NavigationFacebookPostResult> => {
+  const paths = [
+    `/navigation-news/facebook/test-post?live=${live ? "true" : "false"}`,
+    `/navigation-news/broadcast/facebook/test-post?live=${live ? "true" : "false"}`,
+  ];
+  let lastError = "Facebook test post failed";
+  for (const path of paths) {
+    const res = await fetch(baseUrl() + path, {
+      method: "POST",
+      headers: KEY ? { "X-API-Key": KEY } : {},
+    });
+    if (res.ok) {
+      return res.json() as Promise<NavigationFacebookPostResult>;
+    }
+    lastError = `API POST ${path.split("?")[0]} → ${res.status}`;
+    if (res.status !== 404) break;
+  }
+  throw new Error(lastError);
+};
 
 // ── CORS Network ──────────────────────────────────────────────────────────────
 export const getStations = (refreshNtrip = false) =>

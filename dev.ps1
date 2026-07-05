@@ -73,7 +73,28 @@ if (-not $healthy) {
 
 Write-Host "Stopping any existing frontend on port $FrontendPort..."
 Stop-Port $FrontendPort
+Get-Process node -ErrorAction SilentlyContinue | ForEach-Object {
+    Write-Host "Killing stale Node process (PID $($_.Id))..."
+    Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+}
+Start-Sleep -Milliseconds 500
 
-Write-Host "Starting frontend (next dev) on port $FrontendPort..."
-Set-Location (Join-Path $projectRoot "frontend")
-& npm run dev -- --port $FrontendPort
+# Turbopack dev + `next build` concurrently corrupts `.next` (broken routes.d.ts,
+# blank main content with sidebar still visible). Wipe the whole cache every restart.
+$frontendDir = Join-Path $projectRoot "frontend"
+$nextDir = Join-Path $frontendDir ".next"
+if (Test-Path $nextDir) {
+    Write-Host "Clearing stale Next.js cache ($nextDir)..."
+    Remove-Item -Recurse -Force $nextDir -ErrorAction SilentlyContinue
+}
+
+Write-Host "Starting frontend (next dev --webpack) on port $FrontendPort..."
+Write-Host ""
+Write-Host "IMPORTANT:"
+Write-Host "  - Wait until you see 'Ready' before opening the browser."
+Write-Host "  - Do NOT run 'npm run build' while this dev server is running."
+Write-Host "  - If pages show a blank main area, press Ctrl+C and run this script again."
+Write-Host "  - Alternative: cd frontend && npm run build && npm run preview"
+Write-Host ""
+Set-Location $frontendDir
+& npm.cmd run dev -- --port $FrontendPort --webpack

@@ -185,6 +185,7 @@ function snapshotTimelines(sw: SpaceWeatherCurrent): SpaceWeatherTimelines {
     gnss_risk: currentPoint(riskScore(sw.gnss_risk), t),
     stations_online: currentPoint(sw.stations_online, t),
     mean_vtec: currentPoint(sw.mean_vtec, t),
+    gic: [],
   };
 }
 
@@ -606,7 +607,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <StormWatchLog />
+      <StormWatchLog compact hours={24} />
 
       {loading && <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>Loading live data...</p>}
     </div>

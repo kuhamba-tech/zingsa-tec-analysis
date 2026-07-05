@@ -11,7 +11,7 @@
     {
       "channel": "whatsapp",
       "script": "broadcast",
-      "options": { "to": "263XXXXXXXXX" }
+      "options": { "to": "263XXXXXXXXX,263YYYYYYYYY" }
     },
     {
       "channel": "webhook",
@@ -24,7 +24,7 @@
     {
       "channel": "whatsapp",
       "script": "broadcast",
-      "options": { "to": "263XXXXXXXXX" }
+      "options": { "to": "263XXXXXXXXX,263YYYYYYYYY" }
     }
   ],
   "driver": [

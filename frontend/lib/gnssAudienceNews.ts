@@ -9,7 +9,7 @@ import {
   ZINGSA_PHONE,
 } from "./zingsaContact";
 
-export type AudienceId = "farmer" | "surveyor" | "citizen" | "driver" | "aviation";
+export type AudienceId = "farmer" | "surveyor" | "citizen" | "driver" | "aviation" | "scientist";
 
 export interface NavigationNewsBrief {
   id: AudienceId;
@@ -710,6 +710,112 @@ function aviationBrief(
   };
 }
 
+function scientistBrief(
+  forecasts: GnssForecastCity[],
+  tone: ForecastStatus,
+  sw: SpaceWeatherCurrent | null,
+  computedAt: string,
+): NavigationNewsBrief {
+  const status = tone;
+  const swCtx = buildSpaceWeatherLayman(sw, tone);
+  const kp = sw?.kp ?? null;
+  const dst = sw?.dst ?? null;
+  const s4 = sw?.s4 ?? null;
+  const vtec = sw?.mean_vtec ?? null;
+  const gnssRisk = sw?.gnss_risk ?? "unknown";
+  const national = nationalTone(forecasts);
+  const degradedStations = forecasts.filter((f) => f.status !== "excellent").length;
+
+  const headlines: Record<ForecastStatus, string> = {
+    excellent: "Quiet ionosphere — favourable window for GNSS science and CORS QC",
+    moderate: "Elevated space weather — expect measurable TEC bias and scintillation in afternoon data",
+    warning: "Storm conditions — flag CORS arcs, widen uncertainty on TEC/GNSS products",
+  };
+
+  const summaries: Record<ForecastStatus, string> = {
+    excellent:
+      "Geomagnetic and ionospheric drivers are subdued over Zimbabwe. CORS-derived VTEC, dual-frequency combinations, and EKF-monitored residuals should stay within typical quiet-day envelopes — suitable for calibration runs, model validation, and publication-quality extracts from the ZINGSA archive.",
+    moderate:
+      "Space weather is injecting extra delay and phase noise into the ionosphere. Researchers should expect elevated TEC gradients, higher S4 on low-elevation satellites, and longer RTK re-convergence in CORS time series — especially post-noon. Compare live Kp/Dst with ZINGSA EKF deviation alerts before assimilating data into storm studies.",
+    warning:
+      "Active geomagnetic disturbance is dominating the ionospheric state. TEC maps, ROTI proxies, and carrier-phase solutions may contain outliers; do not treat automatic QC as sufficient without manual review. Cross-check NOAA/SWPC indices, WDC Kyoto Dst, and ZINGSA storm-watch logs — this is a high-value event for case studies but a poor window for baseline inter-comparisons.",
+  };
+
+  const metricsLine = `Live indices: Kp ${fmtNum(kp)} · Dst ${fmtNum(dst, 0)} nT · S4 ${fmtNum(s4, 2)} · VTEC ${fmtNum(vtec, 2)} TECU · GNSS risk ${gnssRisk}`;
+
+  const bullets: Record<ForecastStatus, string[]> = {
+    excellent: [
+      `National GNSS outlook: ${statusWord(national)} across ${forecasts.length} forecast cities`,
+      metricsLine,
+      `CORS network: ${degradedStations} cities outside excellent — routine QC only`,
+      "EKF pipeline: residuals expected near climatology; good day for filter tuning",
+      "Data use: archive pulls, student labs, and inter-station TEC comparisons",
+    ],
+    moderate: [
+      `National GNSS outlook: ${statusWord(national)}`,
+      metricsLine,
+      `CORS network: ${degradedStations} cities showing moderate/warning positioning stress`,
+      "Watch afternoon scintillation (S4) on east-west baselines and low elevations",
+      "EKF deviation alerts may fire on TEC/S4 — treat as science signal, not sensor fault",
+    ],
+    warning: [
+      `National GNSS outlook: ${statusWord(national)}`,
+      metricsLine,
+      `CORS network: ${degradedStations} cities degraded — flag RINEX before ingestion`,
+      "Prioritise storm case logging: Kp, Dst, solar wind, GIC if available",
+      "Delay cm-level RTK research products; publish event bulletin instead",
+    ],
+  };
+
+  const actions: Record<ForecastStatus, string> = {
+    excellent: "Proceed with routine processing and research extracts. Document quiet-day baselines for the archive.",
+    moderate: "Enable enhanced QC flags on CORS ingest; compare ZINGSA TEC with IGS/global maps; note EKF alerts in lab books.",
+    warning: "Activate storm-data protocol: snapshot indices hourly, segregate contaminated arcs, coordinate with ZINGSA ops before releasing operational TEC products.",
+  };
+
+  const broadcast = joinScript([
+    "🔬 *ZINGSA Navigation News — Scientists & Researchers*",
+    formatUtc(computedAt),
+    "",
+    `🌌 *Space weather:* ${swCtx.headline}`,
+    ...swCtx.readout.slice(0, 4).map((b) => `• ${b}`),
+    "",
+    headlines[status],
+    "",
+    summaries[status],
+    "",
+    ...bullets[status].map((b) => `• ${b}`),
+    "",
+    `👉 *Action:* ${actions[status]}`,
+    "",
+    ...ZINGSA_BROADCAST_FOOTER,
+  ]);
+
+  const social = joinScript([
+    "🔬 ZINGSA Navigation News | Scientists",
+    swCtx.headline,
+    metricsLine,
+    "#SpaceWeather #Ionosphere #GNSS #Research #Zimbabwe",
+  ]);
+
+  return {
+    id: "scientist",
+    icon: "🔬",
+    title: "Scientist Brief",
+    audience: "Researchers, geophysicists & GNSS data analysts",
+    headline: headlines[status],
+    summary: summaries[status],
+    spaceWeatherToday: `${swCtx.headline} ${swCtx.impact}`,
+    spaceWeatherBullets: swCtx.readout,
+    bullets: bullets[status],
+    action: actions[status],
+    statusTone: status,
+    broadcastScript: broadcast,
+    socialScript: social,
+    channels: [...ZINGSA_NAVIGATION_CHANNELS, "Research WhatsApp", "University mailing lists", "Data portal RSS"],
+  };
+}
+
 /** Build copy-ready audience briefs for UI and future AI broadcast agent. */
 export function buildAudienceNews(
   forecasts: GnssForecastCity[],
@@ -725,6 +831,7 @@ export function buildAudienceNews(
     surveyorBrief(cities.MUTARE, cities.HARARE, tone, sw, computedAt),
     aviationBrief(forecasts, tone, sw, computedAt),
     driverBrief(forecasts, tone, sw, computedAt),
+    scientistBrief(forecasts, tone, sw, computedAt),
   ];
 }
 

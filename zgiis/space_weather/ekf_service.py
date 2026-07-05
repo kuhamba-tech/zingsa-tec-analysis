@@ -35,7 +35,7 @@ def compute_ekf_status(
     raw_series = {
         name: getattr(tl, name)
         for name in (
-            "kp", "dst", "f107", "solar_wind", "s4", "gnss_risk", "stations_online", "mean_vtec",
+            "kp", "dst", "f107", "solar_wind", "s4", "gnss_risk", "stations_online", "mean_vtec", "gic",
         )
     }
 
