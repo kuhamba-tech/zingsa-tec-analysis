@@ -13,7 +13,7 @@ class GicEkfPipelineTests(unittest.TestCase):
     @patch("zgiis.gic.timeline.load_gic_timeline")
     def test_build_timelines_includes_gic_series(self, mock_load) -> None:
         mock_load.return_value = (
-            "MARIMBA_001",
+            "DEMA_001",
             [
                 ("2024-06-01T10:00:00+00:00", 1.0),
                 ("2024-06-01T11:00:00+00:00", 1.2),

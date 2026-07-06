@@ -1,9 +1,10 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { getStations, getTecHeatmap } from "@/lib/api";
 import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
 import { heatmapQualityBanner, icaoTecLabel, icaoTecLevel, inferHeatmapQuality } from "@/lib/icaoTecAdvisory";
+import { mergeTecHeatmapWithStations } from "@/lib/tecHeatmapMerge";
 import type { Station, TecHeatmapResponse } from "@/lib/types";
 import type { MapLayer } from "@/components/maps/CorsMapWithLayers";
 import TecHeatMapLegend from "@/components/maps/TecHeatMapLegend";
@@ -53,8 +54,12 @@ export default function TecHeatmapPage() {
   }, [loadHeatmap]);
 
   const freshnessMsg = useFeedFreshness("cors-stations", status);
-  const qualityBanner = heatmapQualityBanner(inferHeatmapQuality(heatmap), heatmap?.message);
-  const maxVtec = heatmap?.tec_max ?? null;
+  const displayHeatmap = useMemo(
+    () => mergeTecHeatmapWithStations(heatmap, stations),
+    [heatmap, stations],
+  );
+  const qualityBanner = heatmapQualityBanner(inferHeatmapQuality(displayHeatmap), displayHeatmap?.message);
+  const maxVtec = displayHeatmap?.tec_max ?? null;
   const aviationAdvisory =
     maxVtec != null && (icaoTecLevel(maxVtec) === "mod" || icaoTecLevel(maxVtec) === "sev");
 
@@ -72,7 +77,7 @@ export default function TecHeatmapPage() {
       )}
       {heatmapStatus === "down" && !qualityBanner && (
         <div className="banner banner-warn">
-          {heatmap?.message ??
+          {displayHeatmap?.message ??
             "Live VTEC heat map unavailable — no recent pipeline observations. Station markers still show CORS network status."}
         </div>
       )}
@@ -82,10 +87,10 @@ export default function TecHeatmapPage() {
           Pilots and operators should monitor GNSS performance per ICAO Annex 3 / Doc 10100.
         </div>
       )}
-      {heatmap?.available && heatmap.updated_at && (
+      {displayHeatmap?.available && displayHeatmap.updated_at && (
         <div className={`banner ${staleHeatmap ? "banner-warn" : "banner-info"}`}>
-          Live TEC grid from {heatmap.station_count} station{heatmap.station_count === 1 ? "" : "s"} — updated{" "}
-          {heatmap.updated_at}
+          Live TEC grid from {displayHeatmap.station_count} station{displayHeatmap.station_count === 1 ? "" : "s"} — updated{" "}
+          {displayHeatmap.updated_at}
           {heatmap.tec_min != null && heatmap.tec_max != null
             ? ` · range ${heatmap.tec_min.toFixed(1)}–${heatmap.tec_max.toFixed(1)} TECU`
             : ""}
@@ -121,7 +126,7 @@ export default function TecHeatmapPage() {
       </div>
 
       <div className="tec-map-frame">
-        <CorsMap stations={stations} height={520} layer={mapLayer} heatmap={heatmap} />
+        <CorsMap stations={stations} height={520} layer={mapLayer} heatmap={displayHeatmap} />
         <div className="tec-map-legend">
           <div className="tec-map-legend-title">Station Status</div>
           {[

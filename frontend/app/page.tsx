@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { getEkfAlertLog, getEkfStatus, getLivePipelineStatus, getSpaceWeather, getStations, getTecHeatmap } from "@/lib/api";
 import { mergeSpaceWeatherWithEkf } from "@/lib/homeSpaceWeather";
 import { buildMetricCards } from "@/lib/spaceWeatherMetrics";
-import { countLiveStationStatuses, connectedStreamCount } from "@/lib/liveStationStatus";
+import { countLiveStationStatuses, connectedStreamCount, formatCorsConnectedShort } from "@/lib/liveStationStatus";
+import { mergeTecHeatmapWithStations } from "@/lib/tecHeatmapMerge";
 import CorsMapWithLayers from "@/components/maps/CorsMapWithLayers";
 import AiRecommendationPanel from "@/components/layout/AiRecommendationPanel";
 import HomeStormAlertBanner from "@/components/layout/HomeStormAlertBanner";
@@ -53,7 +54,7 @@ const GETTING_STARTED = [
   },
 ] as const;
 
-const HOME_METRIC_KEYS: MetricKey[] = ["kp", "geomagnetic", "gnss_risk", "stations"];
+const HOME_METRIC_KEYS: MetricKey[] = ["kp", "geomagnetic", "dst", "gnss_risk", "stations"];
 
 const HOME_LABELS: Partial<Record<MetricKey, string>> = {
   geomagnetic: "Geomagnetic condition",
@@ -179,9 +180,11 @@ export default function HomePage() {
 
       if (!cancelled) setNtripRefreshing(true);
       getStations(true)
-        .then((fresh) => {
+        .then(async (fresh) => {
           if (cancelled) return;
           setStations(fresh);
+          const heatmap = await getTecHeatmap(2).catch(() => null);
+          if (!cancelled) setTecHeatmap(heatmap);
           const liveCounts = countLiveStationStatuses(fresh);
           const probed = fresh.find((s) => s.ntrip_probed_at)?.ntrip_probed_at;
           if (probed) setNtripProbedAt(probed);
@@ -210,6 +213,10 @@ export default function HomePage() {
   const gnssRisk = displaySw?.gnss_risk ?? (loading ? "…" : "N/A");
 
   const liveCounts = countLiveStationStatuses(stations);
+  const displayHeatmap = useMemo(
+    () => mergeTecHeatmapWithStations(tecHeatmap, stations),
+    [tecHeatmap, stations],
+  );
 
   const homeCards = buildMetricCards(displaySw, {
     liveStationCounts: liveCounts,
@@ -220,6 +227,10 @@ export default function HomePage() {
       ...card,
       label: HOME_LABELS[card.key] ?? card.label,
       value: card.key === "kp" && displaySw?.kp != null ? displaySw.kp.toFixed(1) : card.value,
+      note:
+        card.key === "stations" && liveCounts.total > 0
+          ? formatCorsConnectedShort(liveCounts)
+          : card.note,
     }));
 
   return (
@@ -314,7 +325,7 @@ export default function HomePage() {
           liveCounts={liveCounts}
           ntripProbedAt={ntripProbedAt}
           stationsLoading={stationsLoading}
-          heatmap={tecHeatmap}
+          heatmap={displayHeatmap}
         />
       </div>
 

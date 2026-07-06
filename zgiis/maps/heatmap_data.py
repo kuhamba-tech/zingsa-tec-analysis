@@ -131,6 +131,95 @@ def _recent_pipeline_rows(hours: float = 0.5) -> list[dict[str, Any]]:
     return rows
 
 
+def _live_pipeline_memory_rows() -> list[dict[str, Any]]:
+    """VTEC computed by the live ingest pipeline but not yet flushed to the DB."""
+    try:
+        from backend.live_manager import latest_vtec_by_station
+
+        rows: list[dict[str, Any]] = []
+        for code, vtec in latest_vtec_by_station().items():
+            station = _STATION_LOOKUP.get(code.lower().rstrip("_"))
+            if station is None or not np.isfinite(vtec) or vtec <= 0:
+                continue
+            rows.append(_row_from_station(station, vtec=vtec, obs_count=1))
+        return rows
+    except Exception:
+        return []
+
+
+def _probe_sample_vtec_rows() -> list[dict[str, Any]]:
+    """VTEC sampled during the cached NTRIP probe (serverless / no persistent ingest)."""
+    try:
+        from zgiis.live.ntrip_status_cache import get_cached_ntrip_probe, ntrip_probe_enabled, probe_rows_by_station
+
+        if not ntrip_probe_enabled():
+            return []
+
+        payload = get_cached_ntrip_probe(refresh=False, allow_blocking_refresh=False)
+        if payload.get("error"):
+            return []
+
+        rows: list[dict[str, Any]] = []
+        for code, probe_row in probe_rows_by_station(payload).items():
+            raw = probe_row.get("mean_vtec_tecu")
+            if raw is None:
+                continue
+            vtec = float(raw)
+            if not np.isfinite(vtec) or vtec <= 0:
+                continue
+            station = _STATION_LOOKUP.get(code.lower().rstrip("_"))
+            if station is None:
+                continue
+            rows.append(
+                _row_from_station(
+                    station,
+                    vtec=vtec,
+                    obs_count=int(probe_row.get("vtec_sample_count") or 1),
+                )
+            )
+        return rows
+    except Exception:
+        return []
+
+
+def _empty_heatmap_message() -> str:
+    try:
+        from zgiis.live.ntrip_status_cache import get_cached_ntrip_probe, ntrip_probe_enabled, probe_rows_by_station
+
+        if not ntrip_probe_enabled():
+            return "No recent live VTEC observations in the pipeline database."
+
+        payload = get_cached_ntrip_probe(refresh=False, allow_blocking_refresh=False)
+        if payload.get("error"):
+            return "No recent live VTEC observations in the pipeline database."
+
+        by = probe_rows_by_station(payload)
+        connected = sum(
+            1 for row in by.values() if str(row.get("verdict") or "").lower() not in {"", "offline"}
+        )
+        msm = sum(1 for row in by.values() if str(row.get("verdict") or "").lower() == "msm_streaming")
+        with_vtec = sum(1 for row in by.values() if float(row.get("mean_vtec_tecu") or 0) > 0)
+
+        if with_vtec > 0:
+            return (
+                f"{with_vtec} connected CORS site(s) sampled live VTEC — "
+                "refresh the map to load the latest probe decode."
+            )
+        if msm > 0:
+            return (
+                f"{msm} CORS site(s) streaming MSM observations — "
+                "live VTEC decode needs L1/L2 carrier phase and GPS ephemeris (RTCM 1019)."
+            )
+        if connected > 0:
+            return (
+                f"{connected} CORS site(s) NTRIP-connected — "
+                "awaiting MSM observation stream before live VTEC can be computed."
+            )
+    except Exception:
+        pass
+    return "No recent live VTEC observations in the pipeline database."
+
+
 def _cors_current_tec_rows() -> list[dict[str, Any]]:
     """Live VTEC attached to CORS station records (NTRIP / recent pipeline query)."""
     try:
@@ -211,6 +300,8 @@ def build_tec_heatmap(*, hours: float = 2.0) -> dict[str, Any]:
     stations = _merge_station_rows(
         _pipeline_station_rows(hours=hours),
         _recent_pipeline_rows(hours=min(hours, 0.75)),
+        _live_pipeline_memory_rows(),
+        _probe_sample_vtec_rows(),
         _cors_current_tec_rows(),
     )
 
@@ -224,7 +315,7 @@ def build_tec_heatmap(*, hours: float = 2.0) -> dict[str, Any]:
         "tec_max": None,
         "station_count": 0,
         "updated_at": None,
-        "message": "No recent live VTEC observations in the pipeline database.",
+        "message": _empty_heatmap_message(),
         "data_quality": "none",
         "icao_mod_tecu": ICAO_TEC_MOD,
         "icao_sev_tecu": ICAO_TEC_SEV,

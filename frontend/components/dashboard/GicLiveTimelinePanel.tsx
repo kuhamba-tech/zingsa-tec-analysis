@@ -5,6 +5,7 @@ import type { GicLiveModel, GicSeriesResponse } from "@/lib/types";
 import LineChart from "@/components/charts/LineChart";
 import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
 import { analyzeGicTimeline } from "@/lib/dashboardChartAnalysis";
+import { DEFAULT_GIC_STATION_ID } from "@/lib/gicNetworkStatic";
 
 const GIC_THRESHOLDS = [
   { value: 25, label: "Moderate (25 A)", color: "#ffcc00" },
@@ -34,7 +35,7 @@ interface ChartDataset {
 export default function GicLiveTimelinePanel({ data }: Props) {
   const series = data?.series ?? null;
   const liveModel = data?.liveModel ?? null;
-  const stationId = data?.stationId ?? "MARIMBA_001";
+  const stationId = data?.stationId ?? DEFAULT_GIC_STATION_ID;
 
   const hasEkf = (series?.points ?? []).some((p) => p.predicted != null);
 

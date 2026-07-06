@@ -42,15 +42,17 @@ const LINES = [
   { from: "INSUKAMINI", to: "SW_BORDER", kv: 400 },
 ] as const;
 
+const DEFAULT_GIC_STATION_ID = "DEMA_001";
+
 const MONITORING_STATIONS = [
   {
-    station_id: "MARIMBA_001",
-    name: "Marimba (Harare)",
-    substation: "WARREN",
+    station_id: "DEMA_001",
+    name: "Dema (Seke)",
+    substation: "DEMA",
     sensor: "GMW CPCO clamp sensor on transformer neutral/ground lead",
     datalogger: "Campbell Scientific CR1000",
     gateway: "Raspberry Pi 4 + 4G/LTE router (JSON/MQTT)",
-    notes: "Pilot GIC monitoring station of the ZINGSA/ZETDC programme.",
+    notes: "GIC monitoring station at Dema substation (ZINGSA/ZETDC programme).",
   },
   {
     station_id: "ALASKA_001",
@@ -59,7 +61,7 @@ const MONITORING_STATIONS = [
     sensor: "GMW CPCO clamp sensor on transformer neutral/ground lead",
     datalogger: "Campbell Scientific CR1000",
     gateway: "Raspberry Pi 4 + 4G/LTE router (JSON/MQTT)",
-    notes: "Planned/rotating deployment site.",
+    notes: "GIC monitoring station at Alaska substation (ZINGSA/ZETDC programme).",
   },
 ] as const;
 
@@ -111,3 +113,4 @@ export function staticGicStatus(): GicStatusResponse {
 }
 
 export const STATIC_GIC_NETWORK: GicNetwork = buildNetwork();
+export { DEFAULT_GIC_STATION_ID };

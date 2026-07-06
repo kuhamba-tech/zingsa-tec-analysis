@@ -128,23 +128,61 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
 
     probe_payload = None
     probe_by: dict = {}
-    if not pipeline_configured and not archive_applied:
+    try:
+        df = get_db().query_recent(hours=2.0)
+    except Exception:
+        df = None
+
+    has_recent_vtec = (
+        df is not None
+        and not df.empty
+        and "station" in df.columns
+        and "vtec_tecu" in df.columns
+    )
+    vtec_by_station: dict[str, float] = {}
+    if has_recent_vtec:
+        grouped = df.groupby("station")["vtec_tecu"]
+        for code_raw, series in grouped:
+            code = str(code_raw).lower().rstrip("_")
+            mean_vtec = float(series.mean())
+            if math.isfinite(mean_vtec) and mean_vtec > 0:
+                vtec_by_station[code] = mean_vtec
+
+    try:
+        from backend.live_manager import latest_vtec_by_station
+
+        for code, vtec in latest_vtec_by_station().items():
+            key = code.lower().rstrip("_")
+            if vtec > 0 and key not in vtec_by_station:
+                vtec_by_station[key] = float(vtec)
+    except Exception:
+        pass
+
+    run_probe = (not pipeline_configured and not archive_applied) or (
+        not vtec_by_station and not archive_applied
+    )
+    if run_probe:
         try:
-            probe_payload = get_cached_ntrip_probe(
-                refresh=refresh_ntrip,
-                listen_sec=4.0,
-                allow_blocking_refresh=refresh_ntrip,
-            )
-            if not probe_payload.get("error"):
-                probe_by = probe_rows_by_station(probe_payload)
+            from zgiis.live.ntrip_status_cache import ntrip_probe_enabled
+
+            if ntrip_probe_enabled():
+                probe_payload = get_cached_ntrip_probe(
+                    refresh=refresh_ntrip,
+                    listen_sec=6.0,
+                    allow_blocking_refresh=refresh_ntrip,
+                )
+                if not probe_payload.get("error"):
+                    probe_by = probe_rows_by_station(probe_payload)
+                    for code, row in probe_by.items():
+                        raw = row.get("mean_vtec_tecu")
+                        if raw is None:
+                            continue
+                        sample = float(raw)
+                        if sample > 0:
+                            vtec_by_station[code.lower().rstrip("_")] = sample
         except Exception:
             probe_payload = None
             probe_by = {}
-
-    try:
-        df = get_db().query_recent(hours=0.25)
-    except Exception:
-        df = None
 
     probed_at = str(probe_payload.get("probed_at") or "") if probe_payload else ""
     msm_online = [
@@ -152,7 +190,7 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
         for code, row in probe_by.items()
         if str(row.get("verdict", "")).lower() == "msm_streaming"
     ]
-    if msm_online and not pipeline_configured:
+    if msm_online and (not pipeline_configured or not has_recent_vtec):
         try:
             from backend import live_manager
 
@@ -174,13 +212,15 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
             s = replace(s, status=derive_status_from_stream(stream), status_source="ntrip")
         if code in probe_by:
             s = enrich_station_from_probe(s, probe_by[code], probed_at=probed_at or None)
-        elif df is not None and not df.empty and "station" in df.columns:
-            latest = df.sort_values("time").groupby("station").tail(1).set_index("station")
-            means = df.groupby("station")["vtec_tecu"].mean() if "vtec_tecu" in df.columns else {}
-            if code in latest.index:
-                current_tec = float(means.get(code, 0.0) or 0.0)
-                s = replace(s, status="online", status_source="ntrip", current_tec=round(current_tec, 2))
-                s = enrich_station(s, stream=stream)
+        vtec = vtec_by_station.get(code.rstrip("_"))
+        if vtec is not None and vtec > 0:
+            s = replace(
+                s,
+                current_tec=round(vtec, 2),
+                status="online" if s.status != "offline" else s.status,
+                status_source="ntrip",
+            )
+            s = enrich_station(s, stream=stream)
         merged.append(s)
     return merged
 

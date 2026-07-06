@@ -20,7 +20,7 @@ import {
   getGicStatus,
   uploadGicFile,
 } from "@/lib/api";
-import { STATIC_GIC_NETWORK, staticGicStatus } from "@/lib/gicNetworkStatic";
+import { STATIC_GIC_NETWORK, staticGicStatus, DEFAULT_GIC_STATION_ID } from "@/lib/gicNetworkStatic";
 import type {
   EkfAlert,
   GicNetwork,
@@ -57,14 +57,14 @@ export default function GicMonitorPanel() {
   const [network, setNetwork] = useState<GicNetwork>(STATIC_GIC_NETWORK);
   const [status, setStatus] = useState<GicStatusResponse>(staticGicStatus());
   const [apiConnected, setApiConnected] = useState<boolean | null>(null);
-  const [stationId, setStationId] = useState<string>("MARIMBA_001");
+  const [stationId, setStationId] = useState<string>(DEFAULT_GIC_STATION_ID);
   const [rangeIdx, setRangeIdx] = useState(1);
   const [series, setSeries] = useState<GicSeriesResponse | null>(null);
   const [seriesLoading, setSeriesLoading] = useState(false);
   const [dashSeries24h, setDashSeries24h] = useState<GicSeriesResponse | null>(null);
   const [gicAlerts, setGicAlerts] = useState<EkfAlert[]>([]);
 
-  const [uploadStation, setUploadStation] = useState("MARIMBA_001");
+  const [uploadStation, setUploadStation] = useState(DEFAULT_GIC_STATION_ID);
   const [uploadBusy, setUploadBusy] = useState(false);
   const [uploadMsg, setUploadMsg] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);

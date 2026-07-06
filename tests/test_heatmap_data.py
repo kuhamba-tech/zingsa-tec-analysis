@@ -59,6 +59,38 @@ def test_build_tec_heatmap_flags_zero_obs_as_regional_mean():
     assert payload["message"] is not None
 
 
+def test_build_tec_heatmap_merges_probe_sample_vtec():
+    summary = pd.DataFrame()
+    recent = pd.DataFrame()
+    probe_payload = {
+        "probed_at": "2026-07-07T00:00:00Z",
+        "stations": [
+            {
+                "station": "hara",
+                "verdict": "msm_streaming",
+                "mean_vtec_tecu": 28.4,
+                "vtec_sample_count": 5,
+            }
+        ],
+    }
+
+    with patch("backend.live_manager.get_db") as mock_db, patch(
+        "backend.live_manager.latest_vtec_by_station", return_value={}
+    ), patch("backend.routers.cors_network._stations", return_value=[]), patch(
+        "zgiis.live.ntrip_status_cache.ntrip_probe_enabled", return_value=True
+    ), patch(
+        "zgiis.live.ntrip_status_cache.get_cached_ntrip_probe", return_value=probe_payload
+    ):
+        mock_db.return_value.station_summary.return_value = summary
+        mock_db.return_value.query_recent.return_value = recent
+        payload = build_tec_heatmap(hours=2)
+
+    assert payload["available"] is True
+    assert payload["station_count"] == 1
+    assert payload["stations"][0]["code"] == "hara"
+    assert payload["stations"][0]["vtec"] == 28.4
+
+
 def test_build_tec_heatmap_merges_cors_current_tec():
     summary = pd.DataFrame()
     recent = pd.DataFrame()
@@ -70,8 +102,10 @@ def test_build_tec_heatmap_merges_cors_current_tec():
     mock_station.current_tec = 30.9
 
     with patch("backend.live_manager.get_db") as mock_db, patch(
+        "backend.live_manager.latest_vtec_by_station", return_value={}
+    ), patch(
         "backend.routers.cors_network._stations", return_value=[mock_station]
-    ):
+    ), patch("zgiis.live.ntrip_status_cache.ntrip_probe_enabled", return_value=False):
         mock_db.return_value.station_summary.return_value = summary
         mock_db.return_value.query_recent.return_value = recent
         payload = build_tec_heatmap(hours=2)

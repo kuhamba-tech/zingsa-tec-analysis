@@ -96,6 +96,18 @@ def get_nav_cache():
     return _nav_cache
 
 
+def get_pipeline():
+    return _pipeline
+
+
+def latest_vtec_by_station() -> dict[str, float]:
+    """In-memory latest VTEC per station from the live ingest pipeline."""
+    pipeline = _pipeline
+    if pipeline is None:
+        return {}
+    return pipeline.latest_by_station()
+
+
 def get_db():
     """Shared TecDB instance (TimescaleDB if TSDB_DSN is set, else SQLite)."""
     global _db

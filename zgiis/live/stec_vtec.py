@@ -187,6 +187,15 @@ class LiveVtecPipeline:
         self._nav_cache = nav_cache
         self._pending: list[dict] = []
         self._flush_n = db_flush_n
+        self._latest: dict[str, dict] = {}
+
+    def latest_by_station(self) -> dict[str, float]:
+        """Most recent VTEC (TECU) per station from the in-memory pipeline."""
+        return {
+            code: float(row["vtec_tecu"])
+            for code, row in self._latest.items()
+            if row.get("vtec_tecu") is not None
+        }
 
     def ingest(self, obs: dict) -> None:
         if self._nav_cache is not None and obs.get("elevation_deg") is None:
@@ -201,6 +210,10 @@ class LiveVtecPipeline:
         vtec = self._acc.ingest(obs)
         if vtec is None:
             return
+
+        code = str(vtec.get("station", "")).lower().rstrip("_")
+        if code:
+            self._latest[code] = vtec
 
         if self._on_vtec:
             try:

@@ -130,6 +130,10 @@ def probe_mountpoint(
 
     mountpoint: str,
 
+    station_code: str | None = None,
+
+    sample_vtec: bool = True,
+
     use_tls: bool = False,
 
     listen_sec: float = 6.0,
@@ -296,6 +300,20 @@ def probe_mountpoint(
 
         first: list[int] = []
 
+        vtec_sampler = None
+
+        if sample_vtec and station_code:
+
+            try:
+
+                from zgiis.live.probe_vtec import ProbeVtecSampler
+
+                vtec_sampler = ProbeVtecSampler(station_code)
+
+            except Exception:
+
+                vtec_sampler = None
+
 
 
         for _, msg in RTCMReader(sock):
@@ -326,6 +344,12 @@ def probe_mountpoint(
 
                 first.append(msg_type)
 
+            if vtec_sampler is not None:
+
+                from datetime import datetime, timezone
+
+                vtec_sampler.ingest_msg(msg, msg_type, datetime.now(tz=timezone.utc))
+
 
 
         result["msg_types"] = _counter_to_str_keys(types)
@@ -343,6 +367,10 @@ def probe_mountpoint(
             result["verdict"] = "msm_streaming"
 
             result["note"] = "MSM4/MSM7 observation RTCM received — usable for VTEC pipeline"
+
+            if vtec_sampler is not None:
+
+                result.update(vtec_sampler.summary())
 
         elif result["rtcm_total"] > 0:
 
@@ -462,9 +490,11 @@ def probe_all_mountpoints(
 
             mountpoint=mp,
 
-            use_tls=cfg["use_tls"],
+            station_code=station,
 
             listen_sec=listen_sec,
+
+            use_tls=cfg["use_tls"],
 
         )
 

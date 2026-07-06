@@ -7,7 +7,7 @@ POSTs them to the ZGIIS backend at POST /gic/ingest.
 Environment variables:
   GIC_GATEWAY_URL   Base URL (default http://127.0.0.1:8000)
   API_KEY           X-API-Key header value (required in production)
-  GIC_STATION_ID    Station identifier (default MARIMBA_001)
+  GIC_STATION_ID    Station identifier (default DEMA_001)
   GIC_DATA_FILE     Path to TOA5/CSV file to tail (required)
   GIC_BATCH_SIZE    Max readings per upload (default 120)
   GIC_STATE_FILE    Tracks last uploaded timestamp (default .gic_gateway_state)
@@ -58,7 +58,7 @@ def _save_state(path: Path, last_time: str) -> None:
 def main() -> int:
     base_url = _env("GIC_GATEWAY_URL", "http://127.0.0.1:8000").rstrip("/")
     api_key = _env("API_KEY")
-    station_id = _env("GIC_STATION_ID", "MARIMBA_001").upper()
+    station_id = _env("GIC_STATION_ID", "DEMA_001").upper()
     data_file = _env("GIC_DATA_FILE")
     batch_size = max(1, int(_env("GIC_BATCH_SIZE", "120") or "120"))
     state_file = Path(_env("GIC_STATE_FILE", str(Path.cwd() / ".gic_gateway_state")))

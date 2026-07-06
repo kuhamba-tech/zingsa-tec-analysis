@@ -57,6 +57,12 @@ export interface CorsConnectedDisplay {
   total: number;
 }
 
+/** Compact one-line CORS status for home metric cards. */
+export function formatCorsConnectedShort(counts: LiveStationCounts): string {
+  const connected = connectedStreamCount(counts);
+  return `${connected}/${counts.total} · ${counts.online} recv · ${counts.degraded} idle`;
+}
+
 /** Shared CORS connected readout — same on home, space weather, dashboard, and live pipeline. */
 export function formatCorsConnectedDisplay(counts: LiveStationCounts): CorsConnectedDisplay {
   const connected = connectedStreamCount(counts);

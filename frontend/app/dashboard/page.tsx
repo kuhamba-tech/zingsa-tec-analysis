@@ -184,7 +184,7 @@ export default function DashboardPage() {
   const loadGicBundle = useCallback(async (): Promise<GicTimelineBundle | null> => {
     const status = await getGicStatus().catch(() => null);
     const withData = status?.stations.find((s) => s.has_data);
-    const sid = (withData ?? status?.stations[0])?.station_id ?? "MARIMBA_001";
+    const sid = (withData ?? status?.stations[0])?.station_id ?? "DEMA_001";
     const [liveModel, series] = await Promise.all([
       getGicLiveModel(24).catch(() => null),
       getGicSeries(sid, 24).catch(() => null),

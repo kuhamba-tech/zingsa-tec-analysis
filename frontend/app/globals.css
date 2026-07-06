@@ -1079,13 +1079,26 @@ select option {
   text-transform: uppercase;
   margin-bottom: 0.8rem;
 }
-.home-metric-grid {
-  gap: 0.65rem;
-}
 .home-metric-card {
   cursor: default;
-  min-height: 11rem;
-  padding: 1.2rem 0.75rem 1rem;
+  min-height: 9.5rem;
+  padding: 0.85rem 0.4rem 0.75rem;
+}
+.home-metric-card .sw-metric-label {
+  font-size: 0.58rem;
+  min-height: 1.35rem;
+  white-space: nowrap;
+}
+.home-metric-card .sw-metric-value {
+  font-size: clamp(0.85rem, 1.25vw, 1.15rem);
+  white-space: nowrap;
+}
+.home-metric-card .sw-metric-note {
+  font-size: 0.55rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 .home-metric-card:hover {
   border-color: #244d73;
@@ -1430,8 +1443,14 @@ select option {
   }
 }
 
+@media (max-width: 1100px) {
+  .dashboard-metric-grid.home-metric-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 720px) {
-  .home-metric-grid {
+  .dashboard-metric-grid.home-metric-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -1715,6 +1734,11 @@ select option {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.8rem;
   align-items: stretch;
+}
+
+.dashboard-metric-grid.home-metric-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.55rem;
 }
 
 /* Clickable space-weather metric cards */
@@ -4486,7 +4510,7 @@ select option {
   .metrics-auto-grid,
   .constellation-grid,
   .dashboard-metric-grid,
-  .home-metric-grid {
+  .dashboard-metric-grid.home-metric-grid {
     grid-template-columns: 1fr;
   }
 

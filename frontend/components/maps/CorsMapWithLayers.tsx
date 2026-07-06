@@ -39,6 +39,9 @@ export default function CorsMapWithLayers({
   const tecLayerActive = layer === "TEC Heat Map";
   const maxVtec = heatmap?.tec_max ?? null;
   const qualityBanner = heatmapQualityBanner(inferHeatmapQuality(heatmap ?? null), heatmap?.message);
+  const awaitingVtecBanner =
+    qualityBanner != null &&
+    /NTRIP-connected|awaiting MSM|decode needs|sampled live VTEC/i.test(qualityBanner);
   const aviationAdvisory =
     maxVtec != null && (icaoTecLevel(maxVtec) === "mod" || icaoTecLevel(maxVtec) === "sev");
 
@@ -50,8 +53,12 @@ export default function CorsMapWithLayers({
 
   return (
     <div>
-      {qualityBanner && (
-        <div className="banner banner-warn" style={{ fontSize: "0.78rem", marginBottom: "0.5rem" }} role="status">
+      {tecLayerActive && qualityBanner && (
+        <div
+          className={`banner ${awaitingVtecBanner ? "banner-info" : "banner-warn"}`}
+          style={{ fontSize: "0.78rem", marginBottom: "0.5rem" }}
+          role="status"
+        >
           {qualityBanner}
         </div>
       )}

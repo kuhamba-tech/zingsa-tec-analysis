@@ -12,9 +12,9 @@ class GicIngestTests(unittest.TestCase):
 2024-06-01T12:00:00+00:00,3.5,22.1
 2024-06-01T12:01:00+00:00,4.2,22.0
 """
-        rows = parse_gic_file(csv_text, "sample.csv", "marimba_001")
+        rows = parse_gic_file(csv_text, "sample.csv", "dema_001")
         self.assertEqual(len(rows), 2)
-        self.assertEqual(rows[0]["station_id"], "MARIMBA_001")
+        self.assertEqual(rows[0]["station_id"], "DEMA_001")
         self.assertAlmostEqual(rows[0]["gic_a"], 3.5)
         self.assertAlmostEqual(rows[1]["gic_a"], 4.2)
         self.assertEqual(rows[0]["temp_c"], 22.1)
@@ -34,7 +34,7 @@ Avg,Avg,Inst
 
     def test_empty_file_raises(self):
         with self.assertRaises(ValueError):
-            parse_gic_file(b"", "empty.csv", "MARIMBA_001")
+            parse_gic_file(b"", "empty.csv", "DEMA_001")
 
 
 if __name__ == "__main__":
