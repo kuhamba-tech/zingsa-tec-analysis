@@ -19,8 +19,10 @@ import {
 } from "@/components/gnssIntelligence/GnssArchitectureDiagrams";
 import BroadcastRecipientsPanel from "@/components/gnssIntelligence/BroadcastRecipientsPanel";
 import FacebookPostPanel from "@/components/gnssIntelligence/FacebookPostPanel";
+import NationalGnssStatusCard from "@/components/gnssIntelligence/NationalGnssStatusCard";
 import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
 import { analyzeNavigationNewsBrief, analyzeNavigationNewsSection } from "@/lib/navigationNewsAnalysis";
+import { effectiveNavigationTone } from "@/lib/gnssAudienceNews";
 import type { SpaceWeatherCurrent, Station } from "@/lib/types";
 import {
   ZINGSA_ADDRESS,
@@ -218,6 +220,7 @@ export default function GnssIntelligencePage() {
   }, []);
 
   const forecasts = bundle?.forecasts ?? [];
+  const nationalTone = bundle ? effectiveNavigationTone(forecasts, sw) : "excellent";
   const updatedLabel = bundle?.computedAt
     ? bundle.computedAt.replace("T", " ").replace("Z", " UTC").slice(0, 19)
     : null;
@@ -229,8 +232,8 @@ export default function GnssIntelligencePage() {
         <h1 className="page-title">🛰️ Navigation Weather</h1>
         <p className="page-subtitle">
           How space weather — activity on the Sun and in Earth&apos;s magnetic field — affects
-          navigation in your everyday life. Plain-language news for citizens, farmers, surveyors,
-          aviation, and drivers, updated from live NOAA indices and the ZINGSA CORS network.
+          navigation in your everyday life. News for citizens, farmers, surveyors, aviation, and
+          drivers, updated from live NOAA indices and the ZINGSA CORS network.
         </p>
       </header>
 
@@ -243,6 +246,16 @@ export default function GnssIntelligencePage() {
       </div>
 
       {error && <div className="banner banner-alert">{error}</div>}
+      {bundle && (
+        <section className="gnwi-section gnwi-section--status">
+          <NationalGnssStatusCard
+            forecasts={forecasts}
+            tone={nationalTone}
+            sw={sw}
+            updatedLabel={updatedLabel}
+          />
+        </section>
+      )}
       {bundle && (
         <div className="banner banner-info gnwi-live-sources" style={{ fontSize: "0.78rem" }}>
           <strong>Input routing:</strong> {bundle.inputSummary}

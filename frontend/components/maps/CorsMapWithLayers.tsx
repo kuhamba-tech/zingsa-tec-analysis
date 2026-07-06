@@ -2,7 +2,8 @@
 import { useState } from "react";
 import CorsMap from "./CorsMap";
 import TecHeatMapLegend from "./TecHeatMapLegend";
-import type { Station } from "@/lib/types";
+import { heatmapQualityBanner, icaoTecLabel, icaoTecLevel, inferHeatmapQuality } from "@/lib/icaoTecAdvisory";
+import type { Station, TecHeatmapResponse } from "@/lib/types";
 import type { LiveStationCounts } from "@/lib/liveStationStatus";
 
 export type MapLayer = "Hybrid" | "Satellite" | "Street" | "TEC Heat Map";
@@ -14,6 +15,7 @@ interface Props {
   liveCounts: LiveStationCounts;
   ntripProbedAt?: string | null;
   stationsLoading?: boolean;
+  heatmap?: TecHeatmapResponse | null;
 }
 
 const LAYERS: MapLayer[] = ["Hybrid", "Satellite", "Street", "TEC Heat Map"];
@@ -31,8 +33,14 @@ export default function CorsMapWithLayers({
   liveCounts,
   ntripProbedAt = null,
   stationsLoading = false,
+  heatmap = null,
 }: Props) {
   const [layer, setLayer] = useState<MapLayer>("Hybrid");
+  const tecLayerActive = layer === "TEC Heat Map";
+  const maxVtec = heatmap?.tec_max ?? null;
+  const qualityBanner = heatmapQualityBanner(inferHeatmapQuality(heatmap ?? null), heatmap?.message);
+  const aviationAdvisory =
+    maxVtec != null && (icaoTecLevel(maxVtec) === "mod" || icaoTecLevel(maxVtec) === "sev");
 
   const liveLabel = stationsLoading
     ? "NTRIP probe running…"
@@ -42,6 +50,11 @@ export default function CorsMapWithLayers({
 
   return (
     <div>
+      {qualityBanner && (
+        <div className="banner banner-warn" style={{ fontSize: "0.78rem", marginBottom: "0.5rem" }} role="status">
+          {qualityBanner}
+        </div>
+      )}
       <div className="home-map-toolbar">
         <div className="home-map-toolbar-left">
           <div className="home-map-toolbar-title">
@@ -68,6 +81,11 @@ export default function CorsMapWithLayers({
         </div>
 
         <div className="home-map-toolbar-right">
+          {aviationAdvisory && maxVtec != null && (
+            <span className="home-map-icao-chip" title={icaoTecLabel(maxVtec)}>
+              ✈ ICAO {icaoTecLevel(maxVtec).toUpperCase()}
+            </span>
+          )}
           <span className="home-map-risk-label">Risk Level</span>
           <span className="home-map-risk-value" style={{ color: riskColor(riskLevel) }}>
             {riskLevel.toUpperCase()}
@@ -76,7 +94,58 @@ export default function CorsMapWithLayers({
       </div>
 
       <div style={{ position: "relative" }}>
-        <CorsMap stations={stations} height={height} layer={layer} />
+        <CorsMap stations={stations} height={height} layer={layer} heatmap={heatmap} />
+
+        {tecLayerActive && (
+          <div
+            style={{
+              position: "absolute",
+              top: "12px",
+              left: "12px",
+              zIndex: 10,
+              background: "rgba(0,0,0,0.82)",
+              border: "1px solid var(--border)",
+              borderRadius: "8px",
+              padding: "0.65rem 0.85rem",
+              minWidth: "150px",
+              pointerEvents: "none",
+            }}
+          >
+            <div style={{ color: "var(--text-muted)", fontSize: "0.68rem", fontWeight: 800, textTransform: "uppercase" }}>
+              Live TEC
+            </div>
+            {heatmap?.available ? (
+              <>
+                <div style={{ color: "#57ff65", fontSize: "1.45rem", fontWeight: 900, lineHeight: 1.1 }}>
+                  {heatmap.tec_min != null && heatmap.tec_max != null
+                    ? `${heatmap.tec_min.toFixed(1)}-${heatmap.tec_max.toFixed(1)}`
+                    : `${heatmap.station_count}`}
+                </div>
+                <div style={{ fontSize: "0.72rem", fontWeight: 700 }}>
+                  {heatmap.stations.length > 0
+                    ? heatmap.stations
+                        .map((s) => `${s.code.toUpperCase()} ${s.vtec.toFixed(1)}`)
+                        .join(" · ")
+                    : `TECU from ${heatmap.station_count} live station${heatmap.station_count === 1 ? "" : "s"}`}
+                </div>
+                {heatmap.updated_at && (
+                  <div style={{ color: "var(--text-muted)", fontSize: "0.65rem", marginTop: "0.2rem" }}>
+                    {heatmap.updated_at}
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <div style={{ color: "#ffb347", fontSize: "0.82rem", fontWeight: 800, marginTop: "0.25rem" }}>
+                  Waiting for live VTEC
+                </div>
+                <div style={{ color: "var(--text-muted)", fontSize: "0.65rem", marginTop: "0.2rem", maxWidth: "210px" }}>
+                  {heatmap?.message ?? "No recent live TEC observations available yet."}
+                </div>
+              </>
+            )}
+          </div>
+        )}
 
         <div
           style={{
@@ -134,8 +203,8 @@ export default function CorsMapWithLayers({
         </div>
       </div>
 
-      {layer === "TEC Heat Map" && (
-        <TecHeatMapLegend className="tec-heatmap-legend-below" />
+      {tecLayerActive && (
+        <TecHeatMapLegend className="tec-heatmap-legend-below" maxVtec={maxVtec} />
       )}
     </div>
   );

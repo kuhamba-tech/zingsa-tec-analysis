@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import logging
 import os
+import threading
 import time
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
@@ -103,7 +104,7 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
     from zgiis.live.ntrip_status_cache import get_cached_ntrip_probe, probe_rows_by_station
 
     try:
-        health = fetch_station_health(country="Zimbabwe")
+        health = fetch_station_health(country="Zimbabwe") if refresh_ntrip else None
     except Exception:
         health = None
 
@@ -129,7 +130,11 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
     probe_by: dict = {}
     if not pipeline_configured and not archive_applied:
         try:
-            probe_payload = get_cached_ntrip_probe(refresh=refresh_ntrip, listen_sec=4.0)
+            probe_payload = get_cached_ntrip_probe(
+                refresh=refresh_ntrip,
+                listen_sec=4.0,
+                allow_blocking_refresh=refresh_ntrip,
+            )
             if not probe_payload.get("error"):
                 probe_by = probe_rows_by_station(probe_payload)
         except Exception:
@@ -142,6 +147,24 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
         df = None
 
     probed_at = str(probe_payload.get("probed_at") or "") if probe_payload else ""
+    msm_online = [
+        code
+        for code, row in probe_by.items()
+        if str(row.get("verdict", "")).lower() == "msm_streaming"
+    ]
+    if msm_online and not pipeline_configured:
+        try:
+            from backend import live_manager
+
+            threading.Thread(
+                target=live_manager.ensure_ingest_for_stations,
+                args=(msm_online,),
+                daemon=True,
+                name="zgiis-ensure-ingest",
+            ).start()
+        except Exception:
+            log.exception("Failed to start live ingest for probed-online CORS stations")
+
     merged = []
     for station in stations:
         code = station.code.lower()
@@ -204,7 +227,7 @@ def _station_out(s) -> StationOut:
 
 
 @router.get("/stations", response_model=list[StationOut])
-async def stations(
+def stations(
     refresh_ntrip: bool = Query(False),
     _=Depends(require_api_key),
 ):

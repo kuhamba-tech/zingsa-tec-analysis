@@ -88,6 +88,7 @@ def train(
     batch_size: int   = 32,
     lr:         float = 1e-3,
     device:     str   = "cpu",
+    epoch_callback=None,
 ) -> dict:
     """
     Full training cycle. Loads existing weights for fine-tuning if available.
@@ -132,6 +133,11 @@ def train(
         losses.append(avg)
         scheduler.step(avg)
         log.info("Epoch %02d/%02d  loss=%.5f", epoch + 1, epochs, avg)
+        if epoch_callback is not None:
+            try:
+                epoch_callback(epoch + 1, epochs, avg)
+            except Exception:
+                pass
 
     save_model(model)
 
@@ -165,6 +171,17 @@ def forecast(
         return None
 
     ts = db.mean_vtec_timeseries(hours=24.0, station=station)
+    if len(ts) < SEQ_LEN:
+        df = db.query_recent(hours=24 * 365, station=station)
+        if not df.empty:
+            df["time"] = pd.to_datetime(df["time"], utc=True)
+            ts = (
+                df.set_index("time")["vtec_tecu"]
+                .resample(_RESAMPLE_FREQ)
+                .mean()
+                .interpolate(limit=4)
+                .dropna()
+            )
     if len(ts) < SEQ_LEN:
         log.warning("Not enough history (%d epochs) for forecast", len(ts))
         return None

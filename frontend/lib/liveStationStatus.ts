@@ -44,3 +44,26 @@ export function countLiveStationStatuses(stations: Station[], expectedTotal = 24
 
   return counts;
 }
+
+/** Stations with an active NTRIP connection (receiving or idle) — used for X/24 display. */
+export function connectedStreamCount(counts: LiveStationCounts): number {
+  return counts.online + counts.degraded;
+}
+
+export interface CorsConnectedDisplay {
+  value: string;
+  note: string;
+  connected: number;
+  total: number;
+}
+
+/** Shared CORS connected readout — same on home, space weather, dashboard, and live pipeline. */
+export function formatCorsConnectedDisplay(counts: LiveStationCounts): CorsConnectedDisplay {
+  const connected = connectedStreamCount(counts);
+  return {
+    value: `${connected}/${counts.total}`,
+    note: `Receiving ${counts.online} · Idle ${counts.degraded} · Offline ${counts.offline} · Unavailable ${counts.unavailable}`,
+    connected,
+    total: counts.total,
+  };
+}

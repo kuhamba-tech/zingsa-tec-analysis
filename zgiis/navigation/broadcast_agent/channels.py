@@ -166,15 +166,24 @@ class FacebookPageChannel:
     def send(self, *, audience: str, script_kind: str, text: str, brief: dict[str, Any], dry_run: bool, options: dict[str, str]) -> DeliveryResult:
         import os
 
-        token = options.get("page_token") or os.getenv("FACEBOOK_PAGE_ACCESS_TOKEN", "").strip()
-        page_id = options.get("page_id") or os.getenv("FACEBOOK_PAGE_ID", "").strip()
-        if not page_id:
-            try:
-                from zgiis.navigation.facebook_publish import resolve_facebook_page_id
+        from zgiis.navigation.facebook_credentials_file import (
+            resolve_facebook_page_access_token,
+            resolve_page_feed_access_token,
+        )
 
-                page_id = resolve_facebook_page_id()
-            except Exception:
-                page_id = ""
+        raw_token = options.get("page_token") or resolve_facebook_page_access_token()
+        page_id = options.get("page_id") or os.getenv("FACEBOOK_PAGE_ID", "").strip()
+        if not dry_run and raw_token:
+            page_id, token = resolve_page_feed_access_token(token=raw_token, page_id=page_id or None)
+        else:
+            token = raw_token
+            if not page_id:
+                try:
+                    from zgiis.navigation.facebook_publish import resolve_facebook_page_id
+
+                    page_id = resolve_facebook_page_id(token=raw_token if not dry_run else None)
+                except Exception:
+                    page_id = ""
 
         message = text if len(text) <= 5000 else text[:4950] + "…"
 

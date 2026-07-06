@@ -219,6 +219,9 @@ class StormAlertStatus(BaseModel):
     active_count: int = 0
     banner: str | None = None
     kp_storm_level: str | None = None
+    geomagnetic_level: str = "none"
+    geomagnetic_reasons: list[str] = []
+    alert_rules: list[str] = []
     ekf_alert_count: int = 0
     notification_channels: dict[str, bool] = {}
     dry_run: bool = True
@@ -702,6 +705,9 @@ class TecHeatmapResponse(BaseModel):
     station_count: int = 0
     updated_at: str | None = None
     message: str | None = None
+    data_quality: str = "none"
+    icao_mod_tecu: float = 125.0
+    icao_sev_tecu: float = 175.0
 
 
 # ── Live Pipeline ──────────────────────────────────────────────────────────────
@@ -733,6 +739,7 @@ class LivePipelineStatus(BaseModel):
     streams: dict[str, Any] = {}
     db_backend: str = "sqlite"
     record_count: int = 0
+    recent_record_count_1h: int = 0
     runtime_mode: str = "persistent-process"
     ingest_enabled: bool = True
     message: str | None = None
@@ -791,6 +798,16 @@ class ForecastPoint(BaseModel):
     lower: float | None = None
 
 
+class CnnGruTrainStatus(BaseModel):
+    running: bool = False
+    started_at: str | None = None
+    epoch: int = 0
+    total_epochs: int = 30
+    last_loss: float | None = None
+    error: str | None = None
+    result: dict | None = None
+
+
 # ── Navigation News ────────────────────────────────────────────────────────────
 
 class NavigationNewsBriefOut(BaseModel):
@@ -819,6 +836,21 @@ class NavigationNewsBundleOut(BaseModel):
     input_summary: str
     sources: dict[str, bool]
     briefs: list[NavigationNewsBriefOut]
+
+
+class AiAudienceRecommendationOut(BaseModel):
+    id: str
+    label: str
+    icon: str
+    headline: str
+    detail: str | None = None
+    tone: str
+
+
+class AiRecommendationsOut(BaseModel):
+    recommendations: list[AiAudienceRecommendationOut]
+    tone: str
+    computed_at: str | None = None
 
 
 class NavigationNewsScheduleOut(BaseModel):

@@ -20,7 +20,7 @@ log = logging.getLogger(__name__)
 _C_LIGHT    = 2.99792458e8   # m/s
 _RE_KM      = 6378.0         # Earth radius (Gopi p.76)
 _IPP_KM     = 350.0          # Ionospheric Pierce Point height (default)
-_ELEV_MASK  = 25.0           # Elevation mask (degrees)
+_ELEV_MASK  = 30.0           # Elevation mask (degrees)
 
 # Pair timeout: if we don't see a second signal within this many seconds,
 # discard the buffered first signal to avoid stale pairings.

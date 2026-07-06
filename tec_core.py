@@ -300,7 +300,7 @@ CMN_COLUMNS = [
 
 @dataclass
 class TecConfig:
-    elevation_min_deg: float = 25.0
+    elevation_min_deg: float = 30.0
     ipp_height_km: float = 350.0
     dcb_folder: Optional[Path] = None   # folder containing P1C1/P1P2 .DCB files
 
@@ -315,7 +315,7 @@ RINEX_EMPTY_HELP = (
     "No observations were processed. For .o / .24o files you must also provide the "
     "matching navigation file (.24n) so satellite elevations can be computed "
     "(Gopi Ch.4, Sec 4.2). Ensure dual-frequency C1/P1, P2, L1, and L2 are present "
-    "and elevation exceeds the mask (default 25°)."
+    "and elevation exceeds the mask (default 30°)."
 )
 
 

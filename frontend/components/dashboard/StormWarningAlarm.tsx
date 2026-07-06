@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ackEkfAlert, getEkfAlertLog } from "@/lib/api";
 import {
-  isGeomagneticStorm,
+  geomagneticAlertLevel,
   startStormAlarmBeep,
   stopStormAlarmBeep,
   unlockStormAlarmAudio,
@@ -56,11 +56,13 @@ export default function StormWarningAlarm({
   }, [loadAlerts, externalPending]);
 
   const kp = sw?.kp ?? null;
-  const activeStorm = kp != null && kp >= 5;
-  const elevated = kp != null && kp >= 4;
+  const dst = sw?.dst ?? null;
+  const geoLevel = geomagneticAlertLevel(sw);
+  const activeStorm = geoLevel === "storm";
+  const elevated = geoLevel === "possible";
   const ekfCount = ekf?.active_alert_count ?? pendingAlerts.length;
   const banner = ekf?.banner;
-  const geomagneticStorm = isGeomagneticStorm(sw);
+  const geomagneticStorm = activeStorm;
   const severeStorm = kp != null && kp >= 7;
 
   // Each new geomagnetic storm episode starts with sound ON and banner visible.
@@ -79,14 +81,16 @@ export default function StormWarningAlarm({
   const label = useMemo(() => {
     const parts: string[] = [];
     if (activeStorm && kp != null) {
-      parts.push(`ACTIVE GEOMAGNETIC STORM — Kp ${kp.toFixed(0)}${ekf?.kp_storm_level ? ` (${ekf.kp_storm_level})` : ""}`);
+      parts.push(`GEOMAGNETIC STORM — Kp ${kp.toFixed(0)}${ekf?.kp_storm_level ? ` (${ekf.kp_storm_level})` : ""}`);
     } else if (elevated && kp != null) {
-      parts.push(`Elevated geomagnetic activity — Kp ${kp.toFixed(0)}`);
+      parts.push(`Possible geomagnetic storm — Kp ${kp.toFixed(0)}`);
+    } else if (elevated && dst != null) {
+      parts.push(`Possible geomagnetic storm — Dst ${dst.toFixed(0)} nT`);
     }
     if (banner) parts.push(banner.replace(/^⚠\s?/, ""));
     const total = Math.max(ekfCount, pendingAlerts.length) + (activeStorm ? 1 : 0);
     return { text: parts.join(" · ") || "Geomagnetic conditions require attention", total };
-  }, [activeStorm, elevated, kp, banner, ekfCount, pendingAlerts.length, ekf?.kp_storm_level]);
+  }, [activeStorm, elevated, kp, dst, banner, ekfCount, pendingAlerts.length, ekf?.kp_storm_level]);
 
   useEffect(() => {
     if (!shouldBeep) {

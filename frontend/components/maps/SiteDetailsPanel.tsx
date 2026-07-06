@@ -1,14 +1,26 @@
 "use client";
-import type { Station } from "@/lib/types";
+import type { Station, TecHeatmapResponse } from "@/lib/types";
 import { siteStatusColor, stationDetailRows } from "@/lib/stationDetails";
+import { icaoTecColor, icaoTecDistanceLabel, icaoTecLabel } from "@/lib/icaoTecAdvisory";
 
 interface Props {
   station: Station;
+  heatmap?: TecHeatmapResponse | null;
   onClose: () => void;
 }
 
-export default function SiteDetailsPanel({ station, onClose }: Props) {
+function heatmapVtec(station: Station, heatmap?: TecHeatmapResponse | null): number | null {
+  const code = station.code.toLowerCase().replace(/_+$/, "");
+  const fromHeatmap = heatmap?.stations.find((s) => s.code.toLowerCase().replace(/_+$/, "") === code)?.vtec;
+  if (typeof fromHeatmap === "number" && Number.isFinite(fromHeatmap)) return fromHeatmap;
+  return typeof station.current_tec === "number" && Number.isFinite(station.current_tec)
+    ? station.current_tec
+    : null;
+}
+
+export default function SiteDetailsPanel({ station, heatmap = null, onClose }: Props) {
   const rows = stationDetailRows(station);
+  const vtec = heatmapVtec(station, heatmap);
   const statusColor = siteStatusColor(
     rows.find((r) => r.label === "Site Status")?.value ?? station.status,
   );
@@ -89,10 +101,26 @@ export default function SiteDetailsPanel({ station, onClose }: Props) {
                     wordBreak: "break-word",
                   }}
                 >
-                  {value}
+                  {label === "VTEC" && vtec != null ? `${vtec.toFixed(2)} TECU` : value}
                 </td>
               </tr>
             ))}
+            {vtec != null && (
+              <>
+                <tr style={{ borderBottom: "1px solid rgba(36, 77, 115, 0.35)" }}>
+                  <td style={{ padding: "0.35rem 0.4rem 0.35rem 0", color: "#64748b" }}>ICAO GNSS</td>
+                  <td style={{ padding: "0.35rem 0", color: icaoTecColor(vtec), fontWeight: 700 }}>
+                    {icaoTecLabel(vtec)}
+                  </td>
+                </tr>
+                {icaoTecDistanceLabel(vtec) && (
+                  <tr>
+                    <td style={{ padding: "0.35rem 0.4rem 0.35rem 0", color: "#64748b" }}>Threshold</td>
+                    <td style={{ padding: "0.35rem 0", color: "#94a3b8" }}>{icaoTecDistanceLabel(vtec)}</td>
+                  </tr>
+                )}
+              </>
+            )}
           </tbody>
         </table>
 

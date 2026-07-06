@@ -262,7 +262,7 @@ PIPELINE_EXPLANATIONS: dict[str, StageExplanation] = {
         ],
         "zgiis": (
             "Applied in `tec_core._mapping_function()` with configurable IPP height. "
-            "Observations below the elevation mask (default ≥ 25°) are excluded before "
+            "Observations below the elevation mask (default ≥ 30°) are excluded before "
             "daily, monthly, and yearly summaries."
         ),
     },

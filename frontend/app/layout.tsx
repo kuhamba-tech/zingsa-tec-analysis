@@ -1,10 +1,11 @@
 import type { Metadata, Viewport } from "next";
+import { Suspense } from "react";
 import "./globals.css";
 import AppShell from "@/components/layout/AppShell";
 
 export const metadata: Metadata = {
-  title: "ZGIIS — Zimbabwe GNSS Ionospheric Information System",
-  description: "Real-time TEC monitoring, processing, and space weather for Zimbabwe CORS network",
+  title: "Zimbabwe National Space Weather & Navigation Intelligence Platform",
+  description: "Real-time space weather, ionospheric TEC, and GNSS navigation intelligence for Zimbabwe's CORS network",
 };
 
 export const viewport: Viewport = {
@@ -17,7 +18,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body>
-        <AppShell>{children}</AppShell>
+        <Suspense fallback={<div className="app-main">{children}</div>}>
+          <AppShell>{children}</AppShell>
+        </Suspense>
       </body>
     </html>
   );

@@ -1,6 +1,9 @@
 import type { SpaceWeatherCurrent } from "./types";
 import type { ForecastStatus, GnssForecastCity } from "./gnssWeatherIntelligence";
 import {
+  buildNationalNavigationSocial,
+} from "./nationalNavigationSocial";
+import {
   ZINGSA_AGENCY,
   ZINGSA_BROADCAST_FOOTER,
   ZINGSA_NAVIGATION_CHANNELS,
@@ -281,13 +284,7 @@ function citizenBrief(
     ...ZINGSA_BROADCAST_FOOTER,
   ]);
 
-  const social = joinScript([
-    "🇿🇼 ZINGSA Navigation News | Space Weather & You",
-    swCtx.headline,
-    summaries[status].split(".")[0] + ".",
-    actions[status],
-    "#SpaceWeather #Zimbabwe #GPS #PublicAwareness",
-  ]);
+  const social = buildNationalNavigationSocial(status, sw, computedAt, forecasts);
 
   return {
     id: "citizen",
@@ -769,7 +766,7 @@ function scientistBrief(
 
   const actions: Record<ForecastStatus, string> = {
     excellent: "Proceed with routine processing and research extracts. Document quiet-day baselines for the archive.",
-    moderate: "Enable enhanced QC flags on CORS ingest; compare ZINGSA TEC with IGS/global maps; note EKF alerts in lab books.",
+    moderate: "Enable enhanced QC flags on CORS ingest; compare ZINGSA TEC with IGS/global maps.",
     warning: "Activate storm-data protocol: snapshot indices hourly, segregate contaminated arcs, coordinate with ZINGSA ops before releasing operational TEC products.",
   };
 

@@ -5,12 +5,13 @@ import {
   getNavigationFacebookStatus,
   testNavigationFacebookPost,
 } from "@/lib/api";
-import { DEFAULT_FACEBOOK_STATUS } from "@/lib/navigationFacebookDefaults";
+import { OFFLINE_FACEBOOK_STATUS } from "@/lib/navigationFacebookDefaults";
 import type { NavigationFacebookPostResult, NavigationFacebookStatus } from "@/lib/types";
 
-/** Test post Navigation News to the ZINGSA Facebook Page. */
+/** Test post Navigation News to the Stellar Aspirations Facebook Page. */
 export default function FacebookPostPanel() {
-  const [status, setStatus] = useState<NavigationFacebookStatus>(DEFAULT_FACEBOOK_STATUS);
+  const [status, setStatus] = useState<NavigationFacebookStatus>(OFFLINE_FACEBOOK_STATUS);
+  const [backendOnline, setBackendOnline] = useState(false);
   const [result, setResult] = useState<NavigationFacebookPostResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [posting, setPosting] = useState(false);
@@ -20,8 +21,10 @@ export default function FacebookPostPanel() {
     setError(null);
     try {
       setStatus(await getNavigationFacebookStatus());
+      setBackendOnline(true);
     } catch (e) {
-      setStatus(DEFAULT_FACEBOOK_STATUS);
+      setStatus(OFFLINE_FACEBOOK_STATUS);
+      setBackendOnline(false);
       const msg = e instanceof Error ? e.message : "Could not load Facebook status";
       setError(
         msg.includes("unreachable") || msg.includes("timed out") || msg.includes("Failed to fetch")
@@ -62,10 +65,10 @@ export default function FacebookPostPanel() {
     <div className="card gnwi-broadcast-panel gnwi-facebook-panel">
       <h3 className="gnwi-agent-api-title">Facebook Page — Navigation News</h3>
       <p className="gnwi-agent-api-lead">
-        Posts a tailored Navigation News digest to the official ZINGSA Facebook Page every 4 hours
+        Posts a tailored Navigation News digest to the Stellar Aspirations Facebook Page every 4 hours
         (with WhatsApp broadcasts). Page:{" "}
         <a href={status.page_url} target="_blank" rel="noopener noreferrer">
-          ZINGSA on Facebook
+          Stellar Aspirations on Facebook
         </a>
       </p>
 
@@ -74,30 +77,43 @@ export default function FacebookPostPanel() {
       <div className="gnwi-broadcast-status-grid">
         <div className="gnwi-broadcast-stat">
           <span className="gnwi-broadcast-stat-label">Page ID</span>
-          <strong style={{ fontSize: "0.85rem" }}>{status.page_id}</strong>
+          <strong style={{ fontSize: "0.85rem" }}>{backendOnline ? status.page_id : "—"}</strong>
+          <span className="gnwi-broadcast-stat-sub">
+            {!backendOnline
+              ? "Start backend to load"
+              : status.configured
+                ? "Resolved from your page token"
+                : "Add token in backend/.env"}
+          </span>
         </div>
         <div className="gnwi-broadcast-stat">
           <span className="gnwi-broadcast-stat-label">API token</span>
-          <strong>{status.configured ? "Configured" : "Missing"}</strong>
-          <span className="gnwi-broadcast-stat-sub">FACEBOOK_PAGE_ACCESS_TOKEN</span>
+          <strong>
+            {!backendOnline ? "Unknown" : status.configured ? "Configured" : "Missing"}
+          </strong>
+          <span className="gnwi-broadcast-stat-sub">
+            {backendOnline ? "Loaded from backend/.env (private)" : "backend/.env on port 8000"}
+          </span>
         </div>
         <div className="gnwi-broadcast-stat">
           <span className="gnwi-broadcast-stat-label">Mode</span>
-          <strong>{status.dry_run ? "Dry run" : "Live"}</strong>
-          <span className="gnwi-broadcast-stat-sub">{status.enabled ? "Enabled" : "Disabled"}</span>
+          <strong>{!backendOnline ? "—" : status.dry_run ? "Dry run" : "Live"}</strong>
+          <span className="gnwi-broadcast-stat-sub">
+            {!backendOnline ? "Backend offline" : status.enabled ? "Enabled" : "Disabled"}
+          </span>
         </div>
       </div>
 
       <div className="gnwi-broadcast-actions">
-        <button type="button" className="btn" disabled={posting} onClick={() => runTest(false)}>
+        <button type="button" className="btn" disabled={posting || !backendOnline} onClick={() => runTest(false)}>
           {posting ? "Running…" : "Verify post (dry run)"}
         </button>
         <button
           type="button"
           className="btn"
-          disabled={posting || !status.configured || status.dry_run}
+          disabled={posting || !backendOnline || !status.configured || status.dry_run}
           onClick={() => {
-            if (!window.confirm("Publish a real test post to the ZINGSA Facebook Page now?")) return;
+            if (!window.confirm("Publish a real test post to the Stellar Aspirations Facebook Page now?")) return;
             void runTest(true);
           }}
           title={
@@ -113,10 +129,10 @@ export default function FacebookPostPanel() {
       </div>
 
       <p className="gnwi-broadcast-muted" style={{ marginTop: "0.75rem" }}>
-        <strong>Verify post (dry run)</strong> works without a token — it only previews the digest.
-        For live posts, add a Page access token from Meta Business Suite to{" "}
-        <code>backend/.env</code> as <code>FACEBOOK_PAGE_ACCESS_TOKEN</code>, then set{" "}
-        <code>BROADCAST_DRY_RUN=false</code>.
+        Token and page id are read from <code>backend/.env</code> (or{" "}
+        <code>static/data/facebook_credentials.private.json</code>) — never shown on this page.
+        Set <code>FACEBOOK_PAGE_ACCESS_TOKEN</code>, optional <code>FACEBOOK_PAGE_ID</code>, and{" "}
+        <code>BROADCAST_DRY_RUN=false</code>, then run <code>dev.ps1</code> and refresh.
       </p>
 
       {result && (

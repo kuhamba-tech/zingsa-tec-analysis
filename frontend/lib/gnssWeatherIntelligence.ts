@@ -9,6 +9,8 @@ export interface GnssForecastCity {
   cause?: string;
   recommendation?: string;
   effects?: string[];
+  ionoStress?: number;
+  feedReliability?: number;
 }
 
 export interface DigitalTwinSite {

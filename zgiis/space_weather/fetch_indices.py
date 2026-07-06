@@ -558,6 +558,11 @@ def get_space_weather(*, use_third_party: bool = True) -> Dict[str, Any]:
             result["dst"] = dst
             result["solar_wind_speed"] = sw_speed
             result["solar_wind_density"] = sw_density
+            result["kp_history"] = noaa_history
+            result["dst_history"] = dst_history
+            result["f107_history"] = f107_history
+            result["solar_wind_history"] = solar_wind_history
+            result["gnss_risk_history"] = _build_gnss_risk_history(noaa_history)
             return result
 
         kp = float(kp)

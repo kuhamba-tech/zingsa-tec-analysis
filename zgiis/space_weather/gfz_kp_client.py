@@ -8,7 +8,9 @@ Kp and ap are published at 3-hour cadence; Ap and Cp are daily.
 from __future__ import annotations
 
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
+from functools import lru_cache
 from typing import Any
 
 try:
@@ -81,15 +83,22 @@ def _series_by_day(payload: dict[str, Any], index: str) -> dict[str, list[float]
 
 def fetch_gfz_daily(start: date, end: date, *, timeout: int = 60) -> list[dict[str, Any]]:
     """Return daily GFZ Kp/ap/Ap/Cp between start and end (inclusive)."""
+    return list(_fetch_gfz_daily_cached(start, end, timeout))
+
+
+@lru_cache(maxsize=32)
+def _fetch_gfz_daily_cached(start: date, end: date, timeout: int) -> tuple[dict[str, Any], ...]:
+    """Cached GFZ daily rows (immutable tuple for lru_cache)."""
     if not _REQUESTS_OK:
-        return []
+        return ()
     if end < start:
         start, end = end, start
 
-    kp_payload = _fetch_index("Kp", start, end, timeout=timeout)
-    ap_payload = _fetch_index("ap", start, end, timeout=timeout)
-    ap_daily_payload = _fetch_index("Ap", start, end, timeout=timeout)
-    cp_payload = _fetch_index("Cp", start, end, timeout=timeout)
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        kp_payload, ap_payload, ap_daily_payload, cp_payload = pool.map(
+            lambda index: _fetch_index(index, start, end, timeout=timeout),
+            ("Kp", "ap", "Ap", "Cp"),
+        )
 
     kp_by_day = _series_by_day(kp_payload, "Kp")
     ap3_by_day = _series_by_day(ap_payload, "ap")
@@ -126,7 +135,7 @@ def fetch_gfz_daily(start: date, end: date, *, timeout: int = 60) -> list[dict[s
                 "storm_class": _storm_class(kp_max, storm_ap),
             }
         )
-    return rows
+    return tuple(rows)
 
 
 def build_analysis(

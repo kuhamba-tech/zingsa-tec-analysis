@@ -9,8 +9,19 @@ ForecastStatus = Literal["excellent", "moderate", "warning"]
 
 FORECAST_SITES = [
     {"city": "HARARE", "displayName": "Harare", "stationCodes": ["hara", "zinh", "hacy"]},
+    {"city": "BULAWAYO", "displayName": "Bulawayo", "stationCodes": ["bula"]},
     {"city": "MUTARE", "displayName": "Mutare", "stationCodes": ["muta"]},
+    {"city": "GWERU", "displayName": "Gweru", "stationCodes": ["gwer"]},
+    {"city": "MASVINGO", "displayName": "Masvingo", "stationCodes": ["masv"]},
+    {"city": "KWEKWE", "displayName": "Kwekwe", "stationCodes": ["kwek"]},
+    {"city": "KARIBA", "displayName": "Kariba", "stationCodes": ["kari"]},
     {"city": "VICTORIA FALLS", "displayName": "Victoria Falls", "stationCodes": ["vicf"]},
+    {"city": "KAROI", "displayName": "Karoi", "stationCodes": ["karo"]},
+    {"city": "CHIVHU", "displayName": "Chivhu", "stationCodes": ["chiv"]},
+    {"city": "CHIREDZI", "displayName": "Chiredzi", "stationCodes": ["chir"]},
+    {"city": "BEITBRIDGE", "displayName": "Beitbridge", "stationCodes": ["beit"]},
+    {"city": "BINGA", "displayName": "Binga", "stationCodes": ["bing"]},
+    {"city": "GOKWE", "displayName": "Gokwe", "stationCodes": ["gokw"]},
 ]
 
 STATUS_EMOJI = {"excellent": "🟢", "moderate": "🟡", "warning": "🟠"}
@@ -26,6 +37,8 @@ class GnssForecastCity:
     cause: str | None = None
     recommendation: str | None = None
     effects: list[str] | None = None
+    iono_stress: float | None = None
+    feed_reliability: float | None = None
 
 
 def _norm_code(value: Any) -> str:
@@ -143,6 +156,20 @@ def _expected_accuracy(iono: float, feed: float) -> str:
     return "> 20 cm"
 
 
+def accuracy_cm_display(iono: float, feed: float, status: ForecastStatus) -> str:
+    """Point estimate (cm) for national status readouts — derived from live iono/feed stress."""
+    if status == "warning":
+        return "Warning"
+    stress = iono * 0.6 + (100 - feed) * 0.4
+    cm = 0.8 + stress * 0.29
+    if cm >= 10:
+        return f"{int(round(cm))} cm"
+    rounded = round(cm, 1)
+    if rounded == int(rounded):
+        return f"{int(rounded)} cm"
+    return f"{rounded:.1f} cm"
+
+
 def _survey_window(iono: float) -> str:
     return "07:00 – 11:00" if iono >= 40 else "07:00 – 14:00"
 
@@ -230,6 +257,8 @@ def _build_forecast(site: dict[str, Any], station: Any | None, sw: dict[str, Any
         cause=_build_cause(sw, station),
         recommendation=_build_recommendation(status, station),
         effects=_build_effects(status, iono),
+        iono_stress=iono,
+        feed_reliability=feed,
     )
 
 

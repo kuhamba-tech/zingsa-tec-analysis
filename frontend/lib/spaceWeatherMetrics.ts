@@ -1,5 +1,6 @@
 import type { SpaceWeatherCurrent } from "./types";
 import type { LiveStationCounts } from "./liveStationStatus";
+import { connectedStreamCount, formatCorsConnectedDisplay } from "./liveStationStatus";
 import { kpConditionFromValue } from "./homeSpaceWeather";
 
 export type MetricKey =
@@ -37,7 +38,7 @@ export const METRIC_EXPLANATIONS: Record<MetricKey, string> = {
   gnss_risk:
     "GNSS Risk is a combined operational assessment for positioning and navigation users. It considers geomagnetic activity, ionospheric TEC, S4 scintillation and related space-weather indicators. Low risk supports routine CORS and RTK operations; increasing risk means users should verify fixes, use dual-frequency observations and consider post-processing.",
   stations:
-    "Stations Online shows how many Zimbabwe CORS stations are currently reporting usable data compared with the total network. A lower online count reduces geographic coverage and may weaken real-time correction reliability. Users should confirm that nearby stations are operational before relying on RTK, network corrections or regional TEC monitoring.",
+    "Stations Online shows how many Zimbabwe CORS stations have an active NTRIP connection (receiving MSM or connected idle) compared with the total network. Receiving = MSM streaming; Idle = connected without MSM yet. A lower connected count reduces geographic coverage and may weaken real-time correction reliability.",
 };
 
 function dstColor(dst: number | null): string {
@@ -68,6 +69,52 @@ export interface MetricCardOptions {
   ekfFilled?: Set<string>;
 }
 
+/** Single display rules for every dashboard surface (cards, Navigation News, briefs). */
+export function formatKpDisplay(kp: number | null | undefined): string {
+  if (kp == null || !Number.isFinite(kp)) return "N/A";
+  const rounded = Math.round(kp * 10) / 10;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+}
+
+export function formatDstDisplay(dst: number | null | undefined): string {
+  if (dst == null || !Number.isFinite(dst)) return "N/A";
+  const rounded = Math.round(dst * 10) / 10;
+  const sign = rounded >= 0 ? "+" : "";
+  return `${sign}${rounded} nT`;
+}
+
+export function formatF107Display(f107: number | null | undefined): string {
+  if (f107 == null || !Number.isFinite(f107)) return "N/A";
+  return String(Math.round(f107 * 10) / 10);
+}
+
+export function formatSolarWindDisplay(speed: number | null | undefined): string {
+  if (speed == null || !Number.isFinite(speed)) return "N/A";
+  return `${Math.round(speed)} km/s`;
+}
+
+export function formatS4Display(s4: number | null | undefined): string {
+  if (s4 == null || !Number.isFinite(s4)) return "N/A";
+  return s4.toFixed(2);
+}
+
+/** Index detail lines for Navigation News sector cards — must match metric cards exactly. */
+export function formatPowerIndicesDetail(sw: SpaceWeatherCurrent | null): string | undefined {
+  if (!sw || sw.kp == null || sw.dst == null) return undefined;
+  return `Kp ${formatKpDisplay(sw.kp)} · Dst ${formatDstDisplay(sw.dst)}`;
+}
+
+export function formatTelecomIndicesDetail(sw: SpaceWeatherCurrent | null): string | undefined {
+  if (!sw || sw.s4 == null) return undefined;
+  return `S4 ${formatS4Display(sw.s4)} · ionospheric amplitude scintillation index`;
+}
+
+export function formatIndicesUpdatedLabel(sw: SpaceWeatherCurrent | null): string | null {
+  const raw = sw?.updated_utc;
+  if (!raw) return null;
+  return raw.replace("T", " ").replace("Z", " UTC").slice(0, 19);
+}
+
 export function buildMetricCards(
   sw: SpaceWeatherCurrent | null,
   opts?: MetricCardOptions,
@@ -86,23 +133,23 @@ export function buildMetricCards(
 
   const ekfSuffix = (key: string) => (ekfFilled.has(key) ? " · EKF predicted" : "");
 
-  const dstValue = dst !== null ? `${dst >= 0 ? "+" : ""}${dst} nT` : "N/A";
-  const stationsOnlineCount = liveCounts ? liveCounts.online + liveCounts.degraded : online;
+  const dstValue = formatDstDisplay(dst);
+  const stationsOnlineCount = liveCounts ? connectedStreamCount(liveCounts) : online;
   const stationsTotal = liveCounts?.total ?? total;
+  const corsDisplay = liveCounts ? formatCorsConnectedDisplay(liveCounts) : null;
   const stationsLabel =
-    stationsOnlineCount !== null && stationsTotal ? `${stationsOnlineCount}/${stationsTotal}` : "N/A";
-  const windValue = wind !== null ? `${wind} km/s` : "N/A";
+    corsDisplay?.value ??
+    (stationsOnlineCount !== null && stationsTotal ? `${stationsOnlineCount}/${stationsTotal}` : "N/A");
+  const windValue = formatSolarWindDisplay(wind);
 
-  const stationsNote = liveCounts
-    ? `Receiving ${liveCounts.online} · Idle ${liveCounts.degraded} · Offline ${liveCounts.offline} · Unavailable ${liveCounts.unavailable}`
-    : "Live stream status";
+  const stationsNote = corsDisplay?.note ?? "CORS connected (NTRIP probe pending)";
 
   return [
     {
       key: "kp",
       icon: "🧭",
       label: "Kp Index",
-      value: kp !== null ? String(kp) : "N/A",
+      value: formatKpDisplay(kp),
       note: `Planetary activity${ekfSuffix("kp")}`,
       valueColor: kp !== null ? "#168bd2" : "#ffffff",
     },
@@ -126,7 +173,7 @@ export function buildMetricCards(
       key: "f107",
       icon: "☀️",
       label: "Solar Flux",
-      value: f107 !== null ? String(f107) : "N/A",
+      value: formatF107Display(f107),
       note: "Solar flux units",
       valueColor: f107 !== null ? "#168bd2" : "#ffffff",
     },
@@ -142,7 +189,7 @@ export function buildMetricCards(
       key: "s4",
       icon: "📶",
       label: "Scintillation S4",
-      value: s4 !== null ? s4.toFixed(2) : "N/A",
+      value: formatS4Display(s4),
       note: s4 !== null ? "Observed archive" : "Observed data unavailable",
       valueColor: s4Color(s4),
     },
@@ -157,7 +204,7 @@ export function buildMetricCards(
     {
       key: "stations",
       icon: "📡",
-      label: liveCounts ? "CORS Streams Connected" : "Stations Online",
+      label: "CORS Connected",
       value: stationsLabel,
       note: stationsNote,
       valueColor: "#168bd2",
@@ -216,7 +263,7 @@ export function interpretMetric(sw: SpaceWeatherCurrent | null, key: MetricKey):
       else if (dst > -200) level = "an intense geomagnetic storm";
       else if (dst > -350) level = "a severe geomagnetic storm";
       else level = "an exceptional super-storm";
-      return `Dst ${dst >= 0 ? "+" : ""}${dst} nT indicates ${level} conditions.`;
+      return `Dst ${formatDstDisplay(dst)} indicates ${level} conditions.`;
 
     case "f107":
       if (f107 === null) {
@@ -278,7 +325,7 @@ export function interpretMetric(sw: SpaceWeatherCurrent | null, key: MetricKey):
         else if (availability >= 70) availLevel = "good availability with some local coverage gaps";
         else if (availability >= 50) availLevel = "reduced availability that may affect regional corrections";
         else availLevel = "low availability with significant CORS coverage limitations";
-        return `${online} of ${total} stations are online (${availability.toFixed(0)}%), indicating ${availLevel}.`;
+        return `${online} of ${total} CORS stations are NTRIP-connected (${availability.toFixed(0)}%), indicating ${availLevel}.`;
       }
   }
 }

@@ -1,11 +1,22 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import { getSpaceWeather, getSolarActivity, getTimelines, refreshSpaceWeather } from "@/lib/api";
+import { getEkfAlertLog, getEkfStatus, getSpaceWeather, getSolarActivity, getTimelines, refreshSpaceWeather, getStations } from "@/lib/api";
 import ClickableMetricGrid from "@/components/spaceWeather/ClickableMetricGrid";
+import IndexScaleReference from "@/components/spaceWeather/IndexScaleReference";
+import AiRecommendationPanel from "@/components/layout/AiRecommendationPanel";
+import HomeStormAlertBanner from "@/components/layout/HomeStormAlertBanner";
 import LineChart from "@/components/charts/LineChart";
 import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
-import Link from "next/link";
-import type { SpaceWeatherCurrent, SolarActivityFull, SpaceWeatherTimelines, TimelinePoint } from "@/lib/types";
+import { countLiveStationStatuses, connectedStreamCount, type LiveStationCounts } from "@/lib/liveStationStatus";
+import type { EkfAlert, EkfStatus, SpaceWeatherCurrent, SolarActivityFull, SpaceWeatherTimelines, TimelinePoint } from "@/lib/types";
+import {
+  FLARE_SCALE,
+  donkiCmeCountColor,
+  donkiFlareCountColor,
+  donkiStormCountColor,
+  flareClassColor,
+} from "@/lib/solarEventColors";
+import { DashboardHeaderClocks } from "@/components/dashboard/DashboardClocks";
 
 // ── Solar Cycle 25 reference ──────────────────────────────────────────────────
 const SC25_START = new Date("2019-12-01").getTime();
@@ -14,20 +25,7 @@ function getSC25Progress(): number {
   return Math.min(100, Math.round(((Date.now() - SC25_START) / (SC25_END_EST - SC25_START)) * 100));
 }
 
-// ── Flare class scale ─────────────────────────────────────────────────────────
-const FLARE_SCALE = [
-  { cls: "A", color: "#22c55e", label: "A-Class",  desc: "Background" },
-  { cls: "B", color: "#eab308", label: "B-Class",  desc: "Minor" },
-  { cls: "C", color: "#f97316", label: "C-Class",  desc: "Moderate" },
-  { cls: "M", color: "#ef4444", label: "M-Class",  desc: "Major" },
-  { cls: "X", color: "#a855f7", label: "X-Class",  desc: "Extreme" },
-];
-
-function flareColor(cls: string): string {
-  const letter = (cls || "A")[0].toUpperCase();
-  return FLARE_SCALE.find((f) => f.cls === letter)?.color ?? "#ffffff";
-}
-
+// ── Flare class scale (colours from solarEventColors) ───────────────────────────
 function displayText(value: unknown): string | null {
   if (value == null) return null;
   if (typeof value === "string") return value;
@@ -39,6 +37,44 @@ function displayFlux(flux: unknown): string | null {
   const n = typeof flux === "number" ? flux : Number(flux);
   if (!Number.isFinite(n)) return null;
   return `${n.toExponential(2)} W/m²`;
+}
+
+function safePoints(points: TimelinePoint[] | undefined) {
+  return Array.isArray(points) ? points : [];
+}
+
+function currentPoint(value: number | null | undefined, timestamp: string | null | undefined): TimelinePoint[] {
+  return value == null || !Number.isFinite(value)
+    ? []
+    : [{ t: timestamp ?? new Date().toISOString(), v: value }];
+}
+
+function riskScore(risk: string | null | undefined): number | null {
+  const key = (risk ?? "").toLowerCase();
+  if (key === "low") return 0;
+  if (key === "moderate") return 1;
+  if (key === "high") return 2;
+  if (key === "critical") return 3;
+  return null;
+}
+
+function withCurrentFallback(points: TimelinePoint[], fallback: TimelinePoint[]) {
+  return points.length > 0 ? points : fallback;
+}
+
+function snapshotTimelines(sw: SpaceWeatherCurrent): SpaceWeatherTimelines {
+  const t = sw.updated_utc ?? new Date().toISOString();
+  return {
+    kp: currentPoint(sw.kp, t),
+    dst: currentPoint(sw.dst, t),
+    f107: currentPoint(sw.f107, t),
+    solar_wind: currentPoint(sw.plasma_speed, t),
+    s4: currentPoint(sw.s4, t),
+    gnss_risk: currentPoint(riskScore(sw.gnss_risk), t),
+    stations_online: currentPoint(sw.stations_online, t),
+    mean_vtec: currentPoint(sw.mean_vtec, t),
+    gic: [],
+  };
 }
 
 // ── KP scale bands ────────────────────────────────────────────────────────────
@@ -144,6 +180,9 @@ export default function SpaceWeatherPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [nowCat, setNowCat] = useState("");
   const [feedStatus, setFeedStatus] = useState<FeedStatus>("pending");
+  const [liveStationCounts, setLiveStationCounts] = useState<LiveStationCounts | null>(null);
+  const [ekf, setEkf] = useState<EkfStatus | null>(null);
+  const [pendingAlerts, setPendingAlerts] = useState<EkfAlert[]>([]);
 
   useEffect(() => {
     const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
@@ -162,9 +201,31 @@ export default function SpaceWeatherPage() {
   }, []);
 
   const fetchAll = useCallback(() => {
-    Promise.all([getSpaceWeather(), getSolarActivity(), getTimelines()])
-      .then(([s, a, t]) => { setSw(s); setSa(a); setTl(t); setFeedStatus("ok"); })
-      .catch(() => { setFeedStatus("down"); });
+    getSpaceWeather()
+      .then((s) => {
+        setSw(s);
+        setTl((prev) => prev ?? snapshotTimelines(s));
+        setFeedStatus("ok");
+      })
+      .catch(() => setFeedStatus("down"));
+    getSolarActivity()
+      .then(setSa)
+      .catch(() => null);
+    getTimelines()
+      .then(setTl)
+      .catch(() => null);
+    getStations(false)
+      .then((stations) => setLiveStationCounts(countLiveStationStatuses(stations)))
+      .catch(() => null);
+    getStations(true)
+      .then((stations) => setLiveStationCounts(countLiveStationStatuses(stations)))
+      .catch(() => null);
+    getEkfStatus()
+      .then(setEkf)
+      .catch(() => setEkf(null));
+    getEkfAlertLog(24)
+      .then((rows) => setPendingAlerts(rows.filter((a) => !a.acknowledged_status)))
+      .catch(() => setPendingAlerts([]));
   }, []);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
@@ -185,6 +246,21 @@ export default function SpaceWeatherPage() {
   const wind  = sw?.plasma_speed ?? sa?.solar_wind?.speed ?? null;
   const s4    = sw?.s4 ?? null;
   const risk  = sw?.gnss_risk ?? null;
+  const currentTimestamp = sw?.updated_utc ?? null;
+
+  const kpPoints = withCurrentFallback(safePoints(tl?.kp), currentPoint(kp, currentTimestamp));
+  const dstPoints = withCurrentFallback(safePoints(tl?.dst), currentPoint(dst, currentTimestamp));
+  const f107Points = withCurrentFallback(safePoints(tl?.f107), currentPoint(f107, currentTimestamp));
+  const solarWindPoints = withCurrentFallback(safePoints(tl?.solar_wind), currentPoint(wind, currentTimestamp));
+  const s4Points = withCurrentFallback(safePoints(tl?.s4), currentPoint(s4, currentTimestamp));
+  const gnssPoints = withCurrentFallback(safePoints(tl?.gnss_risk), currentPoint(riskScore(risk), currentTimestamp));
+  const streamCount = liveStationCounts
+    ? connectedStreamCount(liveStationCounts)
+    : sw?.stations_online ?? null;
+  const stationsOnlinePoints = withCurrentFallback(
+    safePoints(tl?.stations_online),
+    currentPoint(streamCount, currentTimestamp),
+  );
 
   const flareClass   = sa?.flare_class ?? "N/A";
   const actLabel     = sa?.activity_label ?? "Low";
@@ -194,6 +270,10 @@ export default function SpaceWeatherPage() {
   const donkiCmes    = Array.isArray(sa?.donki_cmes) ? sa.donki_cmes : [];
   const donkiStorms  = Array.isArray(sa?.donki_storms) ? sa.donki_storms : [];
   const alertCount   = alerts.length;
+
+  const flareCountColor = donkiFlareCountColor(donkiFlares.length, donkiFlares);
+  const cmeCountColor = donkiCmeCountColor(donkiCmes.length, donkiCmes);
+  const stormCountColor = donkiStormCountColor(donkiStorms.length, donkiStorms);
 
   const conditionLabel   = kp !== null && kp >= 5 ? "Storm Active" : kp !== null && kp >= 3 ? "Disturbed" : "Quiet";
   const conditionVariant = kp !== null && kp >= 5 ? "alert" : kp !== null && kp >= 3 ? "warn" : "info";
@@ -245,14 +325,23 @@ export default function SpaceWeatherPage() {
     <div className="page-stack">
 
       {/* ── Title ── */}
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "1rem", flexWrap: "wrap" }}>
-        <div>
+      <div className="dashboard-header">
+        <div className="dashboard-header-copy">
           <h1 className="page-title">☀️ Space Weather Monitoring</h1>
-          <p className="page-subtitle">Real-time solar and geomagnetic indices — NOAA SWPC data feed</p>
+          <p className="page-subtitle">Real-time monitoring of solar, geomagnetic, ionospheric, and Zimbabwe CORS network conditions.</p>
         </div>
-        <button className="btn" onClick={handleRefresh} disabled={refreshing} style={{ flexShrink: 0, marginTop: "0.3rem" }}>
-          {refreshing ? "Refreshing…" : "⟳ Refresh"}
-        </button>
+        <div className="dashboard-header-aside">
+          <div className="page-header-clocks" aria-label="Live clocks">
+            <DashboardHeaderClocks />
+          </div>
+          <button
+            className="btn dashboard-refresh-btn"
+            onClick={handleRefresh}
+            disabled={refreshing}
+          >
+            {refreshing ? "Refreshing…" : "⟳ Refresh"}
+          </button>
+        </div>
       </div>
 
       {/* ── Status bar ── */}
@@ -273,12 +362,11 @@ export default function SpaceWeatherPage() {
 
       {freshnessMsg && <div className="banner banner-warn">{freshnessMsg}</div>}
 
-      <p style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
-        Full index set with solar-flare and NOAA-alert context — for the operational overview with EKF timelines and the disturbance event log see <Link href="/dashboard">Operations Dashboard</Link>.
-        {" "}Explore <Link href="/space-weather/gnss-intelligence">Navigation Weather</Link> for
-        daily briefs for farmers, surveyors, drivers, and the public — plus live regional forecasts.
-      </p>
-      <ClickableMetricGrid sw={sw} updatedUtc={sw?.updated_utc} />
+      <HomeStormAlertBanner sw={sw} ekf={ekf} pendingAlerts={pendingAlerts} />
+
+      <ClickableMetricGrid sw={sw} updatedUtc={sw?.updated_utc} liveStationCounts={liveStationCounts} />
+      <IndexScaleReference />
+      <AiRecommendationPanel sw={sw} indicesLoading={feedStatus === "pending"} />
 
       {/* ── Solar Activity Monitor section ── */}
       <div style={{ display: "flex", flexDirection: "column", gap: "0.8rem" }}>
@@ -325,7 +413,7 @@ export default function SpaceWeatherPage() {
             <div style={{ width: "100%", borderTop: "1px solid var(--border)", paddingTop: "0.6rem", display: "flex", flexDirection: "column", gap: "0.3rem" }}>
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.78rem" }}>
                 <span style={{ color: "var(--text-muted)" }}>Current Flare</span>
-                <span style={{ fontWeight: 700, color: flareColor(flareClass) }}>{flareClass}</span>
+                <span style={{ fontWeight: 700, color: flareClassColor(flareClass) }}>{flareClass}</span>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.78rem" }}>
                 <span style={{ color: "var(--text-muted)" }}>SWPC Alerts</span>
@@ -338,7 +426,7 @@ export default function SpaceWeatherPage() {
           <div className="card" style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
             <div style={{ fontSize: "0.62rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)" }}>Solar Flare (GOES X-Ray)</div>
             <div style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>Current class:</div>
-            <div style={{ fontSize: "2.4rem", fontWeight: 900, lineHeight: 1, color: flareColor(flareClass), marginBottom: "0.3rem" }}>
+            <div style={{ fontSize: "2.4rem", fontWeight: 900, lineHeight: 1, color: flareClassColor(flareClass), marginBottom: "0.3rem" }}>
               {flareClass}
             </div>
             {fluxLabel && (
@@ -437,7 +525,7 @@ export default function SpaceWeatherPage() {
           {/* Solar Flares count */}
           <div className="card" style={{ textAlign: "center" }}>
             <div style={{ fontSize: "0.62rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "0.6rem" }}>Solar Flares</div>
-            <div style={{ fontSize: "3rem", fontWeight: 900, lineHeight: 1, marginBottom: "0.4rem" }}>{sa ? donkiFlares.length : "N/A"}</div>
+            <div style={{ fontSize: "3rem", fontWeight: 900, lineHeight: 1, marginBottom: "0.4rem", color: sa ? flareCountColor : "var(--text-muted)" }}>{sa ? donkiFlares.length : "N/A"}</div>
             <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
               {donkiFlares.length === 0
                 ? `No flare events in the selected 7-day window.`
@@ -453,7 +541,7 @@ export default function SpaceWeatherPage() {
           {/* CME count */}
           <div className="card" style={{ textAlign: "center" }}>
             <div style={{ fontSize: "0.62rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "0.6rem" }}>Coronal Mass Ejections</div>
-            <div style={{ fontSize: "3rem", fontWeight: 900, lineHeight: 1, marginBottom: "0.4rem" }}>{sa ? donkiCmes.length : "N/A"}</div>
+            <div style={{ fontSize: "3rem", fontWeight: 900, lineHeight: 1, marginBottom: "0.4rem", color: sa ? cmeCountColor : "var(--text-muted)" }}>{sa ? donkiCmes.length : "N/A"}</div>
             <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
               {donkiCmes.length === 0 ? "No CME events in the selected 7-day window." : "CME event(s) detected."}
             </div>
@@ -463,7 +551,7 @@ export default function SpaceWeatherPage() {
           {/* Geomagnetic Storms count */}
           <div className="card" style={{ textAlign: "center" }}>
             <div style={{ fontSize: "0.62rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "0.6rem" }}>Geomagnetic Storms</div>
-            <div style={{ fontSize: "3rem", fontWeight: 900, lineHeight: 1, marginBottom: "0.4rem" }}>{sa ? donkiStorms.length : "N/A"}</div>
+            <div style={{ fontSize: "3rem", fontWeight: 900, lineHeight: 1, marginBottom: "0.4rem", color: sa ? stormCountColor : "var(--text-muted)" }}>{sa ? donkiStorms.length : "N/A"}</div>
             <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
               {donkiStorms.length === 0 ? "No geomagnetic storm events in the selected 7-day window." : "Storm event(s) detected."}
             </div>
@@ -498,7 +586,7 @@ export default function SpaceWeatherPage() {
             GNSS risk is {risk} — ionospheric conditions may affect positioning accuracy over Zimbabwe.
           </div>
         )}
-        {(!sw?.stations_online || sw.stations_online === 0) && (
+        {!(liveStationCounts?.online || sw?.stations_online) && (
           <div style={{ marginTop: "0.25rem", fontSize: "0.8rem" }}>
             Production CORS API reports zero live telemetry; archive/catalog statuses are not presented as live station availability.
           </div>
@@ -518,44 +606,44 @@ export default function SpaceWeatherPage() {
           <p style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>Real-time NOAA feeds and derived indices — last 6 hours (UTC)</p>
 
           <TimelineCard title="Live NOAA Kp Timeline"
-            pts={tl?.kp ?? []} color="#168bd2" yLabel="Kp Index"
+            pts={kpPoints} color="#168bd2" yLabel="Kp Index"
             threshold={{ value: 5, label: "Storm threshold (5)" }}
             source="NOAA SWPC Planetary K-index 1-minute feed"
             emptyMsg="Live NOAA Kp feed unavailable." />
 
           <TimelineCard title="Live NOAA Dst Timeline"
-            pts={tl?.dst ?? []} color="#a78bfa" yLabel="Dst (nT)"
+            pts={dstPoints} color="#a78bfa" yLabel="Dst (nT)"
             threshold={{ value: -50, label: "Storm threshold (−50 nT)" }}
             source="NOAA SWPC Kyoto Dst index (hourly)"
             emptyMsg="Live NOAA Dst feed unavailable." />
 
           <TimelineCard title="Live NOAA F10.7 Solar Flux Timeline"
-            pts={tl?.f107 ?? []} color="#ffcc00" yLabel="F10.7 (sfu)"
+            pts={f107Points} color="#ffcc00" yLabel="F10.7 (sfu)"
             threshold={{ value: 150, label: "High activity (150 sfu)" }}
             source="NOAA SWPC F10.7 cm flux feed"
             emptyMsg="Live NOAA F10.7 feed unavailable." />
 
           <TimelineCard title="Live NOAA Solar Wind Timeline"
-            pts={tl?.solar_wind ?? []} color="#00cc88" yLabel="Speed (km/s)"
+            pts={solarWindPoints} color="#00cc88" yLabel="Speed (km/s)"
             threshold={{ value: 500, label: "Fast stream (500 km/s)" }}
             source="NOAA SWPC solar-wind plasma 1-day feed"
             emptyMsg="Live solar wind feed unavailable." />
 
           <TimelineCard title="Live Scintillation S4 Timeline"
-            pts={tl?.s4 ?? []} color="#ff8c00" yLabel="S4 Index"
+            pts={s4Points} color="#ff8c00" yLabel="S4 Index"
             threshold={{ value: 0.5, label: "Severe scintillation (0.5)" }}
             source="ZINGSA CORS ionosphere archive"
             emptyMsg="No observed S4 archive value is available for the timeline." />
 
           <TimelineCard title="GNSS Risk Level Timeline"
-            pts={tl?.gnss_risk ?? []} color="#168bd2" yLabel="Risk level"
+            pts={gnssPoints} color="#168bd2" yLabel="Risk level"
             threshold={{ value: 2, label: "High risk (2)" }}
             source="Derived from NOAA Kp — ZINGSA GNSS risk thresholds"
             emptyMsg="GNSS risk timeline unavailable." />
 
-          {(tl?.stations_online ?? []).length > 0 ? (
+          {stationsOnlinePoints.length > 0 ? (
             <TimelineCard title="Live CORS Stations Online Timeline"
-              pts={tl!.stations_online} color="#00ff88" yLabel="Stations online"
+              pts={stationsOnlinePoints} color="#00ff88" yLabel="Stations online"
               source="ZINGSA CORS station-health — current live count"
               emptyMsg="Live CORS telemetry unavailable." />
           ) : (

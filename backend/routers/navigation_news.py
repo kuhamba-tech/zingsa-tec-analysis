@@ -7,6 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from backend.deps import is_broadcast_admin, require_api_key, require_broadcast_admin
 from backend.schemas import (
+    AiAudienceRecommendationOut,
+    AiRecommendationsOut,
     BroadcastRecipientCreate,
     BroadcastRecipientOut,
     BroadcastRecipientUpdate,
@@ -192,6 +194,26 @@ async def navigation_news(
     return bundle
 
 
+@router.get("/recommendations", response_model=AiRecommendationsOut)
+async def navigation_recommendations(
+    refresh_ntrip: bool = Query(False),
+    _=Depends(require_api_key),
+):
+    """Compact sector recommendations — the global 'So what?' panel for every page."""
+    from zgiis.navigation.ai_recommendations import build_ai_recommendations
+    from zgiis.navigation.gnss_forecast import build_gnss_forecast_bundle
+
+    sw = _sw_dict()
+    stations = _stations(refresh_ntrip=refresh_ntrip)
+    bundle = build_gnss_forecast_bundle(sw, stations)
+    payload = build_ai_recommendations(bundle.forecasts, sw, None, bundle.computedAt)
+    return AiRecommendationsOut(
+        recommendations=[AiAudienceRecommendationOut(**r) for r in payload["recommendations"]],
+        tone=payload["tone"],
+        computed_at=payload.get("computed_at"),
+    )
+
+
 @router.get("/briefs/{audience}", response_model=NavigationNewsBriefOut)
 async def navigation_news_brief(
     audience: AudienceId,
@@ -333,7 +355,7 @@ async def navigation_broadcast_status(
 
 @router.get("/facebook/status", response_model=NavigationFacebookStatusOut)
 async def navigation_facebook_status(_=Depends(require_api_key)):
-    """Facebook Page config for Navigation News (ZINGSA official page)."""
+    """Facebook Page config for Navigation News (Stellar Aspirations page)."""
     from zgiis.navigation.facebook_status import facebook_status_payload
 
     return NavigationFacebookStatusOut(**facebook_status_payload())
@@ -352,7 +374,7 @@ async def navigation_facebook_test_post(
     live: bool = Query(False, description="When true and credentials are set, post to Facebook (not dry-run)"),
     _=Depends(require_api_key),
 ):
-    """Verify Navigation News can be posted to the ZINGSA Facebook Page.
+    """Verify Navigation News can be posted to the Stellar Aspirations Facebook Page.
 
     Default is dry-run (logs only). Set `live=true` with FACEBOOK_PAGE_ACCESS_TOKEN
     configured to publish a real test post.

@@ -7,9 +7,14 @@ import {
   getLivePipelineStatus,
   runNtripProbe,
   getCnnGruForecast,
+  getCnnGruTrainStatus,
+  trainCnnGruModel,
+  getStations,
 } from "@/lib/api";
 import MetricCard from "@/components/cards/MetricCard";
 import LineChart from "@/components/charts/LineChart";
+import { countLiveStationStatuses, formatCorsConnectedDisplay } from "@/lib/liveStationStatus";
+import type { Station } from "@/lib/types";
 import type {
   LiveObservation,
   StationLiveStatus,
@@ -17,6 +22,7 @@ import type {
   LivePipelineStatus,
   NtripProbeResponse,
   ForecastPoint,
+  CnnGruTrainStatus,
 } from "@/lib/types";
 
 const POLL_MS = 30_000;
@@ -48,22 +54,30 @@ export default function LivePipelinePage() {
   const [fcStatus, setFcStatus] = useState<ForecastStatus | null>(null);
   const [forecast, setForecast] = useState<ForecastPoint[]>([]);
   const [pipelineStatus, setPipelineStatus] = useState<LivePipelineStatus | null>(null);
+  const [corsStations, setCorsStations] = useState<Station[]>([]);
   const [probe, setProbe] = useState<NtripProbeResponse | null>(null);
   const [probeLoading, setProbeLoading] = useState(false);
   const [probeError, setProbeError] = useState<string | null>(null);
+  const [trainStatus, setTrainStatus] = useState<CnnGruTrainStatus | null>(null);
+  const [trainStarting, setTrainStarting] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const [wsConnected, setWsConnected] = useState(false);
 
   const refreshLive = useCallback(async () => {
-    const [vtec, stations, pipe, fc] = await Promise.allSettled([
+    const [vtec, stations, pipe, fc, cors] = await Promise.allSettled([
       getLiveVtec(2),
       getLiveStations(),
       getLivePipelineStatus(),
       getForecastStatus(),
+      getStations(false),
     ]);
     if (vtec.status === "fulfilled") setObs(vtec.value);
     if (stations.status === "fulfilled") setStationStatus(stations.value);
     if (pipe.status === "fulfilled") setPipelineStatus(pipe.value);
+    if (cors.status === "fulfilled") setCorsStations(cors.value);
+    getStations(true)
+      .then(setCorsStations)
+      .catch(() => null);
     if (fc.status === "fulfilled") {
       setFcStatus(fc.value);
       if (fc.value.model_exists && fc.value.torch_ok) {
@@ -72,7 +86,40 @@ export default function LivePipelinePage() {
           .catch(() => setForecast([]));
       }
     }
+    getCnnGruTrainStatus().then(setTrainStatus).catch(() => null);
   }, []);
+
+  useEffect(() => {
+    if (!trainStatus?.running) return;
+    const id = window.setInterval(() => {
+      getCnnGruTrainStatus()
+        .then((status) => {
+          setTrainStatus(status);
+          if (!status.running && status.result && !status.error) {
+            getForecastStatus().then((s) => {
+              setFcStatus(s);
+              if (s.model_exists && s.torch_ok) {
+                getCnnGruForecast().then(setForecast).catch(() => setForecast([]));
+              }
+            });
+          }
+        })
+        .catch(() => null);
+    }, 2000);
+    return () => window.clearInterval(id);
+  }, [trainStatus?.running]);
+
+  async function handleTrainModel() {
+    setTrainStarting(true);
+    try {
+      await trainCnnGruModel();
+      setTrainStatus(await getCnnGruTrainStatus());
+    } catch {
+      /* ignore */
+    } finally {
+      setTrainStarting(false);
+    }
+  }
 
   useEffect(() => {
     void refreshLive();
@@ -123,20 +170,40 @@ export default function LivePipelinePage() {
 
   const chartLabels = obs.slice(-200).map((o) => o.time.slice(11, 19));
   const chartData = obs.slice(-200).map((o) => o.vtec_tecu ?? 0);
-  const online = stationStatus.filter((s) => !s.stale).length;
-  const total = stationStatus.length;
+  const vtecOnline = stationStatus.filter((s) => !s.stale && s.last_vtec != null && s.last_vtec > 0).length;
+  const total = corsStations.length || stationStatus.length || 24;
+  const corsCounts = countLiveStationStatuses(corsStations, total);
+  const corsConnected = formatCorsConnectedDisplay(corsCounts);
   const configuredStreams = pipelineStatus ? Object.keys(pipelineStatus.streams ?? {}).length : 0;
+  const activeStreams = pipelineStatus?.active_streams ?? 0;
+  const streamTotal = configuredStreams || total;
   const streamRows = pipelineStatus?.streams ? Object.entries(pipelineStatus.streams) : [];
   const ntripState = pipelineStatus
     ? pipelineStatus.ingest_enabled
-      ? pipelineStatus.active_streams > 0
-        ? online > 0
+      ? activeStreams > 0
+        ? vtecOnline > 0
           ? "Streaming"
           : "Connected idle"
         : "Not connected"
       : "Collector disabled"
     : "Checking";
   const ntripVariant = ntripState === "Streaming" ? "ok" : ntripState === "Checking" ? "accent" : "warn";
+  const storageBackend =
+    pipelineStatus?.db_backend && pipelineStatus.db_backend !== "unknown"
+      ? pipelineStatus.db_backend
+      : "sqlite";
+  const storageRecords = pipelineStatus?.record_count ?? 0;
+  const storageRecent = pipelineStatus?.recent_record_count_1h ?? 0;
+  const storageSub =
+    storageRecords > 0
+      ? `${storageRecords.toLocaleString()} records`
+      : storageRecent > 0
+        ? `${storageRecent.toLocaleString()} in last hour`
+        : "No VTEC rows ingested yet";
+  const corsSub =
+    vtecOnline > 0
+      ? `${corsConnected.note} · ${vtecOnline} outputting VTEC`
+      : corsConnected.note;
 
   return (
     <div className="page-stack">
@@ -151,14 +218,14 @@ export default function LivePipelinePage() {
         <MetricCard
           label="NTRIP Collector"
           value={ntripState}
-          sub={pipelineStatus ? `${pipelineStatus.active_streams}/${configuredStreams || 24} connected station streams` : ""}
+          sub={pipelineStatus ? `${activeStreams}/${streamTotal} connected station streams` : ""}
           color={ntripState === "Streaming" ? "#00ff88" : "#ef9f27"}
           variant={ntripVariant}
         />
         <MetricCard
           label="Storage"
-          value={pipelineStatus?.db_backend ?? "Checking"}
-          sub={pipelineStatus ? `${pipelineStatus.record_count.toLocaleString()} records` : ""}
+          value={storageBackend}
+          sub={storageSub}
         />
         <MetricCard
           label="CNN-GRU Model"
@@ -166,8 +233,15 @@ export default function LivePipelinePage() {
           sub={fcStatus ? `Forecast horizon: ${fcStatus.forecast_h} h` : ""}
           variant={fcStatus?.model_exists ? "ok" : "warn"}
         />
-        <MetricCard label="CORS Network" value={total > 0 ? `${online}/${total}` : "24"} sub="Stations with live VTEC" variant="accent" />
+        <MetricCard label="CORS Connected" value={corsConnected.value} sub={corsSub} variant="accent" />
       </div>
+
+      {ntripState === "Connected idle" && (
+        <div className="banner banner-warn" style={{ fontSize: "0.82rem" }}>
+          NTRIP streams are connected but no VTEC has been written yet — waiting for MSM observations and GPS ephemeris (RTCM 1019).
+          Connected stations will show N/A until the ingest pipeline decodes observations.
+        </div>
+      )}
 
       {pipelineStatus?.message ? (
         <div className="banner banner-info" style={{ fontSize: "0.82rem" }}>
@@ -274,11 +348,30 @@ export default function LivePipelinePage() {
 
         <div className="card">
           <div className="metric-label" style={{ marginBottom: "0.6rem" }}>CNN-GRU Forecast</div>
+          {trainStatus?.running && (
+            <div className="banner banner-info" style={{ marginBottom: "0.75rem", fontSize: "0.82rem" }}>
+              <strong>Training CNN-GRU…</strong> epoch {trainStatus.epoch}/{trainStatus.total_epochs}
+              {trainStatus.last_loss != null ? ` · loss ${trainStatus.last_loss.toFixed(5)}` : ""}
+            </div>
+          )}
+          {fcStatus && fcStatus.torch_ok && !fcStatus.model_exists && !trainStatus?.running && (
+            <div className="banner banner-info" style={{ marginBottom: "0.75rem" }}>
+              No trained model yet. Train on archived VTEC in TimescaleDB/SQLite, or use{" "}
+              <a href="/anomaly-detection" style={{ color: "inherit" }}>TEC Anomaly → TEC Prediction</a>.
+              <div style={{ marginTop: "0.6rem" }}>
+                <button type="button" className="btn btn-primary" onClick={handleTrainModel} disabled={trainStarting}>
+                  {trainStarting ? "Starting…" : "Train CNN-GRU model"}
+                </button>
+              </div>
+            </div>
+          )}
           {fcStatus && !fcStatus.torch_ok && (
             <div className="banner banner-info">CNN-GRU forecasting requires PyTorch. See backend/requirements.txt.</div>
           )}
-          {fcStatus && fcStatus.torch_ok && !fcStatus.model_exists && (
-            <div className="banner banner-info">No trained model yet. Collect 30 days of data, then train the model.</div>
+          {fcStatus && fcStatus.torch_ok && fcStatus.model_exists && forecast.length === 0 && (
+            <div className="banner banner-info" style={{ marginBottom: "0.75rem" }}>
+              Model ready — forecast uses the latest archived VTEC when live ingest is idle.
+            </div>
           )}
           {forecast.length > 0 ? (
             <LineChart
@@ -286,8 +379,6 @@ export default function LivePipelinePage() {
               datasets={[{ label: "Forecast VTEC", data: forecast.map((f) => f.predicted_vtec), color: "#ff8c00" }]}
               height={260}
             />
-          ) : fcStatus?.model_exists ? (
-            <div className="banner banner-info">Model ready — forecast will appear once enough live archive data is available.</div>
           ) : null}
         </div>
       </div>
@@ -298,10 +389,12 @@ export default function LivePipelinePage() {
           {stationStatus.map((s) => (
             <div key={s.code} className="card" style={{ padding: "0.5rem 0.7rem", minHeight: "70px" }}>
               <div className="metric-label" style={{ fontSize: "0.62rem" }}>{s.code.toUpperCase()}</div>
-              <div style={{ fontWeight: 800, fontSize: "1.1rem", color: s.stale ? "#444466" : "#00cc55" }}>
-                {s.last_vtec != null ? s.last_vtec.toFixed(1) : "N/A"}
+              <div style={{ fontWeight: 800, fontSize: "1.1rem", color: s.stale ? "#444466" : s.last_vtec != null ? "#00cc55" : "#ef9f27" }}>
+                {s.last_vtec != null ? s.last_vtec.toFixed(1) : s.stale ? "N/A" : "…"}
               </div>
-              <div className="metric-label" style={{ fontSize: "0.58rem" }}>{s.name.slice(0, 14)}</div>
+              <div className="metric-label" style={{ fontSize: "0.58rem" }}>
+                {s.stale ? s.name.slice(0, 14) : s.last_vtec != null ? s.name.slice(0, 14) : "Connected"}
+              </div>
             </div>
           ))}
           {stationStatus.length === 0 &&

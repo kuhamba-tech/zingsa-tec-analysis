@@ -1,16 +1,20 @@
 import type { NavigationFacebookStatus } from "./types";
 
-/** ZINGSA official Facebook Page — used when API status is unavailable. */
-export const ZINGSA_FACEBOOK_PAGE_URL =
+/** Stellar Aspirations Facebook Page public URL. */
+export const STELLAR_ASPIRATIONS_FACEBOOK_PAGE_URL =
   "https://www.facebook.com/profile.php?id=61562022072713";
 
-export const DEFAULT_FACEBOOK_STATUS: NavigationFacebookStatus = {
-  enabled: true,
+/** Placeholder when the backend status API is unreachable — not real config. */
+export const OFFLINE_FACEBOOK_STATUS: NavigationFacebookStatus = {
+  enabled: false,
   configured: false,
   dry_run: true,
-  page_id: "61562022072713",
-  page_url: ZINGSA_FACEBOOK_PAGE_URL,
+  page_id: "—",
+  page_url: STELLAR_ASPIRATIONS_FACEBOOK_PAGE_URL,
 };
+
+/** @deprecated Use OFFLINE_FACEBOOK_STATUS when the API is down. */
+export const DEFAULT_FACEBOOK_STATUS = OFFLINE_FACEBOOK_STATUS;
 
 /** Minimum digit count for WhatsApp numbers (country code + local number). */
 export function normalizeWhatsappInput(raw: string): string {

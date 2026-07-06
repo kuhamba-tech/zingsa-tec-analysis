@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Station, TecHeatmapResponse } from "@/lib/types";
 import { getLiveStationStatus } from "@/lib/liveStationStatus";
+import { icaoTecColor, icaoTecDistanceLabel, icaoTecLabel } from "@/lib/icaoTecAdvisory";
 import { vtecToRgba } from "@/lib/tecHeatmapColors";
 import type { MapLayer } from "./CorsMapWithLayers";
 import SiteDetailsPanel from "./SiteDetailsPanel";
@@ -44,7 +45,63 @@ function heatOverlayOpacity(layer: MapLayer): number {
 }
 
 function shouldShowHeatOverlay(layer: MapLayer, heatmap: TecHeatmapResponse | null | undefined): boolean {
-  return Boolean(heatmap?.available && heatmap.grid);
+  if (!heatmap?.available) return false;
+  if (heatmap.grid) return true;
+  return (heatmap.heat_points?.length ?? 0) >= 1;
+}
+
+function drawStationVtecMarkers(
+  ctx: CanvasRenderingContext2D,
+  stations: TecHeatmapResponse["stations"],
+  fromLonLat: (coord: [number, number]) => [number, number],
+  extent: [number, number, number, number],
+  size: [number, number],
+) {
+  const [minX, minY, maxX, maxY] = extent;
+  for (const station of stations) {
+    const [x, y] = fromLonLat([station.lon, station.lat]);
+    const px = ((x - minX) / (maxX - minX)) * size[0];
+    const py = ((maxY - y) / (maxY - minY)) * size[1];
+    ctx.beginPath();
+    ctx.arc(px, py, 5, 0, Math.PI * 2);
+    ctx.fillStyle = vtecToRgba(station.vtec, 0.95);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,0.9)";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+}
+
+function drawPointHeatBlobs(
+  ctx: CanvasRenderingContext2D,
+  points: NonNullable<TecHeatmapResponse["heat_points"]>,
+  fromLonLat: (coord: [number, number]) => [number, number],
+  extent: [number, number, number, number],
+  size: [number, number],
+  opacity: number,
+) {
+  const [minX, minY, maxX, maxY] = extent;
+  const radius = Math.max(Math.min(size[0], size[1]) * 0.22, 48);
+  for (const point of points) {
+    const [x, y] = fromLonLat([point.lon, point.lat]);
+    const px = ((x - minX) / (maxX - minX)) * size[0];
+    const py = ((maxY - y) / (maxY - minY)) * size[1];
+    const gradient = ctx.createRadialGradient(px, py, 0, px, py, radius);
+    gradient.addColorStop(0, vtecToRgba(point.vtec, opacity * 0.9));
+    gradient.addColorStop(0.5, vtecToRgba(point.vtec, opacity * 0.45));
+    gradient.addColorStop(1, vtecToRgba(point.vtec, 0));
+    ctx.fillStyle = gradient;
+    ctx.fillRect(px - radius, py - radius, radius * 2, radius * 2);
+  }
+}
+
+function stationTecValue(station: Station, heatmap: TecHeatmapResponse | null | undefined): number | null {
+  const code = station.code.toLowerCase().replace(/_+$/, "");
+  const fromHeatmap = heatmap?.stations.find((s) => s.code.toLowerCase().replace(/_+$/, "") === code)?.vtec;
+  if (typeof fromHeatmap === "number" && Number.isFinite(fromHeatmap)) return fromHeatmap;
+  return typeof station.current_tec === "number" && Number.isFinite(station.current_tec)
+    ? station.current_tec
+    : null;
 }
 
 export default function CorsMap({ stations, height = 420, layer = "Hybrid", heatmap = null }: Props) {
@@ -78,8 +135,13 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid", heat
     const helpers = olHelpersRef.current;
     if (!helpers) return [];
     const { fromLonLat, Feature, Point, Style, Circle, Fill, Stroke, Text } = helpers;
+    const showTecLabels = layerRef.current === "TEC Heat Map";
     return list.map((s) => {
       const f = new Feature({ geometry: new Point(fromLonLat([s.lon, s.lat])), station: s });
+      const tecValue = stationTecValue(s, heatmapRef.current);
+      const label = showTecLabels && tecValue != null
+        ? `${s.code.toUpperCase()}\n${tecValue.toFixed(1)}`
+        : s.code.toUpperCase();
       f.setStyle(
         new Style({
           image: new Circle({
@@ -88,11 +150,12 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid", heat
             stroke: new Stroke({ color: "#fff", width: 1.5 }),
           }),
           text: new Text({
-            text: s.code.toUpperCase(),
-            offsetY: -14,
+            text: label,
+            offsetY: showTecLabels ? -22 : -14,
             fill: new Fill({ color: "#fff" }),
             stroke: new Stroke({ color: "#000", width: 3 }),
-            font: "bold 10px sans-serif",
+            font: showTecLabels ? "bold 11px sans-serif" : "bold 10px sans-serif",
+            textAlign: "center",
           }),
         }),
       );
@@ -110,15 +173,14 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid", heat
   const buildHeatLayer = async () => {
     const data = heatmapRef.current;
     const currentLayer = layerRef.current;
-    if (!shouldShowHeatOverlay(currentLayer, data) || !data?.grid) return null;
+    if (!shouldShowHeatOverlay(currentLayer, data) || !data) return null;
 
     const { fromLonLat } = await import("ol/proj");
     const ImageLayer = (await import("ol/layer/Image")).default;
     const ImageCanvas = (await import("ol/source/ImageCanvas")).default;
-    const { grid, tec_min: tMin, tec_max: tMax } = data;
-    const gridLons = grid.lons;
-    const gridLats = grid.lats;
-    const gridVtec = grid.vtec;
+    const overlayOpacity = heatOverlayOpacity(currentLayer);
+    const grid = data.grid;
+    const stationPoints = data.stations.length > 0 ? data.stations : data.heat_points;
 
     const source = new ImageCanvas({
       projection: "EPSG:3857",
@@ -129,50 +191,49 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid", heat
         const ctx = canvas.getContext("2d");
         if (!ctx) return canvas;
 
-        const [minX, minY, maxX, maxY] = extent;
-        const rows = gridLats.length;
-        const cols = gridLons[0]?.length ?? 0;
+        const extentTuple = extent as [number, number, number, number];
+        const sizeTuple = size as [number, number];
 
-        for (let i = 0; i < rows - 1; i++) {
-          for (let j = 0; j < cols - 1; j++) {
-            const vtec = gridVtec[i]?.[j];
-            if (vtec == null || !Number.isFinite(vtec)) continue;
+        if (grid) {
+          const gridLons = grid.lons;
+          const gridLats = grid.lats;
+          const gridVtec = grid.vtec;
+          const rows = gridLats.length;
+          const cols = gridLons[0]?.length ?? 0;
+          const [minX, minY, maxX, maxY] = extentTuple;
 
-            const lon0 = gridLons[i][j];
-            const lat0 = gridLats[i][j];
-            const lon1 = gridLons[i + 1]?.[j + 1] ?? gridLons[i][j + 1] ?? lon0;
-            const lat1 = gridLats[i + 1]?.[j + 1] ?? gridLats[i][j + 1] ?? lat0;
+          for (let i = 0; i < rows - 1; i++) {
+            for (let j = 0; j < cols - 1; j++) {
+              const vtec = gridVtec[i]?.[j];
+              if (vtec == null || !Number.isFinite(vtec)) continue;
 
-            const [x0, y0] = fromLonLat([lon0, lat0]);
-            const [x1, y1] = fromLonLat([lon1, lat1]);
-            const px0 = ((x0 - minX) / (maxX - minX)) * size[0];
-            const px1 = ((x1 - minX) / (maxX - minX)) * size[0];
-            const py0 = ((maxY - y0) / (maxY - minY)) * size[1];
-            const py1 = ((maxY - y1) / (maxY - minY)) * size[1];
+              const lon0 = gridLons[i][j];
+              const lat0 = gridLats[i][j];
+              const lon1 = gridLons[i + 1]?.[j + 1] ?? gridLons[i][j + 1] ?? lon0;
+              const lat1 = gridLats[i + 1]?.[j + 1] ?? gridLats[i][j + 1] ?? lat0;
 
-            const left = Math.min(px0, px1);
-            const top = Math.min(py0, py1);
-            const width = Math.max(Math.abs(px1 - px0), 2);
-            const heightPx = Math.max(Math.abs(py1 - py0), 2);
+              const [x0, y0] = fromLonLat([lon0, lat0]);
+              const [x1, y1] = fromLonLat([lon1, lat1]);
+              const px0 = ((x0 - minX) / (maxX - minX)) * size[0];
+              const px1 = ((x1 - minX) / (maxX - minX)) * size[0];
+              const py0 = ((maxY - y0) / (maxY - minY)) * size[1];
+              const py1 = ((maxY - y1) / (maxY - minY)) * size[1];
 
-            ctx.fillStyle = vtecToRgba(vtec, heatOverlayOpacity(currentLayer));
-            ctx.fillRect(left, top, width, heightPx);
+              const left = Math.min(px0, px1);
+              const top = Math.min(py0, py1);
+              const width = Math.max(Math.abs(px1 - px0), 2);
+              const heightPx = Math.max(Math.abs(py1 - py0), 2);
+
+              ctx.fillStyle = vtecToRgba(vtec, overlayOpacity);
+              ctx.fillRect(left, top, width, heightPx);
+            }
           }
+        } else if (stationPoints.length > 0) {
+          drawPointHeatBlobs(ctx, stationPoints, fromLonLat, extentTuple, sizeTuple, overlayOpacity);
         }
 
-        if (tMin != null && tMax != null) {
-          for (const station of data.stations) {
-            const [x, y] = fromLonLat([station.lon, station.lat]);
-            const px = ((x - minX) / (maxX - minX)) * size[0];
-            const py = ((maxY - y) / (maxY - minY)) * size[1];
-            ctx.beginPath();
-            ctx.arc(px, py, 5, 0, Math.PI * 2);
-            ctx.fillStyle = vtecToRgba(station.vtec, 0.95);
-            ctx.fill();
-            ctx.strokeStyle = "rgba(255,255,255,0.9)";
-            ctx.lineWidth = 1.5;
-            ctx.stroke();
-          }
+        if (data.stations.length > 0) {
+          drawStationVtecMarkers(ctx, data.stations, fromLonLat, extentTuple, sizeTuple);
         }
 
         return canvas;
@@ -181,7 +242,7 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid", heat
 
     return new ImageLayer({
       source,
-      opacity: heatOverlayOpacity(currentLayer),
+      opacity: overlayOpacity,
       zIndex: 1.5,
     });
   };
@@ -270,8 +331,21 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid", heat
         const f = map.forEachFeatureAtPixel(evt.pixel, (feat: any) => feat);
         if (f) {
           const s: Station = f.get("station");
+          const tecValue = stationTecValue(s, heatmapRef.current);
           setSelectedRef.current(s);
-          popupEl.innerHTML = `<b>${s.code.toUpperCase()}</b> — click Details →`;
+          const icaoLine =
+            tecValue != null
+              ? `<div style="margin-top:0.25rem;color:${icaoTecColor(tecValue)};font-weight:700">${icaoTecLabel(tecValue)}</div>`
+              : "";
+          const distLine =
+            tecValue != null && icaoTecDistanceLabel(tecValue)
+              ? `<div style="color:#94a3b8;font-size:0.68rem">${icaoTecDistanceLabel(tecValue)}</div>`
+              : "";
+          const tecLine =
+            tecValue != null
+              ? `<div style="color:#57ff65;font-weight:800">${tecValue.toFixed(1)} TECU</div>`
+              : "";
+          popupEl.innerHTML = `<b>${s.code.toUpperCase()}</b>${tecLine}${icaoLine}${distLine}<div style="margin-top:0.2rem;color:#94a3b8">Click Details →</div>`;
           popup.setPosition(evt.coordinate);
           popupEl.style.display = "block";
         } else {
@@ -320,6 +394,7 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid", heat
       const hybrid = usesHybridOverlays(layer);
       labelTileRef.current.setVisible(hybrid);
       transportTileRef.current.setVisible(hybrid);
+      syncStationFeatures(stationsRef.current);
       await syncHeatLayer();
     })();
   }, [layer, heatmap]);
@@ -347,7 +422,9 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid", heat
           }}
         />
       </div>
-      {selected && <SiteDetailsPanel station={selected} onClose={() => setSelected(null)} />}
+      {selected && (
+        <SiteDetailsPanel station={selected} heatmap={heatmap} onClose={() => setSelected(null)} />
+      )}
     </div>
   );
 }

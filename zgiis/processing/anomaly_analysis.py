@@ -40,17 +40,21 @@ def list_archive_stations(df: pd.DataFrame) -> list[str]:
     return sorted({str(s) for s in df["station"].dropna().unique()})
 
 
-def fetch_geomagnetic_daily(start: date, end: date) -> tuple[list[dict[str, Any]], bool, bool]:
+def _kp_df_from_gfz_rows(rows: list[dict[str, Any]]) -> pd.DataFrame:
+    if not rows:
+        return pd.DataFrame(columns=["date", "kp_index"])
+    return pd.DataFrame(
+        [{"date": r["date"], "kp_index": r["kp"]} for r in rows if r.get("kp") is not None]
+    )
+
+
+def _geomagnetic_daily_from_gfz_and_kyoto(
+    start: date,
+    end: date,
+    gfz_rows: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], bool, bool]:
     """Daily Kp (GFZ) and Dst (WDC Kyoto) for archive date range."""
-    kp_rows: list[dict[str, Any]] = []
     dst_by_date: dict[str, float] = {}
-    try:
-        from zgiis.space_weather.gfz_kp_client import fetch_gfz_daily
-
-        kp_rows = fetch_gfz_daily(start, end)
-    except Exception:
-        kp_rows = []
-
     try:
         from zgiis.space_weather.wdc_kyoto_client import fetch_kyoto_daily
 
@@ -61,7 +65,7 @@ def fetch_geomagnetic_daily(start: date, end: date) -> tuple[list[dict[str, Any]
     except Exception:
         pass
 
-    kp_by_date = {str(r["date"]): r.get("kp") for r in kp_rows if r.get("kp") is not None}
+    kp_by_date = {str(r["date"]): r.get("kp") for r in gfz_rows if r.get("kp") is not None}
     all_dates = sorted(set(kp_by_date) | set(dst_by_date))
     daily = [
         {
@@ -74,16 +78,36 @@ def fetch_geomagnetic_daily(start: date, end: date) -> tuple[list[dict[str, Any]
     return daily, bool(kp_by_date), bool(dst_by_date)
 
 
-def fetch_kp_df(start: date, end: date) -> pd.DataFrame:
+def fetch_geomagnetic_daily(
+    start: date,
+    end: date,
+    *,
+    gfz_rows: list[dict[str, Any]] | None = None,
+) -> tuple[list[dict[str, Any]], bool, bool]:
+    """Daily Kp (GFZ) and Dst (WDC Kyoto) for archive date range."""
+    rows = gfz_rows
+    if rows is None:
+        try:
+            from zgiis.space_weather.gfz_kp_client import fetch_gfz_daily
+
+            rows = fetch_gfz_daily(start, end)
+        except Exception:
+            rows = []
+    return _geomagnetic_daily_from_gfz_and_kyoto(start, end, rows)
+
+
+def fetch_kp_df(
+    start: date,
+    end: date,
+    *,
+    gfz_rows: list[dict[str, Any]] | None = None,
+) -> pd.DataFrame:
+    if gfz_rows is not None:
+        return _kp_df_from_gfz_rows(gfz_rows)
     try:
         from zgiis.space_weather.gfz_kp_client import fetch_gfz_daily
 
-        rows = fetch_gfz_daily(start, end)
-        if not rows:
-            return pd.DataFrame(columns=["date", "kp_index"])
-        return pd.DataFrame(
-            [{"date": r["date"], "kp_index": r["kp"]} for r in rows if r.get("kp") is not None]
-        )
+        return _kp_df_from_gfz_rows(fetch_gfz_daily(start, end))
     except Exception:
         return pd.DataFrame(columns=["date", "kp_index"])
 
@@ -295,9 +319,18 @@ def build_anomaly_analysis(
 
     start = daily["date"].min().date()
     end = daily["date"].max().date()
-    geomagnetic_daily, kp_available, dst_available = fetch_geomagnetic_daily(start, end)
+    gfz_rows: list[dict[str, Any]] = []
+    try:
+        from zgiis.space_weather.gfz_kp_client import fetch_gfz_daily
+
+        gfz_rows = fetch_gfz_daily(start, end)
+    except Exception:
+        gfz_rows = []
+    geomagnetic_daily, kp_available, dst_available = fetch_geomagnetic_daily(
+        start, end, gfz_rows=gfz_rows
+    )
     geo_lookup = _geomagnetic_lookup(geomagnetic_daily)
-    kp_df = fetch_kp_df(start, end)
+    kp_df = fetch_kp_df(start, end, gfz_rows=gfz_rows)
     days = enrich_anomaly_days(daily, kp_df, threshold_pct, geomagnetic=geo_lookup)
     storm_comparison = build_storm_comparison(daily, kp_df)
     diurnal = compute_diurnal(df, station)

@@ -21,13 +21,17 @@ function fmtUtc(iso: string): string {
 
 interface Props {
   ekf?: EkfStatus | null;
+  initialPeriod?: SpaceWeatherReportPeriod;
 }
 
 type EkfChartMeta = ({ error?: number | null; confidence?: number | null } | null)[];
 
-/** Space weather report card — below scale reference on the dashboard. */
-export default function SpaceWeatherReportsPanel({ ekf = null }: Props) {
-  const [period, setPeriod] = useState<SpaceWeatherReportPeriod>("hourly");
+/** Space weather report card — dashboard and /reports. */
+export default function SpaceWeatherReportsPanel({
+  ekf = null,
+  initialPeriod = "hourly",
+}: Props) {
+  const [period, setPeriod] = useState<SpaceWeatherReportPeriod>(initialPeriod);
   const [report, setReport] = useState<SpaceWeatherReport | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -45,6 +49,10 @@ export default function SpaceWeatherReportsPanel({ ekf = null }: Props) {
       setBusy(false);
     }
   }, []);
+
+  useEffect(() => {
+    setPeriod(initialPeriod);
+  }, [initialPeriod]);
 
   useEffect(() => {
     load(period);

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+from functools import lru_cache
 
 import numpy as np
 import pandas as pd
@@ -36,6 +37,7 @@ from backend.schemas import (
 router = APIRouter(prefix="/tec", tags=["tec"])
 
 
+@lru_cache(maxsize=1)
 def _archive() -> pd.DataFrame:
     try:
         from zgiis.data.tec_archive import load_historical_tec
@@ -359,6 +361,9 @@ async def tec_heatmap(
         station_count=payload["station_count"],
         updated_at=payload["updated_at"],
         message=payload["message"],
+        data_quality=payload.get("data_quality", "none"),
+        icao_mod_tecu=payload.get("icao_mod_tecu", 125.0),
+        icao_sev_tecu=payload.get("icao_sev_tecu", 175.0),
     )
 
 

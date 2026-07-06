@@ -80,6 +80,9 @@ export interface StormAlertStatus {
   active_count: number;
   banner: string | null;
   kp_storm_level: string | null;
+  geomagnetic_level?: "none" | "possible" | "storm";
+  geomagnetic_reasons?: string[];
+  alert_rules?: string[];
   ekf_alert_count: number;
   notification_channels: Record<string, boolean>;
   dry_run: boolean;
@@ -447,6 +450,9 @@ export interface TecHeatmapResponse {
   station_count: number;
   updated_at: string | null;
   message: string | null;
+  data_quality?: "none" | "regional_mean" | "stations_only" | "station";
+  icao_mod_tecu?: number;
+  icao_sev_tecu?: number;
 }
 
 export interface TecHeatmapStation {
@@ -770,6 +776,7 @@ export interface LivePipelineStatus {
   streams: Record<string, LivePipelineStreamStatus>;
   db_backend: string;
   record_count: number;
+  recent_record_count_1h: number;
   runtime_mode: string;
   ingest_enabled: boolean;
   message: string | null;
@@ -816,6 +823,16 @@ export interface ForecastStatus {
   forecast_h: number;
   seq_len: number;
   path: string | null;
+}
+
+export interface CnnGruTrainStatus {
+  running: boolean;
+  started_at: string | null;
+  epoch: number;
+  total_epochs: number;
+  last_loss: number | null;
+  error: string | null;
+  result: Record<string, unknown> | null;
 }
 
 export interface ForecastPoint {

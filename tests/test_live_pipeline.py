@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 
 import numpy as np
 
-from zgiis.live.mountpoints import default_station_mountpoints, parse_mountpoints
+from zgiis.live.mountpoints import default_station_mountpoints, order_mountpoints, parse_mountpoints
 from zgiis.live.satellite_geometry import LiveNavCache, llh_to_ecef
 from zgiis.live.stec_vtec import LiveVtecAccumulator, LiveVtecPipeline
 
@@ -28,6 +28,12 @@ def test_parse_mountpoints_expands_zingsa_hq(monkeypatch):
     monkeypatch.delenv("NTRIP_MOUNTPOINTS", raising=False)
     mapping = parse_mountpoints()
     assert len(mapping) == 24
+
+
+def test_order_mountpoints_prioritizes_online_codes():
+    mapping = {"hara": "HARA", "masv": "MASV", "zinh": "ZINH"}
+    ordered = order_mountpoints(mapping, ["masv", "missing"])
+    assert list(ordered) == ["masv", "hara", "zinh"]
 
 
 def test_live_nav_cache_elevation_for_gps_with_ephemeris():

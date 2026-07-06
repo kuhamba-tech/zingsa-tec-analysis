@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from zgiis.navigation.gnss_forecast import ForecastStatus, GnssForecastCity
+from zgiis.navigation.national_navigation_social import build_national_navigation_social
 from zgiis.navigation.zingsa_contact import (
     ZINGSA_AGENCY,
     ZINGSA_BROADCAST_FOOTER,
@@ -334,13 +335,7 @@ def _citizen_brief(
         *ZINGSA_BROADCAST_FOOTER,
     ])
 
-    social = _join_script([
-        "🇿🇼 ZINGSA Navigation News | Space Weather & You",
-        sw_ctx.headline,
-        summaries[status].split(".")[0] + ".",
-        actions[status],
-        "#SpaceWeather #Zimbabwe #GPS #PublicAwareness",
-    ])
+    social = build_national_navigation_social(status, sw, computed_at=computed_at, forecasts=forecasts)
 
     return NavigationNewsBrief(
         id="citizen",
@@ -892,7 +887,7 @@ def _scientist_brief(
             "Proceed with routine processing and research extracts. Document quiet-day baselines for the archive."
         ),
         "moderate": (
-            "Enable enhanced QC flags on CORS ingest; compare ZINGSA TEC with IGS/global maps; note EKF alerts in lab books."
+            "Enable enhanced QC flags on CORS ingest; compare ZINGSA TEC with IGS/global maps."
         ),
         "warning": (
             "Activate storm-data protocol: snapshot indices hourly, segregate contaminated arcs, coordinate with ZINGSA ops before releasing operational TEC products."

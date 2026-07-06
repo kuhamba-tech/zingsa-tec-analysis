@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from backend.deps import require_api_key
@@ -35,18 +37,42 @@ def _sw() -> dict:
     return get_space_weather(use_third_party=True)
 
 
-@router.get("/current", response_model=SpaceWeatherCurrent)
-async def current(_=Depends(require_api_key)):
-    sw = _sw()
+def _ntrip_stream_counts() -> tuple[int | None, int | None]:
+    """Non-blocking NTRIP probe counts — matches frontend connectedStreamCount."""
     try:
-        from backend.routers.cors_network import _stations
+        from zgiis.live.ntrip_status_cache import get_cached_ntrip_probe
 
-        stations = _stations()
-        sw["stations_online"] = sum(1 for s in stations if s.status == "online")
-        sw["stations_total"] = len(stations)
+        probe = get_cached_ntrip_probe(refresh=False, listen_sec=4.0, allow_blocking_refresh=False)
+        if probe.get("error"):
+            return None, None
+        rows = probe.get("stations") or []
+        if not rows:
+            return None, None
+        online = degraded = 0
+        for row in rows:
+            verdict = str(row.get("verdict") or "").lower()
+            if verdict == "msm_streaming":
+                online += 1
+            elif verdict in {"rtcm_no_msm", "connected_no_data"}:
+                degraded += 1
+        return online + degraded, len(rows) or 24
     except Exception:
-        pass
-    log_snapshot(source="dashboard", force=False)
+        return None, None
+
+
+@router.get("/current", response_model=SpaceWeatherCurrent)
+def current(_=Depends(require_api_key)):
+    sw = _sw()
+    ntrip_online, ntrip_total = _ntrip_stream_counts()
+    if ntrip_online is not None and ntrip_total:
+        sw["stations_online"] = ntrip_online
+        sw["stations_total"] = ntrip_total
+    threading.Thread(
+        target=log_snapshot,
+        kwargs={"source": "dashboard", "force": False},
+        daemon=True,
+        name="sw-log-snapshot",
+    ).start()
     return SpaceWeatherCurrent(
         kp=sw.get("kp"),
         kp_condition=sw.get("kp_condition"),
@@ -249,6 +275,9 @@ async def storm_alert_status(_=Depends(require_api_key)):
         active_count=int(alarm.get("active_count") or 0),
         banner=alarm.get("banner"),
         kp_storm_level=alarm.get("kp_storm_level"),
+        geomagnetic_level=str(alarm.get("geomagnetic_level") or "none"),
+        geomagnetic_reasons=list(alarm.get("geomagnetic_reasons") or []),
+        alert_rules=list(alarm.get("alert_rules") or []),
         ekf_alert_count=int(alarm.get("ekf_alert_count") or 0),
         notification_channels=channels_configured(),
         dry_run=dry,

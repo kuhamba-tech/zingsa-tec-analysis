@@ -86,7 +86,7 @@ const ARCHITECTURE = [
   {
     step: "4",
     kind: "platform",
-    title: "GNSS-TEC Platform",
+    title: "Space Weather Platform",
     subtitle: "TEC - monitoring - alerts",
     note: "Ionosphere analytics, space weather and CORS health",
     accent: "#ff4fb3",

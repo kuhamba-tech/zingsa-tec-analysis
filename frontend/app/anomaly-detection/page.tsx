@@ -6,6 +6,9 @@ import {
   getAnomalyAnalysis,
   getStatisticalForecast,
   getCnnGruForecast,
+  getForecastStatus,
+  getCnnGruTrainStatus,
+  trainCnnGruModel,
 } from "@/lib/api";
 import LineChart from "@/components/charts/LineChart";
 import BarChart from "@/components/charts/BarChart";
@@ -17,6 +20,8 @@ import type {
   SeasonalRow,
   SolarCycleRow,
   StormComparisonDoy,
+  ForecastStatus,
+  CnnGruTrainStatus,
 } from "@/lib/types";
 
 const TABS = [
@@ -67,6 +72,9 @@ export default function AnomalyDetectionPage() {
   const [solar, setSolar] = useState<SolarCycleRow[]>([]);
   const [forecast, setForecast] = useState<ForecastPoint[]>([]);
   const [forecastModel, setForecastModel] = useState<"statistical" | "cnn-gru">("statistical");
+  const [fcStatus, setFcStatus] = useState<ForecastStatus | null>(null);
+  const [trainStatus, setTrainStatus] = useState<CnnGruTrainStatus | null>(null);
+  const [trainStarting, setTrainStarting] = useState(false);
   const [pct, setPct] = useState(95);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -98,6 +106,43 @@ export default function AnomalyDetectionPage() {
       .then(setForecast)
       .catch((exc) => setError(exc instanceof Error ? exc.message : "CNN-GRU forecast unavailable"));
   }, [forecastModel]);
+
+  useEffect(() => {
+    getForecastStatus().then(setFcStatus).catch(() => setFcStatus(null));
+    getCnnGruTrainStatus().then(setTrainStatus).catch(() => setTrainStatus(null));
+  }, []);
+
+  useEffect(() => {
+    if (!trainStatus?.running) return;
+    const id = setInterval(() => {
+      getCnnGruTrainStatus()
+        .then((status) => {
+          setTrainStatus(status);
+          if (!status.running && status.result && !status.error) {
+            getForecastStatus().then(setFcStatus).catch(() => null);
+            if (forecastModel === "cnn-gru") {
+              getCnnGruForecast().then(setForecast).catch(() => null);
+            }
+          }
+        })
+        .catch(() => null);
+    }, 2000);
+    return () => clearInterval(id);
+  }, [trainStatus?.running, forecastModel]);
+
+  async function handleTrainModel() {
+    setTrainStarting(true);
+    setError(null);
+    try {
+      await trainCnnGruModel();
+      const status = await getCnnGruTrainStatus();
+      setTrainStatus(status);
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "Could not start CNN-GRU training");
+    } finally {
+      setTrainStarting(false);
+    }
+  }
 
   const anomalyDays = useMemo(() => anomalies.filter((a) => a.anomaly), [anomalies]);
   const stormConfirmed = useMemo(
@@ -135,6 +180,21 @@ export default function AnomalyDetectionPage() {
           Storm analysis, diurnal and seasonal variation, solar-cycle context, EIA study, and TEC prediction.
         </p>
       </div>
+
+      {trainStatus?.running && (
+        <div className="banner banner-info" style={{ fontSize: "0.82rem" }}>
+          <strong>CNN-GRU training in progress</strong> — epoch {trainStatus.epoch}/{trainStatus.total_epochs}
+          {trainStatus.last_loss != null ? ` · loss ${trainStatus.last_loss.toFixed(5)}` : ""}. Open the{" "}
+          <button
+            type="button"
+            onClick={() => setTab(6)}
+            style={{ background: "none", border: "none", padding: 0, color: "inherit", textDecoration: "underline", cursor: "pointer", font: "inherit" }}
+          >
+            TEC Prediction
+          </button>{" "}
+          tab for details.
+        </div>
+      )}
 
       <div className="anomaly-control-card card">
         <div>
@@ -584,6 +644,76 @@ export default function AnomalyDetectionPage() {
               </button>
             </div>
           </div>
+
+          {forecastModel === "cnn-gru" && (
+            <div className="card" style={{ marginBottom: "1rem", padding: "1rem" }}>
+              <div className="metric-label" style={{ marginBottom: "0.5rem" }}>CNN-GRU Model Training</div>
+              <p style={{ fontSize: "0.82rem", color: "var(--text-muted)", margin: "0 0 0.75rem" }}>
+                Trains daily on 30+ days of 15-min mean VTEC from TimescaleDB. Fine-tunes existing weights when available.
+              </p>
+              <div style={{ display: "grid", gap: "0.35rem", fontSize: "0.8rem", marginBottom: "0.85rem" }}>
+                <div><strong>Sequence length:</strong> {fcStatus?.seq_len ?? 96} steps (24 h)</div>
+                <div><strong>Forecast horizon:</strong> {fcStatus?.forecast_h ?? 6} h</div>
+                <div><strong>Architecture:</strong> Conv1D(32) → Conv1D(64) → GRU(128×2) → Dense</div>
+                <div>
+                  <strong>Model status:</strong>{" "}
+                  {fcStatus
+                    ? fcStatus.torch_ok
+                      ? fcStatus.model_exists
+                        ? "Ready"
+                        : "No trained weights yet"
+                      : "PyTorch unavailable"
+                    : "Checking…"}
+                </div>
+              </div>
+
+              {trainStatus?.running && (
+                <div className="banner banner-info" style={{ marginBottom: "0.75rem", fontSize: "0.82rem" }}>
+                  <strong>Training CNN-GRU…</strong>{" "}
+                  epoch {trainStatus.epoch}/{trainStatus.total_epochs}
+                  {trainStatus.last_loss != null ? ` · loss ${trainStatus.last_loss.toFixed(5)}` : ""}
+                  <div style={{ marginTop: "0.35rem", color: "var(--text-muted)" }}>
+                    Loading VTEC windows from TimescaleDB and updating Conv1D + GRU weights — this may take a few minutes.
+                  </div>
+                </div>
+              )}
+
+              {!trainStatus?.running && trainStatus?.error && (
+                <div className="banner banner-alert" style={{ marginBottom: "0.75rem", fontSize: "0.82rem" }}>
+                  Training failed: {trainStatus.error}
+                </div>
+              )}
+
+              {!trainStatus?.running && trainStatus?.result && !trainStatus.error && (
+                <div className="banner banner-info" style={{ marginBottom: "0.75rem", fontSize: "0.82rem", borderColor: "#00ff8844" }}>
+                  Training complete — final loss{" "}
+                  {typeof trainStatus.result.final_loss === "number"
+                    ? trainStatus.result.final_loss.toFixed(5)
+                    : "N/A"}
+                  {typeof trainStatus.result.n_windows === "number"
+                    ? ` over ${trainStatus.result.n_windows} windows`
+                    : ""}
+                  {trainStatus.result.trained_at ? ` · ${String(trainStatus.result.trained_at).slice(0, 19).replace("T", " ")} UTC` : ""}
+                </div>
+              )}
+
+              {fcStatus && !fcStatus.torch_ok && (
+                <div className="banner banner-info" style={{ marginBottom: "0.75rem", fontSize: "0.82rem" }}>
+                  CNN-GRU training requires PyTorch on the backend. See backend requirements.
+                </div>
+              )}
+
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handleTrainModel}
+                disabled={trainStarting || trainStatus?.running || !fcStatus?.torch_ok}
+              >
+                {trainStatus?.running || trainStarting ? "Training…" : "Train model"}
+              </button>
+            </div>
+          )}
+
           <div className="metric-label">30-day TEC forecast</div>
           {forecast.length > 0 ? (
             <LineChart

@@ -13,6 +13,7 @@ import type {
   EkfStatus,
   ForecastPoint,
   ForecastStatus,
+  CnnGruTrainStatus,
   GicLiveModel,
   GicNetwork,
   GicReport,
@@ -425,9 +426,9 @@ export const getArchiveMeta = () => get<ArchiveMeta>("/tec/archive-meta");
 export const getTimeSeries = (params?: { station?: string; start?: string; end?: string; limit?: number }) =>
   get<TecObservation[]>("/tec/time-series", params);
 export const getAnomalies = (threshold_pct = 95, station?: string) =>
-  get<AnomalyDay[]>("/tec/anomalies", { threshold_pct, station });
+  get<AnomalyDay[]>("/tec/anomalies", { threshold_pct, station }, ANALYSIS_TIMEOUT_MS);
 export const getAnomalyAnalysis = (threshold_pct = 95, station?: string) =>
-  get<AnomalyAnalysisResponse>("/tec/anomaly-analysis", { threshold_pct, station });
+  get<AnomalyAnalysisResponse>("/tec/anomaly-analysis", { threshold_pct, station }, ANALYSIS_TIMEOUT_MS);
 export const getTecHeatmap = (hours = 2) => get<TecHeatmapResponse>("/tec/heatmap", { hours });
 export const getDiurnal = (station?: string) => get<DiurnalPoint[]>("/tec/diurnal", { station });
 export const getSeasonal = (station?: string) => get<SeasonalRow[]>("/tec/seasonal", { station });
@@ -500,6 +501,8 @@ export async function runNtripProbe(listen_sec = 6) {
 
 // ── Forecast ──────────────────────────────────────────────────────────────────
 export const getForecastStatus = () => get<ForecastStatus>("/forecast/status");
+export const getCnnGruTrainStatus = () => get<CnnGruTrainStatus>("/forecast/train/status");
+export const trainCnnGruModel = () => post<{ status: string }>("/forecast/train", {});
 export const getStatisticalForecast = (horizon_days = 30) =>
   get<ForecastPoint[]>("/forecast/statistical", { horizon_days });
 export const getCnnGruForecast = () => get<ForecastPoint[]>("/forecast/cnn-gru");

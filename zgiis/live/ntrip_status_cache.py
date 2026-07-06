@@ -75,6 +75,7 @@ def get_cached_ntrip_probe(
     refresh: bool = False,
     listen_sec: float = 4.0,
     ttl_sec: float = DEFAULT_TTL_SEC,
+    allow_blocking_refresh: bool = True,
 ) -> dict[str, Any]:
     """Return the latest probe payload, refreshing from the caster when stale."""
     global _CACHE, _CACHE_TS
@@ -82,10 +83,22 @@ def get_cached_ntrip_probe(
         return _disabled_payload(listen_sec)
     age = cache_age_sec()
     stale = _CACHE is None or age is None or age > ttl_sec
-    if refresh or stale:
+    if refresh or (stale and allow_blocking_refresh):
         max_workers = max(1, int(os.getenv("NTRIP_PROBE_MAX_WORKERS", "1")))
         _CACHE = probe_all_mountpoints(listen_sec=listen_sec, max_workers=max_workers)
         _CACHE_TS = time.monotonic()
+    elif stale and not allow_blocking_refresh:
+        if _CACHE is not None:
+            return _CACHE
+        import threading
+
+        threading.Thread(
+            target=get_cached_ntrip_probe,
+            kwargs={"refresh": True, "listen_sec": listen_sec, "ttl_sec": ttl_sec},
+            daemon=True,
+            name="ntrip-probe-bg",
+        ).start()
+        return _disabled_payload(listen_sec)
     return _CACHE  # type: ignore[return-value]
 
 

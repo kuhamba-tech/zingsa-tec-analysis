@@ -9,6 +9,13 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
+
+def _auto_train_cnn_gru() -> None:
+    from zgiis.ml.auto_train import maybe_train_cnn_gru
+
+    maybe_train_cnn_gru()
+
+
 # Make the project root importable so tec_core and zgiis can be found
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -47,6 +54,11 @@ async def lifespan(app: FastAPI):
     space_weather_logger.start()
     station_status_logger.start()
     navigation_broadcast_scheduler.start()
+    threading.Thread(
+        target=_auto_train_cnn_gru,
+        daemon=True,
+        name="cnn-gru-auto-train",
+    ).start()
     yield
     navigation_broadcast_scheduler.stop()
     station_status_logger.stop()

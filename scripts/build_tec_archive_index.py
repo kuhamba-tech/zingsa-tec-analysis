@@ -135,7 +135,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("source", type=Path)
     parser.add_argument("output", type=Path)
-    parser.add_argument("--elevation-min", type=float, default=25.0)
+    parser.add_argument("--elevation-min", type=float, default=30.0)
     args = parser.parse_args()
     build_index(args.source, args.output, args.elevation_min)
 

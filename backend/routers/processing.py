@@ -60,7 +60,7 @@ def _storm_daily(df, kp_csv: str):
 @router.post("/cmn", response_model=ProcessingSession)
 async def upload_cmn(
     file: UploadFile = File(...),
-    elevation_min: float = Form(25.0),
+    elevation_min: float = Form(30.0),
     ipp_height: float = Form(350.0),
     dcb_folder: str = Form(""),
     stations: str = Form(""),
@@ -108,7 +108,7 @@ async def upload_cmn(
 async def upload_rinex(
     obs: list[UploadFile] = File(...),
     nav: list[UploadFile] = File(default=[]),
-    elevation_min: float = Form(25.0),
+    elevation_min: float = Form(30.0),
     ipp_height: float = Form(350.0),
     dcb_folder: str = Form(""),
     stations: str = Form(""),

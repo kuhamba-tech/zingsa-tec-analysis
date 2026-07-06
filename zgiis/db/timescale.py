@@ -284,14 +284,19 @@ class TecDB:
             .reset_index()
         )
 
-    def record_count(self) -> int:
-        """Total rows in the database."""
-        cur = (
-            self._conn.cursor() if self._is_pg
-            else self._conn.cursor()
-        )
-        cur.execute("SELECT COUNT(*) FROM vtec_obs")
-        return cur.fetchone()[0]
+    def record_count(self, *, hours: float | None = None) -> int:
+        """Total rows in the database, optionally limited to the last N hours."""
+        if hours is None:
+            cur = self._conn.cursor()
+            cur.execute("SELECT COUNT(*) FROM vtec_obs")
+            return int(cur.fetchone()[0])
+        since = (datetime.now(tz=timezone.utc) - timedelta(hours=hours)).isoformat()
+        sql = "SELECT COUNT(*) FROM vtec_obs WHERE time >= ?"
+        if self._is_pg:
+            sql = sql.replace("?", "%s")
+        cur = self._conn.cursor()
+        cur.execute(sql, (since,))
+        return int(cur.fetchone()[0])
 
     # ── Housekeeping ──────────────────────────────────────────────────────────
 

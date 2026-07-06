@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 type NavItem = {
@@ -11,55 +11,67 @@ type NavItem = {
   matchHash?: string;
   /** When true, do not highlight if a sibling item with matchHash is active. */
   excludeWhenHash?: boolean;
+  /** When set, only active if the query string contains this substring (e.g. period=daily). */
+  matchQuery?: string;
 };
 
 const NAV_GROUPS: { section: string; items: NavItem[] }[] = [
   {
-    section: "Overview",
+    section: "Dashboard",
     items: [
-      { href: "/", label: "Home", icon: "🏠" },
-      { href: "/dashboard", label: "Dashboard", icon: "📊" },
+      { href: "/", label: "National Dashboard", icon: "🇿🇼", excludeWhenHash: true },
+      { href: "/#cors-network", label: "Live CORS", icon: "📡", matchHash: "#cors-network" },
+      { href: "/storm-watch", label: "Alerts", icon: "🔔" },
     ],
   },
   {
-    section: "Analysis",
+    section: "GNSS Processing",
     items: [
-      { href: "/processing", label: "Processing", icon: "⚙️", excludeWhenHash: true },
-      { href: "/processing#converter", label: "RINEX Converter", icon: "🔄", matchHash: "#converter" },
-      { href: "/time-series", label: "Time Series", icon: "📈" },
+      { href: "/processing#converter", label: "RINEX Processor", icon: "🔄", matchHash: "#converter" },
+      { href: "/processing", label: "TEC Processor", icon: "⚙️", excludeWhenHash: true },
       { href: "/prn-explorer", label: "PRN Explorer", icon: "🛰️" },
-      { href: "/tec-heatmap", label: "TEC Heatmap", icon: "🗺️" },
-      { href: "/anomaly-detection", label: "Anomaly Detection", icon: "🔬" },
+      { href: "/time-series", label: "Time Series", icon: "📈" },
     ],
   },
   {
     section: "Space Weather",
     items: [
-      { href: "/space-weather", label: "Space Weather", icon: "🌌" },
+      { href: "/space-weather", label: "Live Space Weather", icon: "🌌" },
       { href: "/space-weather/gnss-intelligence", label: "Navigation Weather", icon: "🛰️" },
-      { href: "/storm-watch", label: "Storm Watch", icon: "🌩️" },
+      { href: "/anomaly-detection", label: "TEC Anomaly", icon: "🔮" },
       { href: "/gic-monitor", label: "GIC Monitor", icon: "🧲" },
+      { href: "/storm-watch", label: "Storm Watch", icon: "🌩️" },
     ],
   },
   {
-    section: "Theory",
+    section: "AI Intelligence",
     items: [
-      { href: "/understanding-tec", label: "Understanding TEC", icon: "🌐" },
-      { href: "/vtec-theory", label: "Calculating VTEC", icon: "📚" },
-      { href: "/geomagnetic-storm-theory", label: "Storm Metrics Theory", icon: "📐" },
-    ],
-  },
-  {
-    section: "Network",
-    items: [
-      { href: "/cors-hardware", label: "CORS Hardware", icon: "📡" },
+      { href: "/ai-assistant", label: "AI Assistant", icon: "🤖" },
       { href: "/live-pipeline", label: "Live Pipeline", icon: "⚡" },
     ],
   },
   {
-    section: "Tools",
+    section: "Infrastructure",
     items: [
-      { href: "/ai-assistant", label: "AI Assistant", icon: "🤖" },
+      { href: "/#cors-network", label: "CORS Network", icon: "🗺️", matchHash: "#cors-network" },
+      { href: "/cors-hardware", label: "CORS Hardware", icon: "📡" },
+    ],
+  },
+  {
+    section: "Reports",
+    items: [
+      { href: "/reports?period=daily", label: "Daily", icon: "📅", matchQuery: "period=daily" },
+      { href: "/reports?period=weekly", label: "Weekly", icon: "📆", matchQuery: "period=weekly" },
+      { href: "/reports?period=monthly", label: "Monthly", icon: "🗓️", matchQuery: "period=monthly" },
+      { href: "/reports?period=annual", label: "Annual", icon: "📊", matchQuery: "period=annual" },
+    ],
+  },
+  {
+    section: "Education",
+    items: [
+      { href: "/understanding-tec", label: "Understanding TEC", icon: "🌐" },
+      { href: "/vtec-theory", label: "Calculating TEC", icon: "📚" },
+      { href: "/geomagnetic-storm-theory", label: "Storm Theory", icon: "📐" },
     ],
   },
 ];
@@ -73,9 +85,19 @@ function navHash(href: string) {
   return i >= 0 ? href.slice(i) : "";
 }
 
-function isNavActive(pathname: string, locationHash: string, item: NavItem, groupItems: NavItem[]): boolean {
+function isNavActive(
+  pathname: string,
+  locationHash: string,
+  searchQuery: string,
+  item: NavItem,
+  groupItems: NavItem[],
+): boolean {
   const path = navPath(item.href);
   const hash = item.matchHash ?? navHash(item.href);
+
+  if (item.matchQuery) {
+    return pathname === path && searchQuery.includes(item.matchQuery);
+  }
 
   if (item.matchHash) {
     return pathname === path && locationHash === item.matchHash;
@@ -95,6 +117,8 @@ function isNavActive(pathname: string, locationHash: string, item: NavItem, grou
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const searchQuery = searchParams.toString();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [locationHash, setLocationHash] = useState("");
@@ -130,7 +154,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           <span className="app-hamburger-icon" aria-hidden="true">☰</span>
           <span className="app-hamburger-label">{mobileOpen ? "Close" : "Menu"}</span>
         </button>
-        <span className="app-topbar-title">GNSS-TEC</span>
+        <span className="app-topbar-title">Space Weather Platform</span>
       </header>
 
       {mobileOpen && <div className="app-overlay" onClick={closeMobile} />}
@@ -140,7 +164,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         className={`app-sidebar${collapsed ? " is-collapsed" : ""}${mobileOpen ? " is-mobile-open" : ""}`}
       >
         <div className="app-sidebar-head">
-          <span className="app-logo-text">GNSS-TEC</span>
+          <span className="app-logo-text">Space Weather Platform</span>
           <button
             className="app-collapse-btn"
             onClick={() => setCollapsed(!collapsed)}
@@ -158,7 +182,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <div key={section} className="app-nav-group">
               <div className="app-nav-section">{section}</div>
               {items.map((item) => {
-                const active = isNavActive(pathname, locationHash, item, items);
+                const active = isNavActive(pathname, locationHash, searchQuery, item, items);
                 return (
                   <Link
                     key={`${item.href}-${item.label}`}
@@ -179,12 +203,14 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           ))}
         </nav>
 
-        <div className="sidebar-department">
-          <img src="/zingsa_logo.webp" alt="ZINGSA Space Science Department" />
-          <div>ZINGSA Space Science Department</div>
-        </div>
+        <div className="sidebar-bottom">
+          <div className="sidebar-department">
+            <img src="/zingsa_logo.webp" alt="ZINGSA Space Science Department" />
+            <div>ZINGSA Space Science Department</div>
+          </div>
 
-        <div className="app-sidebar-footer">© 2026 ZINGSA</div>
+          <div className="app-sidebar-footer">© 2026 ZINGSA</div>
+        </div>
       </aside>
 
       <main className="app-main">

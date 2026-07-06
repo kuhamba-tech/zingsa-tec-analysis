@@ -27,13 +27,18 @@ def interpolate_tec(
     Interpolate TEC values onto a regular grid over Zimbabwe.
 
     Returns (grid_lons, grid_lats, grid_tec).
-    Falls back to nearest-neighbour if scipy is not available.
+    Linear interpolation is used when possible; remaining NaN cells are filled
+    with nearest-neighbour values so the heat-map overlay always covers Zimbabwe.
     """
     from scipy.interpolate import griddata
 
     grid_lons, grid_lats = build_grid()
     points = np.column_stack([station_lons, station_lats])
-    grid_tec = griddata(points, station_tec, (grid_lons, grid_lats), method=method, fill_value=float("nan"))
+    primary = "linear" if method == "linear" and len(station_tec) >= 3 else "nearest"
+    grid_tec = griddata(points, station_tec, (grid_lons, grid_lats), method=primary, fill_value=float("nan"))
+    if np.isnan(grid_tec).any():
+        nearest = griddata(points, station_tec, (grid_lons, grid_lats), method="nearest")
+        grid_tec = np.where(np.isfinite(grid_tec), grid_tec, nearest)
     return grid_lons, grid_lats, grid_tec
 
 

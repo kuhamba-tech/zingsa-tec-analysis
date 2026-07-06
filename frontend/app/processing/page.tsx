@@ -137,7 +137,7 @@ export default function ProcessingPage() {
   const [stationsList, setStationsList] = useState<Station[]>([]);
   const [allStations, setAllStations] = useState(true);
   const [selectedStations, setSelectedStations] = useState<string[]>([]);
-  const [elevMin, setElevMin] = useState(25);
+  const [elevMin, setElevMin] = useState(30);
   const [ippHeight, setIppHeight] = useState(350);
   const [dcbFolder, setDcbFolder] = useState("");
   const [kpCsv, setKpCsv] = useState("");

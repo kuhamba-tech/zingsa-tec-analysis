@@ -17,6 +17,11 @@ from typing import Any
 
 import requests
 
+from zgiis.space_weather.geomagnetic_storm_alerts import (
+    ALERT_RULES,
+    classify_geomagnetic_activity,
+)
+
 log = logging.getLogger(__name__)
 
 _STATE_PATH = Path(__file__).resolve().parents[2] / "static" / "data" / "storm_notify_state.json"
@@ -62,21 +67,7 @@ def channels_configured() -> dict[str, bool]:
 
 
 def kp_storm_level(kp: float | None) -> str | None:
-    if kp is None:
-        return None
-    if kp >= 9:
-        return "Extreme G5"
-    if kp >= 8:
-        return "Severe G4"
-    if kp >= 7:
-        return "Strong G3"
-    if kp >= 6:
-        return "Moderate G2"
-    if kp >= 5:
-        return "Minor G1"
-    if kp >= 4:
-        return "Active"
-    return None
+    return classify_geomagnetic_activity(kp, None).get("kp_storm_level")
 
 
 def build_alarm_summary(
@@ -86,28 +77,28 @@ def build_alarm_summary(
     alerts: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """Build dashboard alarm payload from live indices + unacknowledged alerts."""
-    storm = kp_storm_level(kp)
+    geo = classify_geomagnetic_activity(kp, dst)
     active = [a for a in alerts if not a.get("acknowledged_status")]
     moderate_plus = [
         a for a in active
         if _SEVERITY_RANK.get(str(a.get("severity")), 0) >= _SEVERITY_RANK["Moderate"]
     ]
-    count = len(moderate_plus) + (1 if storm and (kp or 0) >= 5 else 0)
-    if storm and (kp or 0) >= 4 and not moderate_plus:
-        count = max(count, 1)
+
+    count = len(moderate_plus)
+    if geo["level"] == "storm":
+        count += 1
+    elif geo["level"] == "possible":
+        count += 1
 
     messages: list[str] = []
-    if storm and (kp or 0) >= 5:
-        messages.append(f"ACTIVE GEOMAGNETIC STORM — Kp {kp:.0f} ({storm})")
-    elif storm and (kp or 0) >= 4:
-        messages.append(f"Elevated geomagnetic activity — Kp {kp:.0f} ({storm})")
+    if geo.get("headline"):
+        messages.append(str(geo["headline"]))
 
     if moderate_plus:
         worst = max(moderate_plus, key=lambda a: _SEVERITY_RANK.get(str(a.get("severity")), 0))
         messages.append(
-            f"Possible geomagnetic disturbance: {worst.get('parameter_label')} "
-            "observed value differs significantly from EKF prediction. "
-            "Check Kp, Dst, TEC and solar wind conditions."
+            f"EKF deviation: {worst.get('parameter_label')} differs from prediction — "
+            "check Kp, Dst, TEC and solar wind."
         )
 
     banner = " · ".join(messages) if messages else None
@@ -115,8 +106,11 @@ def build_alarm_summary(
         "active": count > 0,
         "active_count": count,
         "banner": banner,
-        "kp_storm_level": storm,
+        "kp_storm_level": geo.get("kp_storm_level"),
+        "geomagnetic_level": geo.get("level"),
+        "geomagnetic_reasons": geo.get("reasons") or [],
         "ekf_alert_count": len(moderate_plus),
+        "alert_rules": list(ALERT_RULES),
     }
 
 
@@ -230,8 +224,18 @@ def _send_whatsapp(body: str) -> tuple[bool, str]:
     return result.ok, result.detail
 
 
-def last_kp_notify_key() -> str | None:
-    return _load_state().get("last_kp_notify_key")
+def last_geomagnetic_notify_key() -> str | None:
+    raw = _load_state().get("last_geomagnetic_notify_key")
+    return str(raw) if raw else None
+
+
+def geomagnetic_level_changed(kp: float | None, dst: float | None) -> tuple[bool, dict[str, Any]]:
+    """True when Kp/Dst cross into possible or storm bands (new notify episode)."""
+    geo = classify_geomagnetic_activity(kp, dst)
+    key = geo.get("notify_key")
+    prev = last_geomagnetic_notify_key()
+    changed = bool(key and key != prev)
+    return changed, geo
 
 
 def dispatch_storm_notifications(
@@ -239,10 +243,12 @@ def dispatch_storm_notifications(
     new_alerts: list[dict[str, Any]],
     kp: float | None = None,
     dst: float | None = None,
-    kp_storm_changed: bool = False,
+    geomagnetic_changed: bool = False,
+    geomagnetic: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    """Send SMS / WhatsApp / email for newly created EKF alerts or Kp storm transitions."""
-    if not new_alerts and not kp_storm_changed:
+    """Send SMS / WhatsApp / email for EKF alerts or Kp/Dst storm transitions."""
+    geo = geomagnetic or classify_geomagnetic_activity(kp, dst)
+    if not new_alerts and not geomagnetic_changed:
         return []
 
     state = _load_state()
@@ -253,13 +259,15 @@ def dispatch_storm_notifications(
         if _SEVERITY_RANK.get(str(a.get("severity")), 0) >= _SEVERITY_RANK["Moderate"]
     ]
 
-    if kp_storm_changed and kp is not None and (kp >= 5):
-        headline = f"ACTIVE GEOMAGNETIC STORM — Kp {kp:.0f} ({kp_storm_level(kp)})"
+    if geomagnetic_changed and geo.get("level") in {"possible", "storm"}:
+        headline = str(geo.get("headline") or "Geomagnetic activity alert")
         body = _format_message(None, kp=kp, dst=dst, headline=headline)
-        key = f"kp_storm_{int(kp)}"
-        if state.get("last_kp_notify_key") != key:
+        key = geo.get("notify_key")
+        if key and state.get("last_geomagnetic_notify_key") != key:
             results.extend(_dispatch_all(headline, body))
-            state["last_kp_notify_key"] = key
+            state["last_geomagnetic_notify_key"] = key
+    elif geo.get("level") == "none":
+        state["last_geomagnetic_notify_key"] = None
 
     for alert in alerts_to_notify:
         key = alert.get("alert_id")

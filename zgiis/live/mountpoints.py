@@ -51,3 +51,15 @@ def parse_mountpoints(*, station_filter: set[str] | None = None) -> dict[str, st
     if station_filter:
         return {st: mp for st, mp in mapping.items() if st in station_filter}
     return mapping
+
+
+def order_mountpoints(
+    mountpoints: dict[str, str],
+    priority_codes: list[str] | None = None,
+) -> dict[str, str]:
+    """Return mountpoints with priority station codes first (for ingest slot ordering)."""
+    if not priority_codes:
+        return mountpoints
+    pri = [code.lower().strip() for code in priority_codes if code.lower().strip() in mountpoints]
+    rest = [code for code in mountpoints if code not in pri]
+    return {code: mountpoints[code] for code in pri + rest}

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from datetime import datetime, timezone
 from typing import Dict
 
@@ -21,6 +22,9 @@ _ntrip_manager = None
 _nav_cache = None
 _configured = False
 _status_message = "Live pipeline has not been started."
+_ingest_lock = threading.Lock()
+_flush_stop = threading.Event()
+_flush_thread: threading.Thread | None = None
 
 
 def _env_enabled(name: str, default: bool = False) -> bool:
@@ -34,16 +38,53 @@ def _runtime_mode() -> str:
     return "vercel-serverless" if os.getenv("VERCEL") else "persistent-process"
 
 
-def _parse_mountpoints() -> dict[str, str]:
-    from zgiis.live.mountpoints import parse_mountpoints
-
-    return parse_mountpoints()
+def _ingest_allowed() -> bool:
+    return not (os.getenv("VERCEL") and not _env_enabled("ENABLE_NTRIP_INGEST"))
 
 
-def _default_station_mountpoints() -> Dict[str, str]:
-    from zgiis.live.mountpoints import default_station_mountpoints
+def _parse_mountpoints(*, priority_codes: list[str] | None = None) -> dict[str, str]:
+    from zgiis.live.mountpoints import order_mountpoints, parse_mountpoints
 
-    return default_station_mountpoints()
+    return order_mountpoints(parse_mountpoints(), priority_codes)
+
+
+def _db_flush_n() -> int:
+    raw = os.getenv("ZGIIS_DB_FLUSH_N", "1").strip()
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return 1
+
+
+def _priority_codes_from_env() -> list[str]:
+    raw = os.getenv("NTRIP_LIVE_PRIORITY_STATIONS", "").strip()
+    if not raw:
+        return []
+    return [item.strip().lower() for item in raw.split(",") if item.strip()]
+
+
+def _start_flush_thread() -> None:
+    global _flush_thread
+    _flush_stop.clear()
+    if _flush_thread is not None and _flush_thread.is_alive():
+        return
+
+    def _loop() -> None:
+        while not _flush_stop.wait(30.0):
+            pipeline = _pipeline
+            if pipeline is None:
+                continue
+            try:
+                pipeline.flush_db()
+            except Exception as exc:
+                log.warning("Periodic live pipeline DB flush failed: %s", exc)
+
+    _flush_thread = threading.Thread(target=_loop, daemon=True, name="zgiis-live-db-flush")
+    _flush_thread.start()
+
+
+def _stop_flush_thread() -> None:
+    _flush_stop.set()
 
 
 def get_nav_cache():
@@ -81,43 +122,68 @@ def is_configured() -> bool:
 
 def status() -> dict:
     mgr = _ntrip_manager
-    db_backend = "unknown"
+    db_backend = "timescaledb" if os.getenv("TSDB_DSN") else "sqlite"
+    recent_records = None
     try:
-        db = _db
-        db_backend = db.backend if db is not None else ("timescaledb" if os.getenv("TSDB_DSN") else "sqlite")
-    except Exception:
-        db_backend = "unknown"
+        db = get_db()
+        db_backend = db.backend
+    except Exception as exc:
+        log.debug("Live pipeline DB backend unavailable: %s", exc)
+    try:
+        db = _db or get_db()
+        recent_records = db.record_count(hours=1.0)
+    except Exception as exc:
+        log.debug("Live pipeline recent record count unavailable: %s", exc)
     return {
         "configured": _configured,
         "active_streams": mgr.active_count if mgr else 0,
         "streams": mgr.status() if mgr else {},
         "db_backend": db_backend,
+        "recent_vtec_records_1h": recent_records,
         "runtime_mode": _runtime_mode(),
-        "ingest_enabled": _env_enabled("ENABLE_NTRIP_INGEST", default=not os.getenv("VERCEL")),
+        "ingest_enabled": _ingest_allowed(),
         "message": _status_message,
     }
 
 
-def start() -> None:
+def start(*, priority_codes: list[str] | None = None) -> None:
     """Start the live pipeline if NTRIP credentials are configured. No-op otherwise."""
     global _pipeline, _ntrip_manager, _configured, _status_message
 
-    if os.getenv("VERCEL") and not _env_enabled("ENABLE_NTRIP_INGEST"):
-        _status_message = (
-            "NTRIP ingest is disabled on Vercel serverless. Run the collector in a "
-            "persistent worker and use Vercel for dashboard/API reads."
-        )
+    if not _ingest_allowed():
+        if _env_enabled("ENABLE_NTRIP_PROBE"):
+            _status_message = (
+                "Vercel is connected for NTRIP probe/API reads. Long-running ingest "
+                "stays on the persistent collector."
+            )
+        else:
+            _status_message = (
+                "NTRIP ingest is disabled on Vercel serverless. Run the collector in a "
+                "persistent worker and use Vercel for dashboard/API reads."
+            )
         log.info(_status_message)
         return
 
     host = os.getenv("NTRIP_HOST", "").strip()
     username = os.getenv("NTRIP_USERNAME", "").strip()
     password = os.getenv("NTRIP_PASSWORD", "").strip()
-    mountpoints = _parse_mountpoints()
+    merged_priority = _priority_codes_from_env()
+    for code in priority_codes or []:
+        key = code.lower().strip()
+        if key and key not in merged_priority:
+            merged_priority.append(key)
+    mountpoints = _parse_mountpoints(priority_codes=merged_priority or None)
 
     if not (host and username and password and mountpoints):
         _status_message = "NTRIP credentials or mountpoints are not configured."
         log.info("%s Live pipeline stays off; dashboard uses stored data.", _status_message)
+        return
+
+    if _configured and _ntrip_manager is not None:
+        missing = {code: mp for code, mp in mountpoints.items() if code not in _ntrip_manager._streams}
+        if missing:
+            _ntrip_manager.start(missing)
+            log.info("Added %d live ingest stream(s): %s", len(missing), list(missing))
         return
 
     try:
@@ -141,7 +207,12 @@ def start() -> None:
         )
         monitor.record(vtec["station"], max(latency_ms, 0.0))
 
-    pipeline = LiveVtecPipeline(db=db, on_vtec=_on_vtec, nav_cache=nav_cache)
+    pipeline = LiveVtecPipeline(
+        db=db,
+        on_vtec=_on_vtec,
+        nav_cache=nav_cache,
+        db_flush_n=_db_flush_n(),
+    )
 
     def _on_observation(obs: dict) -> None:
         pipeline.ingest(obs)
@@ -169,11 +240,31 @@ def start() -> None:
     _ntrip_manager = manager
     _configured = True
     _status_message = f"Live NTRIP pipeline started for {len(mountpoints)} station(s)."
-    log.info("Live NTRIP pipeline started for %d station(s): %s", len(mountpoints), mountpoints)
+    _start_flush_thread()
+    log.info("Live NTRIP pipeline started for %d station(s): %s", len(mountpoints), list(mountpoints))
+
+
+def ensure_ingest_for_stations(station_codes: list[str]) -> None:
+    """Start or extend live ingest, prioritising stations that are online on the caster."""
+    codes = [code.lower().strip() for code in station_codes if code and code.strip()]
+    if not codes or not _ingest_allowed():
+        return
+    with _ingest_lock:
+        if not _configured:
+            log.info("Starting live ingest for probed-online station(s): %s", codes)
+            start(priority_codes=codes)
+            return
+        if _ntrip_manager is not None:
+            mountpoints = _parse_mountpoints(priority_codes=codes)
+            missing = {code: mp for code, mp in mountpoints.items() if code in codes and code not in _ntrip_manager._streams}
+            if missing:
+                _ntrip_manager.start(missing)
+                log.info("Extended live ingest for online station(s): %s", list(missing))
 
 
 def stop() -> None:
     global _pipeline, _ntrip_manager, _configured
+    _stop_flush_thread()
     if _pipeline is not None:
         try:
             _pipeline.flush_db()

@@ -1,16 +1,19 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getEkfStatus, getLivePipelineStatus, getSpaceWeather, getStations } from "@/lib/api";
+import { getEkfAlertLog, getEkfStatus, getLivePipelineStatus, getSpaceWeather, getStations, getTecHeatmap } from "@/lib/api";
 import { mergeSpaceWeatherWithEkf } from "@/lib/homeSpaceWeather";
 import { buildMetricCards } from "@/lib/spaceWeatherMetrics";
-import { countLiveStationStatuses } from "@/lib/liveStationStatus";
+import { countLiveStationStatuses, connectedStreamCount } from "@/lib/liveStationStatus";
 import CorsMapWithLayers from "@/components/maps/CorsMapWithLayers";
+import AiRecommendationPanel from "@/components/layout/AiRecommendationPanel";
+import HomeStormAlertBanner from "@/components/layout/HomeStormAlertBanner";
 import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
-import type { Station, SpaceWeatherCurrent } from "@/lib/types";
+import type { EkfAlert, EkfStatus, Station, SpaceWeatherCurrent, TecHeatmapResponse } from "@/lib/types";
 import type { MetricKey } from "@/lib/spaceWeatherMetrics";
 import Link from "next/link";
 import Image from "next/image";
+import { DashboardHeaderClocks } from "@/components/dashboard/DashboardClocks";
 
 const MODULES = [
   { href: "/processing",        icon: "⚙️",  title: "Processing",        desc: "Upload and process RINEX/CMN files — includes RINEX converter" },
@@ -54,7 +57,7 @@ const HOME_METRIC_KEYS: MetricKey[] = ["kp", "geomagnetic", "gnss_risk", "statio
 
 const HOME_LABELS: Partial<Record<MetricKey, string>> = {
   geomagnetic: "Geomagnetic condition",
-  stations: "Live Stream Status",
+  stations: "CORS Connected",
 };
 
 function HomeMetricCard({
@@ -87,12 +90,16 @@ function HomeMetricCard({
 export default function HomePage() {
   const [stations, setStations] = useState<Station[]>([]);
   const [displaySw, setDisplaySw] = useState<SpaceWeatherCurrent | null>(null);
+  const [ekf, setEkf] = useState<EkfStatus | null>(null);
+  const [pendingAlerts, setPendingAlerts] = useState<EkfAlert[]>([]);
   const [ekfFilled, setEkfFilled] = useState<Set<string>>(new Set());
   const [swStatus, setSwStatus] = useState<FeedStatus>("pending");
   const [loadError, setLoadError] = useState<string | null>(null);
   const [ntripProbedAt, setNtripProbedAt] = useState<string | null>(null);
   const [pipelineNote, setPipelineNote] = useState<string | null>(null);
+  const [tecHeatmap, setTecHeatmap] = useState<TecHeatmapResponse | null>(null);
   const [stationsLoading, setStationsLoading] = useState(true);
+  const [ntripRefreshing, setNtripRefreshing] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -101,17 +108,23 @@ export default function HomePage() {
       setSwStatus("pending");
       setLoadError(null);
 
-      const [swResult, ekfResult, pipelineResult] = await Promise.allSettled([
+      const [swResult, ekfResult, pipelineResult, alertResult] = await Promise.allSettled([
         getSpaceWeather(),
         getEkfStatus(),
         getLivePipelineStatus(),
+        getEkfAlertLog(24),
       ]);
 
       if (cancelled) return;
 
       const sw = swResult.status === "fulfilled" ? swResult.value : null;
-      const ekf = ekfResult.status === "fulfilled" ? ekfResult.value : null;
-      const merged = mergeSpaceWeatherWithEkf(sw, ekf);
+      const ekfData = ekfResult.status === "fulfilled" ? ekfResult.value : null;
+      const merged = mergeSpaceWeatherWithEkf(sw, ekfData);
+
+      setEkf(ekfData);
+      if (alertResult.status === "fulfilled") {
+        setPendingAlerts(alertResult.value.filter((a) => !a.acknowledged_status));
+      }
 
       if (merged) {
         setDisplaySw(merged.data);
@@ -139,27 +152,57 @@ export default function HomePage() {
 
       setStationsLoading(true);
       try {
-        const stationsResult = await getStations(true);
+        const [stationsResult, heatmapResult] = await Promise.all([
+          getStations(false),
+          getTecHeatmap(2).catch(() => null),
+        ]);
         if (cancelled) return;
 
         setStations(stationsResult);
+        setTecHeatmap(heatmapResult);
         const liveCounts = countLiveStationStatuses(stationsResult);
         const probed = stationsResult.find((s) => s.ntrip_probed_at)?.ntrip_probed_at;
         if (probed) setNtripProbedAt(probed);
         setDisplaySw((prev) =>
           prev && stationsResult.some((s) => s.ntrip_verdict || s.status_source === "ntrip")
-            ? { ...prev, stations_online: liveCounts.online, stations_total: liveCounts.total }
+            ? { ...prev, stations_online: connectedStreamCount(liveCounts), stations_total: liveCounts.total }
             : prev,
         );
       } catch {
-        if (!cancelled) setStations([]);
+        if (!cancelled) {
+          setStations([]);
+          setTecHeatmap(null);
+        }
       } finally {
         if (!cancelled) setStationsLoading(false);
       }
+
+      if (!cancelled) setNtripRefreshing(true);
+      getStations(true)
+        .then((fresh) => {
+          if (cancelled) return;
+          setStations(fresh);
+          const liveCounts = countLiveStationStatuses(fresh);
+          const probed = fresh.find((s) => s.ntrip_probed_at)?.ntrip_probed_at;
+          if (probed) setNtripProbedAt(probed);
+          setDisplaySw((prev) =>
+            prev && fresh.some((s) => s.ntrip_verdict || s.status_source === "ntrip")
+              ? { ...prev, stations_online: connectedStreamCount(liveCounts), stations_total: liveCounts.total }
+              : prev,
+          );
+        })
+        .catch(() => {})
+        .finally(() => {
+          if (!cancelled) setNtripRefreshing(false);
+        });
     }
 
     load();
-    return () => { cancelled = true; };
+    const timer = window.setInterval(load, 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
   }, []);
 
   const freshnessMsg = useFeedFreshness("space-weather", swStatus);
@@ -181,14 +224,29 @@ export default function HomePage() {
 
   return (
     <div className="home-page">
-      <div className="home-top-intro">
-        <h1 className="page-title home-page-title">
-          🛰️ GNSS Based TEC Analysis Using Zimbabwe CORS Network
-        </h1>
-        <p className="page-subtitle">
-          Dual-frequency GPS/GNSS Total Electron Content (TEC) computation from Zimbabwe CORS RINEX observations
-        </p>
+      <div className="home-hero-header">
+        <div className="home-top-intro">
+          <h1 className="page-title home-page-title">
+            <span className="home-page-title-icon" aria-hidden>
+              🛰️
+            </span>
+            <span className="home-page-title-text">
+              <span className="home-page-title-line">Zimbabwe National Space Weather</span>
+              <span className="home-page-title-line home-page-title-line--accent">
+                &amp; Navigation Intelligence Platform
+              </span>
+            </span>
+          </h1>
+          <p className="page-subtitle home-page-subtitle">
+            Real-time ionospheric TEC, space weather, and GNSS navigation intelligence from the Zimbabwe CORS network
+          </p>
+        </div>
+        <div className="home-hero-clocks page-header-clocks" aria-label="Live clocks">
+          <DashboardHeaderClocks />
+        </div>
       </div>
+
+      <HomeStormAlertBanner sw={displaySw} ekf={ekf} pendingAlerts={pendingAlerts} />
 
       <div className="home-sw-row">
         <section className="home-sw-panel" aria-label="Live space weather">
@@ -204,7 +262,7 @@ export default function HomePage() {
               {pipelineNote}
             </div>
           )}
-          {stationsLoading && (
+          {ntripRefreshing && (
             <div className="banner banner-info" style={{ fontSize: "0.78rem" }}>
               Probing NTRIP caster for live RTCM/MSM on all 24 mountpoints…
             </div>
@@ -242,21 +300,30 @@ export default function HomePage() {
         </div>
       </div>
 
-      <CorsMapWithLayers
+      <AiRecommendationPanel
+        sw={displaySw}
         stations={stations}
-        height={480}
-        riskLevel={gnssRisk}
-        liveCounts={liveCounts}
-        ntripProbedAt={ntripProbedAt}
-        stationsLoading={stationsLoading}
+        indicesLoading={swStatus === "pending"}
       />
+
+      <div id="cors-network" className="home-cors-map-section">
+        <CorsMapWithLayers
+          stations={stations}
+          height={480}
+          riskLevel={gnssRisk}
+          liveCounts={liveCounts}
+          ntripProbedAt={ntripProbedAt}
+          stationsLoading={stationsLoading}
+          heatmap={tecHeatmap}
+        />
+      </div>
 
       <section className="home-getting-started" aria-label="Getting started">
         <div className="home-getting-started-panel">
           <div className="home-getting-started-head">
             <h2 className="home-section-heading">Getting Started</h2>
             <p className="home-getting-started-sub">
-              New to GNSS-TEC? Follow this workflow from live station health through processing to analysis.
+              New here? Follow this workflow from live station health through processing to analysis.
             </p>
           </div>
           <ol className="home-steps-strip">

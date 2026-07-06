@@ -1,18 +1,22 @@
-/** VTEC → RGBA for heat-map canvas rendering (matches backend colour ramp). */
+/** VTEC → RGBA for heat-map canvas rendering (absolute 0–200 TECU scale, ICAO-aligned). */
+
+import { ICAO_TEC_MOD, ICAO_TEC_SEV, TEC_SCALE_MAX, TEC_SCALE_MIN } from "./icaoTecAdvisory";
+
+const STOPS: [number, [number, number, number]][] = [
+  [0, [0, 0, 128]],
+  [25, [0, 128, 255]],
+  [50, [0, 255, 128]],
+  [80, [255, 200, 0]],
+  [ICAO_TEC_MOD, [255, 128, 0]],
+  [ICAO_TEC_SEV, [255, 64, 0]],
+  [TEC_SCALE_MAX, [255, 0, 0]],
+];
 
 export function vtecToRgb(vtec: number): [number, number, number] {
-  if (vtec <= 0) return [0, 0, 128];
-  const stops: [number, [number, number, number]][] = [
-    [10, [0, 0, 128]],
-    [18, [0, 128, 255]],
-    [25, [0, 255, 128]],
-    [32, [255, 128, 0]],
-    [40, [255, 0, 0]],
-  ];
-  const value = Math.max(10, Math.min(40, vtec));
-  for (let i = 0; i < stops.length - 1; i++) {
-    const [loT, loRgb] = stops[i];
-    const [hiT, hiRgb] = stops[i + 1];
+  const value = Math.max(TEC_SCALE_MIN, Math.min(TEC_SCALE_MAX, vtec));
+  for (let i = 0; i < STOPS.length - 1; i++) {
+    const [loT, loRgb] = STOPS[i];
+    const [hiT, hiRgb] = STOPS[i + 1];
     if (value <= hiT) {
       const ratio = hiT > loT ? (value - loT) / (hiT - loT) : 0;
       return [
@@ -30,4 +34,17 @@ export function vtecToRgba(vtec: number, alpha = 0.72): string {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
-export const TEC_HEATMAP_GRADIENT = ["#000080", "#0080ff", "#00ff80", "#ff8000", "#ff0000"];
+/** CSS linear-gradient stops for the fixed absolute TEC legend (0–200 TECU). */
+export const TEC_HEATMAP_GRADIENT = [
+  "#000080",
+  "#0080ff",
+  "#00ff80",
+  "#ffcc00",
+  "#ff8000",
+  "#ff4000",
+  "#ff0000",
+];
+
+export function icaoMarkerPercent(threshold: number): number {
+  return ((threshold - TEC_SCALE_MIN) / (TEC_SCALE_MAX - TEC_SCALE_MIN)) * 100;
+}

@@ -16,8 +16,19 @@ export interface ForecastSiteConfig {
 /** Representative CORS sites routed to headline forecast cities. */
 export const FORECAST_SITES: ForecastSiteConfig[] = [
   { city: "HARARE", displayName: "Harare", stationCodes: ["hara", "zinh", "hacy"] },
+  { city: "BULAWAYO", displayName: "Bulawayo", stationCodes: ["bula"] },
   { city: "MUTARE", displayName: "Mutare", stationCodes: ["muta"] },
+  { city: "GWERU", displayName: "Gweru", stationCodes: ["gwer"] },
+  { city: "MASVINGO", displayName: "Masvingo", stationCodes: ["masv"] },
+  { city: "KWEKWE", displayName: "Kwekwe", stationCodes: ["kwek"] },
+  { city: "KARIBA", displayName: "Kariba", stationCodes: ["kari"] },
   { city: "VICTORIA FALLS", displayName: "Victoria Falls", stationCodes: ["vicf"] },
+  { city: "KAROI", displayName: "Karoi", stationCodes: ["karo"] },
+  { city: "CHIVHU", displayName: "Chivhu", stationCodes: ["chiv"] },
+  { city: "CHIREDZI", displayName: "Chiredzi", stationCodes: ["chir"] },
+  { city: "BEITBRIDGE", displayName: "Beitbridge", stationCodes: ["beit"] },
+  { city: "BINGA", displayName: "Binga", stationCodes: ["bing"] },
+  { city: "GOKWE", displayName: "Gokwe", stationCodes: ["gokw"] },
 ];
 
 export interface GnssForecastBundle {
@@ -115,13 +126,22 @@ function statusLabel(status: ForecastStatus): string {
   return "Warning";
 }
 
-function expectedAccuracy(iono: number, feed: number): string {
+export function expectedAccuracy(iono: number, feed: number): string {
   const stress = iono * 0.6 + (100 - feed) * 0.4;
   if (stress < 20) return "1–2 cm";
   if (stress < 40) return "3–5 cm";
   if (stress < 55) return "5–10 cm";
   if (stress < 70) return "10–20 cm";
   return "> 20 cm";
+}
+
+export function accuracyCmDisplay(iono: number, feed: number, status: ForecastStatus): string {
+  if (status === "warning") return "Warning";
+  const stress = iono * 0.6 + (100 - feed) * 0.4;
+  const cm = 0.8 + stress * 0.29;
+  if (cm >= 10) return `${Math.round(cm)} cm`;
+  const rounded = Math.round(cm * 10) / 10;
+  return rounded === Math.round(rounded) ? `${Math.round(rounded)} cm` : `${rounded.toFixed(1)} cm`;
 }
 
 function surveyWindow(iono: number): string {
@@ -203,6 +223,8 @@ function buildForecast(
     cause: buildCause(sw, station),
     recommendation: buildRecommendation(status, station),
     effects: buildEffects(status, iono),
+    ionoStress: iono,
+    feedReliability: feed,
   };
 }
 

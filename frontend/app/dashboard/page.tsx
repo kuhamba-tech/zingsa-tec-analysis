@@ -18,13 +18,14 @@ import {
   getEkfAlertLog,
 } from "@/lib/api";
 import ClickableMetricGrid from "@/components/spaceWeather/ClickableMetricGrid";
+import IndexScaleReference from "@/components/spaceWeather/IndexScaleReference";
 import StormWatchLog from "@/components/spaceWeather/StormWatchLog";
 import { DashboardHeaderClocks } from "@/components/dashboard/DashboardClocks";
 import GicLiveTimelinePanel, { type GicTimelineBundle } from "@/components/dashboard/GicLiveTimelinePanel";
 import SpaceWeatherReportsPanel from "@/components/dashboard/SpaceWeatherReportsPanel";
 import StormWarningAlarm from "@/components/dashboard/StormWarningAlarm";
 import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
-import { countLiveStationStatuses, type LiveStationCounts } from "@/lib/liveStationStatus";
+import { countLiveStationStatuses, connectedStreamCount, type LiveStationCounts } from "@/lib/liveStationStatus";
 import { alignEkfToPoints } from "@/lib/ekfAlign";
 import { conditionsForSeries } from "@/lib/spaceWeatherMetrics";
 import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
@@ -53,95 +54,6 @@ import type {
   StationStatusEvent,
   StationUptimeRow,
 } from "@/lib/types";
-
-const SCALE_ROWS = [
-  {
-    label: "Kp Scale Reference",
-    items: [
-      { range: "0-2", text: "Quiet", color: "#00ff88" },
-      { range: "3", text: "Unsettled", color: "#52e34f" },
-      { range: "4", text: "Active", color: "#c8f018" },
-      { range: "5", text: "Minor Storm G1", color: "#ffb000" },
-      { range: "6", text: "Moderate G2", color: "#ff7a00" },
-      { range: "7", text: "Strong G3", color: "#ff2e2e" },
-      { range: "8", text: "Severe G4", color: "#ff0080" },
-      { range: "9", text: "Extreme G5", color: "#b000ff" },
-    ],
-  },
-  {
-    label: "Geomagnetic Condition Scale",
-    items: [
-      { range: "Quiet", text: "Kp 0-2", color: "#00ff88" },
-      { range: "Unsettled", text: "Kp 3", color: "#52e34f" },
-      { range: "Active", text: "Kp 4", color: "#c8f018" },
-      { range: "Minor Storm G1", text: "Kp 5", color: "#ffb000" },
-      { range: "Moderate G2", text: "Kp 6", color: "#ff7a00" },
-      { range: "Strong G3", text: "Kp 7", color: "#ff2e2e" },
-      { range: "Severe G4", text: "Kp 8", color: "#ff0080" },
-      { range: "Extreme G5", text: "Kp 9", color: "#b000ff" },
-    ],
-  },
-  {
-    label: "Dst Index Scale (nT)",
-    items: [
-      { range: "0 to -20", text: "Quiet", color: "#00ff88" },
-      { range: "-20 to -30", text: "Weak", color: "#52e34f" },
-      { range: "-30 to -50", text: "Moderate", color: "#c8f018" },
-      { range: "-50 to -100", text: "Intense", color: "#ffb000" },
-      { range: "-100 to -200", text: "Severe", color: "#ff7a00" },
-      { range: "-200 to -350", text: "Extreme", color: "#ff2e2e" },
-      { range: "< -350", text: "Super Storm", color: "#b000ff" },
-    ],
-  },
-  {
-    label: "S4 Scintillation Index Scale",
-    items: [
-      { range: "0.0-0.1", text: "None", color: "#00ff88" },
-      { range: "0.1-0.2", text: "Negligible", color: "#52e34f" },
-      { range: "0.2-0.3", text: "Weak", color: "#c8f018" },
-      { range: "0.3-0.5", text: "Moderate", color: "#ffcc00" },
-      { range: "0.5-0.7", text: "Strong", color: "#ff7a00" },
-      { range: "0.7-0.9", text: "Severe", color: "#ff2e2e" },
-      { range: "0.9-1.0", text: "Full Outage", color: "#b000ff" },
-    ],
-  },
-  {
-    label: "TEC Scale (TECU)",
-    items: [
-      { range: "0-10", text: "Very Low", color: "#168bd2" },
-      { range: "10-25", text: "Low", color: "#00ff88" },
-      { range: "25-40", text: "Moderate", color: "#a8f000" },
-      { range: "40-60", text: "High", color: "#ffcc00" },
-      { range: "60-80", text: "Very High", color: "#ff7a00" },
-      { range: "80-100", text: "Extreme", color: "#ff2e2e" },
-      { range: "> 100", text: "Severe Storm", color: "#b000ff" },
-    ],
-  },
-  {
-    label: "Solar Flux F10.7 Scale (sfu)",
-    items: [
-      { range: "65-80", text: "Solar Min.", color: "#00c8c8" },
-      { range: "80-100", text: "Low", color: "#2edb85" },
-      { range: "100-130", text: "Below Avg.", color: "#a8f000" },
-      { range: "130-170", text: "Moderate", color: "#ffcc00" },
-      { range: "170-220", text: "High", color: "#ff7a00" },
-      { range: "220-270", text: "Very High", color: "#ff2e2e" },
-      { range: "> 270", text: "Extreme", color: "#b000ff" },
-    ],
-  },
-  {
-    label: "Solar Wind Speed Scale (km/s)",
-    items: [
-      { range: "250-350", text: "Slow", color: "#00c8c8" },
-      { range: "350-450", text: "Typical", color: "#2edb85" },
-      { range: "450-550", text: "Fast", color: "#a8f000" },
-      { range: "550-650", text: "Very Fast", color: "#ffcc00" },
-      { range: "650-750", text: "Storm Wind", color: "#ff7a00" },
-      { range: "750-850", text: "Major CME", color: "#ff2e2e" },
-      { range: "> 850", text: "Extreme", color: "#b000ff" },
-    ],
-  },
-];
 
 function timelineLabels(points: TimelinePoint[]) {
   return points.map((point) => point.t.slice(0, 16));
@@ -192,44 +104,6 @@ function snapshotTimelines(sw: SpaceWeatherCurrent): SpaceWeatherTimelines {
 function liveSource(source: string, points: TimelinePoint[]) {
   const latest = points.at(-1)?.t;
   return latest ? `${source} ${points.length} API points. Latest sample: ${latest} UTC.` : source;
-}
-
-function ScaleReference() {
-  const [open, setOpen] = useState(false);
-
-  return (
-    <div className="card scale-reference">
-      <button
-        type="button"
-        className="operations-chart-title"
-        style={{ background: "none", border: "none", cursor: "pointer", width: "100%", textAlign: "left", padding: 0 }}
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-      >
-        Index Scale Reference {open ? "▾" : "▸"}
-      </button>
-      {!open && (
-        <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", margin: "0.35rem 0 0" }}>
-          Click to expand Kp, Dst, S4, TEC, F10.7 and solar-wind colour scales.
-        </p>
-      )}
-      {open &&
-        SCALE_ROWS.map((row) => (
-          <div className="scale-row" key={row.label}>
-            <div className="scale-row-label">{row.label}</div>
-            <div className="scale-items">
-              {row.items.map((item) => (
-                <div className="scale-item" key={`${row.label}-${item.range}`}>
-                  <div className="scale-range">{item.range}</div>
-                  <div className="scale-text">{item.text}</div>
-                  <div className="scale-bar" style={{ backgroundColor: item.color }} />
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
-    </div>
-  );
 }
 
 type ConditionKind = "kp" | "dst" | "tec" | "s4";
@@ -349,6 +223,9 @@ export default function DashboardPage() {
     if (stUptimeR.status === "fulfilled") setStationUptime(stUptimeR.value);
     if (ekfR.status === "fulfilled") setEkf(ekfR.value);
     if (stationsR.status === "fulfilled") setLiveStationCounts(countLiveStationStatuses(stationsR.value));
+    getStations(true)
+      .then((stations) => setLiveStationCounts(countLiveStationStatuses(stations)))
+      .catch(() => null);
     if (alertsR.status === "fulfilled") {
       setPendingAlerts(alertsR.value.filter((a) => !a.acknowledged_status));
     }
@@ -398,7 +275,10 @@ export default function DashboardPage() {
   const gnssPoints = withCurrentFallback(safePoints(tl?.gnss_risk), currentPoint(riskScore(sw?.gnss_risk), currentTimestamp));
   const stationsOnlinePoints = withCurrentFallback(
     safePoints(tl?.stations_online),
-    currentPoint(sw?.stations_online, currentTimestamp),
+    currentPoint(
+      liveStationCounts ? connectedStreamCount(liveStationCounts) : sw?.stations_online ?? null,
+      currentTimestamp,
+    ),
   );
 
   const kpEkfCombined = alignEkfToPoints(kpPoints, ekf?.series.kp?.points);
@@ -464,7 +344,7 @@ export default function DashboardPage() {
       </p>
       <ClickableMetricGrid sw={sw} updatedUtc={sw?.updated_utc} liveStationCounts={liveStationCounts} />
 
-      <ScaleReference />
+      <IndexScaleReference />
 
       <SpaceWeatherReportsPanel ekf={ekf} />
 
@@ -551,10 +431,10 @@ export default function DashboardPage() {
           analysis={analyzeGnssRiskTimeline(gnssPoints)}
         />
         <TimelinePanel
-          title="Live CORS Stations Online Timeline"
+          title="CORS Connected Timeline"
           points={stationsOnlinePoints}
           color="#00ff88"
-          yLabel="Stations Online"
+          yLabel="CORS Connected"
           source={liveSource("Source: /space-weather/timelines live ZINGSA CORS station-count API feed.", stationsOnlinePoints)}
           empty="Live CORS telemetry is unavailable - no station count timeline."
           ekfPoints={ekf?.series.stations_online?.points}

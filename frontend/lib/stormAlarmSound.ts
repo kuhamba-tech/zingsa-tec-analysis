@@ -1,13 +1,14 @@
 import type { SpaceWeatherCurrent } from "./types";
+import {
+  geomagneticAlertLevel,
+  isGeomagneticStorm,
+  isPossibleGeomagneticStorm,
+} from "./geomagneticStormAlerts";
+
+export { isGeomagneticStorm, isPossibleGeomagneticStorm, geomagneticAlertLevel };
 
 let audioCtx: AudioContext | null = null;
 let beepTimer: ReturnType<typeof setInterval> | null = null;
-
-/** Official storm thresholds used across the dashboard (Kp ≥ 5 or Dst ≤ −50 nT). */
-export function isGeomagneticStorm(sw: SpaceWeatherCurrent | null): boolean {
-  if (!sw) return false;
-  return (sw.kp != null && sw.kp >= 5) || (sw.dst != null && sw.dst <= -50);
-}
 
 function getAudioContext(): AudioContext | null {
   if (typeof window === "undefined") return null;

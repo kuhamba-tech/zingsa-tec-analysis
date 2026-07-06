@@ -26,8 +26,7 @@ def compute_ekf_status(
         build_alarm_summary,
         channels_configured,
         dispatch_storm_notifications,
-        kp_storm_level,
-        last_kp_notify_key,
+        geomagnetic_level_changed,
     )
     from zgiis.db.ekf_alert_db import EkfAlertDB
 
@@ -57,16 +56,15 @@ def compute_ekf_status(
 
     kp = _float_or_none(sw.get("kp"))
     dst = _float_or_none(sw.get("dst"))
-    storm = kp_storm_level(kp)
-    prev_storm = last_kp_notify_key()
-    kp_storm_changed = storm is not None and (kp or 0) >= 5 and prev_storm != f"kp_storm_{int(kp or 0)}"
+    geomagnetic_changed, geo = geomagnetic_level_changed(kp, dst)
 
     if dispatch_notifications:
         dispatch_storm_notifications(
             new_alerts=newly_created,
             kp=kp,
             dst=dst,
-            kp_storm_changed=kp_storm_changed,
+            geomagnetic_changed=geomagnetic_changed,
+            geomagnetic=geo,
         )
 
     recent = db.list_alerts(hours=6)

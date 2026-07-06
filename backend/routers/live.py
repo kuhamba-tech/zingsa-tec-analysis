@@ -60,40 +60,45 @@ async def live_vtec(
 async def live_stations(_=Depends(require_api_key)):
     from backend.live_manager import status as live_status
     from zgiis.cors.stations import stations_for_map_live
+    live = live_status()
+    streams = live.get("streams") or {}
     mon = _monitor()
-    stations = stations_for_map_live()
-    latest_by_station = {}
-    mean_by_station = {}
-    if not live_status().get("configured"):
-        db = _db()
-        try:
-            df = db.query_recent(hours=0.25) if db else None
-            if df is not None and not df.empty and "station" in df.columns:
-                latest = df.sort_values("time").groupby("station").tail(1).set_index("station")
-                latest_by_station = latest.to_dict(orient="index")
-                if "vtec_tecu" in df.columns:
-                    mean_by_station = df.groupby("station")["vtec_tecu"].mean().to_dict()
-        except Exception:
-            latest_by_station = {}
-            mean_by_station = {}
+    stations = stations_for_map_live(streams)
+    latest_by_station: dict = {}
+    mean_by_station: dict = {}
+    db = _db()
+    try:
+        df = db.query_recent(hours=0.25) if db else None
+        if df is not None and not df.empty and "station" in df.columns:
+            latest = df.sort_values("time").groupby("station").tail(1).set_index("station")
+            latest_by_station = latest.to_dict(orient="index")
+            if "vtec_tecu" in df.columns:
+                mean_by_station = df.groupby("station")["vtec_tecu"].mean().to_dict()
+    except Exception:
+        latest_by_station = {}
+        mean_by_station = {}
 
     result = []
     for s in stations:
         lat_ms = None
         msg_rt = None
         stale = True
-        last_vtec = s.current_tec
+        last_vtec = s.current_tec if s.current_tec else None
+        code = s.code.lower()
+        stream = streams.get(code)
         if mon:
             try:
-                stats = mon.latency(s.code)
+                stats = mon.latency(code)
                 lat_ms = stats.get("mean_ms")
-                msg_rt = mon.msg_rate(s.code)
-                stale = mon.is_stale(s.code)
+                msg_rt = mon.msg_rate(code)
+                stale = mon.is_stale(code)
             except Exception:
                 pass
-        if s.code in latest_by_station:
+        if code in latest_by_station:
             stale = False
-            last_vtec = float(mean_by_station.get(s.code, latest_by_station[s.code].get("vtec_tecu") or 0.0))
+            last_vtec = float(mean_by_station.get(code, latest_by_station[code].get("vtec_tecu") or 0.0))
+        elif stream and stream.get("connected"):
+            stale = False
         result.append(StationLiveStatus(
             code=s.code,
             name=s.name,
@@ -109,19 +114,33 @@ async def live_stations(_=Depends(require_api_key)):
 
 @router.get("/pipeline-status", response_model=LivePipelineStatus)
 async def pipeline_status(_=Depends(require_api_key)):
+    import os
+
     from backend.live_manager import status as live_status
     s = live_status()
     db = _db()
+    record_count = 0
+    recent_record_count_1h = int(s.get("recent_vtec_records_1h") or 0)
+    db_backend = s.get("db_backend") or "sqlite"
+    if db_backend == "unknown":
+        db_backend = "sqlite"
     try:
-        record_count = db.record_count() if db else 0
+        if db:
+            db_backend = db.backend
+            record_count = db.record_count()
+            if not recent_record_count_1h:
+                recent_record_count_1h = db.record_count(hours=1.0)
     except Exception:
         record_count = 0
+        if db_backend == "unknown":
+            db_backend = "timescaledb" if os.getenv("TSDB_DSN") else "sqlite"
     return LivePipelineStatus(
         ntrip_configured=s["configured"],
         active_streams=s["active_streams"],
         streams=s["streams"],
-        db_backend=s["db_backend"],
+        db_backend=db_backend,
         record_count=record_count,
+        recent_record_count_1h=recent_record_count_1h,
         runtime_mode=s.get("runtime_mode", "persistent-process"),
         ingest_enabled=bool(s.get("ingest_enabled", True)),
         message=s.get("message"),

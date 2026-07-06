@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
@@ -7,9 +8,54 @@ import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
 
 from backend.deps import require_api_key
-from backend.schemas import ForecastPoint, ForecastStatus
+from backend.schemas import CnnGruTrainStatus, ForecastPoint, ForecastStatus
 
 router = APIRouter(prefix="/forecast", tags=["forecast"])
+
+_train_lock = threading.Lock()
+_train_state: dict = {
+    "running": False,
+    "started_at": None,
+    "epoch": 0,
+    "total_epochs": 30,
+    "last_loss": None,
+    "error": None,
+    "result": None,
+}
+
+
+def _train_status_payload() -> CnnGruTrainStatus:
+    with _train_lock:
+        return CnnGruTrainStatus(**_train_state)
+
+
+def _run_train(epochs: int = 30) -> None:
+    def on_epoch(epoch: int, total: int, loss: float) -> None:
+        with _train_lock:
+            _train_state["epoch"] = epoch
+            _train_state["total_epochs"] = total
+            _train_state["last_loss"] = round(loss, 6)
+
+    try:
+        from zgiis.db.timescale import TecDB
+        from zgiis.ml.trainer import train as ml_train
+
+        db = TecDB()
+        result = ml_train(db, epochs=epochs, epoch_callback=on_epoch)
+        with _train_lock:
+            if result.get("error"):
+                _train_state["error"] = str(result["error"])
+                _train_state["result"] = None
+            else:
+                _train_state["error"] = None
+                _train_state["result"] = result
+    except Exception as exc:
+        with _train_lock:
+            _train_state["error"] = str(exc)
+            _train_state["result"] = None
+    finally:
+        with _train_lock:
+            _train_state["running"] = False
 
 
 @router.get("/status", response_model=ForecastStatus)
@@ -26,6 +72,11 @@ async def forecast_status(_=Depends(require_api_key)):
         seq_len=info.get("seq_len", 96),
         path=info.get("path"),
     )
+
+
+@router.get("/train/status", response_model=CnnGruTrainStatus)
+async def train_status(_=Depends(require_api_key)):
+    return _train_status_payload()
 
 
 @router.get("/cnn-gru", response_model=list[ForecastPoint])
@@ -47,14 +98,27 @@ async def cnn_gru_forecast(_=Depends(require_api_key)):
 
 @router.post("/train", status_code=202)
 async def train(_=Depends(require_api_key)):
-    try:
-        from zgiis.db.timescale import TecDB
-        from zgiis.ml.trainer import train as ml_train
-        db = TecDB()
-        result = ml_train(db, epochs=30)
-        return result
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+    with _train_lock:
+        if _train_state["running"]:
+            raise HTTPException(status_code=409, detail="CNN-GRU training already in progress")
+        _train_state.update(
+            {
+                "running": True,
+                "started_at": datetime.now(tz=timezone.utc).isoformat(),
+                "epoch": 0,
+                "total_epochs": 30,
+                "last_loss": None,
+                "error": None,
+                "result": None,
+            }
+        )
+    threading.Thread(
+        target=_run_train,
+        kwargs={"epochs": 30},
+        daemon=True,
+        name="cnn-gru-train",
+    ).start()
+    return {"status": "started"}
 
 
 @router.get("/statistical", response_model=list[ForecastPoint])
