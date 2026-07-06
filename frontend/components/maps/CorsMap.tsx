@@ -180,7 +180,11 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid", heat
     const ImageCanvas = (await import("ol/source/ImageCanvas")).default;
     const overlayOpacity = heatOverlayOpacity(currentLayer);
     const grid = data.grid;
-    const stationPoints = data.stations.length > 0 ? data.stations : data.heat_points;
+    const heatPoints = data.heat_points;
+    const projectCoord = (coord: [number, number]): [number, number] => {
+      const projected = fromLonLat(coord);
+      return [projected[0] ?? 0, projected[1] ?? 0];
+    };
 
     const source = new ImageCanvas({
       projection: "EPSG:3857",
@@ -212,8 +216,8 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid", heat
               const lon1 = gridLons[i + 1]?.[j + 1] ?? gridLons[i][j + 1] ?? lon0;
               const lat1 = gridLats[i + 1]?.[j + 1] ?? gridLats[i][j + 1] ?? lat0;
 
-              const [x0, y0] = fromLonLat([lon0, lat0]);
-              const [x1, y1] = fromLonLat([lon1, lat1]);
+              const [x0, y0] = projectCoord([lon0, lat0]);
+              const [x1, y1] = projectCoord([lon1, lat1]);
               const px0 = ((x0 - minX) / (maxX - minX)) * size[0];
               const px1 = ((x1 - minX) / (maxX - minX)) * size[0];
               const py0 = ((maxY - y0) / (maxY - minY)) * size[1];
@@ -228,12 +232,12 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid", heat
               ctx.fillRect(left, top, width, heightPx);
             }
           }
-        } else if (stationPoints.length > 0) {
-          drawPointHeatBlobs(ctx, stationPoints, fromLonLat, extentTuple, sizeTuple, overlayOpacity);
+        } else if (heatPoints.length > 0) {
+          drawPointHeatBlobs(ctx, heatPoints, projectCoord, extentTuple, sizeTuple, overlayOpacity);
         }
 
         if (data.stations.length > 0) {
-          drawStationVtecMarkers(ctx, data.stations, fromLonLat, extentTuple, sizeTuple);
+          drawStationVtecMarkers(ctx, data.stations, projectCoord, extentTuple, sizeTuple);
         }
 
         return canvas;
