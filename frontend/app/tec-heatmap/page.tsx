@@ -91,8 +91,8 @@ export default function TecHeatmapPage() {
         <div className={`banner ${staleHeatmap ? "banner-warn" : "banner-info"}`}>
           Live TEC grid from {displayHeatmap.station_count} station{displayHeatmap.station_count === 1 ? "" : "s"} — updated{" "}
           {displayHeatmap.updated_at}
-          {heatmap.tec_min != null && heatmap.tec_max != null
-            ? ` · range ${heatmap.tec_min.toFixed(1)}–${heatmap.tec_max.toFixed(1)} TECU`
+          {displayHeatmap.tec_min != null && displayHeatmap.tec_max != null
+            ? ` · range ${displayHeatmap.tec_min.toFixed(1)}–${displayHeatmap.tec_max.toFixed(1)} TECU`
             : ""}
           {staleHeatmap ? ` · data is ${ageMinutes} min old — refreshing…` : ` · auto-refresh every ${HEATMAP_REFRESH_MS / 60_000} min`}
         </div>
