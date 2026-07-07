@@ -35,6 +35,8 @@ def _recipient_out(rec: dict, *, redact: bool = False) -> BroadcastRecipientOut:
     from zgiis.navigation.audience_roles import enrich_recipient
 
     data = enrich_recipient(rec)
+    member_count = len([p for p in str(data.get("whatsapp_to") or "").split(",") if p.strip()]) or 1
+    data = {**data, "member_count": member_count}
     if redact:
         data = {
             **data,
@@ -417,4 +419,34 @@ async def navigation_broadcast_run(
     from backend import navigation_broadcast_scheduler
 
     result = navigation_broadcast_scheduler.run_broadcast_now(force=True)
+    return NavigationBroadcastRunOut(**result)
+
+
+@router.post("/broadcast/whatsapp/send", response_model=NavigationBroadcastRunOut)
+async def navigation_whatsapp_send(
+    live: bool = Query(False, description="When true and credentials are set, send real WhatsApp messages"),
+    _=Depends(require_api_key),
+    admin: bool = Depends(is_broadcast_admin),
+):
+    """Send tailored Navigation News to registered WhatsApp recipients.
+
+    Default is dry-run (logs only). Set `live=true` with Meta WhatsApp Cloud API
+    credentials and active recipients to deliver real messages.
+    """
+    from backend import navigation_broadcast_scheduler
+    from backend.deps import _broadcast_admin_expected
+    from zgiis.navigation.broadcast_recipients_file import sync_recipients_from_file
+
+    if live and _broadcast_admin_expected() and not admin:
+        raise HTTPException(
+            status_code=403,
+            detail="Broadcast admin key required for live WhatsApp sends (X-Broadcast-Admin-Key)",
+        )
+
+    sync_recipients_from_file()
+    result = navigation_broadcast_scheduler.run_broadcast_now(
+        force=True,
+        dry_run_override=not live,
+        whatsapp_only=True,
+    )
     return NavigationBroadcastRunOut(**result)

@@ -882,6 +882,7 @@ export interface TheoryJourneyPill {
   num: string;
   short: string;
   accent: string;
+  icon?: string;
 }
 
 export interface TheoryPipelineStage {
@@ -962,8 +963,9 @@ export interface NavigationNewsScheduleApi {
 
 export interface BroadcastRecipient {
   recipient_id: string;
-  recipient_type: "phone";
+  recipient_type: "phone" | "group";
   whatsapp_to: string;
+  member_count: number;
   display_name: string;
   audience: AudienceId;
   audience_role?: string | null;
@@ -982,7 +984,7 @@ export interface BroadcastRecipient {
 }
 
 export interface BroadcastRecipientCreate {
-  recipient_type: "phone";
+  recipient_type: "phone" | "group";
   whatsapp_to: string;
   display_name: string;
   audience?: AudienceId;
@@ -1029,6 +1031,23 @@ export interface NavigationFacebookStatus {
   dry_run: boolean;
   page_id: string;
   page_url: string;
+}
+
+export interface NavigationBroadcastRunResult {
+  ok: boolean;
+  skipped?: boolean;
+  reason?: string | null;
+  recipient_count?: number;
+  dry_run: boolean;
+  headline?: string | null;
+  computed_at?: string | null;
+  deliveries?: Array<{
+    recipient_id?: string;
+    display_name?: string;
+    audience?: string;
+    ok?: boolean;
+    detail?: string;
+  }>;
 }
 
 export interface NavigationFacebookPostResult {

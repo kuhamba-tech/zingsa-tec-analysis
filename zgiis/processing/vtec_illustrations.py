@@ -166,16 +166,10 @@ def get_illustration(step_id: str) -> dict[str, str]:
 
 
 def get_journey_pills() -> list[dict[str, str]]:
-    """Structured 10-step roadmap for React (no Streamlit HTML)."""
-    order = ["1", "2", "3", "4", "4b", "5", "6", "7", "8", "9", "10"]
-    return [
-        {
-            "num": STEP_META[step_id]["num"],
-            "short": STEP_META[step_id]["short"],
-            "accent": STEP_META[step_id]["accent"],
-        }
-        for step_id in order
-    ]
+    """Seven-stage processing pipeline roadmap (matches Processing page)."""
+    from zgiis.processing.pipeline_explanations import get_pipeline_journey_pills
+
+    return get_pipeline_journey_pills()
 
 
 def render_vtec_illustration(step_id: str) -> str:
@@ -185,24 +179,25 @@ def render_vtec_illustration(step_id: str) -> str:
 
 
 def render_vtec_steps_journey() -> str:
-    """Horizontal 10-step roadmap — theory reading order at a glance."""
+    """Horizontal 7-step processing pipeline — matches the Processing page."""
     pills: list[str] = []
-    order = ["1", "2", "3", "4", "4b", "5", "6", "7", "8", "9", "10"]
-    for i, step_id in enumerate(order):
-        meta = STEP_META[step_id]
+    journey = get_journey_pills()
+    for i, meta in enumerate(journey):
         accent = meta["accent"]
+        icon = meta.get("icon", "")
         pills.append(
             f"<div class='vtec-journey-pill' style='--pill-accent:{accent}'>"
-            f"<span class='vtec-journey-num'>{meta['num']}</span>"
+            f"<span class='vtec-journey-icon'>{icon}</span>"
+            f"<span class='vtec-journey-num'>Stage {meta['num']}</span>"
             f"<span class='vtec-journey-label'>{meta['short']}</span>"
             f"</div>"
         )
-        if i < len(order) - 1:
+        if i < len(journey) - 1:
             pills.append("<div class='vtec-journey-arrow' aria-hidden='true'>→</div>")
     return (
         "<div class='vtec-steps-journey-wrap'>"
         "<div class='vtec-steps-journey-title'>"
-        "10-step VTEC derivation — follow left to right"
+        "7-step processing pipeline — follow left to right"
         "</div>"
         f"<div class='vtec-steps-journey'>{''.join(pills)}</div>"
         "</div>"

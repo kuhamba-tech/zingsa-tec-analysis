@@ -24,14 +24,20 @@ def _enabled() -> bool:
     return raw in {"1", "true", "yes", "on"}
 
 
-def run_broadcast_now(*, force: bool = True) -> dict:
+def run_broadcast_now(
+    *,
+    force: bool = True,
+    dry_run_override: bool | None = None,
+    whatsapp_only: bool = False,
+) -> dict:
     from zgiis.navigation.broadcast_recipient_dispatch import dispatch_to_registered_recipients
     from zgiis.navigation.facebook_publish import publish_navigation_news_to_facebook
 
     global _last_run_at
-    result = dispatch_to_registered_recipients(force=force)
-    fb = publish_navigation_news_to_facebook()
-    result["facebook"] = fb
+    result = dispatch_to_registered_recipients(force=force, dry_run_override=dry_run_override)
+    if not whatsapp_only:
+        fb = publish_navigation_news_to_facebook()
+        result["facebook"] = fb
     _last_run_at = datetime.now(tz=timezone.utc)
     if result.get("skipped"):
         log.info("Navigation broadcast skipped: %s", result.get("reason"))

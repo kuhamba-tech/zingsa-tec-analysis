@@ -18,10 +18,12 @@ class VtecTheoryContentTests(unittest.TestCase):
         self.assertEqual(len(pipe["stages"]), 8)
         self.assertIn("ZGIIS", pipe["output"])
 
-    def test_journey_matches_step_meta(self):
+    def test_journey_matches_processing_pipeline(self):
         payload = build_vtec_theory_payload()
-        self.assertEqual(len(payload["journey"]), 11)
+        self.assertEqual(len(payload["journey"]), 7)
         self.assertEqual(payload["journey"][0]["num"], "1")
+        self.assertEqual(payload["journey"][0]["short"], "RINEX/CMN loading")
+        self.assertEqual(payload["journey"][-1]["short"], "Map/table generation")
 
 
 if __name__ == "__main__":

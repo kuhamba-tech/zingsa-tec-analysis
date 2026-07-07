@@ -9,15 +9,32 @@ BOOK_CITATION = (
     "*Atmospheric Remote Sensing: Principles and Applications*, Elsevier, 2022."
 )
 
-PROCESSING_STAGE_OVERVIEW = [
-    ("RINEX/CMN loading", "&#128194;"),
-    ("Cycle slip detection", "&#128269;"),
-    ("Satellite bias correction", "&#128752;"),
-    ("Receiver bias correction", "&#128225;"),
-    ("Slant TEC calculation", "&#128208;"),
-    ("Vertical TEC calculation", "&#128202;"),
-    ("Map/table generation", "&#128506;"),
+PROCESSING_PIPELINE_JOURNEY: list[dict[str, str]] = [
+    {"label": "RINEX/CMN loading", "icon": "📂", "accent": "#ffcc00"},
+    {"label": "Cycle slip detection", "icon": "🔍", "accent": "#168bd2"},
+    {"label": "Satellite bias correction", "icon": "✂️", "accent": "#a78bfa"},
+    {"label": "Receiver bias correction", "icon": "▶", "accent": "#00cc88"},
+    {"label": "Slant TEC calculation", "icon": "↗", "accent": "#ff8c00"},
+    {"label": "Vertical TEC calculation", "icon": "⊞", "accent": "#168bd2"},
+    {"label": "Map/table generation", "icon": "🗺️", "accent": "#00ff88"},
 ]
+
+PROCESSING_STAGE_OVERVIEW = [
+    (stage["label"], stage["icon"]) for stage in PROCESSING_PIPELINE_JOURNEY
+]
+
+
+def get_pipeline_journey_pills() -> list[dict[str, str]]:
+    """Seven-stage processing pipeline — matches the Processing page cards."""
+    return [
+        {
+            "num": str(i + 1),
+            "short": stage["label"],
+            "accent": stage["accent"],
+            "icon": stage["icon"],
+        }
+        for i, stage in enumerate(PROCESSING_PIPELINE_JOURNEY)
+    ]
 
 
 def render_pipeline_overview_cards(

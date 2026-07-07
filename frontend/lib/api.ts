@@ -32,6 +32,7 @@ import type {
   BroadcastRecipient,
   BroadcastRecipientCreate,
   NavigationBroadcastOverview,
+  NavigationBroadcastRunResult,
   NavigationBroadcastStatus,
   NavigationFacebookPostResult,
   NavigationFacebookStatus,
@@ -298,6 +299,23 @@ export const getNavigationFacebookStatus = async (): Promise<NavigationFacebookS
     }
   }
   throw new Error(lastError);
+};
+
+export const sendNavigationWhatsApp = async (live = false): Promise<NavigationBroadcastRunResult> => {
+  const res = await fetch(
+    baseUrl() + `/navigation-news/broadcast/whatsapp/send?live=${live ? "true" : "false"}`,
+    {
+      method: "POST",
+      headers: KEY ? { "X-API-Key": KEY } : {},
+    },
+  );
+  if (!res.ok) {
+    const detail = res.status === 403
+      ? "Broadcast admin key required for live sends — set BROADCAST_ADMIN_KEY on the server."
+      : `API POST /navigation-news/broadcast/whatsapp/send → ${res.status}`;
+    throw new Error(detail);
+  }
+  return res.json() as Promise<NavigationBroadcastRunResult>;
 };
 
 export const runNavigationBroadcast = () =>

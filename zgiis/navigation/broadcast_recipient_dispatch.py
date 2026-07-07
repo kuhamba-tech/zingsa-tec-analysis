@@ -27,6 +27,7 @@ def dispatch_to_registered_recipients(
     *,
     force: bool = True,
     refresh_ntrip: bool = False,
+    dry_run_override: bool | None = None,
 ) -> dict[str, Any]:
     """Send the latest Navigation News brief to every active registered recipient.
 
@@ -40,7 +41,7 @@ def dispatch_to_registered_recipients(
 
     db = BroadcastRecipientDB()
     recipients = db.list_recipients(active_only=True)
-    dry = _dry_run()
+    dry = _dry_run() if dry_run_override is None else dry_run_override
 
     if not recipients:
         return {

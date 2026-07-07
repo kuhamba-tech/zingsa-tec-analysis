@@ -25,5 +25,15 @@
     "language": "en",
     "accessibility": "standard",
     "active": true
+  },
+  {
+    "recipient_type": "group",
+    "whatsapp_to": "263771234511,263771234512,263771234513",
+    "display_name": "Mashonaland Farmers WhatsApp Group",
+    "audience": "farmer",
+    "language": "sn",
+    "accessibility": "standard",
+    "notes": "Meta's Cloud API can't post into a group chat directly — this fans out to each member's own chat.",
+    "active": true
   }
 ]

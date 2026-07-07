@@ -306,7 +306,8 @@ export default function GnssIntelligencePage() {
               <code>scientist</code>)
             </li>
             <li>
-              WhatsApp group delivery is configured privately on the server (not via this public page).
+              Use <strong>Send live to WhatsApp</strong> below (Navigation Weather → Broadcast panel)
+              or <code>POST /navigation-news/broadcast/whatsapp/send?live=true</code> with your API key.
             </li>
           </ul>
         </div>

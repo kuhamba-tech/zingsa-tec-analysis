@@ -57,45 +57,32 @@ export default function VtecTheoryPage() {
       </header>
 
       <div className="banner banner-info vtec-theory-reading-note">
-        <strong>Reading order:</strong> Steps 1 → 10 follow the GPS_TEC v3.5 computational
-        sequence. Each step builds on the previous one. Use the roadmap below, then scroll through
-        the detailed steps with diagrams on the right.
+        <strong>Reading order:</strong> The seven stages below match the ZGIIS Processing
+        Pipeline (RINEX load → VTEC map). Scroll further for the detailed equation-by-equation
+        derivation (Steps 1–10) with diagrams on the right.
       </div>
 
       <section className="vtec-steps-journey-wrap">
         <div className="vtec-steps-journey-title">
-          10-step VTEC derivation — follow left to right
+          7-step processing pipeline — follow left to right
         </div>
-        <div className="vtec-steps-journey">
-          {data.journey.map((pill, i) => (
-            <span key={pill.num} style={{ display: "contents" }}>
-              <div
-                className="vtec-journey-pill"
-                style={{ ["--pill-accent" as string]: pill.accent }}
-              >
-                <span className="vtec-journey-num">{pill.num}</span>
-                <span className="vtec-journey-label">{pill.short}</span>
-              </div>
-              {i < data.journey.length - 1 ? (
-                <span className="vtec-journey-arrow" aria-hidden>
-                  →
+        <div className="vtec-pipeline-stage-row">
+          {data.journey.map((pill) => (
+            <div
+              key={pill.num}
+              className="vtec-pipeline-stage-card"
+              style={{ borderLeftColor: pill.accent }}
+            >
+              {pill.icon ? (
+                <span className="vtec-pipeline-stage-icon" aria-hidden>
+                  {pill.icon}
                 </span>
               ) : null}
-            </span>
+              <span className="vtec-pipeline-stage-label">{pill.short}</span>
+              <span className="vtec-pipeline-stage-num">Stage {pill.num}</span>
+            </div>
           ))}
         </div>
-      </section>
-
-      <section className="pipeline-overview-cards">
-        {data.pipeline_stages.map((stage) => (
-          <div key={stage.label} className="pipeline-overview-card">
-            <span
-              className="pipeline-overview-icon"
-              dangerouslySetInnerHTML={{ __html: stage.icon }}
-            />
-            <span>{stage.label}</span>
-          </div>
-        ))}
       </section>
 
       {data.steps.map((step) => (

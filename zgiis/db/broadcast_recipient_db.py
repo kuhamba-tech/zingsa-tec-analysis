@@ -12,11 +12,11 @@ from typing import Any, Literal
 from zgiis.navigation.delivery_preferences import normalize_accessibility, normalize_language
 
 AudienceId = Literal["citizen", "farmer", "surveyor", "driver", "aviation", "scientist"]
-RecipientType = Literal["phone"]
+RecipientType = Literal["phone", "group"]
 ScriptKind = Literal["broadcast", "social"]
 
 VALID_AUDIENCES = frozenset({"citizen", "farmer", "surveyor", "driver", "aviation", "scientist"})
-VALID_TYPES = frozenset({"phone"})
+VALID_TYPES = frozenset({"phone", "group"})
 VALID_SCRIPTS = frozenset({"broadcast", "social"})
 
 _SQLITE_PATH = Path(__file__).resolve().parents[2] / "static" / "data" / "broadcast_recipients.sqlite"
@@ -58,12 +58,23 @@ def normalize_whatsapp_to(raw: str) -> str:
     return normalize_recipient_address(raw, recipient_type="phone")
 
 
+def _normalize_single_number(value: str) -> str:
+    digits = re.sub(r"\D", "", value)
+    if len(digits) < 8:
+        raise ValueError(f"WhatsApp number '{value}' must have at least 8 digits")
+    if len(digits) > 20:
+        raise ValueError(f"WhatsApp number '{value}' is too long")
+    return digits
+
+
 def normalize_recipient_address(raw: str, *, recipient_type: str = "phone") -> str:
-    """Normalize a phone recipient to E.164 digits.
+    """Normalize a recipient address to E.164 digits.
 
     Meta's WhatsApp Cloud API has no endpoint to list or message WhatsApp
-    groups — only individual phone numbers are addressable — so "phone" is
-    the only supported recipient_type.
+    groups — only individual phone numbers are addressable. To still support
+    "send to a WhatsApp group", recipient_type="group" stores the group's
+    member numbers as a comma-separated list; delivery fans out and sends
+    the same message to each member's individual chat.
     """
     rtype = recipient_type.strip().lower()
     if rtype not in VALID_TYPES:
@@ -73,12 +84,18 @@ def normalize_recipient_address(raw: str, *, recipient_type: str = "phone") -> s
     if not value:
         raise ValueError("WhatsApp recipient address is required")
 
-    digits = re.sub(r"\D", "", value)
-    if len(digits) < 8:
-        raise ValueError("WhatsApp number must have at least 8 digits")
-    if len(digits) > 20:
-        raise ValueError("WhatsApp number is too long")
-    return digits
+    if rtype == "group":
+        parts = [p.strip() for p in value.split(",") if p.strip()]
+        if not parts:
+            raise ValueError("Group must list at least one member WhatsApp number")
+        seen: list[str] = []
+        for part in parts:
+            digits = _normalize_single_number(part)
+            if digits not in seen:
+                seen.append(digits)
+        return ",".join(seen)
+
+    return _normalize_single_number(value)
 
 
 def _utc_now() -> str:

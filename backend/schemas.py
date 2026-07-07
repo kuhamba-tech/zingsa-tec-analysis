@@ -865,6 +865,7 @@ class BroadcastRecipientOut(BaseModel):
     recipient_id: str
     recipient_type: str
     whatsapp_to: str
+    member_count: int = 1
     display_name: str
     audience: str
     audience_role: str | None = None
@@ -901,8 +902,11 @@ class NavigationDeliveryOptionsOut(BaseModel):
 
 
 class BroadcastRecipientCreate(BaseModel):
-    recipient_type: str = Field(..., description="phone")
-    whatsapp_to: str = Field(..., description="E.164 digits")
+    recipient_type: str = Field(..., description="phone or group")
+    whatsapp_to: str = Field(
+        ...,
+        description="E.164 digits; for recipient_type=group, comma-separated member numbers",
+    )
     display_name: str = Field(..., min_length=2, description="Contact name on the platform")
     audience: str = "citizen"
     script_kind: str = "broadcast"
