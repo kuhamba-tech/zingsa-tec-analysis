@@ -65,6 +65,8 @@ def _cached(key: str, fetch_fn) -> Any:
 def clear_space_weather_cache() -> None:
     """Discard cached metrics so the next call fetches every live API again."""
     _CACHE.pop("space_weather", None)
+    _CACHE.pop("space_weather_live_only", None)
+    _CACHE.pop("space_weather_fast", None)
 
 
 def _request_noaa_json(url: str) -> Any:
@@ -469,20 +471,25 @@ def _live_ntrip_health() -> Dict[str, Any]:
     }
 
 
-def get_space_weather(*, use_third_party: bool = True) -> Dict[str, Any]:
+def get_space_weather(
+    *,
+    use_third_party: bool = True,
+    fetch_ionosphere: bool = True,
+) -> Dict[str, Any]:
     """Return consolidated dashboard space-weather metrics.
 
     use_third_party=False skips Africa-Kp enrichment and the production
     station-health API; station counts come from the live NTRIP pipeline
-    instead. The archived ionosphere/S4 endpoint is still fetched so the
-    dashboard can show observed scintillation when available.
+    instead. fetch_ionosphere=False also skips the CORS_Program ionosphere
+    endpoint, which keeps page-load reads fast when that external service is
+    slow or unreachable.
     """
 
     def _fetch() -> Dict[str, Any]:
         with ThreadPoolExecutor(max_workers=7) as executor:
             futures = {
                 "africa": executor.submit(fetch_space_weather_africa) if use_third_party else None,
-                "iono": executor.submit(fetch_ionosphere_status, station="HARA"),
+                "iono": executor.submit(fetch_ionosphere_status, station="HARA") if fetch_ionosphere else None,
                 "health": executor.submit(fetch_station_health, country="Zimbabwe") if use_third_party else None,
                 "kp_history": executor.submit(_fetch_noaa_kp_history),
                 "f107_history": executor.submit(_fetch_noaa_f107_history),
@@ -707,7 +714,11 @@ def get_space_weather(*, use_third_party: bool = True) -> Dict[str, Any]:
             "ionosphere_data_note": ionosphere_note,
         }
 
-    cache_key = "space_weather" if use_third_party else "space_weather_live_only"
+    cache_key = (
+        "space_weather"
+        if use_third_party
+        else ("space_weather_live_only" if fetch_ionosphere else "space_weather_fast")
+    )
     return _cached(cache_key, _fetch)
 
 

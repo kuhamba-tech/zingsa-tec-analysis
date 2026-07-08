@@ -34,7 +34,11 @@ def _sw() -> dict:
     from pathlib import Path
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     from zgiis.space_weather.fetch_indices import get_space_weather
-    return get_space_weather(use_third_party=True)
+
+    # Page-load reads must stay quick. The CORS_Program enrichment endpoints can
+    # time out independently, so use direct NOAA/local sources here and let the
+    # dedicated station endpoints handle CORS/NTRIP status.
+    return get_space_weather(use_third_party=False, fetch_ionosphere=False)
 
 
 def _ntrip_stream_counts() -> tuple[int | None, int | None]:
