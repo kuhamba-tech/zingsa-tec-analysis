@@ -39,12 +39,11 @@ function usesHybridOverlays(layer: MapLayer): boolean {
 }
 
 function heatOverlayOpacity(layer: MapLayer): number {
-  if (layer === "TEC Heat Map") return 0.78;
-  if (layer === "Hybrid") return 0.65;
-  return 0.55;
+  return layer === "TEC Heat Map" ? 0.78 : 0.65;
 }
 
 function shouldShowHeatOverlay(layer: MapLayer, heatmap: TecHeatmapResponse | null | undefined): boolean {
+  if (layer !== "TEC Heat Map") return false;
   if (!heatmap?.available) return false;
   if (heatmap.grid) return true;
   return (heatmap.heat_points?.length ?? 0) >= 1;
@@ -96,10 +95,12 @@ function drawPointHeatBlobs(
 }
 
 function stationTecValue(station: Station, heatmap: TecHeatmapResponse | null | undefined): number | null {
+  const liveStatus = getLiveStationStatus(station);
+  if (liveStatus === "offline" || liveStatus === "unavailable") return 0;
   const code = station.code.toLowerCase().replace(/_+$/, "");
   const fromHeatmap = heatmap?.stations.find((s) => s.code.toLowerCase().replace(/_+$/, "") === code)?.vtec;
-  if (typeof fromHeatmap === "number" && Number.isFinite(fromHeatmap)) return fromHeatmap;
-  return typeof station.current_tec === "number" && Number.isFinite(station.current_tec)
+  if (typeof fromHeatmap === "number" && Number.isFinite(fromHeatmap) && fromHeatmap >= 0) return fromHeatmap;
+  return typeof station.current_tec === "number" && Number.isFinite(station.current_tec) && station.current_tec > 0
     ? station.current_tec
     : null;
 }

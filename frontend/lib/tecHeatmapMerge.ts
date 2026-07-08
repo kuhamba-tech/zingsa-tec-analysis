@@ -1,4 +1,5 @@
 import type { Station, TecHeatmapResponse } from "@/lib/types";
+import { getLiveStationStatus } from "@/lib/liveStationStatus";
 
 /** Merge station-level live VTEC into an empty heat-map API response. */
 export function mergeTecHeatmapWithStations(
@@ -6,7 +7,35 @@ export function mergeTecHeatmapWithStations(
   stations: Station[],
 ): TecHeatmapResponse | null {
   if (heatmap?.available && (heatmap.stations?.length ?? 0) > 0) {
-    return heatmap;
+    const stationStatusByCode = new Map(
+      stations.map((s) => [s.code.toLowerCase().replace(/_+$/, ""), getLiveStationStatus(s)]),
+    );
+    const isZeroTecStation = (code: string | null | undefined) => {
+      if (!code) return false;
+      const status = stationStatusByCode.get(code.toLowerCase().replace(/_+$/, ""));
+      return status === "offline" || status === "unavailable";
+    };
+    const heatmapStations = heatmap.stations.map((s) =>
+      isZeroTecStation(s.code)
+        ? { ...s, vtec: 0, obs_count: 0, source: "offline" }
+        : s,
+    );
+    const heatPoints = heatmap.heat_points.map((p) =>
+      isZeroTecStation(p.code)
+        ? { ...p, vtec: 0, weight: 0 }
+        : p,
+    );
+    const values = heatmapStations.map((s) => s.vtec).filter((v) => Number.isFinite(v));
+    return {
+      ...heatmap,
+      stations: heatmapStations,
+      heat_points: heatPoints,
+      tec_min: values.length > 0 ? Math.min(...values) : heatmap.tec_min,
+      tec_max: values.length > 0 ? Math.max(...values) : heatmap.tec_max,
+      message: heatmap.message
+        ? `${heatmap.message} Offline/unavailable stations are shown as 0.0 VTEC.`
+        : "Offline/unavailable stations are shown as 0.0 VTEC.",
+    };
   }
 
   const reporting = stations.filter(
@@ -23,6 +52,7 @@ export function mergeTecHeatmapWithStations(
     lon: s.lon,
     vtec: s.current_tec as number,
     obs_count: 1,
+    source: "live",
   }));
 
   const tecValues = heatmapStations.map((s) => s.vtec);

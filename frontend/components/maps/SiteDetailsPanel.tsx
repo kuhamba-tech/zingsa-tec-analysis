@@ -1,6 +1,7 @@
 "use client";
 import type { Station, TecHeatmapResponse } from "@/lib/types";
 import { siteStatusColor, stationDetailRows } from "@/lib/stationDetails";
+import { getLiveStationStatus } from "@/lib/liveStationStatus";
 import { icaoTecColor, icaoTecDistanceLabel, icaoTecLabel } from "@/lib/icaoTecAdvisory";
 
 interface Props {
@@ -10,10 +11,12 @@ interface Props {
 }
 
 function heatmapVtec(station: Station, heatmap?: TecHeatmapResponse | null): number | null {
+  const liveStatus = getLiveStationStatus(station);
+  if (liveStatus === "offline" || liveStatus === "unavailable") return 0;
   const code = station.code.toLowerCase().replace(/_+$/, "");
   const fromHeatmap = heatmap?.stations.find((s) => s.code.toLowerCase().replace(/_+$/, "") === code)?.vtec;
-  if (typeof fromHeatmap === "number" && Number.isFinite(fromHeatmap)) return fromHeatmap;
-  return typeof station.current_tec === "number" && Number.isFinite(station.current_tec)
+  if (typeof fromHeatmap === "number" && Number.isFinite(fromHeatmap) && fromHeatmap >= 0) return fromHeatmap;
+  return typeof station.current_tec === "number" && Number.isFinite(station.current_tec) && station.current_tec > 0
     ? station.current_tec
     : null;
 }

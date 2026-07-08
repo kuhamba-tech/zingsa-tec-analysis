@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import os
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -22,7 +23,17 @@ TEC_SCALE_MAX = 200.0
 ICAO_TEC_MOD = 125.0
 ICAO_TEC_SEV = 175.0
 _REGIONAL_CODES = frozenset({"nw", "ne", "cent", "sw", "se"})
+_PROCESSED_ARCHIVE_SOURCES = frozenset({"processed_archive", "processed_archive_estimate"})
+_SURFACE_ESTIMATE_SOURCES = frozenset({"live_surface_estimate", "processed_archive_estimate"})
 _STATION_LOOKUP = {s.code.lower(): s for s in ZIMBABWE_CORS_STATIONS}
+
+
+def _live_db_heatmap_enabled() -> bool:
+    """Remote DB reads can block the interactive map, so keep them opt-in."""
+    has_remote_db = bool(os.getenv("TSDB_DSN") or os.getenv("POSTGRES_URL") or os.getenv("DATABASE_URL"))
+    if not has_remote_db:
+        return True
+    return os.getenv("TEC_HEATMAP_QUERY_LIVE_DB", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _absolute_weight(vtec: float) -> float:
@@ -35,6 +46,10 @@ def _absolute_weight(vtec: float) -> float:
 def _classify_data_quality(stations: list[dict[str, Any]], grid: dict[str, Any] | None) -> str:
     if not stations:
         return "none"
+    if all(str(s.get("source") or "") in _PROCESSED_ARCHIVE_SOURCES for s in stations):
+        return "processed_archive"
+    if any(str(s.get("source") or "") in _SURFACE_ESTIMATE_SOURCES for s in stations):
+        return "regional_mean"
     codes = {str(s["code"]).lower() for s in stations}
     if codes.issubset(_REGIONAL_CODES):
         return "regional_mean"
@@ -48,18 +63,23 @@ def _classify_data_quality(stations: list[dict[str, Any]], grid: dict[str, Any] 
 def _quality_message(quality: str, station_count: int) -> str | None:
     if quality == "regional_mean":
         return (
-            "Showing interpolated TEC from available live measurements. "
-            "Per-station pipeline archives are limited — values may reflect network mean until more CORS streams contribute VTEC."
+            "Showing calculated live VTEC where available, plus interpolated station estimates from the current live surface. "
+            "Sites with no MSM observations are estimates until more CORS streams contribute VTEC."
         )
     if quality == "stations_only":
         return (
             f"{station_count} CORS site(s) reporting VTEC — interpolated surface could not be built. "
             "Ensure at least one station has live pipeline observations."
         )
+    if quality == "processed_archive":
+        return (
+            f"Showing calculated VTEC from the latest processed RINEX/CMN archive for {station_count} CORS site(s). "
+            "Stations without an exact archive row use the interpolated archive surface until live NTRIP emits VTEC."
+        )
     return None
 
 
-def _row_from_station(station, *, vtec: float, obs_count: int) -> dict[str, Any]:
+def _row_from_station(station, *, vtec: float, obs_count: int, source: str = "live") -> dict[str, Any]:
     return {
         "code": station.code,
         "name": station.name,
@@ -67,10 +87,13 @@ def _row_from_station(station, *, vtec: float, obs_count: int) -> dict[str, Any]
         "lon": station.lon,
         "vtec": round(float(vtec), 2),
         "obs_count": int(obs_count),
+        "source": source,
     }
 
 
 def _pipeline_station_rows(hours: float = 2.0) -> list[dict[str, Any]]:
+    if not _live_db_heatmap_enabled():
+        return []
     try:
         from backend.live_manager import get_db
 
@@ -103,6 +126,8 @@ def _pipeline_station_rows(hours: float = 2.0) -> list[dict[str, Any]]:
 def _recent_pipeline_rows(hours: float = 0.5) -> list[dict[str, Any]]:
     """Shorter-window pipeline query — catches stations that just came online."""
     try:
+        if not _live_db_heatmap_enabled():
+            return []
         from backend.live_manager import get_db
 
         df = get_db().query_recent(hours=hours)
@@ -239,6 +264,116 @@ def _cors_current_tec_rows() -> list[dict[str, Any]]:
         return []
 
 
+def _processed_archive_rows() -> list[dict[str, Any]]:
+    """Newest processed RINEX/CMN VTEC per station, used only when live VTEC is absent."""
+    try:
+        from zgiis.data.tec_archive import load_historical_tec
+
+        df, _ = load_historical_tec()
+    except Exception:
+        return []
+
+    if df is None or df.empty or not {"timestamp", "station", "vtec"}.issubset(df.columns):
+        return []
+
+    work = df.copy()
+    work["vtec"] = np.asarray(work["vtec"], dtype=float)
+    work = work[np.isfinite(work["vtec"]) & (work["vtec"] > 0)].copy()
+    if work.empty:
+        return []
+
+    latest = work.sort_values("timestamp").groupby("station", as_index=False).tail(1)
+    rows: list[dict[str, Any]] = []
+    for code_raw, group in latest.groupby("station"):
+        code = str(code_raw).lower().rstrip("_")
+        station = _STATION_LOOKUP.get(code)
+        if station is None:
+            continue
+        mean_vtec = float(group["vtec"].mean())
+        if not np.isfinite(mean_vtec) or mean_vtec <= 0:
+            continue
+        if "observations" in group.columns:
+            obs_count = int(np.asarray(group["observations"], dtype=float).sum())
+        else:
+            obs_count = len(group)
+        rows.append(
+            _row_from_station(
+                station,
+                vtec=mean_vtec,
+                obs_count=obs_count,
+                source="processed_archive",
+            )
+        )
+    return _archive_surface_station_rows(rows)
+
+
+def _archive_surface_station_rows(control_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Add archive-surface estimates for CORS stations lacking exact archive rows."""
+    return _surface_station_rows(control_rows, estimate_source="processed_archive_estimate")
+
+
+def _surface_station_rows(
+    control_rows: list[dict[str, Any]],
+    *,
+    estimate_source: str,
+) -> list[dict[str, Any]]:
+    """Add surface-estimated rows for CORS stations lacking exact VTEC rows."""
+    if not control_rows:
+        return []
+
+    exact_by_code = {str(row["code"]).lower().rstrip("_"): row for row in control_rows}
+    if len(control_rows) == 1:
+        base_value = float(control_rows[0]["vtec"])
+        rows = list(control_rows)
+        for station in ZIMBABWE_CORS_STATIONS:
+            code = station.code.lower().rstrip("_")
+            if code in exact_by_code:
+                continue
+            rows.append(
+                _row_from_station(
+                    station,
+                    vtec=base_value,
+                    obs_count=0,
+                    source=estimate_source,
+                )
+            )
+        return rows
+
+    control_lats = np.array([row["lat"] for row in control_rows], dtype=float)
+    control_lons = np.array([row["lon"] for row in control_rows], dtype=float)
+    control_vtec = np.array([row["vtec"] for row in control_rows], dtype=float)
+    rows = list(control_rows)
+
+    for station in ZIMBABWE_CORS_STATIONS:
+        code = station.code.lower().rstrip("_")
+        if code in exact_by_code:
+            continue
+        distances = np.hypot(control_lats - float(station.lat), control_lons - float(station.lon))
+        if not np.isfinite(distances).any():
+            continue
+        if float(distances.min()) <= 1e-9:
+            estimate = float(control_vtec[int(distances.argmin())])
+        else:
+            weights = 1.0 / np.maximum(distances, 1e-6) ** 2
+            estimate = float(np.sum(weights * control_vtec) / np.sum(weights))
+        if not np.isfinite(estimate) or estimate <= 0:
+            continue
+        rows.append(
+            _row_from_station(
+                station,
+                vtec=estimate,
+                obs_count=0,
+                source=estimate_source,
+            )
+        )
+    return rows
+
+
+def _live_surface_station_rows(control_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Show best live VTEC surface estimate at every CORS site."""
+    return _surface_station_rows(control_rows, estimate_source="live_surface_estimate")
+
+
 def _merge_station_rows(*groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
     merged: dict[str, dict[str, Any]] = {}
     for group in groups:
@@ -295,33 +430,27 @@ def _append_grid_heat_points(
             )
 
 
-def build_tec_heatmap(*, hours: float = 2.0) -> dict[str, Any]:
-    """Return interpolated grid + heat points for map overlay."""
-    stations = _merge_station_rows(
-        _pipeline_station_rows(hours=hours),
-        _recent_pipeline_rows(hours=min(hours, 0.75)),
-        _live_pipeline_memory_rows(),
-        _probe_sample_vtec_rows(),
-        _cors_current_tec_rows(),
-    )
-
-    empty: dict[str, Any] = {
-        "available": False,
-        "stations": [],
-        "heat_points": [],
-        "grid": None,
-        "bounds": [ZW_LON_MIN, ZW_LAT_MIN, ZW_LON_MAX, ZW_LAT_MAX],
-        "tec_min": None,
-        "tec_max": None,
-        "station_count": 0,
-        "updated_at": None,
-        "message": _empty_heatmap_message(),
-        "data_quality": "none",
-        "icao_mod_tecu": ICAO_TEC_MOD,
-        "icao_sev_tecu": ICAO_TEC_SEV,
-    }
+def _heatmap_payload_from_station_rows(
+    stations: list[dict[str, Any]],
+    *,
+    empty_message: str | None,
+) -> dict[str, Any]:
     if not stations:
-        return empty
+        return {
+            "available": False,
+            "stations": [],
+            "heat_points": [],
+            "grid": None,
+            "bounds": [ZW_LON_MIN, ZW_LAT_MIN, ZW_LON_MAX, ZW_LAT_MAX],
+            "tec_min": None,
+            "tec_max": None,
+            "station_count": 0,
+            "updated_at": None,
+            "message": empty_message,
+            "data_quality": "none",
+            "icao_mod_tecu": ICAO_TEC_MOD,
+            "icao_sev_tecu": ICAO_TEC_SEV,
+        }
 
     tec_values = [s["vtec"] for s in stations]
     tec_min = float(min(tec_values))
@@ -361,3 +490,28 @@ def build_tec_heatmap(*, hours: float = 2.0) -> dict[str, Any]:
         "icao_mod_tecu": ICAO_TEC_MOD,
         "icao_sev_tecu": ICAO_TEC_SEV,
     }
+
+
+def build_tec_heatmap(*, hours: float = 2.0) -> dict[str, Any]:
+    """Return interpolated grid + heat points for map overlay."""
+    live_rows = _merge_station_rows(
+        _pipeline_station_rows(hours=hours),
+        _recent_pipeline_rows(hours=min(hours, 0.75)),
+        _live_pipeline_memory_rows(),
+        _probe_sample_vtec_rows(),
+    )
+    stations = _live_surface_station_rows(live_rows) if live_rows else []
+    if not stations:
+        stations = _processed_archive_rows()
+    if not stations:
+        cors_rows = _cors_current_tec_rows()
+        stations = _live_surface_station_rows(cors_rows) if cors_rows else []
+    return _heatmap_payload_from_station_rows(stations, empty_message=_empty_heatmap_message())
+
+
+def build_archive_tec_heatmap() -> dict[str, Any]:
+    """Return the processed-archive heat map without touching live services."""
+    return _heatmap_payload_from_station_rows(
+        _processed_archive_rows(),
+        empty_message="No processed RINEX/CMN archive VTEC is available.",
+    )
