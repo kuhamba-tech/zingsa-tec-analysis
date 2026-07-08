@@ -374,6 +374,7 @@ async def navigation_facebook_status_alias(_=Depends(require_api_key)):
 @router.post("/facebook/test-post", response_model=NavigationFacebookPostOut)
 async def navigation_facebook_test_post(
     live: bool = Query(False, description="When true and credentials are set, post to Facebook (not dry-run)"),
+    language: str = Query("en", description="Post language: en, sn (ChiShona), or nd (isiNdebele)"),
     _=Depends(require_api_key),
 ):
     """Verify Navigation News can be posted to the Stellar Aspirations Facebook Page.
@@ -383,19 +384,20 @@ async def navigation_facebook_test_post(
     """
     from zgiis.navigation.facebook_publish import publish_navigation_news_to_facebook
 
-    result = publish_navigation_news_to_facebook(dry_run=not live)
+    result = publish_navigation_news_to_facebook(dry_run=not live, language=language)
     return NavigationFacebookPostOut(**result)
 
 
 @router.post("/broadcast/facebook/test-post", response_model=NavigationFacebookPostOut)
 async def navigation_facebook_test_post_alias(
     live: bool = Query(False),
+    language: str = Query("en", description="Post language: en, sn (ChiShona), or nd (isiNdebele)"),
     _=Depends(require_api_key),
 ):
     """Alias for Facebook test post."""
     from zgiis.navigation.facebook_publish import publish_navigation_news_to_facebook
 
-    result = publish_navigation_news_to_facebook(dry_run=not live)
+    result = publish_navigation_news_to_facebook(dry_run=not live, language=language)
     return NavigationFacebookPostOut(**result)
 
 

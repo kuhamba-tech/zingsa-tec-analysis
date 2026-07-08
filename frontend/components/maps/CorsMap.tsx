@@ -350,7 +350,10 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid", heat
             tecValue != null
               ? `<div style="color:#57ff65;font-weight:800">${tecValue.toFixed(1)} TECU</div>`
               : "";
-          popupEl.innerHTML = `<b>${s.code.toUpperCase()}</b>${tecLine}${icaoLine}${distLine}<div style="margin-top:0.2rem;color:#94a3b8">Click Details →</div>`;
+          const sourcetableLine = s.sourcetable_mismatch
+            ? `<div style="margin-top:0.2rem;color:#ef9f27;font-weight:700">Warning: Shares caster identity with "${s.sourcetable_identifier}"</div>`
+            : "";
+          popupEl.innerHTML = `<b>${s.code.toUpperCase()}</b>${tecLine}${icaoLine}${distLine}${sourcetableLine}<div style="margin-top:0.2rem;color:#94a3b8">Click Details →</div>`;
           popup.setPosition(evt.coordinate);
           popupEl.style.display = "block";
         } else {

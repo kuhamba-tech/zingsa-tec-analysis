@@ -203,6 +203,17 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
         except Exception:
             log.exception("Failed to start live ingest for probed-online CORS stations")
 
+    sourcetable_by_station: dict[str, dict] = {}
+    try:
+        from zgiis.live.ntrip_sourcetable_cache import get_cached_sourcetable_diagnostics
+
+        mountpoints = _parse_mountpoints_for_sourcetable()
+        if mountpoints:
+            diag = get_cached_sourcetable_diagnostics(mountpoints, refresh=refresh_ntrip)
+            sourcetable_by_station = diag.get("by_station") or {}
+    except Exception:
+        log.exception("Failed to fetch NTRIP caster sourcetable diagnostics")
+
     merged = []
     for station in stations:
         code = station.code.lower()
@@ -221,8 +232,25 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
                 status_source="ntrip",
             )
             s = enrich_station(s, stream=stream)
+        st_diag = sourcetable_by_station.get(code.rstrip("_"))
+        if st_diag:
+            s = replace(
+                s,
+                sourcetable_identifier=st_diag.get("identifier") or "",
+                sourcetable_mismatch=bool(st_diag.get("mismatch")),
+                sourcetable_note=st_diag.get("note") or "",
+            )
         merged.append(s)
     return merged
+
+
+def _parse_mountpoints_for_sourcetable() -> dict[str, str]:
+    try:
+        from zgiis.live.mountpoints import parse_mountpoints
+
+        return parse_mountpoints()
+    except Exception:
+        return {}
 
 
 def _stations(*, refresh_ntrip: bool = False) -> list:
@@ -243,6 +271,16 @@ def _stations(*, refresh_ntrip: bool = False) -> list:
 
 
 def _station_out(s) -> StationOut:
+    current_tec = getattr(s, "current_tec", None)
+    if current_tec is not None:
+        try:
+            current_tec = float(current_tec)
+        except (TypeError, ValueError):
+            current_tec = None
+        else:
+            if not math.isfinite(current_tec) or current_tec <= 0:
+                current_tec = None
+
     return StationOut(
         code=s.code,
         name=s.name,
@@ -251,7 +289,7 @@ def _station_out(s) -> StationOut:
         status=s.status,
         status_source=getattr(s, "status_source", "unknown"),
         constellations=list(s.constellations) if s.constellations else [],
-        current_tec=s.current_tec,
+        current_tec=current_tec,
         height_m=getattr(s, "height_m", None),
         mountpoint=getattr(s, "mountpoint", None) or None,
         marker_name=getattr(s, "marker_name", None) or None,
@@ -263,6 +301,9 @@ def _station_out(s) -> StationOut:
         catalog_status=getattr(s, "catalog_status", None) or None,
         ntrip_verdict=getattr(s, "ntrip_verdict", None) or None,
         ntrip_probed_at=getattr(s, "ntrip_probed_at", None) or None,
+        sourcetable_identifier=getattr(s, "sourcetable_identifier", None) or None,
+        sourcetable_mismatch=bool(getattr(s, "sourcetable_mismatch", False)),
+        sourcetable_note=getattr(s, "sourcetable_note", None) or None,
     )
 
 

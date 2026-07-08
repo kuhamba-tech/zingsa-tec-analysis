@@ -25,7 +25,7 @@ export default function TecHeatmapPage() {
   const loadHeatmap = useCallback(async () => {
     setHeatmapStatus("pending");
     try {
-      const payload = await getTecHeatmap(2);
+      const payload = await getTecHeatmap(6);
       setHeatmap(payload);
       setHeatmapStatus(payload.available ? "ok" : "down");
       setLastFetchedAt(new Date());

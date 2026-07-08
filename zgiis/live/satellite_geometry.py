@@ -79,6 +79,7 @@ class LiveNavCache:
         self._lock = threading.Lock()
         self._gps: dict[int, dict] = {}
         self._rx_ecef: dict[str, np.ndarray] = {}
+        self.last_bulk_update: Optional[datetime] = None
 
     def update_gps_ephemeris(self, msg) -> None:
         parsed = _nav_row_from_rtcm_1019(msg)
@@ -87,6 +88,21 @@ class LiveNavCache:
         sv, nav = parsed
         with self._lock:
             self._gps[sv] = nav
+
+    def bulk_update_gps(self, nav_by_sv: dict[int, dict]) -> int:
+        """Merge broadcast-ephemeris nav rows (keyed by GPS SV number, see
+        zgiis/live/broadcast_ephemeris.py) into the cache. Returns the count
+        of satellites updated."""
+        if not nav_by_sv:
+            return 0
+        with self._lock:
+            self._gps.update(nav_by_sv)
+            self.last_bulk_update = datetime.now(tz=timezone.utc)
+        return len(nav_by_sv)
+
+    def gps_sv_count(self) -> int:
+        with self._lock:
+            return len(self._gps)
 
     def receiver_ecef(self, station_code: str) -> Optional[np.ndarray]:
         key = station_code.lower().rstrip("_")

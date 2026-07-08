@@ -58,12 +58,22 @@ def _brief_field(b: Any, key: str, default: str = "") -> str:
     return str(val) if val is not None else default
 
 
-def build_facebook_post(briefs: list[Any], *, computed_at: str) -> str:
+def build_facebook_post(briefs: list[Any], *, computed_at: str, language: str = "en") -> str:
     """National Navigation & Space Weather post for the Stellar Aspirations Facebook Page."""
     by_id = {_brief_field(b, "id"): b for b in briefs if _brief_field(b, "id")}
     citizen = by_id.get("citizen")
     if citizen:
-        social = _brief_field(citizen, "social_script")
+        if language and language != "en":
+            from zgiis.navigation.brief_renderer import render_brief_for_recipient
+
+            # "social" script_kind doesn't localize (short-form, English-only by design) —
+            # "broadcast" runs the brief through labels_for(language) for real translated
+            # chrome/tone text. Headline/summary/bullets still come from the underlying
+            # brief, which is only generated in English today.
+            brief_dict = citizen.model_dump() if hasattr(citizen, "model_dump") else dict(citizen)
+            social = render_brief_for_recipient(brief_dict, language=language, script_kind="broadcast")
+        else:
+            social = _brief_field(citizen, "social_script")
         if social.strip():
             text = social.strip()
             return text if len(text) <= 5000 else text[:4950] + "\n…"
@@ -81,6 +91,7 @@ def publish_navigation_news_to_facebook(
     *,
     dry_run: bool | None = None,
     refresh_ntrip: bool = False,
+    language: str = "en",
 ) -> dict[str, Any]:
     """Post the latest Navigation News digest to the configured Facebook Page."""
     from backend.routers.navigation_news import get_navigation_news_bundle
@@ -96,7 +107,7 @@ def publish_navigation_news_to_facebook(
         }
 
     bundle = get_navigation_news_bundle(refresh_ntrip=refresh_ntrip, force=False)
-    text = build_facebook_post(bundle.briefs, computed_at=bundle.computed_at)
+    text = build_facebook_post(bundle.briefs, computed_at=bundle.computed_at, language=language)
     if not text.strip():
         return {
             "ok": False,

@@ -141,6 +141,7 @@ async def pipeline_status(_=Depends(require_api_key)):
         db_backend=db_backend,
         record_count=record_count,
         recent_record_count_1h=recent_record_count_1h,
+        diagnostics=s.get("diagnostics") or {},
         runtime_mode=s.get("runtime_mode", "persistent-process"),
         ingest_enabled=bool(s.get("ingest_enabled", True)),
         message=s.get("message"),

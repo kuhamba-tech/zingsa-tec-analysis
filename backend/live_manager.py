@@ -25,6 +25,8 @@ _status_message = "Live pipeline has not been started."
 _ingest_lock = threading.Lock()
 _flush_stop = threading.Event()
 _flush_thread: threading.Thread | None = None
+_ephemeris_stop = threading.Event()
+_ephemeris_thread: threading.Thread | None = None
 
 
 def _env_enabled(name: str, default: bool = False) -> bool:
@@ -87,6 +89,49 @@ def _stop_flush_thread() -> None:
     _flush_stop.set()
 
 
+def _ephemeris_refresh_interval_s() -> float:
+    raw = os.getenv("ZGIIS_EPHEMERIS_REFRESH_S", "3600").strip()
+    try:
+        return max(300.0, float(raw))
+    except ValueError:
+        return 3600.0
+
+
+def _start_ephemeris_thread() -> None:
+    """
+    Periodically refresh GPS broadcast ephemeris from BKG's public BRDC
+    mirror into the shared LiveNavCache. The CORS casters relay MSM
+    observations but never emit RTCM 1019 (confirmed by direct capture), so
+    satellite elevation — required before any VTEC value can be computed —
+    would otherwise never resolve. See zgiis/live/broadcast_ephemeris.py.
+    """
+    global _ephemeris_thread
+    _ephemeris_stop.clear()
+    if _ephemeris_thread is not None and _ephemeris_thread.is_alive():
+        return
+
+    def _loop() -> None:
+        from zgiis.live.broadcast_ephemeris import fetch_gps_nav
+
+        nav_cache = get_nav_cache()
+        while True:
+            try:
+                nav_by_sv = fetch_gps_nav()
+                updated = nav_cache.bulk_update_gps(nav_by_sv)
+                log.info("Broadcast ephemeris refresh: %d GPS satellite(s) updated.", updated)
+            except Exception as exc:
+                log.warning("Broadcast ephemeris refresh failed: %s", exc)
+            if _ephemeris_stop.wait(_ephemeris_refresh_interval_s()):
+                break
+
+    _ephemeris_thread = threading.Thread(target=_loop, daemon=True, name="zgiis-live-ephemeris")
+    _ephemeris_thread.start()
+
+
+def _stop_ephemeris_thread() -> None:
+    _ephemeris_stop.set()
+
+
 def get_nav_cache():
     global _nav_cache
     if _nav_cache is None:
@@ -106,6 +151,17 @@ def latest_vtec_by_station() -> dict[str, float]:
     if pipeline is None:
         return {}
     return pipeline.latest_by_station()
+
+
+def diagnostics_by_station() -> dict[str, dict]:
+    """In-memory per-station ingest counters from the live ingest pipeline."""
+    pipeline = _pipeline
+    if pipeline is None:
+        return {}
+    try:
+        return pipeline.diagnostics_by_station()
+    except AttributeError:
+        return {}
 
 
 def get_db():
@@ -146,12 +202,19 @@ def status() -> dict:
         recent_records = db.record_count(hours=1.0)
     except Exception as exc:
         log.debug("Live pipeline recent record count unavailable: %s", exc)
+    diagnostics = diagnostics_by_station()
+    if _nav_cache is not None:
+        diagnostics["gps_ephemeris_svs"] = _nav_cache.gps_sv_count()
+        diagnostics["gps_ephemeris_last_refresh"] = (
+            _nav_cache.last_bulk_update.isoformat() if _nav_cache.last_bulk_update else None
+        )
     return {
         "configured": _configured,
         "active_streams": mgr.active_count if mgr else 0,
         "streams": mgr.status() if mgr else {},
         "db_backend": db_backend,
         "recent_vtec_records_1h": recent_records,
+        "diagnostics": diagnostics,
         "runtime_mode": _runtime_mode(),
         "ingest_enabled": _ingest_allowed(),
         "message": _status_message,
@@ -253,6 +316,7 @@ def start(*, priority_codes: list[str] | None = None) -> None:
     _configured = True
     _status_message = f"Live NTRIP pipeline started for {len(mountpoints)} station(s)."
     _start_flush_thread()
+    _start_ephemeris_thread()
     log.info("Live NTRIP pipeline started for %d station(s): %s", len(mountpoints), list(mountpoints))
 
 
@@ -277,6 +341,7 @@ def ensure_ingest_for_stations(station_codes: list[str]) -> None:
 def stop() -> None:
     global _pipeline, _ntrip_manager, _configured
     _stop_flush_thread()
+    _stop_ephemeris_thread()
     if _pipeline is not None:
         try:
             _pipeline.flush_db()

@@ -232,6 +232,9 @@ export interface Station {
   catalog_status?: string | null;
   ntrip_verdict?: string | null;
   ntrip_probed_at?: string | null;
+  sourcetable_identifier?: string | null;
+  sourcetable_mismatch?: boolean;
+  sourcetable_note?: string | null;
 }
 
 export interface CorsHealth {
@@ -450,7 +453,7 @@ export interface TecHeatmapResponse {
   station_count: number;
   updated_at: string | null;
   message: string | null;
-  data_quality?: "none" | "regional_mean" | "stations_only" | "station";
+  data_quality?: "none" | "regional_mean" | "stations_only" | "station" | "processed_archive";
   icao_mod_tecu?: number;
   icao_sev_tecu?: number;
 }
@@ -462,6 +465,7 @@ export interface TecHeatmapStation {
   lon: number;
   vtec: number;
   obs_count: number;
+  source?: "live" | "processed_archive" | "processed_archive_estimate" | string;
 }
 
 export interface TecHeatmapPoint {
@@ -777,6 +781,13 @@ export interface LivePipelineStatus {
   db_backend: string;
   record_count: number;
   recent_record_count_1h: number;
+  diagnostics: Record<string, {
+    observations?: number;
+    missing_elevation?: number;
+    vtec_emitted?: number;
+    last_observation_at?: string | null;
+    last_vtec_at?: string | null;
+  }>;
   runtime_mode: string;
   ingest_enabled: boolean;
   message: string | null;

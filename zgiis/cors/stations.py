@@ -34,6 +34,13 @@ class CorsStation:
     catalog_status: str = ""
     ntrip_verdict: str = ""
     ntrip_probed_at: str = ""
+    # Cross-check against the caster's own sourcetable (STR identifier/coords).
+    # A mismatch means the caster reports this mountpoint under a different
+    # station's identity — a strong signal that no distinct receiver is wired
+    # to it (see zgiis/live/ntrip_sourcetable.py).
+    sourcetable_identifier: str = ""
+    sourcetable_mismatch: bool = False
+    sourcetable_note: str = ""
 
     @property
     def status_color(self) -> str:

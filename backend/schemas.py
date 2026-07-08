@@ -246,6 +246,9 @@ class StationOut(BaseModel):
     catalog_status: str | None = None
     ntrip_verdict: str | None = None
     ntrip_probed_at: str | None = None
+    sourcetable_identifier: str | None = None
+    sourcetable_mismatch: bool = False
+    sourcetable_note: str | None = None
 
 
 class CorsHealthOut(BaseModel):
@@ -678,6 +681,7 @@ class TecHeatmapStation(BaseModel):
     lon: float
     vtec: float
     obs_count: int = 0
+    source: str = "live"
 
 
 class TecHeatmapPoint(BaseModel):
@@ -740,6 +744,7 @@ class LivePipelineStatus(BaseModel):
     db_backend: str = "sqlite"
     record_count: int = 0
     recent_record_count_1h: int = 0
+    diagnostics: dict[str, Any] = {}
     runtime_mode: str = "persistent-process"
     ingest_enabled: bool = True
     message: str | None = None

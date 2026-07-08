@@ -327,7 +327,7 @@ export default function TimeSeriesPage() {
       {/* Title */}
       <div>
         <h1 className="page-title">📊 TEC Time Series Viewer</h1>
-        <p className="page-subtitle">Daily, monthly, and seasonal TEC variation across the Zimbabwe CORS network</p>
+        <p className="page-subtitle">Integrated space weather analysis using space-segment and ground-segment observations, including GNSS TEC, geomagnetic measurements, solar activity</p>
       </div>
 
       {/* Archive info banner */}
@@ -355,7 +355,7 @@ export default function TimeSeriesPage() {
       {/* Multi-source geomagnetic indices — NASA · CelesTrak · GFZ */}
       <div className="omni-range-card">
         <div className="omni-range-title">
-          Geomagnetic indices — NASA OMNIWeb · CelesTrak · GFZ Potsdam (DE) · WDC Kyoto (JP)
+          Space Segment - Geomagnetic indices — NASA OMNIWeb · CelesTrak · GFZ Potsdam (DE) · WDC Kyoto (JP)
         </div>
         <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", margin: 0 }}>
           Load daily space-weather indices from all four providers in one request, then compare Kp, Dst, F10.7,
@@ -418,13 +418,10 @@ export default function TimeSeriesPage() {
 
       {/* INTERMAGNET date range — ground magnetometer H / dB/dt */}
       <div className="omni-range-card">
-        <div className="omni-range-title">INTERMAGNET date range (H field · dB/dt · modelled GIC)</div>
+        <div className="omni-range-title">Ground Segment - Geomagnetic Observatory (H field · dB/dt · modelled GIC)</div>
         <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", margin: 0 }}>
-          Pull 1-minute ground-magnetometer data from{" "}
-          <a href="https://imag-data.bgs.ac.uk/GIN_V1/GINForms2" target="_blank" rel="noreferrer">
-            INTERMAGNET (BGS GIN)
-          </a>{" "}
-          observatories nearest Zimbabwe, then overlay locally-measured geomagnetic storm days on VTEC. Storms
+          Pull 1-minute ground-magnetometer data from observatories nearest Zimbabwe, then overlay
+          locally-measured geomagnetic storm days on VTEC. Storms
           are detected from dH/dt and daily H range — the same physics that drives GICs.
         </p>
         <div className="omni-range-grid">
@@ -480,7 +477,7 @@ export default function TimeSeriesPage() {
             </select>
           </label>
           <button className="btn btn-primary" onClick={loadIntermagnet} disabled={intermagnetLoading || loading}>
-            {intermagnetLoading ? "Loading INTERMAGNET…" : "Load INTERMAGNET analysis"}
+            {intermagnetLoading ? "Loading…" : "Load analysis"}
           </button>
         </div>
         {(() => {

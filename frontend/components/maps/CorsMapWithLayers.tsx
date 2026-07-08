@@ -51,6 +51,9 @@ export default function CorsMapWithLayers({
       ? `Online ${liveCounts.online} · Degraded ${liveCounts.degraded} · Offline ${liveCounts.offline} · Unavailable ${liveCounts.unavailable}`
       : "Live stream status";
 
+  const sourcetableMismatches = stations.filter((s) => s.sourcetable_mismatch);
+  const sharedIdentifier = sourcetableMismatches[0]?.sourcetable_identifier || null;
+
   return (
     <div>
       {tecLayerActive && qualityBanner && (
@@ -60,6 +63,18 @@ export default function CorsMapWithLayers({
           role="status"
         >
           {qualityBanner}
+        </div>
+      )}
+      {sourcetableMismatches.length > 0 && (
+        <div
+          className="banner banner-warn"
+          style={{ fontSize: "0.78rem", marginBottom: "0.5rem" }}
+          role="status"
+        >
+          Warning: NTRIP caster sourcetable reports {sourcetableMismatches.length} mountpoint
+          {sourcetableMismatches.length === 1 ? "" : "s"} under {sharedIdentifier ? `"${sharedIdentifier}"'s` : "another station's"}{" "}
+          identity - likely no distinct receiver is wired to{" "}
+          {sourcetableMismatches.length === 1 ? "that mountpoint" : "those mountpoints"} yet. Click a marker for details.
         </div>
       )}
       <div className="home-map-toolbar">

@@ -35,7 +35,7 @@ export function icaoTecDistanceLabel(vtec: number | null | undefined): string | 
   return `${(ICAO_TEC_MOD - vtec).toFixed(1)} TECU below MOD threshold`;
 }
 
-export type HeatmapDataQuality = "none" | "regional_mean" | "stations_only" | "station";
+export type HeatmapDataQuality = "none" | "regional_mean" | "stations_only" | "station" | "processed_archive";
 
 export function inferHeatmapQuality(
   heatmap: {
@@ -69,6 +69,9 @@ export function heatmapQualityBanner(
   }
   if (quality === "stations_only") {
     return message ?? "Station VTEC available; interpolated grid could not be built — check that at least three stations report live data.";
+  }
+  if (quality === "processed_archive") {
+    return message ?? "Showing calculated VTEC from processed RINEX/CMN files while live NTRIP VTEC is unavailable.";
   }
   if (quality === "none" && message) return message;
   return null;

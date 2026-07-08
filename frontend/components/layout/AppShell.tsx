@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import SiteTranslator from "./SiteTranslator";
 
 type NavItem = {
   href: string;
@@ -216,6 +217,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       <main className="app-main">
         {children}
       </main>
+      <SiteTranslator />
     </div>
   );
 }

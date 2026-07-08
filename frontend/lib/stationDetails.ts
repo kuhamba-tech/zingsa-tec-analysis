@@ -42,5 +42,14 @@ export function stationDetailRows(s: Station): { label: string; value: string; h
       label: "VTEC",
       value: s.current_tec != null ? `${s.current_tec.toFixed(2)} TECU` : "N/A",
     },
+    ...(s.sourcetable_mismatch
+      ? [
+          {
+            label: "Sourcetable check",
+            value: s.sourcetable_note || `Caster identifies this mountpoint as "${s.sourcetable_identifier}"`,
+            highlight: true,
+          },
+        ]
+      : []),
   ];
 }

@@ -178,6 +178,7 @@ export default function LivePipelinePage() {
   const activeStreams = pipelineStatus?.active_streams ?? 0;
   const streamTotal = configuredStreams || total;
   const streamRows = pipelineStatus?.streams ? Object.entries(pipelineStatus.streams) : [];
+  const pipelineDiagnostics = pipelineStatus?.diagnostics ?? {};
   const ntripState = pipelineStatus
     ? pipelineStatus.ingest_enabled
       ? activeStreams > 0
@@ -260,19 +261,37 @@ export default function LivePipelinePage() {
                   <th>Mountpoint</th>
                   <th>Connected</th>
                   <th>Messages</th>
+                  <th>VTEC</th>
                   <th>Last seen</th>
                 </tr>
               </thead>
               <tbody>
-                {streamRows.map(([code, row]) => (
-                  <tr key={code}>
-                    <td>{code.toUpperCase()}</td>
-                    <td>{row.mountpoint}</td>
-                    <td>{row.connected ? "Yes" : "No"}</td>
-                    <td>{row.msg_count ?? 0}</td>
-                    <td>{row.last_seen ? String(row.last_seen).slice(11, 19) : "—"}</td>
-                  </tr>
-                ))}
+                {streamRows.map(([code, row]) => {
+                  const diag = pipelineDiagnostics[code] ?? {};
+                  const emitted = diag.vtec_emitted ?? 0;
+                  const missingElevation = diag.missing_elevation ?? 0;
+                  const observations = diag.observations ?? 0;
+                  const vtecNote =
+                    emitted > 0
+                      ? `${emitted} emitted`
+                      : observations > 0 && missingElevation > 0
+                        ? "Waiting for ephemeris/elevation"
+                        : observations > 0
+                          ? "Waiting for L1/L2 pair"
+                          : "No observations";
+                  return (
+                    <tr key={code}>
+                      <td>{code.toUpperCase()}</td>
+                      <td>{row.mountpoint}</td>
+                      <td>{row.connected ? "Yes" : "No"}</td>
+                      <td>{row.msg_count ?? 0}</td>
+                      <td style={{ color: emitted > 0 ? "#00ff88" : observations > 0 ? "#ef9f27" : "var(--text-muted)" }}>
+                        {vtecNote}
+                      </td>
+                      <td>{row.last_seen ? String(row.last_seen).slice(11, 19) : "—"}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

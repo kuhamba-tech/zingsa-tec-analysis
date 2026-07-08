@@ -155,7 +155,7 @@ export default function HomePage() {
       try {
         const [stationsResult, heatmapResult] = await Promise.all([
           getStations(false),
-          getTecHeatmap(2).catch(() => null),
+          getTecHeatmap(6).catch(() => null),
         ]);
         if (cancelled) return;
 
@@ -183,7 +183,7 @@ export default function HomePage() {
         .then(async (fresh) => {
           if (cancelled) return;
           setStations(fresh);
-          const heatmap = await getTecHeatmap(2).catch(() => null);
+          const heatmap = await getTecHeatmap(6).catch(() => null);
           if (!cancelled) setTecHeatmap(heatmap);
           const liveCounts = countLiveStationStatuses(fresh);
           const probed = fresh.find((s) => s.ntrip_probed_at)?.ntrip_probed_at;

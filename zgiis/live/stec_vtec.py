@@ -93,10 +93,17 @@ class LiveVtecAccumulator:
         self._buf: dict[tuple, dict[int, dict]] = defaultdict(dict)
 
     def ingest(self, obs: dict) -> Optional[dict]:
+        """Accept one raw observation. Returns a VTEC dict if the L1+L2 pair
+        for this PRN is now complete, otherwise returns None. See
+        `ingest_with_reason` for why a given observation didn't emit."""
+        vtec, _reason = self.ingest_with_reason(obs)
+        return vtec
+
+    def ingest_with_reason(self, obs: dict) -> tuple[Optional[dict], str]:
         """
-        Accept one raw observation.
-        Returns a VTEC dict if the L1+L2 pair for this PRN is now complete,
-        otherwise returns None.
+        Same as `ingest`, but also returns a reason code explaining why no
+        VTEC was emitted (or "ok" when one was): "unpaired", "no_phase",
+        "no_elevation", "below_mask", "sanity_fail", "ok".
         """
         key     = (obs["station"], obs["prn"])
         sig_idx = int(obs.get("sig_idx", 0))
@@ -113,7 +120,7 @@ class LiveVtecAccumulator:
 
         paired = self._buf[key]
         if len(paired) < 2:
-            return None
+            return None, "unpaired"
 
         sigs = sorted(paired.keys())
         obs1 = paired[sigs[0]]   # lower sig_idx → L1
@@ -122,7 +129,7 @@ class LiveVtecAccumulator:
         cp1 = obs1.get("carrier_phase_cycles") or 0.0
         cp2 = obs2.get("carrier_phase_cycles") or 0.0
         if not cp1 or not cp2:
-            return None
+            return None, "no_phase"
 
         freq1 = obs1.get("freq1_hz") or obs.get("freq1_hz", 1575.42e6)
         freq2 = obs2.get("freq2_hz") or obs.get("freq2_hz", 1227.60e6)
@@ -130,10 +137,10 @@ class LiveVtecAccumulator:
         # Elevation must come from nav-derived geometry (RTCM 1019 + station coords).
         elevation = obs.get("elevation_deg")
         if elevation is None:
-            return None
+            return None, "no_elevation"
         if elevation < self.elevation_mask:
             self._buf[key].clear()
-            return None
+            return None, "below_mask"
 
         stec = stec_from_phase(cp1, cp2, freq1, freq2)
         vtec = vtec_from_stec(stec, elevation, self.ipp_height_km)
@@ -141,7 +148,7 @@ class LiveVtecAccumulator:
         # Sanity-check (ionospheric VTEC is 0–150 TECU under normal conditions)
         if not (0.0 < vtec < 200.0):
             self._buf[key].clear()
-            return None
+            return None, "sanity_fail"
 
         self._buf[key].clear()
 
@@ -154,7 +161,7 @@ class LiveVtecAccumulator:
             "vtec_tecu":     round(vtec, 4),
             "elevation_deg": round(elevation, 2),
             "cnr_dbhz":      obs1.get("cnr_dbhz"),
-        }
+        }, "ok"
 
     def flush(self) -> None:
         """Clear all buffers (e.g. on reconnect)."""
@@ -188,6 +195,18 @@ class LiveVtecPipeline:
         self._pending: list[dict] = []
         self._flush_n = db_flush_n
         self._latest: dict[str, dict] = {}
+        self._diagnostics: dict[str, dict] = defaultdict(
+            lambda: {
+                "observations": 0,
+                "missing_elevation": 0,
+                "vtec_emitted": 0,
+                "unpaired": 0,
+                "below_mask": 0,
+                "sanity_fail": 0,
+                "last_observation_at": None,
+                "last_vtec_at": None,
+            }
+        )
 
     def latest_by_station(self) -> dict[str, float]:
         """Most recent VTEC (TECU) per station from the in-memory pipeline."""
@@ -197,7 +216,18 @@ class LiveVtecPipeline:
             if row.get("vtec_tecu") is not None
         }
 
+    def diagnostics_by_station(self) -> dict[str, dict]:
+        """Per-station ingest counters for explaining connected-but-no-VTEC states."""
+        return {code: dict(row) for code, row in self._diagnostics.items()}
+
     def ingest(self, obs: dict) -> None:
+        code = str(obs.get("station", "")).lower().rstrip("_")
+        diag = self._diagnostics[code] if code else None
+        if diag is not None:
+            diag["observations"] += 1
+            epoch = obs.get("epoch")
+            diag["last_observation_at"] = epoch.isoformat() if hasattr(epoch, "isoformat") else str(epoch or "")
+
         if self._nav_cache is not None and obs.get("elevation_deg") is None:
             elev = self._nav_cache.elevation_deg(
                 obs.get("station", ""),
@@ -206,14 +236,22 @@ class LiveVtecPipeline:
             )
             if elev is not None:
                 obs = {**obs, "elevation_deg": elev}
+        if diag is not None and obs.get("elevation_deg") is None:
+            diag["missing_elevation"] += 1
 
-        vtec = self._acc.ingest(obs)
+        vtec, reason = self._acc.ingest_with_reason(obs)
+        if diag is not None and reason in ("unpaired", "below_mask", "sanity_fail"):
+            diag[reason] += 1
         if vtec is None:
             return
 
         code = str(vtec.get("station", "")).lower().rstrip("_")
         if code:
             self._latest[code] = vtec
+            diag = self._diagnostics[code]
+            diag["vtec_emitted"] += 1
+            epoch = vtec.get("epoch")
+            diag["last_vtec_at"] = epoch.isoformat() if hasattr(epoch, "isoformat") else str(epoch or "")
 
         if self._on_vtec:
             try:

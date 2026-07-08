@@ -447,7 +447,7 @@ export const getAnomalies = (threshold_pct = 95, station?: string) =>
   get<AnomalyDay[]>("/tec/anomalies", { threshold_pct, station }, ANALYSIS_TIMEOUT_MS);
 export const getAnomalyAnalysis = (threshold_pct = 95, station?: string) =>
   get<AnomalyAnalysisResponse>("/tec/anomaly-analysis", { threshold_pct, station }, ANALYSIS_TIMEOUT_MS);
-export const getTecHeatmap = (hours = 2) => get<TecHeatmapResponse>("/tec/heatmap", { hours });
+export const getTecHeatmap = (hours = 6) => get<TecHeatmapResponse>("/tec/heatmap", { hours });
 export const getDiurnal = (station?: string) => get<DiurnalPoint[]>("/tec/diurnal", { station });
 export const getSeasonal = (station?: string) => get<SeasonalRow[]>("/tec/seasonal", { station });
 export const getSolarCycle = (station?: string) => get<SolarCycleRow[]>("/tec/solar-cycle", { station });
