@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import date
 from functools import lru_cache
-import os
 
 import numpy as np
 import pandas as pd
@@ -347,14 +346,9 @@ async def tec_heatmap(
     hours: float = Query(2.0, ge=0.5, le=24),
     _=Depends(require_api_key),
 ):
-    from zgiis.maps.heatmap_data import build_archive_tec_heatmap, build_tec_heatmap
+    from zgiis.maps.heatmap_data import build_tec_heatmap
 
-    remote_db_configured = bool(os.getenv("TSDB_DSN") or os.getenv("POSTGRES_URL") or os.getenv("DATABASE_URL"))
-    live_db_opt_in = os.getenv("TEC_HEATMAP_QUERY_LIVE_DB", "").strip().lower() in {"1", "true", "yes", "on"}
-    if remote_db_configured and not live_db_opt_in:
-        payload = build_archive_tec_heatmap()
-    else:
-        payload = build_tec_heatmap(hours=hours)
+    payload = build_tec_heatmap(hours=hours)
 
     grid = payload.get("grid")
     return TecHeatmapResponse(

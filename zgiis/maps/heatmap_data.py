@@ -29,11 +29,9 @@ _STATION_LOOKUP = {s.code.lower(): s for s in ZIMBABWE_CORS_STATIONS}
 
 
 def _live_db_heatmap_enabled() -> bool:
-    """Remote DB reads can block the interactive map, so keep them opt-in."""
-    has_remote_db = bool(os.getenv("TSDB_DSN") or os.getenv("POSTGRES_URL") or os.getenv("DATABASE_URL"))
-    if not has_remote_db:
-        return True
-    return os.getenv("TEC_HEATMAP_QUERY_LIVE_DB", "").strip().lower() in {"1", "true", "yes", "on"}
+    """Live DB rows should be used in every environment unless explicitly disabled."""
+    disabled = os.getenv("TEC_HEATMAP_QUERY_LIVE_DB", "").strip().lower() in {"0", "false", "no", "off"}
+    return not disabled
 
 
 def _absolute_weight(vtec: float) -> float:

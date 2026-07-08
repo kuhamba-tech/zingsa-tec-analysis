@@ -82,6 +82,39 @@ def test_build_tec_heatmap_interpolates_with_three_stations():
     assert rows_by_code["cent"]["source"] == "live_surface_estimate"
 
 
+def test_build_tec_heatmap_uses_live_rows_when_remote_db_env_is_set():
+    summary = pd.DataFrame(
+        {
+            "station": ["hara", "karo", "bula"],
+            "mean_vtec": [31.0, 33.0, 32.0],
+            "max_vtec": [32.0, 34.0, 33.0],
+            "obs_count": [8, 7, 6],
+        }
+    )
+    archive = pd.DataFrame(
+        {
+            "timestamp": pd.to_datetime(["2024-04-01 00:00"]),
+            "station": ["hara"],
+            "vtec": [5.0],
+            "observations": [1],
+        }
+    )
+    with patch.dict("os.environ", {"DATABASE_URL": "postgres://example"}, clear=False), patch(
+        "backend.live_manager.get_db"
+    ) as mock_db, patch(
+        "zgiis.data.tec_archive.load_historical_tec",
+        return_value=(archive, {"available": True}),
+    ):
+        mock_db.return_value.station_summary.return_value = summary
+        payload = build_tec_heatmap(hours=2)
+
+    rows_by_code = {row["code"]: row for row in payload["stations"]}
+    assert payload["available"] is True
+    assert payload["data_quality"] == "regional_mean"
+    assert rows_by_code["hara"]["source"] == "live"
+    assert rows_by_code["hara"]["vtec"] == 31.0
+
+
 def test_build_tec_heatmap_flags_zero_obs_as_regional_mean():
     summary = pd.DataFrame(
         {
