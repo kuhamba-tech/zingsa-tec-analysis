@@ -20,6 +20,8 @@ from __future__ import annotations
 import gzip
 import logging
 import tempfile
+import threading
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
@@ -146,3 +148,24 @@ def fetch_gps_nav(reference_time: Optional[datetime] = None) -> dict[int, dict]:
         if out:
             return out
     return {}
+
+
+def start_refresh_thread(nav_cache, *, interval_s: float = 3600.0) -> threading.Thread:
+    """Start a daemon thread that keeps `nav_cache` populated with fresh GPS
+    broadcast ephemeris — required by any long-running NTRIP ingest process
+    (backend's in-process pipeline and the standalone collector script alike),
+    since the CORS casters never emit RTCM 1019 themselves."""
+
+    def _loop() -> None:
+        while True:
+            try:
+                nav_by_sv = fetch_gps_nav()
+                updated = nav_cache.bulk_update_gps(nav_by_sv)
+                log.info("Broadcast ephemeris refresh: %d GPS satellite(s) updated.", updated)
+            except Exception as exc:
+                log.warning("Broadcast ephemeris refresh failed: %s", exc)
+            time.sleep(interval_s)
+
+    thread = threading.Thread(target=_loop, daemon=True, name="ephemeris-refresh")
+    thread.start()
+    return thread

@@ -117,7 +117,7 @@ def build_diagnostics(
             coord = f" ({lat:.2f}, {lon:.2f})" if lat is not None and lon is not None else ""
             note = (
                 f"Caster sourcetable lists this mountpoint's identifier as "
-                f"\"{identifier}\"{coord} instead of its own code \"{mp_clean}\" — "
+                f"\"{identifier}\"{coord} instead of its own code \"{mp_clean}\" - "
                 "may indicate no distinct receiver is wired to this mountpoint."
             )
         out[station_code] = {

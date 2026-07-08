@@ -85,6 +85,7 @@ def main() -> int:
         return 2
 
     from zgiis.db.timescale import TecDB
+    from zgiis.live.broadcast_ephemeris import start_refresh_thread
     from zgiis.live.ntrip_stream import LiveNtripManager
     from zgiis.live.satellite_geometry import LiveNavCache
     from zgiis.live.stec_vtec import LiveVtecPipeline
@@ -114,6 +115,10 @@ def main() -> int:
         nav_cache=nav_cache,
     )
     manager.start(mountpoints)
+    start_refresh_thread(
+        nav_cache,
+        interval_s=max(300.0, float(os.getenv("ZGIIS_EPHEMERIS_REFRESH_S", "3600"))),
+    )
     log.info(
         "Collector started for %d station(s), db=%s, initial_records=%s",
         len(mountpoints),
