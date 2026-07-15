@@ -727,6 +727,7 @@ class TecHeatmapDiagnostics(BaseModel):
     fit: dict[str, Any] = Field(default_factory=dict)
     gradients: dict[str, Any] = Field(default_factory=dict)
     ionosonde_comparison: dict[str, Any] = Field(default_factory=dict)
+    evaluation: dict[str, Any] = Field(default_factory=dict)
     frequency_recommendations: list[str] = Field(default_factory=list)
 
 

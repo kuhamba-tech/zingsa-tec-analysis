@@ -81,6 +81,14 @@ def test_build_tec_heatmap_interpolates_with_three_stations():
     assert payload["diagnostics"]["fit"]["control_station_count"] == 3
     assert payload["diagnostics"]["gradients"]["spatial_max_tecu_per_deg"] is not None
     assert payload["diagnostics"]["ionosonde_comparison"]["code"] == "MU12K"
+    evaluation = payload["diagnostics"]["evaluation"]
+    assert evaluation["matched_points_only"] is True
+    assert evaluation["comparison_window_days"] == 5
+    assert evaluation["comparison_interval_minutes"] == 60
+    assert evaluation["rmse_window_minutes"] == 15
+    assert [target["code"] for target in evaluation["targets"]] == ["HE13N", "GR13L"]
+    assert evaluation["reference_statistics"]["ionosonde_example_correlation"] == 0.96
+    assert evaluation["reference_statistics"]["afritec_example_correlation"] == 0.93
     assert any("L1/L2" in item for item in payload["diagnostics"]["frequency_recommendations"])
     assert len(payload["heat_points"]) > 24
     assert payload["tec_min"] is not None

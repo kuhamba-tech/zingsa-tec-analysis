@@ -34,6 +34,37 @@ MADIMBO_IONOSONDE = {
     "country": "South Africa",
     "note": "Nearest SANSA ionosonde to Zimbabwe listed by Matamba and Danskin (2022); use for cross-border TEC validation when NRT ionosonde TEC is available.",
 }
+MATAMBA_EVALUATION_WINDOW_DAYS = 5
+MATAMBA_EVALUATION_INTERVAL_MIN = 60
+MATAMBA_EVALUATION_TARGETS = [
+    {
+        "code": "HE13N",
+        "name": "Hermanus ionosonde",
+        "lat": -34.43,
+        "lon": 19.23,
+        "country": "South Africa",
+        "env_ionosonde": "HE13N_IONOSONDE_TEC",
+        "env_afritec": "HE13N_AFRITEC_TEC",
+    },
+    {
+        "code": "GR13L",
+        "name": "Grahamstown ionosonde",
+        "lat": -33.32,
+        "lon": 26.50,
+        "country": "South Africa",
+        "env_ionosonde": "GR13L_IONOSONDE_TEC",
+        "env_afritec": "GR13L_AFRITEC_TEC",
+    },
+]
+MATAMBA_REFERENCE_STATISTICS = {
+    "ionosonde_example_slope_range": [0.90, 1.01],
+    "ionosonde_example_correlation": 0.96,
+    "ionosonde_operational_correlation_min": 0.82,
+    "ionosonde_observed_slope_range": [0.65, 1.12],
+    "afritec_example_slope_range": [0.85, 0.86],
+    "afritec_example_correlation": 0.93,
+    "afritec_observed_slope_range": [0.59, 1.15],
+}
 TEC_ACQUISITION_RECOMMENDATIONS = [
     "Use dual-frequency GNSS L1/L2 observations for TEC; single-frequency streams cannot isolate ionospheric delay.",
     "For live NTRIP VTEC, require MSM4/MSM7 observation messages plus broadcast ephemeris, especially GPS RTCM 1019.",
@@ -105,6 +136,19 @@ def _matamba_metadata() -> dict[str, Any]:
         "interpolation": "nearest-neighbour",
         "median_filter_size": MATAMBA_MEDIAN_FILTER_SIZE,
         "quality_metrics": ["map RMSE", "station coverage quality factor", "spatial TEC gradient", "temporal TEC gradient"],
+        "evaluation": {
+            "targets": [target["code"] for target in MATAMBA_EVALUATION_TARGETS],
+            "external_references": ["ionosonde TEC", "AfriTEC model"],
+            "matched_points_only": True,
+            "comparison_window_days": MATAMBA_EVALUATION_WINDOW_DAYS,
+            "comparison_interval_minutes": MATAMBA_EVALUATION_INTERVAL_MIN,
+            "rmse_window_minutes": MATAMBA_WINDOW_MIN,
+            "rmse_definition": (
+                "RMSE of gridded median-filtered TEC minus original TEC estimates at IPP/control locations "
+                "for each 5-minute map using the past 15 minutes of data."
+            ),
+            "reference_statistics": MATAMBA_REFERENCE_STATISTICS,
+        },
         "recommendations": TEC_ACQUISITION_RECOMMENDATIONS,
     }
 
@@ -115,6 +159,7 @@ def _empty_diagnostics() -> dict[str, Any]:
         "fit": {"rmse_tecu": None, "quality_factor": 0.0, "control_station_count": 0, "control_observation_count": 0},
         "gradients": {"spatial_max_tecu_per_deg": None, "spatial_mean_tecu_per_deg": None, "temporal_max_tecu_per_hour": None},
         "ionosonde_comparison": _madimbo_comparison(None),
+        "evaluation": _matamba_evaluation([], None, None, None),
         "frequency_recommendations": TEC_ACQUISITION_RECOMMENDATIONS,
     }
 
@@ -204,6 +249,72 @@ def _madimbo_comparison(estimated_vtec: float | None) -> dict[str, Any]:
     }
 
 
+def _read_env_float(name: str) -> float | None:
+    raw = os.getenv(name)
+    if raw in {None, ""}:
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        return None
+
+
+def _comparison_row(estimate: float | None, measured: float | None) -> dict[str, Any]:
+    diff = None
+    if estimate is not None and measured is not None:
+        diff = round(float(estimate) - float(measured), 2)
+    return {
+        "value": measured,
+        "difference_tecu": diff,
+        "matched": estimate is not None and measured is not None,
+    }
+
+
+def _matamba_evaluation(
+    control_rows: list[dict[str, Any]],
+    grid_lons: np.ndarray | None,
+    grid_lats: np.ndarray | None,
+    grid_tec: np.ndarray | None,
+) -> dict[str, Any]:
+    targets: list[dict[str, Any]] = []
+    for target in MATAMBA_EVALUATION_TARGETS:
+        estimate = None
+        if grid_lons is not None and grid_lats is not None and grid_tec is not None:
+            estimate = _grid_lookup(grid_lons, grid_lats, grid_tec, target["lon"], target["lat"])
+        iono = _read_env_float(target["env_ionosonde"])
+        afritec = _read_env_float(target["env_afritec"])
+        targets.append(
+            {
+                "code": target["code"],
+                "name": target["name"],
+                "lat": target["lat"],
+                "lon": target["lon"],
+                "country": target["country"],
+                "nrt_tec_est": round(float(estimate), 2) if estimate is not None else None,
+                "ionosonde": _comparison_row(estimate, iono),
+                "afritec": _comparison_row(estimate, afritec),
+                "status": "matched_comparison_available" if iono is not None or afritec is not None else "awaiting_external_tec",
+            }
+        )
+
+    return {
+        "method": "Interpolate NRT TEC estimate from the median-filtered gridded map at ionosonde coordinates.",
+        "matched_points_only": True,
+        "comparison_window_days": MATAMBA_EVALUATION_WINDOW_DAYS,
+        "comparison_interval_minutes": MATAMBA_EVALUATION_INTERVAL_MIN,
+        "map_generation_interval_minutes": MATAMBA_CADENCE_MIN,
+        "rmse_window_minutes": MATAMBA_WINDOW_MIN,
+        "reference_statistics": MATAMBA_REFERENCE_STATISTICS,
+        "control_point_count": len(control_rows),
+        "targets": targets,
+        "notes": [
+            "Matamba and Danskin compare only matched data points in time.",
+            "Each hour, compare the latest 5 days of NRT TEC estimates with ionosonde TEC and AfriTEC.",
+            "Set HE13N_IONOSONDE_TEC, GR13L_IONOSONDE_TEC, HE13N_AFRITEC_TEC, and GR13L_AFRITEC_TEC to compute live residuals.",
+        ],
+    }
+
+
 def _matamba_diagnostics(
     control_rows: list[dict[str, Any]],
     grid_lons: np.ndarray,
@@ -220,6 +331,7 @@ def _matamba_diagnostics(
         "fit": _fit_metrics(control_rows, grid_lons, grid_lats, grid_tec),
         "gradients": gradients,
         "ionosonde_comparison": _madimbo_comparison(madimbo_estimate),
+        "evaluation": _matamba_evaluation(control_rows, grid_lons, grid_lats, grid_tec),
         "frequency_recommendations": TEC_ACQUISITION_RECOMMENDATIONS,
     }
 

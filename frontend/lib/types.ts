@@ -493,6 +493,28 @@ export interface TecHeatmapDiagnostics {
     status?: string;
     note?: string;
   };
+  evaluation?: {
+    method?: string;
+    matched_points_only?: boolean;
+    comparison_window_days?: number;
+    comparison_interval_minutes?: number;
+    map_generation_interval_minutes?: number;
+    rmse_window_minutes?: number;
+    reference_statistics?: Record<string, number | number[] | string | null>;
+    control_point_count?: number;
+    targets?: Array<{
+      code: string;
+      name: string;
+      lat: number;
+      lon: number;
+      country: string;
+      nrt_tec_est: number | null;
+      ionosonde: { value: number | null; difference_tecu: number | null; matched: boolean };
+      afritec: { value: number | null; difference_tecu: number | null; matched: boolean };
+      status: string;
+    }>;
+    notes?: string[];
+  };
   frequency_recommendations: string[];
 }
 

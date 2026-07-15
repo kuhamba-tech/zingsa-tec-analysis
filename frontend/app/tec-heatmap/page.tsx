@@ -65,6 +65,7 @@ export default function TecHeatmapPage() {
   const gradients = diagnostics?.gradients;
   const ionosonde = diagnostics?.ionosonde_comparison;
   const matamba = diagnostics?.matamba;
+  const evaluation = diagnostics?.evaluation;
   const aviationAdvisory =
     maxVtec != null && (icaoTecLevel(maxVtec) === "mod" || icaoTecLevel(maxVtec) === "sev");
 
@@ -172,6 +173,34 @@ export default function TecHeatmapPage() {
               <div><span>Observations</span><strong>{fit?.control_observation_count ?? 0}</strong></div>
             </div>
           </div>
+
+          {evaluation && (
+            <div className="tec-map-diagnostic-panel tec-map-diagnostic-panel--wide">
+              <h2>Matamba Evaluation</h2>
+              <p>
+                {evaluation.method ?? "NRT TEC estimates are extracted from the median-filtered grid at ionosonde coordinates."}
+                {" "}Matched points only; every {evaluation.comparison_interval_minutes ?? 60} min over the last{" "}
+                {evaluation.comparison_window_days ?? 5} days. Map RMSE uses the previous{" "}
+                {evaluation.rmse_window_minutes ?? 15} min of IPP/control observations.
+              </p>
+              <div className="tec-map-diagnostic-grid">
+                {(evaluation.targets ?? []).map((target) => (
+                  <div key={target.code}>
+                    <span>{target.code} {target.name}</span>
+                    <strong>{target.nrt_tec_est != null ? `${target.nrt_tec_est.toFixed(2)} TECU` : "N/A"}</strong>
+                    <small>
+                      Iono {target.ionosonde?.difference_tecu != null ? `${target.ionosonde.difference_tecu.toFixed(2)} TECU diff` : "awaiting"} ·
+                      AfriTEC {target.afritec?.difference_tecu != null ? `${target.afritec.difference_tecu.toFixed(2)} TECU diff` : "awaiting"}
+                    </small>
+                  </div>
+                ))}
+              </div>
+              <p className="tec-map-diagnostic-note">
+                Paper benchmark: ionosonde r about 0.96 in the example, operational r &gt; 0.82 since 2021-05-06;
+                slopes 0.65-1.12 for ionosonde and 0.59-1.15 for AfriTEC.
+              </p>
+            </div>
+          )}
 
           <div className="tec-map-diagnostic-panel">
             <h2>TEC Gradients</h2>
