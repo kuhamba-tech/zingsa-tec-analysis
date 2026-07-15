@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from urllib.parse import parse_qs, urlsplit
+
 from zgiis.db.config import configured_database_env_key, database_dsn, database_host_kind
 
 
@@ -23,5 +25,9 @@ def test_neon_urls_are_ignored_unless_explicitly_allowed(monkeypatch):
     assert configured_database_env_key() is None
 
     monkeypatch.setenv("ALLOW_LEGACY_NEON_DATABASE_URL", "true")
-    assert database_dsn().endswith("@ep-test.neon.tech/db")
+    allowed = database_dsn()
+    parts = urlsplit(allowed)
+    assert parts.hostname == "ep-test.neon.tech"
+    assert parts.path == "/db"
+    assert parse_qs(parts.query)["connect_timeout"] == ["5"]
     assert configured_database_env_key() == "DATABASE_URL"

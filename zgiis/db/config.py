@@ -37,15 +37,18 @@ def _dsn_allowed(dsn: str) -> bool:
 
 
 def ensure_sslmode(dsn: str) -> str:
-    """Require TLS for Supabase Postgres URLs unless the URL already says otherwise."""
+    """Require TLS/timeouts for hosted Postgres URLs unless already configured."""
     parts = urlsplit(dsn)
     host = parts.hostname or ""
-    if "supabase" not in host:
+    if not host or parts.scheme not in {"postgres", "postgresql"}:
         return dsn
     query = dict(parse_qsl(parts.query, keep_blank_values=True))
-    if "sslmode" in query:
-        return dsn
-    query["sslmode"] = "require"
+    if "supabase" in host and "sslmode" not in query:
+        query["sslmode"] = "require"
+    if "connect_timeout" not in query:
+        query["connect_timeout"] = "5"
+    if "application_name" not in query:
+        query["application_name"] = "zgiis"
     return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
 
 

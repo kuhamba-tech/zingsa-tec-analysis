@@ -10,6 +10,7 @@ static/data/station_status.sqlite.
 from __future__ import annotations
 
 import logging
+import os
 import sqlite3
 import tempfile
 from datetime import datetime, timedelta, timezone
@@ -124,6 +125,8 @@ class StationStatusDB:
             import psycopg2
 
             self._conn = psycopg2.connect(self._dsn)
+            if os.getenv("VERCEL"):
+                return
             with self._conn.cursor() as cur:
                 cur.execute(_PG_EVENTS_DDL)
                 cur.execute(_PG_SNAPSHOTS_DDL)
