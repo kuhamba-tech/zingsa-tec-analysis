@@ -456,6 +456,44 @@ export interface TecHeatmapResponse {
   data_quality?: "none" | "regional_mean" | "stations_only" | "station" | "processed_archive";
   icao_mod_tecu?: number;
   icao_sev_tecu?: number;
+  diagnostics?: TecHeatmapDiagnostics | null;
+}
+
+export interface TecHeatmapDiagnostics {
+  matamba: {
+    source?: string;
+    cadence_minutes?: number;
+    window_minutes?: number;
+    grid_resolution_deg?: number;
+    interpolation?: string;
+    median_filter_size?: number;
+    quality_metrics?: string[];
+    recommendations?: string[];
+  };
+  fit: {
+    rmse_tecu?: number | null;
+    quality_factor?: number | null;
+    control_station_count?: number;
+    control_observation_count?: number;
+  };
+  gradients: {
+    spatial_max_tecu_per_deg?: number | null;
+    spatial_mean_tecu_per_deg?: number | null;
+    temporal_max_tecu_per_hour?: number | null;
+  };
+  ionosonde_comparison: {
+    code?: string;
+    name?: string;
+    lat?: number;
+    lon?: number;
+    country?: string;
+    estimated_vtec?: number | null;
+    ionosonde_vtec?: number | null;
+    difference_tecu?: number | null;
+    status?: string;
+    note?: string;
+  };
+  frequency_recommendations: string[];
 }
 
 export interface TecHeatmapStation {
@@ -480,6 +518,8 @@ export interface TecHeatmapGrid {
   lons: number[][];
   lats: number[][];
   vtec: (number | null)[][];
+  method?: string | null;
+  resolution_deg?: number | null;
 }
 
 export interface DiurnalPoint { hour: number; mean_vtec: number; std_vtec: number; }

@@ -72,8 +72,16 @@ def test_build_tec_heatmap_interpolates_with_three_stations():
     assert payload["available"] is True
     assert payload["station_count"] == 24
     assert payload["grid"] is not None
+    assert payload["grid"]["method"] == "nearest_median"
+    assert payload["grid"]["resolution_deg"] == 1.0
     assert payload["data_quality"] == "regional_mean"
     assert payload["icao_mod_tecu"] == 125.0
+    assert payload["diagnostics"]["matamba"]["cadence_minutes"] == 5
+    assert payload["diagnostics"]["matamba"]["window_minutes"] == 15
+    assert payload["diagnostics"]["fit"]["control_station_count"] == 3
+    assert payload["diagnostics"]["gradients"]["spatial_max_tecu_per_deg"] is not None
+    assert payload["diagnostics"]["ionosonde_comparison"]["code"] == "MU12K"
+    assert any("L1/L2" in item for item in payload["diagnostics"]["frequency_recommendations"])
     assert len(payload["heat_points"]) > 24
     assert payload["tec_min"] is not None
     assert payload["tec_max"] is not None

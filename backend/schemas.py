@@ -696,6 +696,16 @@ class TecHeatmapGrid(BaseModel):
     lons: list[list[float]]
     lats: list[list[float]]
     vtec: list[list[float | None]]
+    method: str | None = None
+    resolution_deg: float | None = None
+
+
+class TecHeatmapDiagnostics(BaseModel):
+    matamba: dict[str, Any] = Field(default_factory=dict)
+    fit: dict[str, Any] = Field(default_factory=dict)
+    gradients: dict[str, Any] = Field(default_factory=dict)
+    ionosonde_comparison: dict[str, Any] = Field(default_factory=dict)
+    frequency_recommendations: list[str] = Field(default_factory=list)
 
 
 class TecHeatmapResponse(BaseModel):
@@ -712,6 +722,7 @@ class TecHeatmapResponse(BaseModel):
     data_quality: str = "none"
     icao_mod_tecu: float = 125.0
     icao_sev_tecu: float = 175.0
+    diagnostics: TecHeatmapDiagnostics | None = None
 
 
 # ── Live Pipeline ──────────────────────────────────────────────────────────────

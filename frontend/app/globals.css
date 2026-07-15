@@ -2384,6 +2384,78 @@ select option {
 .tec-heatmap-legend-green { color: #00ff88; }
 .tec-heatmap-legend-orange { color: #ffb347; }
 .tec-heatmap-legend-red { color: #ff4400; }
+.tec-map-diagnostics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+.tec-map-diagnostic-panel {
+  border: 1px solid #244d73;
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.72);
+  padding: 0.9rem 1rem;
+  color: #ffffff;
+}
+.tec-map-diagnostic-panel--wide {
+  grid-column: 1 / -1;
+}
+.tec-map-diagnostic-panel h2 {
+  margin: 0 0 0.65rem;
+  font-size: 0.82rem;
+  line-height: 1.2;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #ffffff;
+}
+.tec-map-diagnostic-panel p {
+  margin: 0;
+  color: #e2e8f0;
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+.tec-map-diagnostic-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+.tec-map-diagnostic-grid div {
+  min-width: 0;
+  border: 1px solid rgba(36, 77, 115, 0.65);
+  border-radius: 6px;
+  padding: 0.55rem 0.65rem;
+  background: rgba(12, 22, 40, 0.78);
+}
+.tec-map-diagnostic-grid span {
+  display: block;
+  margin-bottom: 0.2rem;
+  color: #94a3b8;
+  font-size: 0.62rem;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.tec-map-diagnostic-grid strong {
+  display: block;
+  color: #ffffff;
+  font-size: 0.88rem;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.tec-map-recommendations {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+.tec-map-recommendations span {
+  border: 1px solid rgba(36, 77, 115, 0.65);
+  border-radius: 6px;
+  padding: 0.6rem 0.7rem;
+  background: rgba(12, 22, 40, 0.78);
+  color: #e2e8f0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
 .home-map-icao-chip {
   display: inline-flex;
   align-items: center;
@@ -4705,6 +4777,15 @@ select option {
 
   .tec-map-frame .map-container {
     min-height: min(420px, 58vh);
+  }
+
+  .tec-map-diagnostics,
+  .tec-map-recommendations {
+    grid-template-columns: 1fr;
+  }
+
+  .tec-map-diagnostic-grid {
+    grid-template-columns: 1fr;
   }
 
   .processing-action-row {

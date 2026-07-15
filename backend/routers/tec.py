@@ -28,6 +28,7 @@ from backend.schemas import (
     SeasonalRow,
     SolarCycleRow,
     TecHeatmapGrid,
+    TecHeatmapDiagnostics,
     TecHeatmapPoint,
     TecHeatmapResponse,
     TecHeatmapStation,
@@ -365,6 +366,7 @@ async def tec_heatmap(
         data_quality=payload.get("data_quality", "none"),
         icao_mod_tecu=payload.get("icao_mod_tecu", 125.0),
         icao_sev_tecu=payload.get("icao_sev_tecu", 175.0),
+        diagnostics=TecHeatmapDiagnostics(**payload["diagnostics"]) if payload.get("diagnostics") else None,
     )
 
 

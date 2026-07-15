@@ -11,17 +11,36 @@ import numpy as np
 
 from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
 from zgiis.maps.interpolation import (
+    MATAMBA_GRID_STEP_DEG,
+    MATAMBA_MEDIAN_FILTER_SIZE,
     ZW_LAT_MAX,
     ZW_LAT_MIN,
     ZW_LON_MAX,
     ZW_LON_MIN,
-    interpolate_tec,
+    interpolate_tec_matamba,
 )
 
 TEC_SCALE_MIN = 0.0
 TEC_SCALE_MAX = 200.0
 ICAO_TEC_MOD = 125.0
 ICAO_TEC_SEV = 175.0
+MATAMBA_CADENCE_MIN = 5
+MATAMBA_WINDOW_MIN = 15
+MADIMBO_IONOSONDE = {
+    "code": "MU12K",
+    "name": "Madimbo ionosonde",
+    "lat": -22.39,
+    "lon": 30.88,
+    "country": "South Africa",
+    "note": "Nearest SANSA ionosonde to Zimbabwe listed by Matamba and Danskin (2022); use for cross-border TEC validation when NRT ionosonde TEC is available.",
+}
+TEC_ACQUISITION_RECOMMENDATIONS = [
+    "Use dual-frequency GNSS L1/L2 observations for TEC; single-frequency streams cannot isolate ionospheric delay.",
+    "For live NTRIP VTEC, require MSM4/MSM7 observation messages plus broadcast ephemeris, especially GPS RTCM 1019.",
+    "Generate operational map products every 5 minutes from the previous 15 minutes of accepted observations.",
+    "Reject non-physical VTEC below 0 TECU and cap operational outliers above 50 TECU unless solar-cycle conditions justify a higher cap.",
+    "Use 1 degree by 1 degree nearest-neighbour gridding with a 7-cell spatial median filter for the Matamba/SANSA-style product.",
+]
 _REGIONAL_CODES = frozenset({"nw", "ne", "cent", "sw", "se"})
 _PROCESSED_ARCHIVE_SOURCES = frozenset({"processed_archive", "processed_archive_estimate"})
 _SURFACE_ESTIMATE_SOURCES = frozenset({"live_surface_estimate", "processed_archive_estimate"})
@@ -75,6 +94,134 @@ def _quality_message(quality: str, station_count: int) -> str | None:
             "Stations without an exact archive row use the interpolated archive surface until live NTRIP emits VTEC."
         )
     return None
+
+
+def _matamba_metadata() -> dict[str, Any]:
+    return {
+        "source": "Matamba and Danskin (2022), Space Weather, doi:10.1029/2021SW003013",
+        "cadence_minutes": MATAMBA_CADENCE_MIN,
+        "window_minutes": MATAMBA_WINDOW_MIN,
+        "grid_resolution_deg": MATAMBA_GRID_STEP_DEG,
+        "interpolation": "nearest-neighbour",
+        "median_filter_size": MATAMBA_MEDIAN_FILTER_SIZE,
+        "quality_metrics": ["map RMSE", "station coverage quality factor", "spatial TEC gradient", "temporal TEC gradient"],
+        "recommendations": TEC_ACQUISITION_RECOMMENDATIONS,
+    }
+
+
+def _empty_diagnostics() -> dict[str, Any]:
+    return {
+        "matamba": _matamba_metadata(),
+        "fit": {"rmse_tecu": None, "quality_factor": 0.0, "control_station_count": 0, "control_observation_count": 0},
+        "gradients": {"spatial_max_tecu_per_deg": None, "spatial_mean_tecu_per_deg": None, "temporal_max_tecu_per_hour": None},
+        "ionosonde_comparison": _madimbo_comparison(None),
+        "frequency_recommendations": TEC_ACQUISITION_RECOMMENDATIONS,
+    }
+
+
+def _grid_lookup(grid_lons: np.ndarray, grid_lats: np.ndarray, grid_tec: np.ndarray, lon: float, lat: float) -> float | None:
+    if grid_tec.size == 0:
+        return None
+    distances = np.hypot(grid_lons - float(lon), grid_lats - float(lat))
+    if not np.isfinite(distances).any():
+        return None
+    idx = np.unravel_index(int(np.nanargmin(distances)), distances.shape)
+    value = float(grid_tec[idx])
+    return value if np.isfinite(value) else None
+
+
+def _fit_metrics(
+    control_rows: list[dict[str, Any]],
+    grid_lons: np.ndarray,
+    grid_lats: np.ndarray,
+    grid_tec: np.ndarray,
+) -> dict[str, Any]:
+    errors: list[float] = []
+    obs_count = 0
+    for row in control_rows:
+        obs_count += int(row.get("obs_count") or 0)
+        fitted = _grid_lookup(grid_lons, grid_lats, grid_tec, float(row["lon"]), float(row["lat"]))
+        if fitted is None:
+            continue
+        errors.append(float(fitted) - float(row["vtec"]))
+    rmse = float(np.sqrt(np.mean(np.square(errors)))) if errors else None
+    coverage = min(1.0, len(control_rows) / max(1, len(ZIMBABWE_CORS_STATIONS)))
+    fit_score = 1.0 if rmse is None else max(0.0, 1.0 - min(rmse, 50.0) / 50.0)
+    quality = round(float(0.65 * coverage + 0.35 * fit_score), 3)
+    return {
+        "rmse_tecu": round(rmse, 2) if rmse is not None else None,
+        "quality_factor": quality,
+        "control_station_count": len(control_rows),
+        "control_observation_count": obs_count,
+    }
+
+
+def _spatial_gradient(grid_lons: np.ndarray, grid_lats: np.ndarray, grid_tec: np.ndarray) -> dict[str, float | None]:
+    if grid_tec.size == 0 or not np.isfinite(grid_tec).any():
+        return {"spatial_max_tecu_per_deg": None, "spatial_mean_tecu_per_deg": None}
+    lat_step = float(np.nanmedian(np.abs(np.diff(grid_lats[:, 0])))) if grid_lats.shape[0] > 1 else 1.0
+    lon_step = float(np.nanmedian(np.abs(np.diff(grid_lons[0, :])))) if grid_lons.shape[1] > 1 else 1.0
+    gy, gx = np.gradient(grid_tec, max(lat_step, 1e-6), max(lon_step, 1e-6))
+    mag = np.sqrt(np.square(gx) + np.square(gy))
+    finite = mag[np.isfinite(mag)]
+    if finite.size == 0:
+        return {"spatial_max_tecu_per_deg": None, "spatial_mean_tecu_per_deg": None}
+    return {
+        "spatial_max_tecu_per_deg": round(float(np.max(finite)), 3),
+        "spatial_mean_tecu_per_deg": round(float(np.mean(finite)), 3),
+    }
+
+
+def _temporal_gradient(control_rows: list[dict[str, Any]], previous_rows: list[dict[str, Any]] | None) -> float | None:
+    if not previous_rows:
+        return None
+    prev_by_code = {str(row["code"]).lower().rstrip("_"): row for row in previous_rows}
+    diffs: list[float] = []
+    for row in control_rows:
+        prev = prev_by_code.get(str(row["code"]).lower().rstrip("_"))
+        if prev is None:
+            continue
+        diffs.append(abs(float(row["vtec"]) - float(prev["vtec"])) / (MATAMBA_CADENCE_MIN / 60.0))
+    return round(float(max(diffs)), 3) if diffs else None
+
+
+def _madimbo_comparison(estimated_vtec: float | None) -> dict[str, Any]:
+    iono_vtec = os.getenv("MADIMBO_IONOSONDE_TEC")
+    measured = None
+    difference = None
+    try:
+        measured = float(iono_vtec) if iono_vtec not in {None, ""} else None
+    except ValueError:
+        measured = None
+    if measured is not None and estimated_vtec is not None:
+        difference = round(float(estimated_vtec) - measured, 2)
+    return {
+        **MADIMBO_IONOSONDE,
+        "estimated_vtec": round(float(estimated_vtec), 2) if estimated_vtec is not None else None,
+        "ionosonde_vtec": measured,
+        "difference_tecu": difference,
+        "status": "comparison_available" if difference is not None else "awaiting_ionosonde_tec",
+    }
+
+
+def _matamba_diagnostics(
+    control_rows: list[dict[str, Any]],
+    grid_lons: np.ndarray,
+    grid_lats: np.ndarray,
+    grid_tec: np.ndarray,
+    *,
+    previous_rows: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    madimbo_estimate = _grid_lookup(grid_lons, grid_lats, grid_tec, MADIMBO_IONOSONDE["lon"], MADIMBO_IONOSONDE["lat"])
+    gradients = _spatial_gradient(grid_lons, grid_lats, grid_tec)
+    gradients["temporal_max_tecu_per_hour"] = _temporal_gradient(control_rows, previous_rows)
+    return {
+        "matamba": _matamba_metadata(),
+        "fit": _fit_metrics(control_rows, grid_lons, grid_lats, grid_tec),
+        "gradients": gradients,
+        "ionosonde_comparison": _madimbo_comparison(madimbo_estimate),
+        "frequency_recommendations": TEC_ACQUISITION_RECOMMENDATIONS,
+    }
 
 
 def _row_from_station(station, *, vtec: float, obs_count: int, source: str = "live") -> dict[str, Any]:
@@ -383,23 +530,35 @@ def _merge_station_rows(*groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return list(merged.values())
 
 
-def _build_grid_payload(stations: list[dict[str, Any]]) -> dict[str, Any] | None:
+def _control_rows(stations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        row
+        for row in stations
+        if str(row.get("source") or "") not in _SURFACE_ESTIMATE_SOURCES
+    ] or stations
+
+
+def _build_grid_payload(stations: list[dict[str, Any]]) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     if not stations:
-        return None
+        return None, _empty_diagnostics()
     try:
-        lats = np.array([s["lat"] for s in stations], dtype=float)
-        lons = np.array([s["lon"] for s in stations], dtype=float)
-        vtecs = np.array([s["vtec"] for s in stations], dtype=float)
-        grid_lons, grid_lats, grid_tec = interpolate_tec(lats, lons, vtecs, method="linear")
+        control = _control_rows(stations)
+        lats = np.array([s["lat"] for s in control], dtype=float)
+        lons = np.array([s["lon"] for s in control], dtype=float)
+        vtecs = np.array([s["vtec"] for s in control], dtype=float)
+        grid_lons, grid_lats, grid_tec = interpolate_tec_matamba(lats, lons, vtecs)
         if not np.isfinite(grid_tec).any():
-            return None
-        return {
+            return None, _empty_diagnostics()
+        payload = {
             "lons": grid_lons.tolist(),
             "lats": grid_lats.tolist(),
             "vtec": np.where(np.isfinite(grid_tec), grid_tec, None).tolist(),
+            "method": "nearest_median",
+            "resolution_deg": MATAMBA_GRID_STEP_DEG,
         }
+        return payload, _matamba_diagnostics(control, grid_lons, grid_lats, grid_tec)
     except Exception:
-        return None
+        return None, _empty_diagnostics()
 
 
 def _append_grid_heat_points(
@@ -448,6 +607,7 @@ def _heatmap_payload_from_station_rows(
             "data_quality": "none",
             "icao_mod_tecu": ICAO_TEC_MOD,
             "icao_sev_tecu": ICAO_TEC_SEV,
+            "diagnostics": _empty_diagnostics(),
         }
 
     tec_values = [s["vtec"] for s in stations]
@@ -465,7 +625,7 @@ def _heatmap_payload_from_station_rows(
         for s in stations
     ]
 
-    grid_payload = _build_grid_payload(stations)
+    grid_payload, diagnostics = _build_grid_payload(stations)
     if grid_payload is not None:
         _append_grid_heat_points(heat_points, grid_payload)
 
@@ -487,6 +647,7 @@ def _heatmap_payload_from_station_rows(
         "data_quality": quality,
         "icao_mod_tecu": ICAO_TEC_MOD,
         "icao_sev_tecu": ICAO_TEC_SEV,
+        "diagnostics": diagnostics,
     }
 
 
