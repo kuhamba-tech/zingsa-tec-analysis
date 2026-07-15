@@ -1,7 +1,7 @@
 """Persistent NTRIP collector for production live VTEC ingestion.
 
 Run this on an always-on machine. It connects to the ZINGSA NTRIP caster,
-decodes RTCM observations, computes VTEC, and writes to TSDB_DSN so the
+decodes RTCM observations, computes VTEC, and writes to Supabase/Postgres so the
 Vercel dashboard can read real live values without running long-lived streams
 inside serverless functions.
 """
@@ -26,6 +26,7 @@ def _load_env() -> None:
     load_dotenv(ROOT / "backend" / ".env", override=True)
     vercel_env = dotenv_values(ROOT / ".env.vercel.production")
     for key in (
+        "SUPABASE_DATABASE_URL",
         "TSDB_DSN",
         "DATABASE_URL",
         "DATABASE_URL_UNPOOLED",
@@ -37,7 +38,13 @@ def _load_env() -> None:
             os.environ[key] = value
     tsdb = (os.getenv("TSDB_DSN") or "").strip().strip('"').strip("'")
     if not tsdb:
-        for key in ("POSTGRES_URL_NON_POOLING", "DATABASE_URL_UNPOOLED", "POSTGRES_URL", "DATABASE_URL"):
+        for key in (
+            "SUPABASE_DATABASE_URL",
+            "POSTGRES_URL_NON_POOLING",
+            "DATABASE_URL_UNPOOLED",
+            "POSTGRES_URL",
+            "DATABASE_URL",
+        ):
             value = (os.getenv(key) or "").strip().strip('"').strip("'")
             if value:
                 os.environ["TSDB_DSN"] = value
@@ -84,6 +91,7 @@ def main() -> int:
         log.error("Missing required configuration: %s", ", ".join(missing))
         return 2
 
+    from backend import station_status_logger
     from zgiis.db.timescale import TecDB
     from zgiis.live.broadcast_ephemeris import start_refresh_thread
     from zgiis.live.ntrip_stream import LiveNtripManager
@@ -142,6 +150,10 @@ def main() -> int:
                 ",".join(fresh) if fresh else "none",
                 records,
             )
+            try:
+                station_status_logger.log_streams(status, source="collector")
+            except Exception as exc:
+                log.warning("Station status archive write failed: %s", exc)
     finally:
         pipeline.flush_db()
         manager.stop()

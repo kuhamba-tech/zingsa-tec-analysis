@@ -60,11 +60,11 @@ def _merge_archived_live_statuses(stations: list) -> tuple[list, bool]:
     """
     from dataclasses import replace
 
+    from backend.station_status_logger import get_db as get_status_db
     from zgiis.cors.site_details import enrich_station, vendor_status_label
-    from zgiis.db.station_status_db import StationStatusDB
 
     try:
-        latest = StationStatusDB().latest_snapshots(hours=_archive_freshness_hours())
+        latest = get_status_db().latest_snapshots(hours=_archive_freshness_hours())
     except Exception:
         log.exception("Failed to read archived live station snapshots")
         return stations, False
@@ -92,6 +92,33 @@ def _merge_archived_live_statuses(stations: list) -> tuple[list, bool]:
         merged.append(enrich_station(s))
         applied = True
     return merged, applied
+
+
+def _archived_status_counts() -> tuple[int, int, int, int] | None:
+    """Fast production health path: count recent collector snapshots only.
+
+    Vercel serverless must not open live NTRIP sockets just to answer
+    /cors/health. The persistent collector writes these snapshots to Supabase.
+    """
+    try:
+        from backend.station_status_logger import get_db as get_status_db
+        from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
+
+        latest = get_status_db().latest_snapshots(hours=_archive_freshness_hours())
+    except Exception:
+        log.exception("Failed to count archived station snapshots")
+        return None
+
+    if not latest:
+        return None
+
+    total = len(ZIMBABWE_CORS_STATIONS)
+    online = sum(1 for row in latest.values() if row.get("status") == "online")
+    degraded = sum(1 for row in latest.values() if row.get("status") == "degraded")
+    offline_known = sum(1 for row in latest.values() if row.get("status") == "offline")
+    known = online + degraded + offline_known
+    offline = offline_known + max(0, total - known)
+    return online, degraded, offline, total
 
 
 def _stations_impl(*, refresh_ntrip: bool = False) -> list:
@@ -329,6 +356,10 @@ async def station_detail(code: str, _=Depends(require_api_key)):
 async def health(_=Depends(require_api_key)):
     if _live_pipeline_can_poll():
         poll_and_log(source="cors_health", force=False)
+    archived = _archived_status_counts()
+    if archived is not None:
+        online, degraded, offline, total = archived
+        return CorsHealthOut(online=online, degraded=degraded, offline=offline, total=total)
     all_s = _stations()
     online = sum(1 for s in all_s if s.status == "online")
     degraded = sum(1 for s in all_s if s.status == "degraded")
@@ -391,7 +422,8 @@ async def ingest_status_snapshots(
 ):
     from datetime import datetime, timezone
 
-    from zgiis.db.station_status_db import StationStatusDB, VALID_STATUSES
+    from backend.station_status_logger import get_db as get_status_db
+    from zgiis.db.station_status_db import VALID_STATUSES
 
     rows_in = payload.get("snapshots") if isinstance(payload, dict) else None
     if not isinstance(rows_in, list):
@@ -416,7 +448,7 @@ async def ingest_status_snapshots(
             }
         )
 
-    inserted = StationStatusDB().insert_snapshots(rows)
+    inserted = get_status_db().insert_snapshots(rows)
     return {"inserted": inserted}
 
 

@@ -38,11 +38,47 @@ def _sw() -> dict:
     # Page-load reads must stay quick. The CORS_Program enrichment endpoints can
     # time out independently, so use direct NOAA/local sources here and let the
     # dedicated station endpoints handle CORS/NTRIP status.
-    return get_space_weather(use_third_party=False, fetch_ionosphere=False)
+    sw = get_space_weather(use_third_party=False, fetch_ionosphere=False)
+    s4, delta_tec, ionosphere_status, ionosphere_note = _cached_s4()
+    if s4 is not None:
+        sw["s4"] = round(s4, 2)
+        sw["ionosphere_data_status"] = ionosphere_status
+        sw["ionosphere_data_note"] = ionosphere_note
+    return sw
+
+
+def _cached_s4() -> tuple[float | None, float, str, str]:
+    """Non-blocking cached S4 (observed-archive only) — never calls the
+    CORS_Program ionosphere endpoint synchronously on a page load."""
+    try:
+        from zgiis.space_weather.fetch_indices import derive_s4_from_iono
+        from zgiis.space_weather.ionosphere_status_cache import get_cached_ionosphere_status
+
+        iono = get_cached_ionosphere_status(station="HARA")
+        return derive_s4_from_iono(iono)
+    except Exception:
+        return None, 0.0, "unavailable", "No observed ionosphere record available."
 
 
 def _ntrip_stream_counts() -> tuple[int | None, int | None]:
-    """Non-blocking NTRIP probe counts — matches frontend connectedStreamCount."""
+    """Non-blocking station counts — prefer persistent collector snapshots.
+
+    On Vercel, live NTRIP sockets are not reliable from serverless functions.
+    The always-on collector writes status snapshots to Supabase; use those
+    counts first, then fall back to the local cached probe for development.
+    """
+    try:
+        from backend.station_status_logger import get_db as get_status_db
+        from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
+
+        latest = get_status_db().latest_snapshots(hours=1.0)
+        if latest:
+            online = sum(1 for row in latest.values() if row.get("status") == "online")
+            degraded = sum(1 for row in latest.values() if row.get("status") == "degraded")
+            return online + degraded, len(ZIMBABWE_CORS_STATIONS)
+    except Exception:
+        pass
+
     try:
         from zgiis.live.ntrip_status_cache import get_cached_ntrip_probe
 
@@ -221,8 +257,8 @@ async def space_weather_report(
     hours = REPORT_WINDOWS[period]["hours"]
     uptime_rows: list[dict] = []
     try:
-        from zgiis.db.station_status_db import StationStatusDB
-        uptime_rows = StationStatusDB().uptime_summary(hours=hours)
+        from backend.station_status_logger import get_db as get_status_db
+        uptime_rows = get_status_db().uptime_summary(hours=hours)
     except Exception:
         pass
 

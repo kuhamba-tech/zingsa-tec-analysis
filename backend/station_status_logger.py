@@ -39,20 +39,23 @@ def _now_iso() -> str:
     return datetime.now(tz=timezone.utc).replace(microsecond=0).isoformat()
 
 
-def _status_from_live() -> dict[str, str]:
+def _status_from_streams(streams: dict[str, dict]) -> dict[str, str]:
     from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS, derive_status_from_stream
-
-    try:
-        from backend import live_manager
-        streams = live_manager.status().get("streams", {})
-    except Exception:
-        streams = {}
 
     result: dict[str, str] = {}
     for station in ZIMBABWE_CORS_STATIONS:
         code = station.code.lower().rstrip("_")
         result[code] = derive_status_from_stream(streams.get(code))
     return result
+
+
+def _status_from_live() -> dict[str, str]:
+    try:
+        from backend import live_manager
+        streams = live_manager.status().get("streams", {})
+    except Exception:
+        streams = {}
+    return _status_from_streams(streams)
 
 
 def _counts(statuses: dict[str, str]) -> dict[str, int]:
@@ -128,6 +131,41 @@ def _log_status_changes(
     return changes
 
 
+def log_streams(streams: dict[str, dict], *, source: str = "collector") -> dict[str, Any]:
+    """
+    Log status derived from an externally-supplied NTRIP stream-status dict
+    (same shape as LiveNtripManager.status()).
+
+    Used by the standalone persistent collector (scripts/live_ntrip_collector.py),
+    which runs its own LiveNtripManager in a separate process from the FastAPI
+    backend and therefore can't go through backend.live_manager. This is what
+    feeds station_status_snapshots for Vercel's serverless reads.
+    """
+    current = _status_from_streams(streams)
+    counts = _counts(current)
+    try:
+        changes = _log_status_changes(current, source=source, api_reachable=True)
+    except Exception as exc:
+        # The live dashboard must stay available even if the status archive
+        # database drops an idle connection. Reset so the next poll reconnects.
+        global _db
+        log.warning("station status archive write failed: %s", exc)
+        _db = None
+        return {
+            "ok": False,
+            "reason": "archive write failed",
+            "stations": len(current),
+            **counts,
+        }
+
+    return {
+        "ok": True,
+        "changes": changes,
+        "stations": len(current),
+        **counts,
+    }
+
+
 def poll_and_log(*, source: str = "scheduler", force: bool = False) -> dict[str, Any]:
     """
     Read per-station connection state from the live NTRIP pipeline and update
@@ -152,30 +190,7 @@ def poll_and_log(*, source: str = "scheduler", force: bool = False) -> dict[str,
         return {"skipped": True, "reason": "live pipeline status unavailable"}
 
     _last_poll_at = now
-
-    current = _status_from_live()
-    counts = _counts(current)
-    try:
-        changes = _log_status_changes(current, source=source, api_reachable=True)
-    except Exception as exc:
-        # The live dashboard must stay available even if the status archive
-        # database drops an idle connection. Reset so the next poll reconnects.
-        global _db
-        log.warning("station status archive write failed: %s", exc)
-        _db = None
-        return {
-            "ok": False,
-            "reason": "archive write failed",
-            "stations": len(current),
-            **counts,
-        }
-
-    return {
-        "ok": True,
-        "changes": changes,
-        "stations": len(current),
-        **counts,
-    }
+    return log_streams(pipeline_status.get("streams", {}), source=source)
 
 
 def _loop() -> None:
@@ -209,6 +224,12 @@ def stop() -> None:
 def status() -> dict:
     db = get_db()
     try:
+        from zgiis.db.config import database_backend_label, database_dsn
+
+        db_backend = database_backend_label(database_dsn())
+    except Exception:
+        db_backend = "sqlite"
+    try:
         from backend import live_manager
         pipeline_configured = live_manager.is_configured()
     except Exception:
@@ -220,5 +241,5 @@ def status() -> dict:
         "event_count": db.event_count(),
         "snapshot_count": db.snapshot_count(),
         "tracked_stations": len(_last_station_status),
-        "db_backend": "timescaledb" if os.getenv("TSDB_DSN") else "sqlite",
+        "db_backend": db_backend,
     }
