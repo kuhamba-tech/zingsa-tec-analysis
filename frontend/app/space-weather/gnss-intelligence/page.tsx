@@ -8,6 +8,7 @@ import type { NavigationNewsBrief } from "@/lib/gnssAudienceNews";
 import {
   STATUS_COLORS,
   type GnssForecastCity,
+  type GnssPerformanceForecast,
   AI_LEARNS,
   CORS_INPUTS,
   PLATFORM_MODULES,
@@ -82,6 +83,62 @@ function ForecastCard({ city }: { city: GnssForecastCity }) {
         </ul>
       )}
     </article>
+  );
+}
+
+function PerformanceForecastPanel({ forecast }: { forecast: GnssPerformanceForecast }) {
+  const summary = [
+    { label: "Storm probability", value: `${forecast.stormProbability}%`, sub: `Kp ${forecast.expectedKp} / Dst ${forecast.expectedDst} nT` },
+    { label: "TEC forecast", value: `${forecast.forecastTec1h} TECU`, sub: `30 min ${forecast.forecastTec30m} · 6 h ${forecast.forecastTec6h}` },
+    { label: "ROTI forecast", value: `${forecast.roti1h}`, sub: `Current ${forecast.rotiCurrent} · 30 min ${forecast.roti30m}` },
+    { label: "Scintillation", value: `${forecast.scintillationProbability}%`, sub: "Probability from S4 + ROTI" },
+    { label: "Cycle slips", value: `${forecast.cycleSlipProbability}%`, sub: `${forecast.expectedCycleSlipsPerHour}/hour expected` },
+    { label: "PPP convergence", value: `${forecast.pppConvergenceMinutes} min`, sub: "Predicted wait to stable PPP" },
+    { label: "Position error", value: `${forecast.horizontalErrorM} m`, sub: `${forecast.verticalErrorM} m vertical` },
+    { label: "Integrity index", value: `${forecast.integrityIndex}/100`, sub: forecast.integrityLabel },
+  ];
+
+  return (
+    <div className="gnwi-performance">
+      <div className="gnwi-performance-head">
+        <div>
+          <p className="gnwi-performance-kicker">Space weather to GNSS performance</p>
+          <h3 className="gnwi-performance-title">Operational GNSS impact forecast</h3>
+        </div>
+        <div className={`gnwi-integrity-pill gnwi-integrity-pill--${forecast.integrityLabel.toLowerCase()}`}>
+          {forecast.integrityLabel}
+        </div>
+      </div>
+      <p className="gnwi-performance-lead">
+        The platform now treats TEC as one link in a chain: solar wind, storm probability, TEC,
+        ROTI, scintillation, cycle slips, PPP convergence, position error, and a national integrity score.
+      </p>
+      <div className="gnwi-performance-summary">
+        {summary.map((item) => (
+          <article key={item.label} className="gnwi-performance-metric">
+            <span>{item.label}</span>
+            <strong>{item.value}</strong>
+            <small>{item.sub}</small>
+          </article>
+        ))}
+      </div>
+      <div className="gnwi-performance-chain">
+        {forecast.stages.map((stage) => (
+          <article key={stage.stage} className="gnwi-performance-stage">
+            <div className="gnwi-performance-stage-num">{stage.stage}</div>
+            <div className="gnwi-performance-stage-body">
+              <h4>{stage.title}</h4>
+              <strong>{stage.output}</strong>
+              <p>{stage.detail}</p>
+              <span>Confidence {stage.confidence}%</span>
+            </div>
+          </article>
+        ))}
+      </div>
+      <div className="banner banner-info gnwi-performance-advisory">
+        <strong>Operational advisory:</strong> {forecast.advisory}
+      </div>
+    </div>
   );
 }
 
@@ -261,6 +318,12 @@ export default function GnssIntelligencePage() {
           <strong>Input routing:</strong> {bundle.inputSummary}
           {updatedLabel && <> · Computed {updatedLabel}</>}
         </div>
+      )}
+
+      {bundle && (
+        <section className="gnwi-section">
+          <PerformanceForecastPanel forecast={bundle.performanceForecast} />
+        </section>
       )}
 
       <section className="gnwi-section">

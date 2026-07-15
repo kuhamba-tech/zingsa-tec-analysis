@@ -25,6 +25,38 @@ export interface DigitalTwinSite {
   recommendations?: string[];
 }
 
+export interface GnssPerformanceStage {
+  stage: string;
+  title: string;
+  output: string;
+  detail: string;
+  confidence: number;
+}
+
+export interface GnssPerformanceForecast {
+  stormProbability: number;
+  expectedKp: number;
+  expectedDst: number;
+  currentTec: number | null;
+  forecastTec30m: number;
+  forecastTec1h: number;
+  forecastTec6h: number;
+  forecastTec24h: number;
+  rotiCurrent: number;
+  roti30m: number;
+  roti1h: number;
+  scintillationProbability: number;
+  cycleSlipProbability: number;
+  expectedCycleSlipsPerHour: number;
+  pppConvergenceMinutes: number;
+  horizontalErrorM: number;
+  verticalErrorM: number;
+  integrityIndex: number;
+  integrityLabel: "Excellent" | "Good" | "Moderate" | "Poor";
+  advisory: string;
+  stages: GnssPerformanceStage[];
+}
+
 export const CORS_INPUTS = [
   "TEC",
   "Scintillation",
