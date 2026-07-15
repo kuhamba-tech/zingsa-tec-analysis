@@ -7,10 +7,18 @@ from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
 import numpy as np
+import pandas as pd
 
 from zgiis.live.mountpoints import default_station_mountpoints, order_mountpoints, parse_mountpoints
 from zgiis.live.satellite_geometry import LiveNavCache, llh_to_ecef
-from zgiis.live.stec_vtec import LiveVtecAccumulator, LiveVtecPipeline
+from zgiis.live.stec_vtec import (
+    LiveVtecAccumulator,
+    LiveVtecPipeline,
+    mapping_function,
+    stec_from_phase,
+    tecg_from_pseudorange,
+)
+from tec_core import _C_LIGHT, _F1, _F2, _K, _mapping_function
 
 
 def test_default_station_mountpoints_has_24_sites():
@@ -94,6 +102,27 @@ def test_accumulator_requires_elevation():
     result = acc_with_elev.ingest(obs2e)
     assert result is not None
     assert result["vtec_tecu"] > 0
+    assert result["tecp_tecu"] == result["stec_tecu"]
+    assert result["tec_method"] == "gopi_eq_4_12_phase_only_live_unleveled"
+    assert result["bias_method"] == "none_live_no_dcb"
+
+
+def test_live_tec_formula_matches_gopi_core_constants():
+    diff_m = 0.012
+    l1_cycles = 1_000_000.0
+    l2_cycles = (l1_cycles * _C_LIGHT / _F1 - diff_m) * _F2 / _C_LIGHT
+
+    live_stec = stec_from_phase(l1_cycles, l2_cycles, _F1, _F2)
+    core_stec = _K * diff_m / 1e16
+
+    assert abs(live_stec - core_stec) < 1e-9
+    assert abs(mapping_function(45.0, 350.0) - float(_mapping_function(pd.Series([45.0]), 350.0)[0])) < 1e-12
+
+
+def test_live_tecg_from_pseudorange_matches_gopi_eq_4_11():
+    p1 = 20_200_000.0
+    p2 = p1 + 0.5
+    assert abs(tecg_from_pseudorange(p1, p2, _F1, _F2) - (_K * 0.5 / 1e16)) < 1e-9
 
 
 def test_pipeline_flush_db_on_pending():

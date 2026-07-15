@@ -12,10 +12,14 @@ CREATE TABLE IF NOT EXISTS vtec_obs (
     station        TEXT             NOT NULL,
     constellation  TEXT             NOT NULL,
     prn            TEXT             NOT NULL,
+    tecg_tecu      DOUBLE PRECISION,
+    tecp_tecu      DOUBLE PRECISION,
     stec_tecu      DOUBLE PRECISION,
     vtec_tecu      DOUBLE PRECISION,
     elevation_deg  DOUBLE PRECISION,
-    cnr_dbhz       DOUBLE PRECISION
+    cnr_dbhz       DOUBLE PRECISION,
+    tec_method     TEXT,
+    bias_method    TEXT
 );
 
 CREATE INDEX IF NOT EXISTS vtec_obs_station_time ON vtec_obs (station, time DESC);

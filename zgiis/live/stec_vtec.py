@@ -9,16 +9,18 @@ station and applies the same equations from Gopi (tec_core.py):
 """
 from __future__ import annotations
 
-import math
 import logging
 from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Optional
 
+import numpy as np
+import pandas as pd
+
+from tec_core import _C_LIGHT, _F1, _F2, _mapping_function
+
 log = logging.getLogger(__name__)
 
-_C_LIGHT    = 2.99792458e8   # m/s
-_RE_KM      = 6378.0         # Earth radius (Gopi p.76)
 _IPP_KM     = 350.0          # Ionospheric Pierce Point height (default)
 _ELEV_MASK  = 30.0           # Elevation mask (degrees)
 
@@ -40,9 +42,21 @@ def mapping_function(elevation_deg: float, ipp_height_km: float = _IPP_KM) -> fl
     Re = 6378 km, H_ipp = 350–400 km.
     VTEC = STEC / S(E)
     """
-    elev_rad = math.radians(max(elevation_deg, 0.1))
-    arg = 1.0 - ((_RE_KM * math.cos(elev_rad)) / (_RE_KM + ipp_height_km)) ** 2
-    return 1.0 / math.sqrt(max(arg, 1e-9))
+    mapped = _mapping_function(pd.Series([float(elevation_deg)]), ipp_height_km)
+    return float(mapped[0])
+
+
+def tecg_from_pseudorange(
+    p1_m: float,
+    p2_m: float,
+    freq1_hz: float = _F1,
+    freq2_hz: float = _F2,
+) -> float:
+    """
+    Code TEC from dual-frequency pseudorange (Gopi Book Eq 4.11).
+    TECG = K x (P2 - P1), returned in TECU.
+    """
+    return _k_factor(freq1_hz, freq2_hz) * (p2_m - p1_m) / 1e16
 
 
 def stec_from_phase(
@@ -131,8 +145,8 @@ class LiveVtecAccumulator:
         if not cp1 or not cp2:
             return None, "no_phase"
 
-        freq1 = obs1.get("freq1_hz") or obs.get("freq1_hz", 1575.42e6)
-        freq2 = obs2.get("freq2_hz") or obs.get("freq2_hz", 1227.60e6)
+        freq1 = obs1.get("freq1_hz") or obs.get("freq1_hz", _F1)
+        freq2 = obs2.get("freq2_hz") or obs.get("freq2_hz", _F2)
 
         # Elevation must come from nav-derived geometry (RTCM 1019 + station coords).
         elevation = obs.get("elevation_deg")
@@ -142,7 +156,20 @@ class LiveVtecAccumulator:
             self._buf[key].clear()
             return None, "below_mask"
 
-        stec = stec_from_phase(cp1, cp2, freq1, freq2)
+        tecp = stec_from_phase(cp1, cp2, freq1, freq2)
+        tecg = None
+        p1 = obs1.get("pseudorange_m")
+        p2 = obs2.get("pseudorange_m")
+        if p1 is not None and p2 is not None:
+            try:
+                tecg = tecg_from_pseudorange(float(p1), float(p2), freq1, freq2)
+            except (TypeError, ValueError, FloatingPointError):
+                tecg = None
+
+        # Live RTCM sampling gives instantaneous L1/L2 pairs. Full GOPI parity
+        # for Eq 4.13-4.16 requires connected arcs plus DCB context, so live
+        # values are formula-compatible but not leveled/DCB-corrected here.
+        stec = tecp
         vtec = vtec_from_stec(stec, elevation, self.ipp_height_km)
 
         # Sanity-check (ionospheric VTEC is 0–150 TECU under normal conditions)
@@ -157,10 +184,14 @@ class LiveVtecAccumulator:
             "station":       obs["station"],
             "constellation": obs.get("constellation", "GPS"),
             "prn":           obs["prn"],
+            "tecg_tecu":     round(tecg, 4) if tecg is not None and np.isfinite(tecg) else None,
+            "tecp_tecu":     round(tecp, 4),
             "stec_tecu":     round(stec, 4),
             "vtec_tecu":     round(vtec, 4),
             "elevation_deg": round(elevation, 2),
             "cnr_dbhz":      obs1.get("cnr_dbhz"),
+            "tec_method":    "gopi_eq_4_12_phase_only_live_unleveled",
+            "bias_method":   "none_live_no_dcb",
         }, "ok"
 
     def flush(self) -> None:

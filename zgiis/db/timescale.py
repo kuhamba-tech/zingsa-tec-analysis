@@ -31,10 +31,14 @@ CREATE TABLE IF NOT EXISTS vtec_obs (
     station        TEXT             NOT NULL,
     constellation  TEXT             NOT NULL,
     prn            TEXT             NOT NULL,
+    tecg_tecu      DOUBLE PRECISION,
+    tecp_tecu      DOUBLE PRECISION,
     stec_tecu      DOUBLE PRECISION,
     vtec_tecu      DOUBLE PRECISION,
     elevation_deg  DOUBLE PRECISION,
-    cnr_dbhz       DOUBLE PRECISION
+    cnr_dbhz       DOUBLE PRECISION,
+    tec_method     TEXT,
+    bias_method    TEXT
 );
 """
 _PG_HYPER = """
@@ -51,10 +55,14 @@ CREATE TABLE IF NOT EXISTS vtec_obs (
     station        TEXT    NOT NULL,
     constellation  TEXT    NOT NULL,
     prn            TEXT    NOT NULL,
+    tecg_tecu      REAL,
+    tecp_tecu      REAL,
     stec_tecu      REAL,
     vtec_tecu      REAL,
     elevation_deg  REAL,
-    cnr_dbhz       REAL
+    cnr_dbhz       REAL,
+    tec_method     TEXT,
+    bias_method    TEXT
 );
 CREATE INDEX IF NOT EXISTS vtec_obs_station_time
     ON vtec_obs (station, time);
@@ -94,6 +102,7 @@ class TecDB:
             with self._conn.cursor() as cur:
                 cur.execute(_PG_DDL)
             self._conn.commit()
+            self._ensure_vtec_obs_audit_columns()
             try:
                 with self._conn.cursor() as cur:
                     cur.execute(_PG_HYPER)
@@ -130,6 +139,33 @@ class TecDB:
             self._conn = sqlite3.connect(str(fallback), check_same_thread=False)
         self._conn.executescript(_SQLITE_DDL)
         self._conn.commit()
+        self._ensure_vtec_obs_audit_columns()
+
+    def _ensure_vtec_obs_audit_columns(self) -> None:
+        columns = {
+            "tecg_tecu": "DOUBLE PRECISION" if self._is_pg else "REAL",
+            "tecp_tecu": "DOUBLE PRECISION" if self._is_pg else "REAL",
+            "tec_method": "TEXT",
+            "bias_method": "TEXT",
+        }
+        try:
+            if self._is_pg:
+                with self._conn.cursor() as cur:
+                    for name, sql_type in columns.items():
+                        cur.execute(f"ALTER TABLE vtec_obs ADD COLUMN IF NOT EXISTS {name} {sql_type}")
+                self._conn.commit()
+                return
+
+            existing = {
+                str(row[1])
+                for row in self._conn.execute("PRAGMA table_info(vtec_obs)").fetchall()
+            }
+            for name, sql_type in columns.items():
+                if name not in existing:
+                    self._conn.execute(f"ALTER TABLE vtec_obs ADD COLUMN {name} {sql_type}")
+            self._conn.commit()
+        except Exception as exc:
+            log.debug("vtec_obs audit-column migration skipped: %s", exc)
 
     # ── Write ─────────────────────────────────────────────────────────────────
 
@@ -145,18 +181,23 @@ class TecDB:
                 r.get("station", ""),
                 r.get("constellation", "GPS"),
                 r.get("prn", ""),
+                r.get("tecg_tecu"),
+                r.get("tecp_tecu"),
                 r.get("stec_tecu"),
                 r.get("vtec_tecu"),
                 r.get("elevation_deg"),
                 r.get("cnr_dbhz"),
+                r.get("tec_method"),
+                r.get("bias_method"),
             )
             for r in records
         ]
 
         sql = """
         INSERT INTO vtec_obs
-            (time, station, constellation, prn, stec_tecu, vtec_tecu, elevation_deg, cnr_dbhz)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            (time, station, constellation, prn, tecg_tecu, tecp_tecu, stec_tecu, vtec_tecu,
+             elevation_deg, cnr_dbhz, tec_method, bias_method)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
         try:
             if self._is_pg:
@@ -234,7 +275,8 @@ class TecDB:
 
         sql = (
             f"SELECT time AS timestamp, station, constellation, prn, "
-            f"stec_tecu AS stec, vtec_tecu AS vtec, elevation_deg, cnr_dbhz "
+            f"tecg_tecu, tecp_tecu, stec_tecu AS stec, vtec_tecu AS vtec, "
+            f"elevation_deg, cnr_dbhz, tec_method, bias_method "
             f"FROM vtec_obs WHERE {' AND '.join(clauses)} "
             f"ORDER BY time DESC LIMIT ?"
         )
