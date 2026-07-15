@@ -12,6 +12,9 @@ import os
 import signal
 import sys
 import time
+import json
+import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 
 from dotenv import dotenv_values, load_dotenv
@@ -20,6 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 log = logging.getLogger("zgiis.collector")
+DEFAULT_STATUS_PUSH_URL = "https://zingsa-gnss-tec.vercel.app/cors/status/snapshots"
 
 
 def _load_env() -> None:
@@ -60,6 +64,40 @@ def _parse_mountpoints() -> dict[str, str]:
     from zgiis.live.mountpoints import parse_mountpoints
 
     return parse_mountpoints(station_filter=only or None)
+
+
+def _push_status_snapshots(streams: dict[str, dict]) -> None:
+    """Push station snapshots to the deployed API as a DB-independent fallback."""
+    url = (os.getenv("STATUS_SNAPSHOT_PUSH_URL") or DEFAULT_STATUS_PUSH_URL).strip()
+    if not url:
+        return
+
+    from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS, derive_status_from_stream
+
+    when = datetime.now(tz=timezone.utc).replace(microsecond=0).isoformat()
+    rows = []
+    for station in ZIMBABWE_CORS_STATIONS:
+        code = station.code.lower().rstrip("_")
+        rows.append(
+            {
+                "time": when,
+                "station_code": code,
+                "status": derive_status_from_stream(streams.get(code)),
+                "api_reachable": True,
+                "source": "collector_api_push",
+            }
+        )
+
+    headers = {"Content-Type": "application/json"}
+    api_key = (os.getenv("STATUS_SNAPSHOT_PUSH_API_KEY") or os.getenv("NEXT_PUBLIC_API_KEY") or "").strip()
+    if api_key:
+        headers["X-API-Key"] = api_key
+
+    body = json.dumps({"snapshots": rows}).encode("utf-8")
+    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        if resp.status >= 400:
+            raise RuntimeError(f"snapshot push failed: HTTP {resp.status}")
 
 
 def main() -> int:
@@ -154,6 +192,10 @@ def main() -> int:
                 station_status_logger.log_streams(status, source="collector")
             except Exception as exc:
                 log.warning("Station status archive write failed: %s", exc)
+            try:
+                _push_status_snapshots(status)
+            except Exception as exc:
+                log.warning("Station status API push failed: %s", exc)
     finally:
         pipeline.flush_db()
         manager.stop()
