@@ -7,6 +7,7 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from zgiis.processing.plot_gaps import gap_break_indices
+from zgiis.processing.goptec_plot import build_tec_plot_series
 
 
 def _load_plot_builder():
@@ -69,6 +70,30 @@ class GopTecPlotFormatTests(unittest.TestCase):
         self.assertEqual(fig.layout.yaxis.tickfont.color, "#ff0000")
         self.assertTrue(fig.layout.showlegend)
         fig.to_json(validate=True)
+
+    def test_api_plot_mean_uses_gopi_two_sigma_minute_filter(self):
+        rows = []
+        base = pd.Timestamp("2024-04-01T00:00:00Z")
+        for minute in range(10):
+            for prn, vtec in [("G01", 10.0), ("G02", 11.0), ("G03", 80.0)]:
+                rows.append({
+                    "timestamp": base + pd.Timedelta(minutes=minute),
+                    "prn": prn,
+                    "vtec": vtec,
+                })
+        frame = pd.DataFrame(rows)
+
+        series = build_tec_plot_series(frame, value_col="vtec")
+
+        self.assertGreater(len(series["mean"]), 0)
+        self.assertTrue(
+            all(abs(point["y"] - 10.5) < 1e-9 for point in series["mean"]),
+            series["mean"],
+        )
+        self.assertTrue(
+            all(point["y"] < 20.0 for point in series["mean"]),
+            "Simple arithmetic mean would leave the outlier near 33.7 TECU",
+        )
 
 
 if __name__ == "__main__":

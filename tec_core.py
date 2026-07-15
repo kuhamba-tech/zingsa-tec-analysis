@@ -805,14 +805,15 @@ def _read_rinex_files_impl(
         dfx["date"]        = dfx["timestamp"].dt.floor("D")
 
         frames.append(dfx[["timestamp", "date", "station", "source_file",
-                            "prn", "elevation", "stec_raw", "vtec_raw",
-                            "stec", "vtec", "bias_method"]])
+                            "prn", "elevation", "tecg", "tecp", "m",
+                            "stec_raw", "vtec_raw", "stec", "vtec",
+                            "bias_method"]])
 
     if not frames:
         return pd.DataFrame(
             columns=["timestamp", "date", "station", "source_file",
-                     "prn", "elevation", "stec_raw", "vtec_raw", "stec",
-                     "vtec", "bias_method"]
+                     "prn", "elevation", "tecg", "tecp", "m", "stec_raw",
+                     "vtec_raw", "stec", "vtec", "bias_method"]
         )
     return pd.concat(frames, ignore_index=True)
 
@@ -855,13 +856,15 @@ def combine_sources(
     if not frames:
         return pd.DataFrame(
             columns=["timestamp", "date", "station", "source_file", "prn",
-                     "elevation", "stec", "vtec_raw", "vtec", "bias_method"]
+                     "elevation", "tecg", "tecp", "m", "stec", "vtec_raw",
+                     "vtec", "bias_method"]
         )
     for frame in frames:
         if "stec" not in frame.columns:
             frame["stec"] = np.nan
     keep = ["timestamp", "date", "station", "source_file", "prn", "elevation",
-            "stec_raw", "vtec_raw", "stec", "vtec", "bias_method"]
+            "tecg", "tecp", "m", "stec_raw", "vtec_raw", "stec", "vtec",
+            "bias_method"]
     keep = [c for c in keep if any(c in f.columns for f in frames)]
     return pd.concat([f[[c for c in keep if c in f.columns]] for f in frames], ignore_index=True)
 

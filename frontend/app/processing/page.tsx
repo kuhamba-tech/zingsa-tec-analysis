@@ -467,6 +467,10 @@ export default function ProcessingPage() {
   const maxVtecValues = useHourly ? hourlyRows.map((r) => r.max_vtec ?? 0) : rows.map((r) => r.max_vtec ?? 0);
   const minVtecValues = useHourly ? hourlyRows.map((r) => r.min_vtec ?? 0) : rows.map((r) => r.min_vtec ?? 0);
   const daytimeVtecValues = rows.map((r) => r.daytime_mean_vtec ?? r.mean_vtec ?? 0);
+  const tecMeanLabels = tecPlot?.mean.map((p) => (p.x ?? 0).toFixed(2)) ?? [];
+  const tecMeanValues = tecPlot?.mean.map((p) => p.y ?? null) ?? [];
+  const rawMeanByX = new Map((tecPlotRaw?.mean ?? []).map((p) => [(p.x ?? 0).toFixed(2), p.y ?? null]));
+  const rawMeanValuesAligned = tecMeanLabels.map((label) => rawMeanByX.get(label) ?? null);
   const processDisabled =
     loading ||
     (tab === "rinex" && (obsFiles.length === 0 || missingNavFor.length > 0)) ||
@@ -912,13 +916,14 @@ export default function ProcessingPage() {
                 {imgLabel} (GOP-style, bias removed) — {tecPlot.datasets.length} PRN arcs
               </div>
               <LineChart
-                labels={tecPlot.mean.map((p) => (p.x ?? 0).toFixed(1))}
+                labels={tecMeanLabels}
                 datasets={[
                   {
                     label: "Mean VTEC",
-                    data: tecPlot.mean.map((p) => p.y ?? 0),
+                    data: tecMeanValues,
                     color: "#00cc66",
                     fill: true,
+                    spanGaps: false,
                   },
                 ]}
                 yLabel={tecPlot.ylabel}
@@ -934,10 +939,10 @@ export default function ProcessingPage() {
             <div className="card">
               <div className="metric-label" style={{ marginBottom: "0.6rem" }}>(Un)/Bias TEC image — raw vs DCB-corrected VTEC</div>
               <LineChart
-                labels={tecPlot.mean.map((p) => (p.x ?? 0).toFixed(1))}
+                labels={tecMeanLabels}
                 datasets={[
-                  { label: "Bias-corrected VTEC", data: tecPlot.mean.map((p) => p.y ?? 0), color: "#00cc66", fill: false },
-                  { label: "Raw VTEC", data: tecPlotRaw.mean.map((p) => p.y ?? 0), color: "#ff8c00", fill: false },
+                  { label: "Bias-corrected VTEC", data: tecMeanValues, color: "#00cc66", fill: false, spanGaps: false },
+                  { label: "Raw VTEC", data: rawMeanValuesAligned, color: "#ff8c00", fill: false, spanGaps: false },
                 ]}
                 yLabel={tecPlot.ylabel}
                 height={300}
@@ -952,8 +957,8 @@ export default function ProcessingPage() {
                   <div key={ds.label}>
                     <div style={{ fontSize: "0.75rem", fontWeight: 600, marginBottom: "0.3rem" }}>{ds.label}</div>
                     <LineChart
-                      labels={ds.points.map((p) => (p.x ?? 0).toFixed(1))}
-                      datasets={[{ label: ds.label, data: ds.points.map((p) => p.y ?? 0), color: "#168bd2", fill: false }]}
+                      labels={ds.points.map((p) => (p.x == null ? "" : p.x.toFixed(2)))}
+                      datasets={[{ label: ds.label, data: ds.points.map((p) => p.y ?? null), color: "#168bd2", fill: false, spanGaps: false }]}
                       yLabel={tecPlot.ylabel}
                       height={160}
                     />

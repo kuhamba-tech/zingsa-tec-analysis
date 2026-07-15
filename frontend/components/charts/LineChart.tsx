@@ -29,6 +29,8 @@ interface Dataset {
   meta?: (PointMeta | null)[];
   /** Chart.js y-axis id — use "y2" for secondary scale (dual-axis charts). */
   yAxisId?: "y" | "y2";
+  /** Set false for PRN arcs where nulls mark real observation gaps. */
+  spanGaps?: boolean;
 }
 
 interface ThresholdLine {
@@ -231,7 +233,7 @@ export default function LineChart({
             pointRadius: compact ? 4 : labels.length > 200 ? 0 : 2,
             pointHoverRadius: compact ? 7 : 4,
             tension: 0.3,
-            spanGaps: true,
+            spanGaps: ds.spanGaps ?? true,
             yAxisID: ds.yAxisId ?? "y",
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             meta: ds.meta as any,

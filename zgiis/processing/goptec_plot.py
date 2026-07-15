@@ -9,6 +9,23 @@ import pandas as pd
 from zgiis.processing.plot_gaps import gap_break_indices
 
 
+def _two_sigma_mean(values: pd.Series) -> float:
+    """
+    GOPI/GPS_TEC Chapter 4 mean TEC curve:
+    two repeated sigma filters inside each 1-minute window, then mean.
+    """
+    cleaned = pd.to_numeric(values, errors="coerce").dropna()
+    for _ in range(2):
+        if len(cleaned) < 3:
+            break
+        mean = float(cleaned.mean())
+        sigma = float(cleaned.std(ddof=0))
+        if not np.isfinite(sigma) or sigma <= 0:
+            break
+        cleaned = cleaned[(cleaned >= mean - sigma) & (cleaned <= mean + sigma)]
+    return float(cleaned.mean()) if len(cleaned) else float("nan")
+
+
 def build_tec_plot_series(
     df: pd.DataFrame,
     *,
@@ -33,8 +50,7 @@ def build_tec_plot_series(
     min_arc = 10
     trim_n = 3
     datasets: list[dict[str, Any]] = []
-    mean_x: list[float] = []
-    mean_y: list[float] = []
+    mean_rows: list[dict[str, float]] = []
 
     for prn, grp in plot_df.groupby("prn"):
         grp = grp.sort_values("_x")
@@ -62,8 +78,7 @@ def build_tec_plot_series(
             for x_val, y_val in zip(ax, ay):
                 if np.isfinite(y_val):
                     points.append({"x": float(x_val), "y": float(y_val)})
-                    mean_x.append(float(x_val))
-                    mean_y.append(float(y_val))
+                    mean_rows.append({"x": float(x_val), "y": float(y_val)})
                 else:
                     points.append({"x": float(x_val), "y": None})
 
@@ -71,11 +86,13 @@ def build_tec_plot_series(
             datasets.append({"label": str(prn), "points": points})
 
     mean_bins: list[dict[str, float]] = []
-    if mean_x:
-        bins = pd.DataFrame({"x": mean_x, "y": mean_y}).groupby(pd.cut(mean_x, bins=48), observed=True)["y"].mean()
-        for interval, val in bins.items():
+    if mean_rows:
+        mean_df = pd.DataFrame(mean_rows)
+        mean_df["_minute"] = np.round(mean_df["x"] * 60.0).astype(int)
+        bins = mean_df.groupby("_minute", observed=True)["y"].apply(_two_sigma_mean)
+        for minute, val in bins.items():
             if val is not None and np.isfinite(val):
-                mean_bins.append({"x": float(interval.mid), "y": float(val)})
+                mean_bins.append({"x": float(minute) / 60.0, "y": float(val)})
 
     return {
         "datasets": datasets[:12],

@@ -1091,12 +1091,28 @@ def _make_goptec_plot_xy(df: pd.DataFrame, col: str, title: str,
             ),
         ))
 
-    # ── Mean TEC red line — from cleaned data only ───────────────────────────
+    def _two_sigma_mean(values) -> float:
+        cleaned = pd.to_numeric(pd.Series(values), errors="coerce").dropna()
+        for _ in range(2):
+            if len(cleaned) < 3:
+                break
+            mean = float(cleaned.mean())
+            sigma = float(cleaned.std(ddof=0))
+            if not np.isfinite(sigma) or sigma <= 0:
+                break
+            cleaned = cleaned[(cleaned >= mean - sigma) & (cleaned <= mean + sigma)]
+        return float(cleaned.mean()) if len(cleaned) else float("nan")
+
+    # ── Mean TEC red line — GOPI two-sigma mean from cleaned data only ───────
     if all_clean_x:
         _mx = np.array(all_clean_x)
         _my = np.array(all_clean_y)
-        _bins = np.round(_mx, 2)
-        _mean_ser = pd.Series(_my, index=_bins).groupby(level=0).mean()
+        if xlabel == "UT (hrs)":
+            _bins = np.round(_mx.astype(float) * 60.0).astype(int) / 60.0
+            _mean_ser = pd.Series(_my, index=_bins).groupby(level=0).apply(_two_sigma_mean)
+        else:
+            _bins = np.round(_mx, 2)
+            _mean_ser = pd.Series(_my, index=_bins).groupby(level=0).apply(_two_sigma_mean)
         fig.add_trace(go.Scatter(
             x=_mean_ser.index.tolist(), y=_mean_ser.values.tolist(),
             mode="lines", line=dict(color="#ff0000", width=2.5),
