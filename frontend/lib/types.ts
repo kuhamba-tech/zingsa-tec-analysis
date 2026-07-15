@@ -479,7 +479,17 @@ export interface TecHeatmapDiagnostics {
   gradients: {
     spatial_max_tecu_per_deg?: number | null;
     spatial_mean_tecu_per_deg?: number | null;
+    spatial_lat_max_tecu_per_deg?: number | null;
+    spatial_lon_max_tecu_per_deg?: number | null;
+    spatial_max_direction?: string | null;
     temporal_max_tecu_per_hour?: number | null;
+    temporal_mean_tecu_per_hour?: number | null;
+    temporal_station_max_tecu_per_hour?: number | null;
+    temporal_window_minutes?: number;
+    temporal_cadence_minutes?: number;
+    temporal_available?: boolean;
+    icao_supporting_diagnostic?: boolean;
+    method?: string;
   };
   ionosonde_comparison: {
     code?: string;

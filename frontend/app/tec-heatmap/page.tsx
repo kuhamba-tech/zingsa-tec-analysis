@@ -204,10 +204,23 @@ export default function TecHeatmapPage() {
 
           <div className="tec-map-diagnostic-panel">
             <h2>TEC Gradients</h2>
+            <p>
+              Matamba-style adjacent-cell gradients on the median-filtered 1 degree grid. ICAO advisory severity remains
+              based on absolute TEC; gradients support GNSS impact assessment.
+            </p>
             <div className="tec-map-diagnostic-grid">
               <div>
                 <span>Spatial max</span>
                 <strong>{gradients?.spatial_max_tecu_per_deg != null ? `${gradients.spatial_max_tecu_per_deg.toFixed(3)} TECU/deg` : "N/A"}</strong>
+                <small>{gradients?.spatial_max_direction ?? "direction unavailable"}</small>
+              </div>
+              <div>
+                <span>North-south</span>
+                <strong>{gradients?.spatial_lat_max_tecu_per_deg != null ? `${gradients.spatial_lat_max_tecu_per_deg.toFixed(3)} TECU/deg` : "N/A"}</strong>
+              </div>
+              <div>
+                <span>East-west</span>
+                <strong>{gradients?.spatial_lon_max_tecu_per_deg != null ? `${gradients.spatial_lon_max_tecu_per_deg.toFixed(3)} TECU/deg` : "N/A"}</strong>
               </div>
               <div>
                 <span>Spatial mean</span>
@@ -216,6 +229,11 @@ export default function TecHeatmapPage() {
               <div>
                 <span>Temporal max</span>
                 <strong>{gradients?.temporal_max_tecu_per_hour != null ? `${gradients.temporal_max_tecu_per_hour.toFixed(2)} TECU/hr` : "Awaiting history"}</strong>
+                <small>{gradients?.temporal_available ? `${gradients.temporal_cadence_minutes ?? 5} min map-to-map` : "previous map unavailable"}</small>
+              </div>
+              <div>
+                <span>Temporal mean</span>
+                <strong>{gradients?.temporal_mean_tecu_per_hour != null ? `${gradients.temporal_mean_tecu_per_hour.toFixed(2)} TECU/hr` : "Awaiting history"}</strong>
               </div>
             </div>
           </div>

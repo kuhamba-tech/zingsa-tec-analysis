@@ -80,6 +80,9 @@ def test_build_tec_heatmap_interpolates_with_three_stations():
     assert payload["diagnostics"]["matamba"]["window_minutes"] == 15
     assert payload["diagnostics"]["fit"]["control_station_count"] == 3
     assert payload["diagnostics"]["gradients"]["spatial_max_tecu_per_deg"] is not None
+    assert payload["diagnostics"]["gradients"]["spatial_lat_max_tecu_per_deg"] is not None
+    assert payload["diagnostics"]["gradients"]["spatial_lon_max_tecu_per_deg"] is not None
+    assert payload["diagnostics"]["gradients"]["icao_supporting_diagnostic"] is True
     assert payload["diagnostics"]["ionosonde_comparison"]["code"] == "MU12K"
     evaluation = payload["diagnostics"]["evaluation"]
     assert evaluation["matched_points_only"] is True
@@ -96,6 +99,45 @@ def test_build_tec_heatmap_interpolates_with_three_stations():
     rows_by_code = {row["code"]: row for row in payload["stations"]}
     assert rows_by_code["hara"]["source"] == "live"
     assert rows_by_code["cent"]["source"] == "live_surface_estimate"
+
+
+def test_build_tec_heatmap_computes_matamba_temporal_gradient():
+    summary = pd.DataFrame(
+        {
+            "station": ["hara", "karo", "bula"],
+            "mean_vtec": [30.0, 35.0, 40.0],
+            "max_vtec": [31.0, 36.0, 41.0],
+            "obs_count": [12, 10, 11],
+        }
+    )
+    recent = pd.DataFrame(
+        {
+            "time": pd.to_datetime(
+                [
+                    "2026-07-15T12:02:00Z",
+                    "2026-07-15T12:02:00Z",
+                    "2026-07-15T12:02:00Z",
+                    "2026-07-15T12:17:00Z",
+                    "2026-07-15T12:17:00Z",
+                    "2026-07-15T12:17:00Z",
+                ]
+            ),
+            "station": ["hara", "karo", "bula", "hara", "karo", "bula"],
+            "vtec_tecu": [20.0, 22.0, 24.0, 30.0, 35.0, 40.0],
+        }
+    )
+    with patch("backend.live_manager.get_db") as mock_db:
+        mock_db.return_value.station_summary.return_value = summary
+        mock_db.return_value.query_recent.return_value = recent
+        payload = build_tec_heatmap(hours=2)
+
+    gradients = payload["diagnostics"]["gradients"]
+    assert gradients["temporal_available"] is True
+    assert gradients["temporal_cadence_minutes"] == 5
+    assert gradients["temporal_window_minutes"] == 15
+    assert gradients["temporal_max_tecu_per_hour"] is not None
+    assert gradients["temporal_mean_tecu_per_hour"] is not None
+    assert gradients["temporal_max_tecu_per_hour"] > 0
 
 
 def test_build_tec_heatmap_uses_live_rows_when_remote_db_env_is_set():

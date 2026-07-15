@@ -26,6 +26,7 @@ ICAO_TEC_MOD = 125.0
 ICAO_TEC_SEV = 175.0
 MATAMBA_CADENCE_MIN = 5
 MATAMBA_WINDOW_MIN = 15
+MATAMBA_TEMPORAL_LOOKBACK_MIN = MATAMBA_WINDOW_MIN + MATAMBA_CADENCE_MIN
 MADIMBO_IONOSONDE = {
     "code": "MU12K",
     "name": "Madimbo ionosonde",
@@ -136,6 +137,20 @@ def _matamba_metadata() -> dict[str, Any]:
         "interpolation": "nearest-neighbour",
         "median_filter_size": MATAMBA_MEDIAN_FILTER_SIZE,
         "quality_metrics": ["map RMSE", "station coverage quality factor", "spatial TEC gradient", "temporal TEC gradient"],
+        "gradient_method": {
+            "spatial": (
+                "Cell-to-cell TEC change on the 1 degree median-filtered grid, reported for north-south, "
+                "east-west, and combined adjacent-cell gradients in TECU/degree."
+            ),
+            "temporal": (
+                "Absolute TEC change between consecutive 5-minute median-filtered map products, normalized "
+                "to TECU/hour. Each map uses the previous 15 minutes of observations."
+            ),
+            "icao_note": (
+                "ICAO Doc 10100 advisory level is still based on absolute vertical TEC thresholds; gradients "
+                "are supporting GNSS-impact diagnostics for spatial and temporal variability."
+            ),
+        },
         "evaluation": {
             "targets": [target["code"] for target in MATAMBA_EVALUATION_TARGETS],
             "external_references": ["ionosonde TEC", "AfriTEC model"],
@@ -157,7 +172,7 @@ def _empty_diagnostics() -> dict[str, Any]:
     return {
         "matamba": _matamba_metadata(),
         "fit": {"rmse_tecu": None, "quality_factor": 0.0, "control_station_count": 0, "control_observation_count": 0},
-        "gradients": {"spatial_max_tecu_per_deg": None, "spatial_mean_tecu_per_deg": None, "temporal_max_tecu_per_hour": None},
+        "gradients": _empty_gradient_payload(),
         "ionosonde_comparison": _madimbo_comparison(None),
         "evaluation": _matamba_evaluation([], None, None, None),
         "frequency_recommendations": TEC_ACQUISITION_RECOMMENDATIONS,
@@ -201,23 +216,77 @@ def _fit_metrics(
     }
 
 
-def _spatial_gradient(grid_lons: np.ndarray, grid_lats: np.ndarray, grid_tec: np.ndarray) -> dict[str, float | None]:
-    if grid_tec.size == 0 or not np.isfinite(grid_tec).any():
-        return {"spatial_max_tecu_per_deg": None, "spatial_mean_tecu_per_deg": None}
-    lat_step = float(np.nanmedian(np.abs(np.diff(grid_lats[:, 0])))) if grid_lats.shape[0] > 1 else 1.0
-    lon_step = float(np.nanmedian(np.abs(np.diff(grid_lons[0, :])))) if grid_lons.shape[1] > 1 else 1.0
-    gy, gx = np.gradient(grid_tec, max(lat_step, 1e-6), max(lon_step, 1e-6))
-    mag = np.sqrt(np.square(gx) + np.square(gy))
-    finite = mag[np.isfinite(mag)]
-    if finite.size == 0:
-        return {"spatial_max_tecu_per_deg": None, "spatial_mean_tecu_per_deg": None}
+def _empty_gradient_payload() -> dict[str, Any]:
     return {
-        "spatial_max_tecu_per_deg": round(float(np.max(finite)), 3),
-        "spatial_mean_tecu_per_deg": round(float(np.mean(finite)), 3),
+        "spatial_max_tecu_per_deg": None,
+        "spatial_mean_tecu_per_deg": None,
+        "spatial_lat_max_tecu_per_deg": None,
+        "spatial_lon_max_tecu_per_deg": None,
+        "spatial_max_direction": None,
+        "temporal_max_tecu_per_hour": None,
+        "temporal_mean_tecu_per_hour": None,
+        "temporal_window_minutes": MATAMBA_WINDOW_MIN,
+        "temporal_cadence_minutes": MATAMBA_CADENCE_MIN,
+        "temporal_available": False,
+        "icao_supporting_diagnostic": True,
+        "method": "Matamba adjacent-cell spatial gradient and consecutive-map temporal gradient",
     }
 
 
-def _temporal_gradient(control_rows: list[dict[str, Any]], previous_rows: list[dict[str, Any]] | None) -> float | None:
+def _spatial_gradient(grid_lons: np.ndarray, grid_lats: np.ndarray, grid_tec: np.ndarray) -> dict[str, Any]:
+    out = _empty_gradient_payload()
+    if grid_tec.size == 0 or not np.isfinite(grid_tec).any():
+        return out
+    lat_step = float(np.nanmedian(np.abs(np.diff(grid_lats[:, 0])))) if grid_lats.shape[0] > 1 else 1.0
+    lon_step = float(np.nanmedian(np.abs(np.diff(grid_lons[0, :])))) if grid_lons.shape[1] > 1 else 1.0
+    lat_grad = np.abs(np.diff(grid_tec, axis=0)) / max(lat_step, 1e-6) if grid_tec.shape[0] > 1 else np.array([])
+    lon_grad = np.abs(np.diff(grid_tec, axis=1)) / max(lon_step, 1e-6) if grid_tec.shape[1] > 1 else np.array([])
+    finite_lat = lat_grad[np.isfinite(lat_grad)]
+    finite_lon = lon_grad[np.isfinite(lon_grad)]
+    lat_max = float(np.max(finite_lat)) if finite_lat.size else None
+    lon_max = float(np.max(finite_lon)) if finite_lon.size else None
+    all_components = np.concatenate([finite_lat, finite_lon]) if finite_lat.size or finite_lon.size else np.array([])
+    if all_components.size:
+        out["spatial_mean_tecu_per_deg"] = round(float(np.mean(all_components)), 3)
+    if lat_max is not None:
+        out["spatial_lat_max_tecu_per_deg"] = round(lat_max, 3)
+    if lon_max is not None:
+        out["spatial_lon_max_tecu_per_deg"] = round(lon_max, 3)
+    candidates = [(lat_max, "north-south"), (lon_max, "east-west")]
+    candidates = [(value, label) for value, label in candidates if value is not None]
+    if candidates:
+        value, label = max(candidates, key=lambda item: item[0])
+        out["spatial_max_tecu_per_deg"] = round(float(value), 3)
+        out["spatial_max_direction"] = label
+    return out
+
+
+def _temporal_gradient(
+    grid_tec: np.ndarray,
+    previous_grid_tec: np.ndarray | None,
+) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    if previous_grid_tec is None or previous_grid_tec.size == 0 or previous_grid_tec.shape != grid_tec.shape:
+        return {
+            "temporal_max_tecu_per_hour": None,
+            "temporal_mean_tecu_per_hour": None,
+            "temporal_available": False,
+        }
+    delta = np.abs(grid_tec - previous_grid_tec) / (MATAMBA_CADENCE_MIN / 60.0)
+    finite = delta[np.isfinite(delta)]
+    if finite.size == 0:
+        return {
+            "temporal_max_tecu_per_hour": None,
+            "temporal_mean_tecu_per_hour": None,
+            "temporal_available": False,
+        }
+    out["temporal_max_tecu_per_hour"] = round(float(np.max(finite)), 3)
+    out["temporal_mean_tecu_per_hour"] = round(float(np.mean(finite)), 3)
+    out["temporal_available"] = True
+    return out
+
+
+def _station_temporal_gradient(control_rows: list[dict[str, Any]], previous_rows: list[dict[str, Any]] | None) -> float | None:
     if not previous_rows:
         return None
     prev_by_code = {str(row["code"]).lower().rstrip("_"): row for row in previous_rows}
@@ -325,7 +394,18 @@ def _matamba_diagnostics(
 ) -> dict[str, Any]:
     madimbo_estimate = _grid_lookup(grid_lons, grid_lats, grid_tec, MADIMBO_IONOSONDE["lon"], MADIMBO_IONOSONDE["lat"])
     gradients = _spatial_gradient(grid_lons, grid_lats, grid_tec)
-    gradients["temporal_max_tecu_per_hour"] = _temporal_gradient(control_rows, previous_rows)
+    previous_grid_tec = None
+    if previous_rows:
+        try:
+            prev_lats = np.array([s["lat"] for s in previous_rows], dtype=float)
+            prev_lons = np.array([s["lon"] for s in previous_rows], dtype=float)
+            prev_vtecs = np.array([s["vtec"] for s in previous_rows], dtype=float)
+            _, _, previous_grid_tec = interpolate_tec_matamba(prev_lats, prev_lons, prev_vtecs)
+        except Exception:
+            previous_grid_tec = None
+    gradients.update(_temporal_gradient(grid_tec, previous_grid_tec))
+    station_temporal = _station_temporal_gradient(control_rows, previous_rows)
+    gradients["temporal_station_max_tecu_per_hour"] = station_temporal
     return {
         "matamba": _matamba_metadata(),
         "fit": _fit_metrics(control_rows, grid_lons, grid_lats, grid_tec),
@@ -390,9 +470,12 @@ def _recent_pipeline_rows(hours: float = 0.5) -> list[dict[str, Any]]:
         df = get_db().query_recent(hours=hours)
     except Exception:
         return []
-    if df is None or df.empty or "station" not in df.columns or "vtec_tecu" not in df.columns:
-        return []
+    return _station_rows_from_observation_frame(df, source="live")
 
+
+def _station_rows_from_observation_frame(df, *, source: str) -> list[dict[str, Any]]:
+    if df is None or not hasattr(df, "empty") or df.empty or "station" not in df.columns or "vtec_tecu" not in df.columns:
+        return []
     rows: list[dict[str, Any]] = []
     grouped = df.groupby("station")["vtec_tecu"]
     for code_raw, series in grouped:
@@ -408,9 +491,35 @@ def _recent_pipeline_rows(hours: float = 0.5) -> list[dict[str, Any]]:
                 station,
                 vtec=mean_vtec,
                 obs_count=int(series.count()),
+                source=source,
             )
         )
     return rows
+
+
+def _temporal_reference_pipeline_rows() -> list[dict[str, Any]]:
+    """Previous map product window: [latest - 20 min, latest - 5 min)."""
+    try:
+        if not _live_db_heatmap_enabled():
+            return []
+        from backend.live_manager import get_db
+
+        df = get_db().query_recent(hours=MATAMBA_TEMPORAL_LOOKBACK_MIN / 60.0)
+    except Exception:
+        return []
+    if df is None or not hasattr(df, "empty") or df.empty or "time" not in df.columns:
+        return []
+
+    work = df.copy()
+    work["time"] = np.array(work["time"], dtype="datetime64[ns]")
+    latest_raw = work["time"].max()
+    latest = np.datetime64(latest_raw.to_datetime64() if hasattr(latest_raw, "to_datetime64") else latest_raw)
+    if np.isnat(latest):
+        return []
+    previous_start = latest - np.timedelta64(MATAMBA_TEMPORAL_LOOKBACK_MIN, "m")
+    previous_end = latest - np.timedelta64(MATAMBA_CADENCE_MIN, "m")
+    previous = work[(work["time"] >= previous_start) & (work["time"] < previous_end)]
+    return _station_rows_from_observation_frame(previous, source="live_previous_map")
 
 
 def _live_pipeline_memory_rows() -> list[dict[str, Any]]:
@@ -650,7 +759,11 @@ def _control_rows(stations: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ] or stations
 
 
-def _build_grid_payload(stations: list[dict[str, Any]]) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+def _build_grid_payload(
+    stations: list[dict[str, Any]],
+    *,
+    previous_rows: list[dict[str, Any]] | None = None,
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     if not stations:
         return None, _empty_diagnostics()
     try:
@@ -668,7 +781,14 @@ def _build_grid_payload(stations: list[dict[str, Any]]) -> tuple[dict[str, Any] 
             "method": "nearest_median",
             "resolution_deg": MATAMBA_GRID_STEP_DEG,
         }
-        return payload, _matamba_diagnostics(control, grid_lons, grid_lats, grid_tec)
+        previous_control = _control_rows(previous_rows or []) if previous_rows else None
+        return payload, _matamba_diagnostics(
+            control,
+            grid_lons,
+            grid_lats,
+            grid_tec,
+            previous_rows=previous_control,
+        )
     except Exception:
         return None, _empty_diagnostics()
 
@@ -703,6 +823,7 @@ def _heatmap_payload_from_station_rows(
     stations: list[dict[str, Any]],
     *,
     empty_message: str | None,
+    previous_rows: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     if not stations:
         return {
@@ -737,7 +858,7 @@ def _heatmap_payload_from_station_rows(
         for s in stations
     ]
 
-    grid_payload, diagnostics = _build_grid_payload(stations)
+    grid_payload, diagnostics = _build_grid_payload(stations, previous_rows=previous_rows)
     if grid_payload is not None:
         _append_grid_heat_points(heat_points, grid_payload)
 
@@ -771,13 +892,18 @@ def build_tec_heatmap(*, hours: float = 2.0) -> dict[str, Any]:
         _live_pipeline_memory_rows(),
         _probe_sample_vtec_rows(),
     )
+    previous_rows = _temporal_reference_pipeline_rows() if live_rows else []
     stations = _live_surface_station_rows(live_rows) if live_rows else []
     if not stations:
         stations = _processed_archive_rows()
     if not stations:
         cors_rows = _cors_current_tec_rows()
         stations = _live_surface_station_rows(cors_rows) if cors_rows else []
-    return _heatmap_payload_from_station_rows(stations, empty_message=_empty_heatmap_message())
+    return _heatmap_payload_from_station_rows(
+        stations,
+        empty_message=_empty_heatmap_message(),
+        previous_rows=previous_rows,
+    )
 
 
 def build_archive_tec_heatmap() -> dict[str, Any]:
