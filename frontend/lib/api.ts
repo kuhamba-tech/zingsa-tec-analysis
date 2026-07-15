@@ -389,12 +389,24 @@ export async function uploadRinex(obs: File[], nav: File[], opts?: ProcessingOpt
   obs.forEach((f) => fd.append("obs", f));
   nav.forEach((f) => fd.append("nav", f));
   appendProcessingOptions(fd, opts);
-  const res = await fetch(baseUrl() + "/processing/rinex", {
+  const path = "/processing/rinex";
+  const res = await fetchWithTimeout(baseUrl() + path, {
     method: "POST",
     headers: KEY ? { "X-API-Key": KEY } : {},
     body: fd,
-  });
-  if (!res.ok) throw new Error(await res.text());
+  }, 120_000);
+  if (!res.ok) {
+    const text = await res.text();
+    let msg = text;
+    try {
+      const j = JSON.parse(text) as { detail?: string | { msg?: string }[] };
+      if (typeof j.detail === "string") msg = j.detail;
+      else if (Array.isArray(j.detail)) msg = j.detail.map((d) => d.msg ?? String(d)).join("; ");
+    } catch {
+      /* use raw text */
+    }
+    throw new Error(msg || `API ${path} -> ${res.status}`);
+  }
   return res.json();
 }
 
