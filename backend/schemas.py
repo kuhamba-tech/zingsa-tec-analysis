@@ -662,6 +662,16 @@ class PrnRow(BaseModel):
     mean_stec: float | None = None
     mean_elevation: float | None = None
     mean_qual: float | None = None
+    mean_roti: float | None = None
+    max_roti: float | None = None
+    roti_level: str | None = None
+    cycle_slip_count: int | None = None
+    mean_s4: float | None = None
+    max_s4: float | None = None
+    cnr_std_dbhz: float | None = None
+    integrity_score: float | None = None
+    position_error_cm: float | None = None
+    ppp_convergence_min: float | None = None
     samples: int | None = None
 
 
@@ -675,6 +685,16 @@ class PrnObservation(BaseModel):
     elevation_deg: float | None = None
     azimuth_deg: float | None = None
     quality: float | None = None
+    rot_tecu_per_min: float | None = None
+    roti_tecu_per_min: float | None = None
+    s4: float | None = None
+    cnr_dbhz: float | None = None
+    cnr_std_dbhz_5min: float | None = None
+    scintillation_proxy: float | None = None
+    cycle_slip_flag: bool = False
+    gnss_integrity_score: float | None = None
+    position_error_cm: float | None = None
+    ppp_convergence_min: float | None = None
 
 
 class PrnMeta(BaseModel):
@@ -685,6 +705,8 @@ class PrnMeta(BaseModel):
     has_azimuth: bool = False
     has_elevation: bool = False
     has_quality: bool = False
+    has_roti: bool = False
+    has_s4: bool = False
     time_start: str | None = None
     time_end: str | None = None
     message: str | None = None

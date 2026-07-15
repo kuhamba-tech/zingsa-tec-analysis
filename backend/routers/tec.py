@@ -78,6 +78,12 @@ def _vtec_by_date(start: str, end: str, station: str | None) -> dict[str, float]
     return {str(k): round(float(v), 2) for k, v in daily.items() if pd.notna(v)}
 
 
+def _float_or_none(row: pd.Series, key: str) -> float | None:
+    if key not in row or pd.isna(row.get(key)):
+        return None
+    return float(row[key])
+
+
 @router.get("/archive-meta", response_model=ArchiveMeta)
 async def archive_meta(_=Depends(require_api_key)):
     df = _archive()
@@ -423,6 +429,16 @@ async def prn_explorer(
             elevation_deg=float(row["elevation_deg"]) if "elevation_deg" in row and pd.notna(row.get("elevation_deg")) else None,
             azimuth_deg=float(row["azimuth_deg"]) if "azimuth_deg" in row and pd.notna(row.get("azimuth_deg")) else None,
             quality=float(row["quality"]) if "quality" in row and pd.notna(row.get("quality")) else None,
+            rot_tecu_per_min=_float_or_none(row, "rot_tecu_per_min"),
+            roti_tecu_per_min=_float_or_none(row, "roti_tecu_per_min"),
+            s4=_float_or_none(row, "s4"),
+            cnr_dbhz=_float_or_none(row, "cnr_dbhz"),
+            cnr_std_dbhz_5min=_float_or_none(row, "cnr_std_dbhz_5min"),
+            scintillation_proxy=_float_or_none(row, "scintillation_proxy"),
+            cycle_slip_flag=bool(row.get("cycle_slip_flag", False)),
+            gnss_integrity_score=_float_or_none(row, "gnss_integrity_score"),
+            position_error_cm=_float_or_none(row, "position_error_cm"),
+            ppp_convergence_min=_float_or_none(row, "ppp_convergence_min"),
         ))
     return PrnExplorerResponse(meta=meta, summary=summary, observations=observations)
 

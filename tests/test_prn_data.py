@@ -8,6 +8,7 @@ from pathlib import Path
 import pandas as pd
 
 from zgiis.gnss_prn.prn_data import (
+    add_ionosphere_indicators,
     aggregate_prn_rows,
     format_prn,
     load_cmn_prn_observations,
@@ -53,6 +54,32 @@ class PrnDataTests(unittest.TestCase):
         g01 = next(r for r in rows if r["prn"] == "G01")
         self.assertAlmostEqual(g01["mean_vtec"], 11.0)
         self.assertEqual(g01["samples"], 2)
+
+    def test_roti_cycle_slip_and_integrity_metrics(self):
+        df = pd.DataFrame({
+            "timestamp": pd.date_range("2024-04-01T00:00:00Z", periods=8, freq="30s"),
+            "station": ["chim"] * 8,
+            "prn": ["G01"] * 8,
+            "constellation": ["GPS"] * 8,
+            "vtec": [10.0, 10.1, 10.3, 10.5, 22.0, 22.2, 22.4, 22.6],
+            "stec": [15.0, 15.2, 15.5, 15.8, 45.0, 45.3, 45.6, 45.9],
+            "elevation_deg": [45.0] * 8,
+            "quality": [85.0] * 8,
+            "cnr_dbhz": [42.0, 41.5, 42.2, 41.8, 39.0, 38.5, 39.3, 39.1],
+        })
+        enriched = add_ionosphere_indicators(df)
+        self.assertIn("rot_tecu_per_min", enriched.columns)
+        self.assertIn("roti_tecu_per_min", enriched.columns)
+        self.assertTrue(enriched["cycle_slip_flag"].any())
+
+        rows = aggregate_prn_rows(enriched)
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertGreater(row["max_roti"], 0.0)
+        self.assertGreater(row["cycle_slip_count"], 0)
+        self.assertIsNotNone(row["integrity_score"])
+        self.assertIsNotNone(row["ppp_convergence_min"])
+        self.assertIn(row["roti_level"], {"quiet", "mild", "moderate", "strong"})
 
     def test_load_cmn_from_temp_folder(self):
         sample = """# header

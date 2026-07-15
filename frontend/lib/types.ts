@@ -777,6 +777,16 @@ export interface PrnRow {
   mean_stec: number | null;
   mean_elevation: number | null;
   mean_qual: number | null;
+  mean_roti: number | null;
+  max_roti: number | null;
+  roti_level: string | null;
+  cycle_slip_count: number | null;
+  mean_s4: number | null;
+  max_s4: number | null;
+  cnr_std_dbhz: number | null;
+  integrity_score: number | null;
+  position_error_cm: number | null;
+  ppp_convergence_min: number | null;
   samples: number | null;
 }
 
@@ -790,6 +800,16 @@ export interface PrnObservation {
   elevation_deg: number | null;
   azimuth_deg: number | null;
   quality: number | null;
+  rot_tecu_per_min: number | null;
+  roti_tecu_per_min: number | null;
+  s4: number | null;
+  cnr_dbhz: number | null;
+  cnr_std_dbhz_5min: number | null;
+  scintillation_proxy: number | null;
+  cycle_slip_flag: boolean;
+  gnss_integrity_score: number | null;
+  position_error_cm: number | null;
+  ppp_convergence_min: number | null;
 }
 
 export interface PrnMeta {
@@ -800,6 +820,8 @@ export interface PrnMeta {
   has_azimuth: boolean;
   has_elevation: boolean;
   has_quality: boolean;
+  has_roti: boolean;
+  has_s4: boolean;
   time_start: string | null;
   time_end: string | null;
   message: string | null;

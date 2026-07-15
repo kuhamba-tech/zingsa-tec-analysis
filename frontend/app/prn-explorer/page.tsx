@@ -21,7 +21,7 @@ const PRN_COLORS = [
   "#ffcc00", "#34d399", "#f472b6", "#60a5fa", "#f97316",
 ];
 
-type Tab = "vtec" | "sky" | "elev" | "quality";
+type Tab = "vtec" | "sky" | "elev" | "quality" | "disturbance";
 
 function matchesConstellation(prn: string, constellation: string): boolean {
   const c = constellation.toLowerCase();
@@ -175,6 +175,30 @@ export default function PrnExplorerPage() {
   );
   const lowQual = qualRows.filter((r) => (r.mean_qual ?? 100) < qualThreshold);
 
+  const disturbanceRows = useMemo(
+    () => [...summary].sort((a, b) => (b.max_roti ?? 0) - (a.max_roti ?? 0)),
+    [summary],
+  );
+
+  const rotiChart = useMemo(() => {
+    const pts = observations.filter((o) => o.roti_tecu_per_min != null && chartPrns.includes(o.prn));
+    if (!pts.length) return null;
+    const times = [...new Set(pts.map((o) => o.timestamp))].sort();
+    const t0 = new Date(times[0]).getTime();
+    const t1 = new Date(times[times.length - 1]).getTime();
+    const spanHours = Math.max(1, (t1 - t0) / 3_600_000);
+    const labels = times.map((t) => formatTsLabel(t, spanHours));
+    const datasets = chartPrns.map((prn, i) => {
+      const byTime = new Map(pts.filter((p) => p.prn === prn).map((p) => [p.timestamp, p.roti_tecu_per_min]));
+      return {
+        label: prn,
+        data: times.map((t) => byTime.get(t) ?? null),
+        color: PRN_COLORS[i % PRN_COLORS.length],
+      };
+    });
+    return { labels, datasets };
+  }, [observations, chartPrns]);
+
   const selectedInfo = constellations.find((c) => c.id === selected) ?? null;
   const cardStats = constellationStats(data?.summary ?? [], selected);
   const meta = data?.meta;
@@ -271,7 +295,7 @@ export default function PrnExplorerPage() {
       )}
 
       <div className="tabs">
-        {([["vtec", "VTEC by PRN"], ["sky", "Sky Plot"], ["elev", "Elevation vs TEC"], ["quality", "Quality Analysis"]] as [Tab, string][]).map(([id, label]) => (
+        {([["vtec", "VTEC by PRN"], ["sky", "Sky Plot"], ["elev", "Elevation vs TEC"], ["quality", "Quality Analysis"], ["disturbance", "GNSS Disturbance"]] as [Tab, string][]).map(([id, label]) => (
           <button key={id} className={`tab${tab === id ? " active" : ""}`} onClick={() => setTab(id)}>{label}</button>
         ))}
       </div>
@@ -305,6 +329,10 @@ export default function PrnExplorerPage() {
                     <th style={{ padding: "0.4rem 0.7rem", textAlign: "right" }}>mean_stec</th>
                     <th style={{ padding: "0.4rem 0.7rem", textAlign: "right" }}>mean_elev</th>
                     <th style={{ padding: "0.4rem 0.7rem", textAlign: "right" }}>mean_qual</th>
+                    <th style={{ padding: "0.4rem 0.7rem", textAlign: "right" }}>max_roti</th>
+                    <th style={{ padding: "0.4rem 0.7rem", textAlign: "right" }}>slips</th>
+                    <th style={{ padding: "0.4rem 0.7rem", textAlign: "right" }}>integrity</th>
+                    <th style={{ padding: "0.4rem 0.7rem", textAlign: "right" }}>ppp_min</th>
                     <th style={{ padding: "0.4rem 0.7rem", textAlign: "right" }}>obs</th>
                   </tr>
                 </thead>
@@ -319,6 +347,10 @@ export default function PrnExplorerPage() {
                       <td style={{ padding: "0.35rem 0.7rem", textAlign: "right" }}>{r.mean_stec?.toFixed(3) ?? "—"}</td>
                       <td style={{ padding: "0.35rem 0.7rem", textAlign: "right" }}>{r.mean_elevation?.toFixed(1) ?? "—"}</td>
                       <td style={{ padding: "0.35rem 0.7rem", textAlign: "right" }}>{r.mean_qual?.toFixed(0) ?? "—"}</td>
+                      <td style={{ padding: "0.35rem 0.7rem", textAlign: "right" }}>{r.max_roti?.toFixed(2) ?? "—"}</td>
+                      <td style={{ padding: "0.35rem 0.7rem", textAlign: "right" }}>{r.cycle_slip_count ?? "—"}</td>
+                      <td style={{ padding: "0.35rem 0.7rem", textAlign: "right" }}>{r.integrity_score?.toFixed(0) ?? "—"}</td>
+                      <td style={{ padding: "0.35rem 0.7rem", textAlign: "right" }}>{r.ppp_convergence_min?.toFixed(0) ?? "—"}</td>
                       <td style={{ padding: "0.35rem 0.7rem", textAlign: "right" }}>{r.samples ?? "—"}</td>
                     </tr>
                   ))}
@@ -416,6 +448,77 @@ export default function PrnExplorerPage() {
             </>
           ) : (
             <div className="banner banner-info">No quality metrics for {selected}. Quality is derived from CNR (live) or S4 (CMN) when available.</div>
+          )}
+        </div>
+      )}
+
+      {tab === "disturbance" && !loading && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+          <div className="card">
+            <div style={{ fontWeight: 700, marginBottom: "0.6rem" }}>ROTI Time Series â€” {selected}</div>
+            {rotiChart ? (
+              <>
+                <LineChart labels={rotiChart.labels} datasets={rotiChart.datasets} yLabel="ROTI (TECU/min)" height={320} toggleableLegend />
+                <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "0.4rem" }}>
+                  ROTI levels: quiet &lt;0.2, mild 0.2-0.5, moderate 0.5-1.0, strong &gt;1.0 TECU/min.
+                </div>
+              </>
+            ) : (
+              <div className="banner banner-info">ROTI needs at least two matched TEC observations per PRN inside a 5-minute window.</div>
+            )}
+          </div>
+
+          {disturbanceRows.length > 0 ? (
+            <>
+              <div className="card">
+                <div style={{ fontWeight: 700, marginBottom: "0.6rem" }}>GNSS Integrity by PRN</div>
+                <BarChart
+                  labels={disturbanceRows.map((r) => r.prn)}
+                  values={disturbanceRows.map((r) => r.integrity_score ?? 0)}
+                  yLabel="Integrity score (%)"
+                  color="#168bd2"
+                  height={Math.max(280, disturbanceRows.length * 22)}
+                />
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "1rem" }}>
+                <div className="card">
+                  <div style={{ fontWeight: 700, marginBottom: "0.6rem" }}>Inferred Cycle Slips</div>
+                  <BarChart
+                    labels={disturbanceRows.map((r) => r.prn)}
+                    values={disturbanceRows.map((r) => r.cycle_slip_count ?? 0)}
+                    yLabel="Events"
+                    color="#ff8c00"
+                    height={260}
+                  />
+                </div>
+                <div className="card">
+                  <div style={{ fontWeight: 700, marginBottom: "0.6rem" }}>PPP Convergence Estimate</div>
+                  <BarChart
+                    labels={disturbanceRows.map((r) => r.prn)}
+                    values={disturbanceRows.map((r) => r.ppp_convergence_min ?? 0)}
+                    yLabel="Minutes"
+                    color="#a78bfa"
+                    height={260}
+                  />
+                </div>
+              </div>
+
+              <div className="card">
+                <LineChart
+                  labels={disturbanceRows.map((r) => r.prn)}
+                  datasets={[
+                    { label: "Max ROTI", data: disturbanceRows.map((r) => r.max_roti ?? 0), color: "#ff4444" },
+                    { label: "S4 / scintillation", data: disturbanceRows.map((r) => (r.max_s4 ?? 0) * 10), color: "#ffcc00" },
+                    { label: "Position error (cm)", data: disturbanceRows.map((r) => r.position_error_cm ?? 0), color: "#00ff88" },
+                  ]}
+                  yLabel="Disturbance metrics"
+                  height={280}
+                />
+              </div>
+            </>
+          ) : (
+            <div className="banner banner-info">No disturbance metrics for {selected}. Load per-PRN live, CMN, or archive observations.</div>
           )}
         </div>
       )}
