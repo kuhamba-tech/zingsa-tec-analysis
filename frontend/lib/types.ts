@@ -715,6 +715,28 @@ export interface IntermagnetAnalysisResponse {
   fetched_at: string | null;
 }
 
+export interface GuviOn2Point {
+  date: string;
+  overpass_ut: string;
+  region: string;
+  ratio: number | null;
+  status: string;
+  note: string;
+}
+
+export interface GuviOn2Response {
+  source: string;
+  source_url: string;
+  mission_url: string;
+  instrument: string;
+  altitude_range_km: number[];
+  region: string;
+  status: string;
+  message: string;
+  series: GuviOn2Point[];
+  fetched_at: string | null;
+}
+
 export interface PrnRow {
   prn: string;
   constellation: string;

@@ -2554,6 +2554,45 @@ select option {
   line-height: 1.55;
   color: var(--text);
 }
+.on2-inline-note {
+  border-left: 3px solid #f59e0b;
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  line-height: 1.45;
+  margin-top: 0.75rem;
+  padding: 0.55rem 0.8rem;
+  background: rgba(245, 158, 11, 0.08);
+}
+.on2-summary-grid {
+  display: grid;
+  gap: 0.85rem;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+.on2-stat-value {
+  color: #f59e0b;
+  font-size: 1.25rem;
+  font-weight: 800;
+  line-height: 1.2;
+  margin-top: 0.2rem;
+}
+.on2-table {
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  min-width: 620px;
+  width: 100%;
+}
+.on2-table th,
+.on2-table td {
+  border-bottom: 1px solid rgba(36, 77, 115, 0.45);
+  padding: 0.45rem 0.55rem;
+  text-align: left;
+}
+.on2-table th {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
 .omni-summary-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));

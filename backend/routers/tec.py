@@ -17,6 +17,7 @@ from backend.schemas import (
     EiaSummary,
     GeomagneticDailyPoint,
     GfzKpAnalysisResponse,
+    GuviOn2Response,
     IntermagnetAnalysisResponse,
     OmniAnalysisResponse,
     StormComparisonDoy,
@@ -272,6 +273,19 @@ async def intermagnet_analysis(
     vtec_by_date = _vtec_by_date(start, end, station)
     payload = build_intermagnet_analysis(rows, vtec_by_date, observatory=observatory)
     return IntermagnetAnalysisResponse(**payload)
+
+
+@router.get("/guvi-on2", response_model=GuviOn2Response)
+async def guvi_on2(
+    start: str | None = Query(None, description="Start date YYYY-MM-DD"),
+    end: str | None = Query(None, description="End date YYYY-MM-DD"),
+    _=Depends(require_api_key),
+):
+    """Return TIMED/GUVI thermospheric O/N2 overpass context for Africa."""
+    from zgiis.space_weather.guvi_on2 import build_guvi_on2_payload
+
+    payload = build_guvi_on2_payload(start=start, end=end)
+    return GuviOn2Response(**payload)
 
 
 @router.get("/anomalies", response_model=list[AnomalyDay])

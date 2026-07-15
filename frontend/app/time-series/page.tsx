@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState, useCallback, useRef } from "react";
-import { getArchiveMeta, getTimeSeries, getDiurnal, getSeasonal, getSolarCycle, getOmniAnalysis, getCelestrakAnalysis, getGfzKpAnalysis, getWdcKyotoAnalysis, getIntermagnetAnalysis } from "@/lib/api";
+import { getArchiveMeta, getTimeSeries, getDiurnal, getSeasonal, getSolarCycle, getOmniAnalysis, getCelestrakAnalysis, getGfzKpAnalysis, getWdcKyotoAnalysis, getIntermagnetAnalysis, getGuviOn2 } from "@/lib/api";
 import LineChart from "@/components/charts/LineChart";
 import BarChart from "@/components/charts/BarChart";
 import GeomagneticAnalysisPanel from "@/components/timeSeries/GeomagneticAnalysisPanel";
@@ -8,7 +8,8 @@ import CelestrakAnalysisPanel from "@/components/timeSeries/CelestrakAnalysisPan
 import GfzKpAnalysisPanel from "@/components/timeSeries/GfzKpAnalysisPanel";
 import MultiSourceComparisonPanel from "@/components/timeSeries/MultiSourceComparisonPanel";
 import IntermagnetAnalysisPanel from "@/components/timeSeries/IntermagnetAnalysisPanel";
-import type { ArchiveMeta, TecObservation, DiurnalPoint, SeasonalRow, SolarCycleRow, OmniAnalysisResponse, CelestrakAnalysisResponse, GfzKpAnalysisResponse, WdcKyotoAnalysisResponse, IntermagnetAnalysisResponse } from "@/lib/types";
+import GuviOn2AnalysisPanel from "@/components/timeSeries/GuviOn2AnalysisPanel";
+import type { ArchiveMeta, TecObservation, DiurnalPoint, SeasonalRow, SolarCycleRow, OmniAnalysisResponse, CelestrakAnalysisResponse, GfzKpAnalysisResponse, WdcKyotoAnalysisResponse, IntermagnetAnalysisResponse, GuviOn2Response } from "@/lib/types";
 
 const STATION_COLORS = ["#168bd2","#ff4444","#00ff88","#ff8c00","#a78bfa","#ffcc00","#34d399","#f472b6"];
 const MONTHS = [
@@ -53,7 +54,7 @@ const INTERMAGNET_OBSERVATORIES = [
   { code: "KMH", label: "KMH — Keetmanshoop, Namibia" },
 ];
 
-type Tab = "daily" | "monthly" | "seasonal" | "diurnal" | "compare" | "storms" | "celestrak" | "gfz" | "intermagnet";
+type Tab = "daily" | "monthly" | "seasonal" | "diurnal" | "compare" | "storms" | "celestrak" | "gfz" | "guvi" | "intermagnet";
 
 export default function TimeSeriesPage() {
   const [meta, setMeta]       = useState<ArchiveMeta | null>(null);
@@ -79,6 +80,9 @@ export default function TimeSeriesPage() {
   const [intermagnetLoading, setIntermagnetLoading] = useState(false);
   const [intermagnetError, setIntermagnetError] = useState<string | null>(null);
   const [imagObservatory, setImagObservatory] = useState("HER");
+  const [guvi, setGuvi] = useState<GuviOn2Response | null>(null);
+  const [guviLoading, setGuviLoading] = useState(false);
+  const [guviError, setGuviError] = useState<string | null>(null);
 
   // filters
   const [station, setStation] = useState("");
@@ -166,7 +170,7 @@ export default function TimeSeriesPage() {
     if (stationParam) setStation(stationParam);
     if (tabParam === "storms" || tabParam === "daily" || tabParam === "monthly" || tabParam === "seasonal"
       || tabParam === "diurnal" || tabParam === "compare" || tabParam === "celestrak"
-      || tabParam === "gfz" || tabParam === "intermagnet") {
+      || tabParam === "gfz" || tabParam === "guvi" || tabParam === "intermagnet") {
       setTab(tabParam);
     }
     if (startParam) {
@@ -267,6 +271,25 @@ export default function TimeSeriesPage() {
     }
     setIntermagnetLoading(false);
   }, [station, imagObservatory, imagStartYear, imagStartMonth, imagEndYear, imagEndMonth]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const loadGuviOn2 = useCallback(async () => {
+    const r = rangeFromMonths(startYear, startMonth, endYear, endMonth);
+    setStart(r.start);
+    setEnd(r.end);
+    setGuviLoading(true);
+    setGuviError(null);
+    setTab("guvi");
+    try {
+      void loadAll(station, r.start, r.end, { initial: false });
+      const payload = await getGuviOn2(r.start, r.end);
+      setGuvi(payload);
+    } catch (err) {
+      setGuvi(null);
+      setGuviError(err instanceof Error ? err.message : "Failed to load TIMED/GUVI O/N2 context");
+    } finally {
+      setGuviLoading(false);
+    }
+  }, [station, startYear, startMonth, endYear, endMonth]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Build daily mean per station ──────────────────────────────────────────
   const dailyByStation: Record<string, Record<string, number[]>> = {};
@@ -408,12 +431,20 @@ export default function TimeSeriesPage() {
           <button className="btn btn-primary" onClick={loadAllSources} disabled={sourcesLoading || (loading && obs.length === 0)}>
             {sourcesLoading ? "Loading all sources…" : "Load all sources"}
           </button>
+          <button className="btn btn-secondary" onClick={loadGuviOn2} disabled={guviLoading || (loading && obs.length === 0)}>
+            {guviLoading ? "Loading O/N2..." : "Load O/N2 context"}
+          </button>
         </div>
         {start && end && (
           <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
             Selected range: {start} → {end}
           </div>
         )}
+        <div className="on2-inline-note">
+          TIMED/GUVI thermospheric O/N2 maps are historical space-segment products. The Africa reference
+          overpasses from Matamba and Danskin occurred at about 07:56, 07:46, and 07:36 UT on 2021-11-03 to
+          2021-11-05.
+        </div>
       </div>
 
       {/* INTERMAGNET date range — ground magnetometer H / dB/dt */}
@@ -541,7 +572,7 @@ export default function TimeSeriesPage() {
 
       {/* Tabs */}
       <div className="tabs">
-        {([["daily","Daily Variation"],["monthly","Monthly Averages"],["seasonal","Seasonal / Yearly"],["diurnal","Diurnal Pattern"],["compare","Source Comparison"],["storms","NASA OMNI"],["celestrak","CelesTrak"],["gfz","GFZ Kp"],["intermagnet","INTERMAGNET"]] as [Tab,string][]).map(([id, label]) => (
+        {([["daily","Daily Variation"],["monthly","Monthly Averages"],["seasonal","Seasonal / Yearly"],["diurnal","Diurnal Pattern"],["compare","Source Comparison"],["storms","NASA OMNI"],["celestrak","CelesTrak"],["gfz","GFZ Kp"],["guvi","Thermosphere O/N2"],["intermagnet","INTERMAGNET"]] as [Tab,string][]).map(([id, label]) => (
           <button key={id} className={`tab${tab === id ? " active" : ""}`} onClick={() => setTab(id)}>{label}</button>
         ))}
       </div>
@@ -698,6 +729,17 @@ export default function TimeSeriesPage() {
           vtecDatasets={dailyDatasets}
           loading={sourcesLoading}
           error={gfzError}
+        />
+      )}
+
+      {/* TIMED/GUVI O/N2 analysis */}
+      {tab === "guvi" && (
+        <GuviOn2AnalysisPanel
+          guvi={guvi}
+          vtecLabels={allDates}
+          vtecDatasets={dailyDatasets}
+          loading={guviLoading}
+          error={guviError}
         />
       )}
 

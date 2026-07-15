@@ -632,6 +632,28 @@ class IntermagnetAnalysisResponse(BaseModel):
     fetched_at: str | None = None
 
 
+class GuviOn2Point(BaseModel):
+    date: str
+    overpass_ut: str
+    region: str = "Africa"
+    ratio: float | None = None
+    status: str = "metadata_only"
+    note: str = ""
+
+
+class GuviOn2Response(BaseModel):
+    source: str
+    source_url: str
+    mission_url: str
+    instrument: str
+    altitude_range_km: list[int] = []
+    region: str = "Africa"
+    status: str = "metadata_only"
+    message: str = ""
+    series: list[GuviOn2Point] = []
+    fetched_at: str | None = None
+
+
 class PrnRow(BaseModel):
     prn: str
     constellation: str

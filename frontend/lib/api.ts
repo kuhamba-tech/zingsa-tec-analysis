@@ -22,6 +22,7 @@ import type {
   GicStatusResponse,
   GicUploadResult,
   GfzKpAnalysisResponse,
+  GuviOn2Response,
   WdcKyotoAnalysisResponse,
   IntermagnetAnalysisResponse,
   LiveObservation,
@@ -465,6 +466,8 @@ export const getIntermagnetAnalysis = (start: string, end: string, observatory: 
     { start, end, observatory, station, _ts: Date.now() },
     ANALYSIS_TIMEOUT_MS,
   );
+export const getGuviOn2 = (start?: string, end?: string) =>
+  get<GuviOn2Response>("/tec/guvi-on2", { start, end, _ts: Date.now() });
 export const getPrn = (params?: {
   constellation?: string;
   station?: string;
