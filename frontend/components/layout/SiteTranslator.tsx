@@ -83,6 +83,9 @@ export default function SiteTranslator() {
   const [active, setActive] = useState("en");
   const panelRef = useRef<HTMLDivElement | null>(null);
   const includedLanguages = useMemo(() => SUPPORTED_TRANSLATE_CODES.join(","), []);
+  const activeLanguage =
+    LANGUAGES.find((language) => language.id === active || language.translateCode === active) ??
+    LANGUAGES.find((language) => language.id === "en")!;
 
   useEffect(() => {
     setActive(currentLanguageIdFromStorage());
@@ -140,7 +143,33 @@ export default function SiteTranslator() {
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
       >
-        <span aria-hidden>A</span>
+        <span className="site-translator-flag" aria-hidden>{activeLanguage.short}</span>
+        <span className="site-translator-code">{activeLanguage.translateCode.toUpperCase()}</span>
+        <span className="site-translator-caret" aria-hidden>›</span>
+      </button>
+
+      <button
+        type="button"
+        className="site-translator-floating-button site-translator-home-button"
+        aria-label="Translate this site"
+        onClick={() => setOpen((value) => !value)}
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M3 11.5 12 5l9 6.5" />
+          <path d="M5.5 10.5V19h13v-8.5" />
+          <path d="M9 19v-5h6v5" />
+        </svg>
+      </button>
+
+      <button
+        type="button"
+        className="site-translator-floating-button site-translator-chat-button"
+        aria-label="Open language options"
+        onClick={() => setOpen((value) => !value)}
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M5 6.5h14v9.5H9l-4 3v-12.5Z" />
+        </svg>
       </button>
 
       {open && (
