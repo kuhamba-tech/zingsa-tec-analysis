@@ -1,16 +1,14 @@
 """
 VTEC observation database.
 
-Uses TimescaleDB (PostgreSQL) when TSDB_DSN env-var is set,
+Uses Supabase/PostgreSQL when SUPABASE_DATABASE_URL or DATABASE_URL is set,
 falls back to SQLite for development/offline use.
 
-TimescaleDB hypertable gives automatic time-partitioning so queries
-over the 24-station, multi-constellation stream stay fast.
+If TimescaleDB is available the time-series tables are promoted to hypertables.
 """
 from __future__ import annotations
 
 import logging
-import os
 import sqlite3
 import tempfile
 from datetime import datetime, timezone, timedelta
@@ -19,17 +17,14 @@ from typing import Optional
 
 import pandas as pd
 
+from zgiis.db.config import database_backend_label, database_dsn
+
 log = logging.getLogger(__name__)
 
-_TSDB_DSN = (
-    os.getenv("TSDB_DSN")
-    or os.getenv("POSTGRES_URL")
-    or os.getenv("DATABASE_URL")
-    or ""
-)
+_TSDB_DSN = database_dsn()
 _SQLITE_PATH = Path(__file__).resolve().parents[2] / "static" / "data" / "vtec_live.db"
 
-# ── TimescaleDB schema ────────────────────────────────────────────────────────
+# Postgres schema
 _PG_DDL = """
 CREATE TABLE IF NOT EXISTS vtec_obs (
     time           TIMESTAMPTZ      NOT NULL,
@@ -70,10 +65,10 @@ class TecDB:
     """
     Unified VTEC database client.
 
-    Connect with TimescaleDB:
-        TecDB(dsn="postgresql://user:pass@host:5432/zgiis")
+    Connect with Supabase/PostgreSQL:
+        TecDB(dsn="postgresql://postgres:pass@db.project.supabase.co:5432/postgres")
     or simply:
-        TecDB()           # uses TSDB_DSN env-var, or SQLite fallback
+        TecDB()           # uses SUPABASE_DATABASE_URL/DATABASE_URL, or SQLite fallback
     """
 
     def __init__(self, dsn: str = _TSDB_DSN):
@@ -89,7 +84,8 @@ class TecDB:
             self._init_pg()
         else:
             self._init_sqlite()
-        log.info("TecDB ready (%s)", "TimescaleDB" if self._is_pg else f"SQLite:{_SQLITE_PATH}")
+        label = database_backend_label(self._dsn) if self._is_pg else f"SQLite:{_SQLITE_PATH}"
+        log.info("TecDB ready (%s)", label)
 
     def _init_pg(self) -> None:
         try:
@@ -104,7 +100,7 @@ class TecDB:
                 self._conn.commit()
             except Exception as exc:
                 self._conn.rollback()
-                log.warning("Timescale hypertable setup skipped: %s", exc)
+                log.warning("Postgres hypertable setup skipped: %s", exc)
             with self._conn.cursor() as cur:
                 cur.execute(_PG_IDX)
             self._conn.commit()
@@ -113,13 +109,15 @@ class TecDB:
             self._is_pg = False
             self._init_sqlite()
         except Exception as exc:
-            log.error("TimescaleDB init failed: %s — falling back to SQLite", exc)
+            log.error("Postgres init failed: %s - falling back to SQLite", exc)
             self._is_pg = False
             self._init_sqlite()
 
     @property
     def backend(self) -> str:
-        return "timescaledb" if self._is_pg else "sqlite"
+        if not self._is_pg:
+            return "sqlite"
+        return "supabase" if "supabase" in self._dsn.lower() else "postgres"
 
     def _init_sqlite(self) -> None:
         try:

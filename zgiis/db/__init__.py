@@ -1,1 +1,1 @@
-"""TimescaleDB / SQLite persistence layer for live VTEC observations."""
+"""Supabase/Postgres and SQLite persistence layer for live operations data."""

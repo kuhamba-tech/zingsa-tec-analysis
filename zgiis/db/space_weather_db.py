@@ -5,13 +5,12 @@ Stores the eight dashboard metrics together per sample so Kp, Dst, F10.7,
 solar wind, S4, GNSS risk, and CORS station counts can be queried and
 correlated in one table.
 
-Uses TimescaleDB when TSDB_DSN is set, otherwise SQLite at
+Uses Supabase/PostgreSQL when SUPABASE_DATABASE_URL or DATABASE_URL is set, otherwise SQLite at
 static/data/space_weather_log.sqlite.
 """
 from __future__ import annotations
 
 import logging
-import os
 import sqlite3
 import tempfile
 from datetime import datetime, timedelta, timezone
@@ -20,10 +19,11 @@ from typing import Any, Optional
 import pandas as pd
 
 from pathlib import Path
+from zgiis.db.config import database_backend_label, database_dsn
 
 log = logging.getLogger(__name__)
 
-_TSDB_DSN = os.getenv("TSDB_DSN", "")
+_TSDB_DSN = database_dsn()
 _SQLITE_PATH = Path(__file__).resolve().parents[2] / "static" / "data" / "space_weather_log.sqlite"
 
 _GNSS_RISK_SCORES = {
@@ -129,7 +129,7 @@ class SpaceWeatherDB:
             self._init_sqlite()
         log.info(
             "SpaceWeatherDB ready (%s)",
-            "TimescaleDB" if self._is_pg else f"SQLite:{_SQLITE_PATH}",
+            database_backend_label(self._dsn) if self._is_pg else f"SQLite:{_SQLITE_PATH}",
         )
 
     def _init_pg(self) -> None:
@@ -150,7 +150,7 @@ class SpaceWeatherDB:
                 cur.execute(_PG_IDX)
             self._conn.commit()
         except Exception as exc:
-            log.error("SpaceWeatherDB TimescaleDB init failed: %s — using SQLite", exc)
+            log.error("SpaceWeatherDB Postgres init failed: %s - using SQLite", exc)
             self._is_pg = False
             self._init_sqlite()
 

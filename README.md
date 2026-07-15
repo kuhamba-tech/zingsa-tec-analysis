@@ -28,6 +28,32 @@ pip install -r requirements-streamlit.txt
 streamlit run app.py
 ```
 
+## Supabase database
+
+Supabase is the recommended hosted Postgres replacement for the live ZGIIS app.
+Use it for CORS station status, TEC measurements, TEC map metadata, ionosonde
+comparisons, alerts, users/permissions, reports, and receiver-bias history.
+
+Set the hosted database URL in `.env` or your deployment environment:
+
+```env
+SUPABASE_DATABASE_URL=postgresql://postgres:[PASSWORD]@[SUPABASE_HOST]:5432/postgres
+```
+
+The app also accepts `DATABASE_URL`, `POSTGRES_URL`, and `TSDB_DSN` for backward
+compatibility, but `SUPABASE_DATABASE_URL` takes priority. Supabase connections
+are forced to `sslmode=require` when the URL does not already include an SSL
+mode.
+
+To bootstrap the hosted tables manually:
+
+```bash
+psql "$SUPABASE_DATABASE_URL" -f zgiis/db/schema.sql
+```
+
+When `SUPABASE_DATABASE_URL` is not set, local development continues to use the
+SQLite files under `static/data`.
+
 ### One-click Windows launcher
 
 Use PowerShell:

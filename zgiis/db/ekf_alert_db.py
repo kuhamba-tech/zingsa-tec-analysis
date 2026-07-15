@@ -1,7 +1,7 @@
 """
 Event log for Extended Kalman Filter deviation alerts.
 
-Uses TimescaleDB when TSDB_DSN is set, otherwise SQLite at
+Uses Supabase/PostgreSQL when SUPABASE_DATABASE_URL or DATABASE_URL is set, otherwise SQLite at
 static/data/ekf_alert_log.sqlite — same dual-backend pattern as
 SpaceWeatherDB.
 """
@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import sqlite3
 import tempfile
 from datetime import datetime, timedelta, timezone
@@ -18,9 +17,11 @@ from typing import Any, Optional
 
 import pandas as pd
 
+from zgiis.db.config import database_dsn
+
 log = logging.getLogger(__name__)
 
-_TSDB_DSN = os.getenv("TSDB_DSN", "")
+_TSDB_DSN = database_dsn()
 _SQLITE_PATH = Path(__file__).resolve().parents[2] / "static" / "data" / "ekf_alert_log.sqlite"
 
 # Don't write a duplicate alert row for the same parameter while the
@@ -71,7 +72,7 @@ def _row_to_alert(row: dict[str, Any]) -> dict[str, Any]:
         related = json.loads(related) if isinstance(related, str) else (related or [])
     except (TypeError, ValueError):
         related = []
-    # On Postgres/TimescaleDB pandas reads a TIMESTAMPTZ column back as a
+    # On Postgres pandas reads a TIMESTAMPTZ column back as a
     # pandas.Timestamp, not a str (SQLite's TEXT column already comes back
     # as a str) — normalize so EkfAlertOut.timestamp: str always validates.
     time_value = row.get("time")
@@ -114,7 +115,7 @@ class EkfAlertDB:
                 cur.execute(_PG_IDX)
             self._conn.commit()
         except Exception as exc:
-            log.error("EkfAlertDB TimescaleDB init failed: %s — using SQLite", exc)
+            log.error("EkfAlertDB Postgres init failed: %s - using SQLite", exc)
             self._is_pg = False
             self._init_sqlite()
 

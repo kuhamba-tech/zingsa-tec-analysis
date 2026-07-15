@@ -4,13 +4,12 @@ CORS station status archive — online / degraded / offline / unknown.
 Logs state transitions and periodic snapshots so uptime, outages, and
 correlation with space-weather metrics can be analysed later.
 
-Uses TimescaleDB when TSDB_DSN is set, else SQLite at
+Uses Supabase/PostgreSQL when SUPABASE_DATABASE_URL or DATABASE_URL is set, else SQLite at
 static/data/station_status.sqlite.
 """
 from __future__ import annotations
 
 import logging
-import os
 import sqlite3
 import tempfile
 from datetime import datetime, timedelta, timezone
@@ -19,14 +18,11 @@ from typing import Any, Optional
 
 import pandas as pd
 
+from zgiis.db.config import database_backend_label, database_dsn
+
 log = logging.getLogger(__name__)
 
-_TSDB_DSN = (
-    os.getenv("TSDB_DSN")
-    or os.getenv("POSTGRES_URL")
-    or os.getenv("DATABASE_URL")
-    or ""
-)
+_TSDB_DSN = database_dsn()
 _SQLITE_PATH = Path(__file__).resolve().parents[2] / "static" / "data" / "station_status.sqlite"
 
 VALID_STATUSES = frozenset({"online", "degraded", "offline", "unknown"})
@@ -120,7 +116,7 @@ class StationStatusDB:
             self._init_sqlite()
         log.info(
             "StationStatusDB ready (%s)",
-            "TimescaleDB" if self._is_pg else f"SQLite:{_SQLITE_PATH}",
+            database_backend_label(self._dsn) if self._is_pg else f"SQLite:{_SQLITE_PATH}",
         )
 
     def _init_pg(self) -> None:
@@ -144,7 +140,7 @@ class StationStatusDB:
                 cur.execute(_PG_IDX)
             self._conn.commit()
         except Exception as exc:
-            log.error("StationStatusDB TimescaleDB init failed: %s — using SQLite", exc)
+            log.error("StationStatusDB Postgres init failed: %s - using SQLite", exc)
             self._is_pg = False
             self._init_sqlite()
 

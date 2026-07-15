@@ -1,85 +1,72 @@
--- TimescaleDB schema for ZGIIS live VTEC pipeline
--- Run this once against your TimescaleDB (PostgreSQL) instance:
---   psql -h <host> -U <user> -d <db> -f schema.sql
+-- Supabase/PostgreSQL schema for the ZGIIS live operations database.
+-- Run this once in the Supabase SQL editor or with psql:
+--   psql "$SUPABASE_DATABASE_URL" -f zgiis/db/schema.sql
+--
+-- The application also creates these tables on startup when a hosted
+-- Postgres URL is configured. This file is useful for explicit bootstrapping.
 
--- ── Extensions ──────────────────────────────────────────────────────────────
-CREATE EXTENSION IF NOT EXISTS timescaledb;
-
--- ── VTEC / STEC observations ─────────────────────────────────────────────────
--- One row per epoch × station × PRN from the live NTRIP stream.
+-- VTEC / STEC observations
+-- One row per epoch, station, and PRN from the live NTRIP stream.
 CREATE TABLE IF NOT EXISTS vtec_obs (
     time           TIMESTAMPTZ      NOT NULL,
-    station        TEXT             NOT NULL,   -- 4-char CORS ID (e.g. 'zinh')
-    constellation  TEXT             NOT NULL,   -- GPS | GLONASS | Galileo | BeiDou
-    prn            TEXT             NOT NULL,   -- G01, R05, E12, C23 …
-    stec_tecu      DOUBLE PRECISION,            -- Slant TEC (TECU)
-    vtec_tecu      DOUBLE PRECISION,            -- Vertical TEC after M(E) mapping
-    elevation_deg  DOUBLE PRECISION,            -- Satellite elevation (degrees)
-    cnr_dbhz       DOUBLE PRECISION             -- Carrier-to-noise ratio (dB-Hz)
+    station        TEXT             NOT NULL,
+    constellation  TEXT             NOT NULL,
+    prn            TEXT             NOT NULL,
+    stec_tecu      DOUBLE PRECISION,
+    vtec_tecu      DOUBLE PRECISION,
+    elevation_deg  DOUBLE PRECISION,
+    cnr_dbhz       DOUBLE PRECISION
 );
 
--- Convert to hypertable (7-day chunks)
-SELECT create_hypertable('vtec_obs', 'time',
-    chunk_time_interval => INTERVAL '7 days',
-    if_not_exists       => TRUE
-);
-
--- Indices
 CREATE INDEX IF NOT EXISTS vtec_obs_station_time ON vtec_obs (station, time DESC);
-CREATE INDEX IF NOT EXISTS vtec_obs_prn_time     ON vtec_obs (prn,     time DESC);
+CREATE INDEX IF NOT EXISTS vtec_obs_prn_time ON vtec_obs (prn, time DESC);
+CREATE INDEX IF NOT EXISTS vtec_obs_time_idx ON vtec_obs (time DESC);
 
--- Continuous aggregate: 15-min mean VTEC per station (for CNN-GRU input)
-CREATE MATERIALIZED VIEW IF NOT EXISTS vtec_15min
-WITH (timescaledb.continuous) AS
+-- Standard Postgres materialized view for 15-minute VTEC summaries.
+-- Refresh manually or from a scheduled job if you need this aggregate.
+CREATE MATERIALIZED VIEW IF NOT EXISTS vtec_15min AS
 SELECT
-    time_bucket('15 minutes', time) AS bucket,
+    date_bin(INTERVAL '15 minutes', time, TIMESTAMPTZ '2000-01-01 00:00:00+00') AS bucket,
     station,
     constellation,
-    AVG(vtec_tecu)      AS mean_vtec,
-    MAX(vtec_tecu)      AS max_vtec,
-    AVG(elevation_deg)  AS mean_elev,
-    COUNT(*)            AS n_obs
+    AVG(vtec_tecu) AS mean_vtec,
+    MAX(vtec_tecu) AS max_vtec,
+    AVG(elevation_deg) AS mean_elev,
+    COUNT(*) AS n_obs
 FROM vtec_obs
 GROUP BY bucket, station, constellation
 WITH NO DATA;
 
-SELECT add_continuous_aggregate_policy('vtec_15min',
-    start_offset  => INTERVAL '2 days',
-    end_offset    => INTERVAL '1 minute',
-    schedule_interval => INTERVAL '15 minutes',
-    if_not_exists => TRUE
-);
+CREATE INDEX IF NOT EXISTS vtec_15min_station_bucket
+    ON vtec_15min (station, bucket DESC);
 
--- ── RTK monitoring ───────────────────────────────────────────────────────────
+-- RTK monitoring
 CREATE TABLE IF NOT EXISTS rtk_quality (
     time           TIMESTAMPTZ NOT NULL,
     station        TEXT        NOT NULL,
     latency_ms     REAL,
     msg_rate_hz    REAL,
-    quality        TEXT        -- Good | Degraded | Poor | Offline
+    quality        TEXT
 );
 
-SELECT create_hypertable('rtk_quality', 'time',
-    chunk_time_interval => INTERVAL '1 day',
-    if_not_exists       => TRUE
-);
+CREATE INDEX IF NOT EXISTS rtk_quality_station_time
+    ON rtk_quality (station, time DESC);
 
--- ── CNN-GRU forecast results ──────────────────────────────────────────────────
+-- CNN-GRU forecast results
 CREATE TABLE IF NOT EXISTS vtec_forecast (
-    issued_at      TIMESTAMPTZ NOT NULL,    -- when the forecast was made
-    valid_at       TIMESTAMPTZ NOT NULL,    -- epoch the forecast is for
-    station        TEXT,                   -- NULL = network-wide
+    issued_at      TIMESTAMPTZ NOT NULL,
+    valid_at       TIMESTAMPTZ NOT NULL,
+    station        TEXT,
     vtec_forecast  DOUBLE PRECISION,
     model_version  TEXT
 );
 
-SELECT create_hypertable('vtec_forecast', 'valid_at',
-    chunk_time_interval => INTERVAL '7 days',
-    if_not_exists       => TRUE
-);
+CREATE INDEX IF NOT EXISTS vtec_forecast_station_valid
+    ON vtec_forecast (station, valid_at DESC);
+CREATE INDEX IF NOT EXISTS vtec_forecast_valid_idx
+    ON vtec_forecast (valid_at DESC);
 
--- ── Space weather dashboard archive ───────────────────────────────────────────
--- One row per dashboard sample (Kp, Dst, F10.7, wind, S4, GNSS risk, CORS).
+-- Space weather dashboard archive
 CREATE TABLE IF NOT EXISTS space_weather_log (
     time              TIMESTAMPTZ      NOT NULL,
     kp                DOUBLE PRECISION,
@@ -96,15 +83,9 @@ CREATE TABLE IF NOT EXISTS space_weather_log (
     source            TEXT
 );
 
-SELECT create_hypertable('space_weather_log', 'time',
-    chunk_time_interval => INTERVAL '7 days',
-    if_not_exists       => TRUE
-);
-
 CREATE INDEX IF NOT EXISTS sw_log_time_idx ON space_weather_log (time DESC);
 
--- ── CORS station status archive ───────────────────────────────────────────────
--- Transitions (online / degraded / offline / unknown) and periodic snapshots.
+-- CORS station status archive
 CREATE TABLE IF NOT EXISTS station_status_events (
     time              TIMESTAMPTZ      NOT NULL,
     station_code      TEXT,
@@ -120,22 +101,12 @@ CREATE TABLE IF NOT EXISTS station_status_events (
     source            TEXT
 );
 
-SELECT create_hypertable('station_status_events', 'time',
-    chunk_time_interval => INTERVAL '7 days',
-    if_not_exists       => TRUE
-);
-
 CREATE TABLE IF NOT EXISTS station_status_snapshots (
     time              TIMESTAMPTZ      NOT NULL,
     station_code      TEXT             NOT NULL,
     status            TEXT             NOT NULL,
     api_reachable     BOOLEAN          NOT NULL DEFAULT TRUE,
     source            TEXT
-);
-
-SELECT create_hypertable('station_status_snapshots', 'time',
-    chunk_time_interval => INTERVAL '7 days',
-    if_not_exists       => TRUE
 );
 
 CREATE INDEX IF NOT EXISTS st_status_events_time_idx
@@ -146,3 +117,21 @@ CREATE INDEX IF NOT EXISTS st_status_snap_time_idx
     ON station_status_snapshots (time DESC);
 CREATE INDEX IF NOT EXISTS st_status_snap_code_time_idx
     ON station_status_snapshots (station_code, time DESC);
+
+-- EKF deviation alerts
+CREATE TABLE IF NOT EXISTS ekf_alert_log (
+    alert_id            TEXT PRIMARY KEY,
+    time                TIMESTAMPTZ NOT NULL,
+    parameter           TEXT,
+    parameter_label     TEXT,
+    observed_value      DOUBLE PRECISION,
+    ekf_predicted_value DOUBLE PRECISION,
+    prediction_error    DOUBLE PRECISION,
+    threshold           DOUBLE PRECISION,
+    severity            TEXT,
+    related_indicators  TEXT,
+    alert_message       TEXT,
+    acknowledged_status BOOLEAN DEFAULT FALSE
+);
+
+CREATE INDEX IF NOT EXISTS ekf_alert_time_idx ON ekf_alert_log (time DESC);
