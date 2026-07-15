@@ -1,6 +1,14 @@
 import type { Station, TecHeatmapResponse } from "@/lib/types";
 import { getLiveStationStatus } from "@/lib/liveStationStatus";
 
+function stationKey(code: string | null | undefined): string {
+  return (code ?? "").toLowerCase().replace(/_+$/, "");
+}
+
+function isInterpolatedSource(source: string | null | undefined): boolean {
+  return /estimate|interpolated|surface/i.test(source ?? "");
+}
+
 /** Merge station-level live VTEC into an empty heat-map API response. */
 export function mergeTecHeatmapWithStations(
   heatmap: TecHeatmapResponse | null,
@@ -8,33 +16,31 @@ export function mergeTecHeatmapWithStations(
 ): TecHeatmapResponse | null {
   if (heatmap?.available && (heatmap.stations?.length ?? 0) > 0) {
     const stationStatusByCode = new Map(
-      stations.map((s) => [s.code.toLowerCase().replace(/_+$/, ""), getLiveStationStatus(s)]),
+      stations.map((s) => [stationKey(s.code), getLiveStationStatus(s)]),
     );
-    const isZeroTecStation = (code: string | null | undefined) => {
+    const isOfflineStation = (code: string | null | undefined) => {
       if (!code) return false;
-      const status = stationStatusByCode.get(code.toLowerCase().replace(/_+$/, ""));
+      const status = stationStatusByCode.get(stationKey(code));
       return status === "offline" || status === "unavailable";
     };
-    const heatmapStations = heatmap.stations.map((s) =>
-      isZeroTecStation(s.code)
-        ? { ...s, vtec: 0, obs_count: 0, source: "offline" }
-        : s,
-    );
-    const heatPoints = heatmap.heat_points.map((p) =>
-      isZeroTecStation(p.code)
-        ? { ...p, vtec: 0, weight: 0 }
-        : p,
-    );
+    const heatmapStations = heatmap.stations.map((s) => {
+      if (!isOfflineStation(s.code)) return s;
+      return {
+        ...s,
+        obs_count: 0,
+        source: isInterpolatedSource(s.source) ? s.source : "interpolated_offline",
+      };
+    });
     const values = heatmapStations.map((s) => s.vtec).filter((v) => Number.isFinite(v));
     return {
       ...heatmap,
       stations: heatmapStations,
-      heat_points: heatPoints,
+      heat_points: heatmap.heat_points,
       tec_min: values.length > 0 ? Math.min(...values) : heatmap.tec_min,
       tec_max: values.length > 0 ? Math.max(...values) : heatmap.tec_max,
       message: heatmap.message
-        ? `${heatmap.message} Offline/unavailable stations are shown as 0.0 VTEC.`
-        : "Offline/unavailable stations are shown as 0.0 VTEC.",
+        ? `${heatmap.message} Offline/unavailable stations retain interpolated TEC estimates where the grid is available.`
+        : "Offline/unavailable stations retain interpolated TEC estimates where the grid is available.",
     };
   }
 

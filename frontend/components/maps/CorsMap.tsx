@@ -94,12 +94,26 @@ function drawPointHeatBlobs(
   }
 }
 
+function stationKey(code: string | null | undefined): string {
+  return (code ?? "").toLowerCase().replace(/_+$/, "");
+}
+
+function heatmapStationFor(station: Station, heatmap: TecHeatmapResponse | null | undefined) {
+  const code = stationKey(station.code);
+  return heatmap?.stations.find((s) => stationKey(s.code) === code) ?? null;
+}
+
+function isInterpolatedSource(source: string | null | undefined): boolean {
+  return /estimate|interpolated|surface/i.test(source ?? "");
+}
+
 function stationTecValue(station: Station, heatmap: TecHeatmapResponse | null | undefined): number | null {
+  const fromHeatmap = heatmapStationFor(station, heatmap)?.vtec;
+  if (typeof fromHeatmap === "number" && Number.isFinite(fromHeatmap) && fromHeatmap >= 0) {
+    return fromHeatmap;
+  }
   const liveStatus = getLiveStationStatus(station);
-  if (liveStatus === "offline" || liveStatus === "unavailable") return 0;
-  const code = station.code.toLowerCase().replace(/_+$/, "");
-  const fromHeatmap = heatmap?.stations.find((s) => s.code.toLowerCase().replace(/_+$/, "") === code)?.vtec;
-  if (typeof fromHeatmap === "number" && Number.isFinite(fromHeatmap) && fromHeatmap >= 0) return fromHeatmap;
+  if (liveStatus === "offline" || liveStatus === "unavailable") return null;
   return typeof station.current_tec === "number" && Number.isFinite(station.current_tec) && station.current_tec > 0
     ? station.current_tec
     : null;
@@ -337,6 +351,7 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid", heat
         if (f) {
           const s: Station = f.get("station");
           const tecValue = stationTecValue(s, heatmapRef.current);
+          const heatmapStation = heatmapStationFor(s, heatmapRef.current);
           setSelectedRef.current(s);
           const icaoLine =
             tecValue != null
@@ -350,10 +365,14 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid", heat
             tecValue != null
               ? `<div style="color:#57ff65;font-weight:800">${tecValue.toFixed(1)} TECU</div>`
               : "";
+          const tecSourceLine =
+            heatmapStation && isInterpolatedSource(heatmapStation.source)
+              ? `<div style="color:#94a3b8;font-size:0.68rem">Interpolated TEC estimate</div>`
+              : "";
           const sourcetableLine = s.sourcetable_mismatch
             ? `<div style="margin-top:0.2rem;color:#ef9f27;font-weight:700">Warning: Shares caster identity with "${s.sourcetable_identifier}"</div>`
             : "";
-          popupEl.innerHTML = `<b>${s.code.toUpperCase()}</b>${tecLine}${icaoLine}${distLine}${sourcetableLine}<div style="margin-top:0.2rem;color:#94a3b8">Click Details →</div>`;
+          popupEl.innerHTML = `<b>${s.code.toUpperCase()}</b>${tecLine}${tecSourceLine}${icaoLine}${distLine}${sourcetableLine}<div style="margin-top:0.2rem;color:#94a3b8">Click Details →</div>`;
           popup.setPosition(evt.coordinate);
           popupEl.style.display = "block";
         } else {

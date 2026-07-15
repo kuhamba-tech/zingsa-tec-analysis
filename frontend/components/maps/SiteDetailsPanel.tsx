@@ -10,12 +10,26 @@ interface Props {
   onClose: () => void;
 }
 
+function stationKey(code: string | null | undefined): string {
+  return (code ?? "").toLowerCase().replace(/_+$/, "");
+}
+
+function heatmapStationFor(station: Station, heatmap?: TecHeatmapResponse | null) {
+  const code = stationKey(station.code);
+  return heatmap?.stations.find((s) => stationKey(s.code) === code) ?? null;
+}
+
+function isInterpolatedSource(source: string | null | undefined): boolean {
+  return /estimate|interpolated|surface/i.test(source ?? "");
+}
+
 function heatmapVtec(station: Station, heatmap?: TecHeatmapResponse | null): number | null {
+  const fromHeatmap = heatmapStationFor(station, heatmap)?.vtec;
+  if (typeof fromHeatmap === "number" && Number.isFinite(fromHeatmap) && fromHeatmap >= 0) {
+    return fromHeatmap;
+  }
   const liveStatus = getLiveStationStatus(station);
-  if (liveStatus === "offline" || liveStatus === "unavailable") return 0;
-  const code = station.code.toLowerCase().replace(/_+$/, "");
-  const fromHeatmap = heatmap?.stations.find((s) => s.code.toLowerCase().replace(/_+$/, "") === code)?.vtec;
-  if (typeof fromHeatmap === "number" && Number.isFinite(fromHeatmap) && fromHeatmap >= 0) return fromHeatmap;
+  if (liveStatus === "offline" || liveStatus === "unavailable") return null;
   return typeof station.current_tec === "number" && Number.isFinite(station.current_tec) && station.current_tec > 0
     ? station.current_tec
     : null;
@@ -24,6 +38,12 @@ function heatmapVtec(station: Station, heatmap?: TecHeatmapResponse | null): num
 export default function SiteDetailsPanel({ station, heatmap = null, onClose }: Props) {
   const rows = stationDetailRows(station);
   const vtec = heatmapVtec(station, heatmap);
+  const heatmapStation = heatmapStationFor(station, heatmap);
+  const tecSource = isInterpolatedSource(heatmapStation?.source)
+    ? "Interpolated TEC estimate"
+    : heatmapStation?.source
+      ? heatmapStation.source
+      : null;
   const statusColor = siteStatusColor(
     rows.find((r) => r.label === "Site Status")?.value ?? station.status,
   );
@@ -110,6 +130,14 @@ export default function SiteDetailsPanel({ station, heatmap = null, onClose }: P
             ))}
             {vtec != null && (
               <>
+                {tecSource && (
+                  <tr style={{ borderBottom: "1px solid rgba(36, 77, 115, 0.35)" }}>
+                    <td style={{ padding: "0.35rem 0.4rem 0.35rem 0", color: "#64748b" }}>TEC Source</td>
+                    <td style={{ padding: "0.35rem 0", color: "#94a3b8", fontWeight: 600 }}>
+                      {tecSource}
+                    </td>
+                  </tr>
+                )}
                 <tr style={{ borderBottom: "1px solid rgba(36, 77, 115, 0.35)" }}>
                   <td style={{ padding: "0.35rem 0.4rem 0.35rem 0", color: "#64748b" }}>ICAO GNSS</td>
                   <td style={{ padding: "0.35rem 0", color: icaoTecColor(vtec), fontWeight: 700 }}>
