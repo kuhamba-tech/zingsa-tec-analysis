@@ -502,7 +502,26 @@ export interface TecHeatmapDiagnostics {
     difference_tecu?: number | null;
     status?: string;
     note?: string;
+    source?: string;
+    source_url?: string;
+    public_endpoint?: string;
+    availability_years?: number[];
+    latest_available_year?: number | null;
+    has_near_realtime_public_tec?: boolean;
+    checked_utc?: string;
   };
+  border_station_comparison?: Array<{
+    code: string;
+    name: string;
+    lat: number;
+    lon: number;
+    source?: string;
+    obs_count: number;
+    distance_km: number;
+    station_vtec: number;
+    difference_from_madimbo_grid_tecu: number | null;
+    difference_from_madimbo_ionosonde_tecu: number | null;
+  }>;
   evaluation?: {
     method?: string;
     matched_points_only?: boolean;

@@ -64,6 +64,7 @@ export default function TecHeatmapPage() {
   const fit = diagnostics?.fit;
   const gradients = diagnostics?.gradients;
   const ionosonde = diagnostics?.ionosonde_comparison;
+  const borderComparison = diagnostics?.border_station_comparison ?? [];
   const matamba = diagnostics?.matamba;
   const evaluation = diagnostics?.evaluation;
   const aviationAdvisory =
@@ -247,7 +248,58 @@ export default function TecHeatmapPage() {
                 ? ` Ionosonde TEC ${ionosonde.ionosonde_vtec.toFixed(2)} TECU; difference ${ionosonde.difference_tecu?.toFixed(2) ?? "N/A"} TECU.`
                 : " Set MADIMBO_IONOSONDE_TEC when a live ionosonde TEC feed is available to calculate the comparison residual."}
             </p>
+            <div className="tec-map-diagnostic-grid">
+              <div>
+                <span>DIDBase</span>
+                <strong>{ionosonde?.source ?? "DIDBase/IonoWeb"}</strong>
+                <small>{ionosonde?.latest_available_year ? `latest public year ${ionosonde.latest_available_year}` : "availability unknown"}</small>
+              </div>
+              <div>
+                <span>Public NRT TEC</span>
+                <strong>{ionosonde?.has_near_realtime_public_tec ? "Available" : "Not exposed"}</strong>
+                <small>Use DIDBase/LGDC account feed or MADIMBO_IONOSONDE_TEC for numeric TEC.</small>
+              </div>
+            </div>
           </div>
+
+          {borderComparison.length > 0 && (
+            <div className="tec-map-diagnostic-panel tec-map-diagnostic-panel--wide">
+              <h2>Madimbo vs Zimbabwe Border Sites</h2>
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.82rem" }}>
+                  <thead>
+                    <tr style={{ borderBottom: "1px solid var(--border)", color: "var(--text-muted)" }}>
+                      <th style={{ padding: "0.4rem", textAlign: "left" }}>Station</th>
+                      <th style={{ padding: "0.4rem", textAlign: "right" }}>Distance</th>
+                      <th style={{ padding: "0.4rem", textAlign: "right" }}>Station TEC</th>
+                      <th style={{ padding: "0.4rem", textAlign: "right" }}>Grid Diff</th>
+                      <th style={{ padding: "0.4rem", textAlign: "right" }}>Iono Diff</th>
+                      <th style={{ padding: "0.4rem", textAlign: "left" }}>Source</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {borderComparison.map((row) => (
+                      <tr key={row.code} style={{ borderBottom: "1px solid rgba(36,77,115,0.35)" }}>
+                        <td style={{ padding: "0.4rem", fontWeight: 700 }}>{row.code.toUpperCase()} {row.name}</td>
+                        <td style={{ padding: "0.4rem", textAlign: "right" }}>{row.distance_km.toFixed(1)} km</td>
+                        <td style={{ padding: "0.4rem", textAlign: "right" }}>{row.station_vtec.toFixed(2)} TECU</td>
+                        <td style={{ padding: "0.4rem", textAlign: "right" }}>
+                          {row.difference_from_madimbo_grid_tecu != null ? `${row.difference_from_madimbo_grid_tecu.toFixed(2)} TECU` : "N/A"}
+                        </td>
+                        <td style={{ padding: "0.4rem", textAlign: "right" }}>
+                          {row.difference_from_madimbo_ionosonde_tecu != null ? `${row.difference_from_madimbo_ionosonde_tecu.toFixed(2)} TECU` : "awaiting"}
+                        </td>
+                        <td style={{ padding: "0.4rem" }}>{row.source ?? "unknown"} · {row.obs_count} obs</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="tec-map-diagnostic-note">
+                Beitbridge is normally the closest Zimbabwe CORS site to Madimbo; compare only matched-time values for Matamba-style validation.
+              </p>
+            </div>
+          )}
 
           <div className="tec-map-diagnostic-panel tec-map-diagnostic-panel--wide">
             <h2>Frequency Recommendations</h2>

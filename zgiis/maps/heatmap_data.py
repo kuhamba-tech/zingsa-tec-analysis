@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 import numpy as np
 
 from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
+from zgiis.ionosonde.didbase import get_madimbo_metadata
 from zgiis.maps.interpolation import (
     MATAMBA_GRID_STEP_DEG,
     MATAMBA_MEDIAN_FILTER_SIZE,
@@ -35,6 +36,7 @@ MADIMBO_IONOSONDE = {
     "country": "South Africa",
     "note": "Nearest SANSA ionosonde to Zimbabwe listed by Matamba and Danskin (2022); use for cross-border TEC validation when NRT ionosonde TEC is available.",
 }
+MADIMBO_BORDER_COMPARE_LIMIT = 5
 MATAMBA_EVALUATION_WINDOW_DAYS = 5
 MATAMBA_EVALUATION_INTERVAL_MIN = 60
 MATAMBA_EVALUATION_TARGETS = [
@@ -174,6 +176,7 @@ def _empty_diagnostics() -> dict[str, Any]:
         "fit": {"rmse_tecu": None, "quality_factor": 0.0, "control_station_count": 0, "control_observation_count": 0},
         "gradients": _empty_gradient_payload(),
         "ionosonde_comparison": _madimbo_comparison(None),
+        "border_station_comparison": [],
         "evaluation": _matamba_evaluation([], None, None, None),
         "frequency_recommendations": TEC_ACQUISITION_RECOMMENDATIONS,
     }
@@ -299,7 +302,30 @@ def _station_temporal_gradient(control_rows: list[dict[str, Any]], previous_rows
     return round(float(max(diffs)), 3) if diffs else None
 
 
+def _distance_km(lat_a: float, lon_a: float, lat_b: float, lon_b: float) -> float:
+    radius_km = 6371.0
+    phi_a = np.deg2rad(float(lat_a))
+    phi_b = np.deg2rad(float(lat_b))
+    dphi = np.deg2rad(float(lat_b) - float(lat_a))
+    dlambda = np.deg2rad(float(lon_b) - float(lon_a))
+    a = np.sin(dphi / 2.0) ** 2 + np.cos(phi_a) * np.cos(phi_b) * np.sin(dlambda / 2.0) ** 2
+    return float(2.0 * radius_km * np.arcsin(np.sqrt(a)))
+
+
+def _madimbo_metadata() -> dict[str, Any]:
+    try:
+        meta = get_madimbo_metadata()
+    except Exception:
+        meta = {**MADIMBO_IONOSONDE, "source": "fallback", "status": "fallback"}
+    return {
+        **MADIMBO_IONOSONDE,
+        **meta,
+        "note": meta.get("note") or MADIMBO_IONOSONDE["note"],
+    }
+
+
 def _madimbo_comparison(estimated_vtec: float | None) -> dict[str, Any]:
+    madimbo = _madimbo_metadata()
     iono_vtec = os.getenv("MADIMBO_IONOSONDE_TEC")
     measured = None
     difference = None
@@ -310,12 +336,45 @@ def _madimbo_comparison(estimated_vtec: float | None) -> dict[str, Any]:
     if measured is not None and estimated_vtec is not None:
         difference = round(float(estimated_vtec) - measured, 2)
     return {
-        **MADIMBO_IONOSONDE,
+        **madimbo,
         "estimated_vtec": round(float(estimated_vtec), 2) if estimated_vtec is not None else None,
         "ionosonde_vtec": measured,
         "difference_tecu": difference,
         "status": "comparison_available" if difference is not None else "awaiting_ionosonde_tec",
     }
+
+
+def _madimbo_border_station_comparison(
+    station_rows: list[dict[str, Any]],
+    madimbo_estimate: float | None,
+    madimbo_ionosonde_tec: float | None,
+) -> list[dict[str, Any]]:
+    madimbo = _madimbo_metadata()
+    rows: list[dict[str, Any]] = []
+    for row in station_rows:
+        distance = _distance_km(float(row["lat"]), float(row["lon"]), float(madimbo["lat"]), float(madimbo["lon"]))
+        if distance > 350.0:
+            continue
+        vtec = float(row["vtec"])
+        rows.append(
+            {
+                "code": row["code"],
+                "name": row["name"],
+                "lat": row["lat"],
+                "lon": row["lon"],
+                "source": row.get("source"),
+                "obs_count": int(row.get("obs_count") or 0),
+                "distance_km": round(distance, 1),
+                "station_vtec": round(vtec, 2),
+                "difference_from_madimbo_grid_tecu": (
+                    round(vtec - float(madimbo_estimate), 2) if madimbo_estimate is not None else None
+                ),
+                "difference_from_madimbo_ionosonde_tecu": (
+                    round(vtec - float(madimbo_ionosonde_tec), 2) if madimbo_ionosonde_tec is not None else None
+                ),
+            }
+        )
+    return sorted(rows, key=lambda item: float(item["distance_km"]))[:MADIMBO_BORDER_COMPARE_LIMIT]
 
 
 def _read_env_float(name: str) -> float | None:
@@ -386,13 +445,16 @@ def _matamba_evaluation(
 
 def _matamba_diagnostics(
     control_rows: list[dict[str, Any]],
+    station_rows: list[dict[str, Any]],
     grid_lons: np.ndarray,
     grid_lats: np.ndarray,
     grid_tec: np.ndarray,
     *,
     previous_rows: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    madimbo_estimate = _grid_lookup(grid_lons, grid_lats, grid_tec, MADIMBO_IONOSONDE["lon"], MADIMBO_IONOSONDE["lat"])
+    madimbo = _madimbo_metadata()
+    madimbo_estimate = _grid_lookup(grid_lons, grid_lats, grid_tec, madimbo["lon"], madimbo["lat"])
+    madimbo_iono = _read_env_float("MADIMBO_IONOSONDE_TEC")
     gradients = _spatial_gradient(grid_lons, grid_lats, grid_tec)
     previous_grid_tec = None
     if previous_rows:
@@ -411,6 +473,7 @@ def _matamba_diagnostics(
         "fit": _fit_metrics(control_rows, grid_lons, grid_lats, grid_tec),
         "gradients": gradients,
         "ionosonde_comparison": _madimbo_comparison(madimbo_estimate),
+        "border_station_comparison": _madimbo_border_station_comparison(station_rows, madimbo_estimate, madimbo_iono),
         "evaluation": _matamba_evaluation(control_rows, grid_lons, grid_lats, grid_tec),
         "frequency_recommendations": TEC_ACQUISITION_RECOMMENDATIONS,
     }
@@ -784,6 +847,7 @@ def _build_grid_payload(
         previous_control = _control_rows(previous_rows or []) if previous_rows else None
         return payload, _matamba_diagnostics(
             control,
+            stations,
             grid_lons,
             grid_lats,
             grid_tec,

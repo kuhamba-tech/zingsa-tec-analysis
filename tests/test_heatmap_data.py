@@ -5,8 +5,30 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
+import pytest
 
 from zgiis.maps.heatmap_data import build_tec_heatmap
+
+
+@pytest.fixture(autouse=True)
+def _mock_madimbo_didbase():
+    with patch(
+        "zgiis.maps.heatmap_data.get_madimbo_metadata",
+        return_value={
+            "code": "MU12K",
+            "name": "MADIMBO",
+            "lat": -22.39,
+            "lon": 30.88,
+            "country": "South Africa",
+            "source": "DIDBase/IonoWeb",
+            "availability_years": [2000, 2019],
+            "latest_available_year": 2019,
+            "has_near_realtime_public_tec": False,
+            "status": "didbase_metadata",
+            "note": "mock",
+        },
+    ):
+        yield
 
 
 def test_build_tec_heatmap_empty_when_no_db_rows():
@@ -84,6 +106,10 @@ def test_build_tec_heatmap_interpolates_with_three_stations():
     assert payload["diagnostics"]["gradients"]["spatial_lon_max_tecu_per_deg"] is not None
     assert payload["diagnostics"]["gradients"]["icao_supporting_diagnostic"] is True
     assert payload["diagnostics"]["ionosonde_comparison"]["code"] == "MU12K"
+    assert payload["diagnostics"]["ionosonde_comparison"]["source"] in {"DIDBase/IonoWeb", "fallback"}
+    border = payload["diagnostics"]["border_station_comparison"]
+    assert len(border) > 0
+    assert border[0]["distance_km"] <= border[-1]["distance_km"]
     evaluation = payload["diagnostics"]["evaluation"]
     assert evaluation["matched_points_only"] is True
     assert evaluation["comparison_window_days"] == 5
