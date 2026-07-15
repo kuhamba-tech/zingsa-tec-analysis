@@ -68,6 +68,16 @@ def _ntrip_stream_counts() -> tuple[int | None, int | None]:
     counts first, then fall back to the local cached probe for development.
     """
     try:
+        from backend.routers.cors_network import _archived_status_counts
+
+        archived = _archived_status_counts()
+        if archived is not None:
+            online, degraded, _offline, total = archived
+            return online + degraded, total
+    except Exception:
+        pass
+
+    try:
         from backend.station_status_logger import get_db as get_status_db
         from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
 

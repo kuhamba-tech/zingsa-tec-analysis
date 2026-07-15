@@ -152,6 +152,8 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
     archive_applied = False
     if not pipeline_configured:
         stations, archive_applied = _merge_archived_live_statuses(stations)
+        if archive_applied and os.getenv("VERCEL"):
+            return stations
 
     probe_payload = None
     probe_by: dict = {}
