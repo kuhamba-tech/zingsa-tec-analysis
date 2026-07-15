@@ -798,6 +798,8 @@ class LivePipelineStatus(BaseModel):
     active_streams: int = 0
     streams: dict[str, Any] = {}
     db_backend: str = "sqlite"
+    db_env_key: str | None = None
+    db_host_kind: str = "sqlite"
     record_count: int = 0
     recent_record_count_1h: int = 0
     diagnostics: dict[str, Any] = {}

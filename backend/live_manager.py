@@ -189,8 +189,11 @@ def is_configured() -> bool:
 
 
 def status() -> dict:
+    from zgiis.db.config import configured_database_env_key, database_dsn, database_host_kind
+
     mgr = _ntrip_manager
     db_backend = "timescaledb" if os.getenv("TSDB_DSN") else "sqlite"
+    dsn = database_dsn()
     recent_records = None
     try:
         db = get_db()
@@ -213,6 +216,8 @@ def status() -> dict:
         "active_streams": mgr.active_count if mgr else 0,
         "streams": mgr.status() if mgr else {},
         "db_backend": db_backend,
+        "db_env_key": configured_database_env_key(),
+        "db_host_kind": database_host_kind(dsn),
         "recent_vtec_records_1h": recent_records,
         "diagnostics": diagnostics,
         "runtime_mode": _runtime_mode(),

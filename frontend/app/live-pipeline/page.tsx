@@ -193,14 +193,16 @@ export default function LivePipelinePage() {
     pipelineStatus?.db_backend && pipelineStatus.db_backend !== "unknown"
       ? pipelineStatus.db_backend
       : "sqlite";
+  const storageHostKind = pipelineStatus?.db_host_kind ?? storageBackend;
+  const storageEnvKey = pipelineStatus?.db_env_key ?? "local fallback";
   const storageRecords = pipelineStatus?.record_count ?? 0;
   const storageRecent = pipelineStatus?.recent_record_count_1h ?? 0;
   const storageSub =
     storageRecords > 0
-      ? `${storageRecords.toLocaleString()} records`
+      ? `${storageHostKind} via ${storageEnvKey} · ${storageRecords.toLocaleString()} records`
       : storageRecent > 0
-        ? `${storageRecent.toLocaleString()} in last hour`
-        : "No VTEC rows ingested yet";
+        ? `${storageHostKind} via ${storageEnvKey} · ${storageRecent.toLocaleString()} in last hour`
+        : `${storageHostKind} via ${storageEnvKey} · no VTEC rows ingested yet`;
   const corsSub =
     vtecOnline > 0
       ? `${corsConnected.note} · ${vtecOnline} outputting VTEC`

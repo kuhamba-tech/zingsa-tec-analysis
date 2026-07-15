@@ -914,6 +914,8 @@ export interface LivePipelineStatus {
   active_streams: number;
   streams: Record<string, LivePipelineStreamStatus>;
   db_backend: string;
+  db_env_key: string | null;
+  db_host_kind: string;
   record_count: number;
   recent_record_count_1h: number;
   diagnostics: Record<string, {

@@ -17,11 +17,18 @@ def _auto_train_cnn_gru() -> None:
 
 
 # Make the project root importable so tec_core and zgiis can be found
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
 
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
+for env_file in (
+    PROJECT_ROOT / ".env.local",
+    PROJECT_ROOT / ".env.vercel.production",
+    PROJECT_ROOT / ".vercel" / ".env.production.local",
+    PROJECT_ROOT / "backend" / ".env",
+):
+    load_dotenv(env_file, override=False)
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware

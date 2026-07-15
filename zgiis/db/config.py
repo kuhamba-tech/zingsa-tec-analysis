@@ -24,9 +24,16 @@ def database_dsn() -> str:
     """
     for key in _DSN_ENV_KEYS:
         value = (os.getenv(key) or "").strip().strip('"').strip("'")
-        if value:
+        if value and _dsn_allowed(value):
             return ensure_sslmode(value)
     return ""
+
+
+def _dsn_allowed(dsn: str) -> bool:
+    host = urlsplit(dsn).hostname or ""
+    if "neon" not in host:
+        return True
+    return (os.getenv("ALLOW_LEGACY_NEON_DATABASE_URL") or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def ensure_sslmode(dsn: str) -> str:
@@ -48,11 +55,25 @@ def database_backend_label(dsn: str) -> str:
     host = urlsplit(dsn).hostname or ""
     if "supabase" in host:
         return "Supabase Postgres"
+    if "neon" in host:
+        return "Neon Postgres"
     return "Postgres"
+
+
+def database_host_kind(dsn: str) -> str:
+    if not dsn:
+        return "sqlite"
+    host = urlsplit(dsn).hostname or ""
+    if "supabase" in host:
+        return "supabase"
+    if "neon" in host:
+        return "neon"
+    return "postgres"
 
 
 def configured_database_env_key() -> str | None:
     for key in _DSN_ENV_KEYS:
-        if (os.getenv(key) or "").strip().strip('"').strip("'"):
+        value = (os.getenv(key) or "").strip().strip('"').strip("'")
+        if value and _dsn_allowed(value):
             return key
     return None
