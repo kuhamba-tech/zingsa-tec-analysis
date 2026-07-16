@@ -6,7 +6,7 @@ import { heatmapQualityBanner, icaoTecLabel, icaoTecLevel, inferHeatmapQuality }
 import type { Station, TecHeatmapResponse } from "@/lib/types";
 import type { LiveStationCounts } from "@/lib/liveStationStatus";
 
-export type MapLayer = "Hybrid" | "Satellite" | "Street" | "TEC Heat Map";
+export type MapLayer = "Hybrid" | "Satellite" | "Street" | "TEC Heat Map" | "Global TEC" | "NOAA API";
 
 interface Props {
   stations: Station[];
@@ -18,7 +18,7 @@ interface Props {
   heatmap?: TecHeatmapResponse | null;
 }
 
-const LAYERS: MapLayer[] = ["Hybrid", "Satellite", "Street", "TEC Heat Map"];
+const LAYERS: MapLayer[] = ["Hybrid", "Satellite", "Street", "TEC Heat Map", "Global TEC", "NOAA API"];
 
 function riskColor(level: string): string {
   if (level === "High") return "#ff4444";
@@ -37,6 +37,8 @@ export default function CorsMapWithLayers({
 }: Props) {
   const [layer, setLayer] = useState<MapLayer>("Hybrid");
   const tecLayerActive = layer === "TEC Heat Map";
+  const globalTecLayerActive = layer === "Global TEC";
+  const noaaLayerActive = layer === "NOAA API";
   const maxVtec = heatmap?.tec_max ?? null;
   const qualityBanner = heatmapQualityBanner(inferHeatmapQuality(heatmap ?? null), heatmap?.message);
   const awaitingVtecBanner =
@@ -169,19 +171,20 @@ export default function CorsMapWithLayers({
           </div>
         )}
 
-        <div
-          style={{
-            position: "absolute",
-            bottom: "12px",
-            left: "12px",
-            display: "flex",
-            flexDirection: "column",
-            gap: "0.55rem",
-            zIndex: 10,
-            pointerEvents: "none",
-            maxWidth: "calc(100% - 24px)",
-          }}
-        >
+        {!globalTecLayerActive && !noaaLayerActive && (
+          <div
+            style={{
+              position: "absolute",
+              bottom: "12px",
+              left: "12px",
+              display: "flex",
+              flexDirection: "column",
+              gap: "0.55rem",
+              zIndex: 10,
+              pointerEvents: "none",
+              maxWidth: "calc(100% - 24px)",
+            }}
+          >
           <div
             style={{
               display: "inline-flex",
@@ -222,7 +225,8 @@ export default function CorsMapWithLayers({
               Markers and counts use only the current live NTRIP stream status. Click a marker for site Details.
             </div>
           </div>
-        </div>
+          </div>
+        )}
       </div>
 
       {tecLayerActive && (

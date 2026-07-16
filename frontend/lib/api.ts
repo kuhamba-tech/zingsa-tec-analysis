@@ -8,6 +8,8 @@ import type {
   ChatMessage,
   ChatResponse,
   CorsHealth,
+  Cosmic2AnalysisResponse,
+  DidbaseIonosondeResponse,
   DiurnalPoint,
   EkfAlert,
   EkfStatus,
@@ -478,8 +480,12 @@ export const getIntermagnetAnalysis = (start: string, end: string, observatory: 
     { start, end, observatory, station, _ts: Date.now() },
     ANALYSIS_TIMEOUT_MS,
   );
+export const getDidbaseIonosonde = (station: string, year?: number) =>
+  get<DidbaseIonosondeResponse>("/tec/ionosonde-didbase", { station, year, _ts: Date.now() });
 export const getGuviOn2 = (start?: string, end?: string) =>
   get<GuviOn2Response>("/tec/guvi-on2", { start, end, _ts: Date.now() });
+export const getCosmic2Analysis = (start: string, end: string) =>
+  get<Cosmic2AnalysisResponse>("/tec/cosmic2-analysis", { start, end, _ts: Date.now() }, ANALYSIS_TIMEOUT_MS);
 export const getPrn = (params?: {
   constellation?: string;
   station?: string;

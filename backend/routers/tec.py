@@ -13,6 +13,8 @@ from backend.schemas import (
     AnomalyAnalysisResponse,
     AnomalyDay,
     CelestrakAnalysisResponse,
+    Cosmic2AnalysisResponse,
+    DidbaseIonosondeResponse,
     DiurnalPoint,
     EiaSummary,
     GeomagneticDailyPoint,
@@ -281,6 +283,24 @@ async def intermagnet_analysis(
     return IntermagnetAnalysisResponse(**payload)
 
 
+@router.get("/ionosonde-didbase", response_model=DidbaseIonosondeResponse)
+async def ionosonde_didbase(
+    station: str = Query("MU12K", description="DIDBase URSI code (HE13N Hermanus, MU12K Madimbo)"),
+    year: int | None = Query(None, description="Year to check ionogram availability for"),
+    _=Depends(require_api_key),
+):
+    """Real DIDBase/IonoWeb station metadata and public ionogram-availability
+    years for a South African Digisonde station. Numerical foF2/hmF2/spread-F
+    values are not exposed publicly and are intentionally omitted rather than
+    fabricated."""
+    from zgiis.ionosonde.didbase import get_ionosonde_metadata
+
+    payload = get_ionosonde_metadata(station)
+    payload["requested_year"] = year
+    payload["year_has_data"] = year in payload["availability_years"] if year is not None else None
+    return DidbaseIonosondeResponse(**payload)
+
+
 @router.get("/guvi-on2", response_model=GuviOn2Response)
 async def guvi_on2(
     start: str | None = Query(None, description="Start date YYYY-MM-DD"),
@@ -292,6 +312,33 @@ async def guvi_on2(
 
     payload = build_guvi_on2_payload(start=start, end=end)
     return GuviOn2Response(**payload)
+
+
+@router.get("/cosmic2-analysis", response_model=Cosmic2AnalysisResponse)
+async def cosmic2_analysis(
+    start: str = Query(..., description="Start date YYYY-MM-DD"),
+    end: str = Query(..., description="End date YYYY-MM-DD"),
+    _=Depends(require_api_key),
+):
+    """Check COSMIC-2 provisional GNSS-RO Level-2 ionPrf archive availability
+    for the selected date range. This verifies daily UCAR archive tarballs and
+    returns links/metadata; it does not download product files."""
+    from fastapi import HTTPException
+
+    try:
+        start_d = date.fromisoformat(start[:10])
+        end_d = date.fromisoformat(end[:10])
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Invalid date format; use YYYY-MM-DD") from exc
+
+    from zgiis.space_weather.cosmic2_client import build_analysis, fetch_cosmic2_daily
+
+    try:
+        rows = fetch_cosmic2_daily(start_d, end_d)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"COSMIC-2 fetch failed: {exc}") from exc
+
+    return Cosmic2AnalysisResponse(**build_analysis(rows))
 
 
 @router.get("/anomalies", response_model=list[AnomalyDay])

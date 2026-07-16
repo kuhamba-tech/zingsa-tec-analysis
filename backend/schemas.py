@@ -614,6 +614,26 @@ class IntermagnetStormDay(BaseModel):
     mean_vtec: float | None = None
 
 
+class DidbaseIonosondeResponse(BaseModel):
+    code: str
+    name: str
+    lat: float | None = None
+    lon: float | None = None
+    country: str | None = None
+    source: str
+    source_url: str
+    public_endpoint: str
+    availability_years: list[int] = []
+    latest_available_year: int | None = None
+    has_near_realtime_public_tec: bool = False
+    status: str
+    error: str | None = None
+    checked_utc: str | None = None
+    note: str
+    requested_year: int | None = None
+    year_has_data: bool | None = None
+
+
 class IntermagnetAnalysisResponse(BaseModel):
     source: str
     observatory: str
@@ -651,6 +671,36 @@ class GuviOn2Response(BaseModel):
     status: str = "metadata_only"
     message: str = ""
     series: list[GuviOn2Point] = []
+    fetched_at: str | None = None
+
+
+class Cosmic2DailyPoint(BaseModel):
+    date: str
+    year: int
+    doy: int
+    file_name: str
+    file_url: str
+    available: bool = False
+    size_bytes: int | None = None
+    status: str = "missing"
+    note: str = ""
+
+
+class Cosmic2AnalysisResponse(BaseModel):
+    source: str
+    source_url: str
+    level2_url: str
+    mission_url: str
+    product: str
+    start_date: str | None = None
+    end_date: str | None = None
+    days: int = 0
+    available_days: int = 0
+    missing_days: int = 0
+    total_size_bytes: int | None = None
+    status: str = "unavailable"
+    message: str = ""
+    series: list[Cosmic2DailyPoint] = []
     fetched_at: str | None = None
 
 

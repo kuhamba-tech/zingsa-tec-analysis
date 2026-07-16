@@ -748,6 +748,26 @@ export interface IntermagnetStormDay {
   mean_vtec: number | null;
 }
 
+export interface DidbaseIonosondeResponse {
+  code: string;
+  name: string;
+  lat: number | null;
+  lon: number | null;
+  country: string | null;
+  source: string;
+  source_url: string;
+  public_endpoint: string;
+  availability_years: number[];
+  latest_available_year: number | null;
+  has_near_realtime_public_tec: boolean;
+  status: string;
+  error: string | null;
+  checked_utc: string | null;
+  note: string;
+  requested_year: number | null;
+  year_has_data: boolean | null;
+}
+
 export interface IntermagnetAnalysisResponse {
   source: string;
   observatory: string;
@@ -785,6 +805,36 @@ export interface GuviOn2Response {
   status: string;
   message: string;
   series: GuviOn2Point[];
+  fetched_at: string | null;
+}
+
+export interface Cosmic2DailyPoint {
+  date: string;
+  year: number;
+  doy: number;
+  file_name: string;
+  file_url: string;
+  available: boolean;
+  size_bytes: number | null;
+  status: string;
+  note: string;
+}
+
+export interface Cosmic2AnalysisResponse {
+  source: string;
+  source_url: string;
+  level2_url: string;
+  mission_url: string;
+  product: string;
+  start_date: string | null;
+  end_date: string | null;
+  days: number;
+  available_days: number;
+  missing_days: number;
+  total_size_bytes: number | null;
+  status: string;
+  message: string;
+  series: Cosmic2DailyPoint[];
   fetched_at: string | null;
 }
 

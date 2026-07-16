@@ -9,13 +9,25 @@ from urllib.request import urlopen
 import json
 
 DIDBASE_BASE_URL = "https://lgdc.uml.edu/ionoweb"
+
+HERMANUS_URSI = "HE13N"
 MADIMBO_URSI = "MU12K"
-MADIMBO_FALLBACK = {
-    "code": MADIMBO_URSI,
-    "name": "MADIMBO",
-    "lat": -22.39,
-    "lon": 30.88,
-    "country": "South Africa",
+
+STATION_FALLBACKS: dict[str, dict[str, Any]] = {
+    HERMANUS_URSI: {
+        "code": HERMANUS_URSI,
+        "name": "HERMANUS",
+        "lat": -34.43,
+        "lon": 19.23,
+        "country": "South Africa",
+    },
+    MADIMBO_URSI: {
+        "code": MADIMBO_URSI,
+        "name": "MADIMBO",
+        "lat": -22.39,
+        "lon": 30.88,
+        "country": "South Africa",
+    },
 }
 
 
@@ -36,23 +48,32 @@ def fetch_didbase_years(ursi_code: str) -> list[int]:
     return [int(year) for year in payload.get("YearList") or []]
 
 
-def get_madimbo_metadata() -> dict[str, Any]:
-    """Return Madimbo station metadata and public DIDBase availability.
+def get_ionosonde_metadata(ursi_code: str) -> dict[str, Any]:
+    """Return station metadata and public DIDBase ionogram availability for
+    the given URSI station code (e.g. HE13N/Hermanus, MU12K/Madimbo).
 
     The public IonoWeb endpoint exposes station coordinates and ionogram
-    availability years. Numerical ionosonde TEC still requires a separate
-    autoscaled parameter feed or manual value.
+    availability years only. Numerical ionosonde parameters (foF2, hmF2,
+    spread-F) still require a separate DIDBase/SAOExplorer data-account feed.
     """
-    station = dict(MADIMBO_FALLBACK)
+    ursi_code = ursi_code.upper()
+    fallback = STATION_FALLBACKS.get(ursi_code, {
+        "code": ursi_code,
+        "name": ursi_code,
+        "lat": None,
+        "lon": None,
+        "country": "South Africa",
+    })
+    station = dict(fallback)
     status = "fallback"
     error = None
     try:
         for row in fetch_didbase_locations():
-            if str(row.get("U", "")).upper() == MADIMBO_URSI:
+            if str(row.get("U", "")).upper() == ursi_code:
                 station.update(
                     {
-                        "code": str(row.get("U") or MADIMBO_URSI),
-                        "name": str(row.get("N") or "MADIMBO"),
+                        "code": str(row.get("U") or ursi_code),
+                        "name": str(row.get("N") or fallback["name"]),
                         "lat": float(row.get("Lat")),
                         "lon": float(row.get("Lon")),
                     }
@@ -64,7 +85,7 @@ def get_madimbo_metadata() -> dict[str, Any]:
 
     years: list[int] = []
     try:
-        years = fetch_didbase_years(MADIMBO_URSI)
+        years = fetch_didbase_years(ursi_code)
         if status == "fallback":
             status = "didbase_years_only"
     except (URLError, TimeoutError, ValueError, json.JSONDecodeError, OSError) as exc:
@@ -83,6 +104,6 @@ def get_madimbo_metadata() -> dict[str, Any]:
         "checked_utc": datetime.now(timezone.utc).isoformat(),
         "note": (
             "Public IonoWeb exposes station metadata and ionogram availability. "
-            "Numerical TEC comparison needs MADIMBO_IONOSONDE_TEC or a DIDBase/LGDC data-account feed."
+            "Numerical foF2/hmF2/spread-F comparison needs a DIDBase/SAOExplorer data-account feed."
         ),
     }
