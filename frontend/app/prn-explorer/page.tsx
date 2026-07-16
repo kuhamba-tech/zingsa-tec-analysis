@@ -23,6 +23,98 @@ const PRN_COLORS = [
 
 type Tab = "vtec" | "sky" | "elev" | "quality" | "disturbance";
 
+const DEFAULT_CONSTELLATION_REFERENCE: PrnConstellationPayload = {
+  citation: "Built-in GNSS constellation reference for static deployments.",
+  quality_note: "Quality metrics are populated when live or processed per-PRN observations are available.",
+  constellations: [
+    {
+      id: "GPS",
+      label: "GPS",
+      icon: "🛰️",
+      prefix: "G",
+      max_prn: 32,
+      color: "#168bd2",
+      prn_range: "G01-G32",
+      section: "Chapter 4",
+      summary: "The U.S. GPS constellation provides the core L-band navigation signals used for station-level TEC and PRN-by-PRN integrity monitoring.",
+      frequencies: "L1, L2, L5",
+      metrics: [],
+      formula_caption: "Slant TEC is mapped to vertical TEC using elevation-dependent geometry.",
+      formula: "VTEC = STEC / M(E)",
+      zgiis: "GPS PRNs provide the main operational baseline for Zimbabwe CORS ionospheric monitoring.",
+    },
+    {
+      id: "Galileo",
+      label: "Galileo",
+      icon: "🌐",
+      prefix: "E",
+      max_prn: 36,
+      color: "#00ff88",
+      prn_range: "E01-E36",
+      section: "Chapter 4",
+      summary: "Galileo adds independent European GNSS observations that improve geometry, redundancy, and multi-constellation TEC comparisons.",
+      frequencies: "E1, E5a, E5b, E6",
+      metrics: [],
+      formula_caption: "Multi-frequency signals support ionospheric delay estimation.",
+      formula: "TEC ∝ (P2 - P1) / (1/f1² - 1/f2²)",
+      zgiis: "Galileo PRNs help cross-check GPS-derived TEC and reduce single-constellation bias.",
+    },
+    {
+      id: "BeiDou",
+      label: "BeiDou",
+      icon: "🧭",
+      prefix: "C",
+      max_prn: 63,
+      color: "#ff8c00",
+      prn_range: "C01-C63",
+      section: "Chapter 4",
+      summary: "BeiDou contributes additional Asian GNSS coverage and strengthens multi-constellation ionospheric monitoring over southern Africa.",
+      frequencies: "B1, B2, B3",
+      metrics: [],
+      formula_caption: "Per-satellite residuals can reveal constellation-specific effects.",
+      formula: "Residual = observed TEC - model TEC",
+      zgiis: "BeiDou improves PRN diversity for Zimbabwe CORS processing where receiver support is available.",
+    },
+    {
+      id: "GLONASS",
+      label: "GLONASS",
+      icon: "📡",
+      prefix: "R",
+      max_prn: 24,
+      color: "#a78bfa",
+      prn_range: "R01-R24",
+      section: "Chapter 4",
+      summary: "GLONASS provides Russian GNSS observations with a different signal structure, useful for independent checks and robustness.",
+      frequencies: "G1, G2, G3",
+      metrics: [],
+      formula_caption: "Constellation comparison separates receiver, geometry, and space-weather effects.",
+      formula: "ΔTEC = VTECconstellation - VTECnetwork",
+      zgiis: "GLONASS adds redundancy during disturbed periods when PRN geometry and tracking quality matter.",
+    },
+  ],
+};
+
+function emptyPrnResponse(message: string): PrnExplorerResponse {
+  return {
+    meta: {
+      source: "none",
+      record_count: 0,
+      stations: [],
+      prns: [],
+      has_azimuth: false,
+      has_elevation: false,
+      has_quality: false,
+      has_roti: false,
+      has_s4: false,
+      time_start: null,
+      time_end: null,
+      message,
+    },
+    summary: [],
+    observations: [],
+  };
+}
+
 function matchesConstellation(prn: string, constellation: string): boolean {
   const c = constellation.toLowerCase();
   if (c === "gps") return prn.startsWith("G");
@@ -53,7 +145,7 @@ function constellationStats(rows: PrnRow[], id: string) {
 }
 
 export default function PrnExplorerPage() {
-  const [theory, setTheory] = useState<PrnConstellationPayload | null>(null);
+  const [theory, setTheory] = useState<PrnConstellationPayload>(DEFAULT_CONSTELLATION_REFERENCE);
   const [data, setData] = useState<PrnExplorerResponse | null>(null);
   const [selected, setSelected] = useState("GPS");
   const [tab, setTab] = useState<Tab>("vtec");
@@ -87,14 +179,19 @@ export default function PrnExplorerPage() {
       const payload = await getPrnExplorer(params);
       setData(payload);
     } catch (e) {
-      setError(String(e));
-      setData(null);
+      const detail = e instanceof Error ? e.message : String(e);
+      setError(null);
+      setData(emptyPrnResponse(
+        detail.includes("404")
+          ? "PRN Explorer API is not available on this Vercel frontend deployment. Per-satellite charts will appear when the FastAPI backend is connected or PRN CMN/live data is loaded."
+          : "PRN data is temporarily unavailable. Per-satellite charts will appear when the backend responds or PRN CMN/live data is loaded.",
+      ));
     }
     setLoading(false);
   }, [selected, station, start, end, elevMin, selectedPrns]);
 
   useEffect(() => {
-    getPrnConstellations().then(setTheory).catch(() => null);
+    getPrnConstellations().then(setTheory).catch(() => setTheory(DEFAULT_CONSTELLATION_REFERENCE));
   }, []);
 
   useEffect(() => {
