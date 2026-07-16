@@ -104,6 +104,32 @@ def _resolve_kp_level(kp: float) -> tuple[str, str]:
     return condition.condition, condition.color
 
 
+def derive_s4_from_iono(iono: Optional[Dict[str, Any]]) -> tuple[Optional[float], float, str, str]:
+    """Extract (s4, delta_tec, ionosphere_status, ionosphere_note) from a
+    CORS_Program /api/ionosphere/status payload. S4 is only trusted when the
+    selected station's row is archive_backed (an observed RINEX record) —
+    never a modelled/live-telemetry value, per the no-demo-data policy."""
+    if not iono:
+        return None, 0.0, "unavailable", "No observed ionosphere record available."
+
+    selected_station = next(
+        (
+            row
+            for row in (iono.get("stations") or [])
+            if str(row.get("id", "")).upper() == str(iono.get("station", "")).upper()
+        ),
+        None,
+    )
+    if selected_station and selected_station.get("archive_backed"):
+        s4 = float(iono.get("s4_index")) if iono.get("s4_index") is not None else None
+        delta_tec = float(iono.get("tec_daily_change", 0) or 0)
+        archive_date = selected_station.get("archive_date") or "unknown date"
+        note = f"Observed RINEX archive record dated {archive_date}; not live telemetry."
+        return s4, delta_tec, "observed_archive", note
+
+    return None, 0.0, "unavailable", "CORS API response is modelled or not backed by an observed RINEX record."
+
+
 def _gnss_impact_label(kp: float, s4: float = 0.0, delta_tec: float = 0.0) -> str:
     """Same thresholds as ZINGSA CORS_Program/api/_ionosphere/status.js."""
     if kp >= 5 or s4 >= 0.7:
@@ -579,28 +605,7 @@ def get_space_weather(
             mode = "live"
             source = "NOAA SWPC Planetary K-index (direct)"
 
-        s4 = None
-        delta_tec = 0.0
-        ionosphere_status = "unavailable"
-        ionosphere_note = "No observed ionosphere record available."
-        if iono:
-            selected_station = next(
-                (
-                    row
-                    for row in (iono.get("stations") or [])
-                    if str(row.get("id", "")).upper()
-                    == str(iono.get("station", "")).upper()
-                ),
-                None,
-            )
-            if selected_station and selected_station.get("archive_backed"):
-                s4 = float(iono.get("s4_index")) if iono.get("s4_index") is not None else None
-                delta_tec = float(iono.get("tec_daily_change", 0) or 0)
-                ionosphere_status = "observed_archive"
-                archive_date = selected_station.get("archive_date") or "unknown date"
-                ionosphere_note = f"Observed RINEX archive record dated {archive_date}; not live telemetry."
-            else:
-                ionosphere_note = "CORS API response is modelled or not backed by an observed RINEX record."
+        s4, delta_tec, ionosphere_status, ionosphere_note = derive_s4_from_iono(iono)
         gnss_raw = iono.get("gnss_impact") if iono else None
         gnss_risk = (
             _normalize_gnss_risk(gnss_raw)

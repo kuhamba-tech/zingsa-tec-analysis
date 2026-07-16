@@ -53,6 +53,7 @@ Thumbs.db
 *-wbias.png
 
 .vercel
+.deploy-head/
 
 # Claude Code local settings -- settings.json has held a live DB credential in an
 # allowlisted command string before; never let any of this be committed.

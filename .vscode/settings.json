@@ -4,5 +4,6 @@
   "python.analysis.typeCheckingMode": "basic",
   "basedpyright.analysis.venvPath": "${workspaceFolder}",
   "basedpyright.analysis.venv": ".venv",
-  "basedpyright.analysis.diagnosticMode": "workspace"
+  "basedpyright.analysis.diagnosticMode": "workspace",
+  "cursorpyright.analysis.typeCheckingMode": "basic"
 }
