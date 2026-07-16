@@ -311,8 +311,8 @@ export default function DashboardPage() {
 
       {apiStatus === "Offline" && (
         <div className="banner banner-warn" role="status">
-          Backend unreachable — start the FastAPI server (<code>dev.ps1</code>) or set{" "}
-          <code>NEXT_PUBLIC_API_URL</code>. Metrics appear as soon as <code>/space-weather/current</code> responds.
+          Live API is not connected for this frontend deployment. Set <code>NEXT_PUBLIC_API_URL</code> to the FastAPI
+          backend, or run <code>dev.ps1</code> locally. Metrics appear as soon as <code>/space-weather/current</code> responds.
         </div>
       )}
 

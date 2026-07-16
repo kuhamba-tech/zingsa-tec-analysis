@@ -140,9 +140,7 @@ export default function HomePage() {
         setEkfFilled(new Set());
         setSwStatus("down");
         setLoadError(
-          swResult.reason instanceof Error
-            ? swResult.reason.message
-            : "Could not reach the space-weather API.",
+          "Live API is not connected on this Vercel frontend deployment. Figures below show N/A until the FastAPI backend URL is configured.",
         );
       }
 
@@ -264,8 +262,8 @@ export default function HomePage() {
           <h2 className="home-sw-heading">Live Space Weather · Zimbabwe CORS Network</h2>
           {freshnessMsg && <div className="banner banner-warn" style={{ fontSize: "0.8rem" }}>{freshnessMsg}</div>}
           {loadError && swStatus === "down" && (
-            <div className="banner banner-alert" style={{ fontSize: "0.8rem" }}>
-              {loadError} — retry by refreshing the page.
+            <div className="banner banner-warn" style={{ fontSize: "0.8rem" }}>
+              {loadError}
             </div>
           )}
           {pipelineNote && !pipelineNote.includes("started") && (
