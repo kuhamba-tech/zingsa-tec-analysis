@@ -22,13 +22,7 @@ frontend/out/
 frontend/*.log
 frontend/tsconfig.tsbuildinfo
 
-static/data/*.db
-static/data/*.db-journal
-static/data/*.sqlite
-static/data/*.sqlite-journal
-static/data/*.sqlite3
-static/data/*.sqlite3-journal
-static/data/upload_tmp/
+static/data/
 
 *.24o
 *.24n
