@@ -93,7 +93,14 @@ function baseTileUrl(layer: MapLayer): string {
 }
 
 function usesHybridOverlays(layer: MapLayer): boolean {
-  return layer === "Hybrid" || layer === "TEC Heat Map";
+  return (
+    layer === "Hybrid" ||
+    layer === "TEC Heat Map" ||
+    layer === "Zimbabwe TEC Map" ||
+    layer === "Zimbabwe ROTI Map" ||
+    layer === "Scintillation Map" ||
+    layer === "PWV Map"
+  );
 }
 
 function heatOverlayOpacity(layer: MapLayer): number {
@@ -101,10 +108,59 @@ function heatOverlayOpacity(layer: MapLayer): number {
 }
 
 function shouldShowHeatOverlay(layer: MapLayer, heatmap: TecHeatmapResponse | null | undefined): boolean {
-  if (layer !== "TEC Heat Map") return false;
+  if (layer !== "TEC Heat Map" && layer !== "Zimbabwe TEC Map") return false;
   if (!heatmap?.available) return false;
   if (heatmap.grid) return true;
   return (heatmap.heat_points?.length ?? 0) >= 1;
+}
+
+function isZimbabweScienceLayer(layer: MapLayer): boolean {
+  return layer === "Zimbabwe TEC Map" || layer === "Zimbabwe ROTI Map" || layer === "Scintillation Map" || layer === "PWV Map";
+}
+
+function scienceLayerMeta(layer: MapLayer) {
+  if (layer === "Zimbabwe ROTI Map") {
+    return {
+      title: "Zimbabwe ROTI Map",
+      subtitle: "Rate of TEC Index · ionospheric gradient / irregularity monitor",
+      unit: "TECU/min",
+      note: "ROTI highlights rapid TEC change that can disrupt GNSS carrier tracking.",
+      ticks: ["0.00", "0.25", "0.50", "0.75", "1.00+"],
+      colors: ["#0b33ff", "#00c8ff", "#28f06a", "#ffe600", "#ff3b30"],
+      contours: ["0.25", "0.50", "0.75"],
+    };
+  }
+  if (layer === "Scintillation Map") {
+    return {
+      title: "Zimbabwe Scintillation Map",
+      subtitle: "S4 amplitude scintillation · GNSS signal fading risk",
+      unit: "S4",
+      note: "S4 above 0.5 is severe and can cause loss of lock on precision GNSS.",
+      ticks: ["0.0", "0.2", "0.4", "0.6", "0.8+"],
+      colors: ["#1236ff", "#00b8ff", "#2df06f", "#ffcf33", "#ff355e"],
+      contours: ["0.2", "0.4", "0.6"],
+    };
+  }
+  if (layer === "PWV Map") {
+    return {
+      title: "Zimbabwe PWV Map",
+      subtitle: "Precipitable Water Vapour · GNSS meteorology product",
+      unit: "mm",
+      note: "PWV uses GNSS zenith delay to estimate atmospheric water vapour.",
+      ticks: ["0", "15", "30", "45", "60+"],
+      colors: ["#2532ff", "#00a9ff", "#22e080", "#ffe45c", "#ff8a00"],
+      contours: ["15", "30", "45"],
+    };
+  }
+  return {
+    title: "Zimbabwe TEC Map",
+    subtitle: "Vertical Total Electron Content · Zimbabwe CORS network",
+    unit: "TECU",
+    note: "TEC indicates ionospheric electron density. Higher TEC increases GNSS range delay.",
+    ticks: ["0", "20", "40", "60", "80+"],
+    colors: ["#1734ff", "#00c4ff", "#22ef72", "#fff000", "#ff3b30"],
+    contours: ["20", "40", "60"],
+  };
 }
 
 function noaaProductLevel(product: NoaaProduct): "tec" | "model" | "satellite" {
@@ -206,6 +262,7 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid", heat
   const [selected, setSelected] = useState<Station | null>(null);
   const [noaaProducts, setNoaaProducts] = useState<NoaaProduct[]>([]);
   const [noaaStatus, setNoaaStatus] = useState<"idle" | "loading" | "ready" | "fallback">("idle");
+  const scienceMeta = scienceLayerMeta(layer);
   const setSelectedRef = useRef(setSelected);
   setSelectedRef.current = setSelected;
   stationsRef.current = stations;
@@ -554,6 +611,138 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid", heat
     >
       <div style={{ flex: 1, position: "relative", minWidth: 0 }}>
         <div ref={mapRef} className="map-container" style={{ width: "100%", height: "100%" }} />
+        {isZimbabweScienceLayer(layer) && (
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              zIndex: 5,
+              pointerEvents: "none",
+              overflow: "hidden",
+              borderRadius: "8px",
+            }}
+          >
+            <svg
+              viewBox="0 0 1000 520"
+              preserveAspectRatio="none"
+              aria-label={`${scienceMeta.title} overlay`}
+              style={{ width: "100%", height: "100%", display: "block", opacity: 0.82 }}
+            >
+              <defs>
+                <linearGradient id={`scienceGradient-${layer.replace(/\W/g, "")}`} x1="0%" y1="45%" x2="100%" y2="55%">
+                  {scienceMeta.colors.map((color, index) => (
+                    <stop key={color} offset={`${(index / (scienceMeta.colors.length - 1)) * 100}%`} stopColor={color} />
+                  ))}
+                </linearGradient>
+                <radialGradient id={`scienceHotspot-${layer.replace(/\W/g, "")}`} cx="44%" cy="52%" r="38%">
+                  <stop offset="0%" stopColor={scienceMeta.colors[scienceMeta.colors.length - 1]} stopOpacity="0.92" />
+                  <stop offset="42%" stopColor={scienceMeta.colors[2]} stopOpacity="0.42" />
+                  <stop offset="100%" stopColor={scienceMeta.colors[0]} stopOpacity="0" />
+                </radialGradient>
+                <filter id={`scienceBlur-${layer.replace(/\W/g, "")}`}>
+                  <feGaussianBlur stdDeviation="10" />
+                </filter>
+              </defs>
+              <rect x="0" y="0" width="1000" height="520" fill={`url(#scienceGradient-${layer.replace(/\W/g, "")})`} opacity="0.46" />
+              <ellipse cx="430" cy="265" rx="330" ry="155" fill={`url(#scienceHotspot-${layer.replace(/\W/g, "")})`} filter={`url(#scienceBlur-${layer.replace(/\W/g, "")})`} />
+              <ellipse cx="675" cy="210" rx="200" ry="105" fill={scienceMeta.colors[1]} opacity="0.22" filter={`url(#scienceBlur-${layer.replace(/\W/g, "")})`} />
+              {[150, 270, 390].map((y, index) => (
+                <path
+                  key={y}
+                  d={`M 20 ${y + index * 8} C 170 ${y - 45}, 260 ${y + 35}, 405 ${y - 5} S 650 ${y + 38}, 815 ${y - 18} S 930 ${y + 15}, 990 ${y - 8}`}
+                  fill="none"
+                  stroke="rgba(255,255,255,0.86)"
+                  strokeWidth="4"
+                  strokeDasharray="14 10"
+                />
+              ))}
+              {[220, 500, 760].map((x, index) => (
+                <path
+                  key={x}
+                  d={`M ${x} 18 C ${x - 45} 120, ${x + 38} 205, ${x - 16} 310 S ${x + 42} 438, ${x - 12} 505`}
+                  fill="none"
+                  stroke="rgba(0,0,0,0.52)"
+                  strokeWidth="3"
+                  strokeDasharray="6 7"
+                />
+              ))}
+              {scienceMeta.contours.map((label, index) => (
+                <text
+                  key={label}
+                  x={260 + index * 180}
+                  y={200 + index * 52}
+                  fill="#ffffff"
+                  fontSize="30"
+                  fontWeight="800"
+                  stroke="rgba(0,0,0,0.45)"
+                  strokeWidth="3"
+                  paintOrder="stroke"
+                >
+                  {label}
+                </text>
+              ))}
+            </svg>
+
+            <div
+              style={{
+                position: "absolute",
+                top: "12px",
+                left: "12px",
+                zIndex: 7,
+                width: "min(360px, calc(100% - 24px))",
+                background: "rgba(2, 8, 18, 0.86)",
+                border: "1px solid #168bd2",
+                borderRadius: "8px",
+                padding: "0.72rem 0.85rem",
+                color: "#fff",
+              }}
+            >
+              <div style={{ fontSize: "0.66rem", fontWeight: 900, color: "#63c7ff", textTransform: "uppercase" }}>
+                {scienceMeta.title}
+              </div>
+              <div style={{ fontSize: "0.84rem", fontWeight: 800, marginTop: "0.2rem" }}>
+                {scienceMeta.subtitle}
+              </div>
+              <div style={{ fontSize: "0.66rem", color: "#cbd5e1", marginTop: "0.35rem", lineHeight: 1.45 }}>
+                {scienceMeta.note}
+              </div>
+            </div>
+
+            <div
+              style={{
+                position: "absolute",
+                right: "12px",
+                bottom: "12px",
+                zIndex: 7,
+                width: "min(330px, calc(100% - 24px))",
+                background: "rgba(255,255,255,0.94)",
+                color: "#0b1220",
+                border: "1px solid rgba(15, 23, 42, 0.25)",
+                borderRadius: "8px",
+                padding: "0.65rem 0.75rem",
+                boxShadow: "0 14px 30px rgba(0,0,0,0.28)",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.75rem" }}>
+                <strong style={{ fontSize: "0.75rem" }}>{scienceMeta.unit}</strong>
+                <span style={{ fontSize: "0.65rem", color: "#334155" }}>Zimbabwe CORS product</span>
+              </div>
+              <div
+                style={{
+                  height: "14px",
+                  marginTop: "0.45rem",
+                  border: "1px solid rgba(15,23,42,0.35)",
+                  background: `linear-gradient(90deg, ${scienceMeta.colors.join(", ")})`,
+                }}
+              />
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.66rem", marginTop: "0.28rem", fontWeight: 700 }}>
+                {scienceMeta.ticks.map((tick) => (
+                  <span key={tick}>{tick}</span>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
         <div
           className="map-container"
           style={{

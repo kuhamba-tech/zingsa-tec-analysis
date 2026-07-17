@@ -6,7 +6,17 @@ import { heatmapQualityBanner, icaoTecLabel, icaoTecLevel, inferHeatmapQuality }
 import type { Station, TecHeatmapResponse } from "@/lib/types";
 import type { LiveStationCounts } from "@/lib/liveStationStatus";
 
-export type MapLayer = "Hybrid" | "Satellite" | "Street" | "TEC Heat Map" | "Global TEC" | "NOAA API";
+export type MapLayer =
+  | "Hybrid"
+  | "Satellite"
+  | "Street"
+  | "TEC Heat Map"
+  | "Zimbabwe TEC Map"
+  | "Zimbabwe ROTI Map"
+  | "Scintillation Map"
+  | "PWV Map"
+  | "Global TEC"
+  | "NOAA API";
 
 interface Props {
   stations: Station[];
@@ -18,7 +28,18 @@ interface Props {
   heatmap?: TecHeatmapResponse | null;
 }
 
-const LAYERS: MapLayer[] = ["Hybrid", "Satellite", "Street", "TEC Heat Map", "Global TEC", "NOAA API"];
+const LAYERS: MapLayer[] = [
+  "Hybrid",
+  "Satellite",
+  "Street",
+  "TEC Heat Map",
+  "Zimbabwe TEC Map",
+  "Zimbabwe ROTI Map",
+  "Scintillation Map",
+  "PWV Map",
+  "Global TEC",
+  "NOAA API",
+];
 
 function riskColor(level: string): string {
   if (level === "High") return "#ff4444";
@@ -37,6 +58,9 @@ export default function CorsMapWithLayers({
 }: Props) {
   const [layer, setLayer] = useState<MapLayer>("Hybrid");
   const tecLayerActive = layer === "TEC Heat Map";
+  const zimbabweTecLayerActive = layer === "Zimbabwe TEC Map";
+  const scienceMapLayerActive =
+    zimbabweTecLayerActive || layer === "Zimbabwe ROTI Map" || layer === "Scintillation Map" || layer === "PWV Map";
   const globalTecLayerActive = layer === "Global TEC";
   const noaaLayerActive = layer === "NOAA API";
   const maxVtec = heatmap?.tec_max ?? null;
@@ -171,7 +195,7 @@ export default function CorsMapWithLayers({
           </div>
         )}
 
-        {!globalTecLayerActive && !noaaLayerActive && (
+        {!globalTecLayerActive && !noaaLayerActive && !scienceMapLayerActive && (
           <div
             style={{
               position: "absolute",
@@ -229,7 +253,7 @@ export default function CorsMapWithLayers({
         )}
       </div>
 
-      {tecLayerActive && (
+      {(tecLayerActive || zimbabweTecLayerActive) && (
         <TecHeatMapLegend className="tec-heatmap-legend-below" maxVtec={maxVtec} />
       )}
     </div>
