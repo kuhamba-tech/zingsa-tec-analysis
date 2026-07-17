@@ -25,70 +25,14 @@ const SATELLITE_URL =
   "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
 const STREET_URL =
   "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}";
-const OSM_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 const LABEL_URL =
   "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}";
 const TRANSPORT_URL =
   "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}";
 const GLOBAL_TEC_IMAGE_URL =
   "https://data.impc.dlr.de/tec-forecast/DLR_GNSS_GCG_L4_VTEC-FC-1H-NTCM-SCM_FC_GLOBAL/latest/DLR_GNSS_GCG_L4_VTEC-FC-1H-NTCM-SCM_FC_GLOBAL_latest_I.png";
-const NOAA_API_URL = "https://www.ncei.noaa.gov/cloud-access/space-weather-portal/api/v1";
-const NOAA_API_TIMEOUT_MS = 7000;
-
-type NoaaProduct = {
-  product: string;
-  title: string;
-  satellite: string;
-  instrument: string;
-  level: string;
-  quality: string;
-};
-
-const NOAA_SWPC_MODEL_PRODUCTS: NoaaProduct[] = [
-  {
-    product: "glotec",
-    title: "Global Total Electron Content model",
-    satellite: "SWPC-Models",
-    instrument: "GLOTEC",
-    level: "L4",
-    quality: "ops",
-  },
-  {
-    product: "ustec",
-    title: "U.S. Total Electron Content model",
-    satellite: "SWPC-Models",
-    instrument: "USTEC",
-    level: "L4",
-    quality: "ops",
-  },
-  {
-    product: "SWX_DRAP20",
-    title: "D-Region Absorption Predictions model",
-    satellite: "SWPC-Models",
-    instrument: "DRAP",
-    level: "L4",
-    quality: "ops",
-  },
-  {
-    product: "swpc_wsaenlil_bkg",
-    title: "WSA-Enlil Solar Wind Prediction model: Background",
-    satellite: "SWPC-Models",
-    instrument: "ENLIL",
-    level: "L4",
-    quality: "ops",
-  },
-  {
-    product: "swpc_wsaenlil_cme",
-    title: "WSA-Enlil Solar Wind Prediction model: CME",
-    satellite: "SWPC-Models",
-    instrument: "ENLIL",
-    level: "L4",
-    quality: "ops",
-  },
-];
 
 function baseTileUrl(layer: MapLayer): string {
-  if (layer === "NOAA API") return OSM_URL;
   return layer === "Street" ? STREET_URL : SATELLITE_URL;
 }
 
@@ -193,12 +137,6 @@ function scienceLayerLabelPositions(layer: MapLayer): Array<{ label: string; lon
   ];
 }
 
-function noaaProductLevel(product: NoaaProduct): "tec" | "model" | "satellite" {
-  if (/tec|glotec|ustec/i.test(`${product.product} ${product.title} ${product.instrument}`)) return "tec";
-  if (/model|enlil|drap/i.test(`${product.product} ${product.title} ${product.instrument}`)) return "model";
-  return "satellite";
-}
-
 function drawStationVtecMarkers(
   ctx: CanvasRenderingContext2D,
   stations: TecHeatmapResponse["stations"],
@@ -292,8 +230,6 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid", heat
   const heatmapRef = useRef(heatmap);
   const layerRef = useRef(layer);
   const [selected, setSelected] = useState<Station | null>(null);
-  const [noaaProducts, setNoaaProducts] = useState<NoaaProduct[]>([]);
-  const [noaaStatus, setNoaaStatus] = useState<"idle" | "loading" | "ready" | "fallback">("idle");
   const scienceMeta = scienceLayerMeta(layer);
   const setSelectedRef = useRef(setSelected);
   setSelectedRef.current = setSelected;
@@ -702,41 +638,6 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid", heat
   }, [stations]);
 
   useEffect(() => {
-    if (layer !== "NOAA API" || noaaStatus === "ready" || noaaStatus === "loading") return;
-
-    let cancelled = false;
-    const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), NOAA_API_TIMEOUT_MS);
-    setNoaaStatus("loading");
-    setNoaaProducts(NOAA_SWPC_MODEL_PRODUCTS);
-    fetch(`${NOAA_API_URL}/products?sat=SWPC-Models`, { signal: controller.signal, cache: "no-store" })
-      .then((res) => {
-        if (!res.ok) throw new Error(`NOAA API returned ${res.status}`);
-        return res.json();
-      })
-      .then((payload: { data?: NoaaProduct[] }) => {
-        if (cancelled) return;
-        const products = (payload.data ?? []).filter((item) => item?.product && item?.title);
-        setNoaaProducts(products);
-        setNoaaStatus(products.length > 0 ? "ready" : "fallback");
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setNoaaProducts(NOAA_SWPC_MODEL_PRODUCTS);
-        setNoaaStatus("fallback");
-      })
-      .finally(() => {
-        window.clearTimeout(timeout);
-      });
-
-    return () => {
-      cancelled = true;
-      controller.abort();
-      window.clearTimeout(timeout);
-    };
-  }, [layer, noaaStatus]);
-
-  useEffect(() => {
     if (!baseTileRef.current || !labelTileRef.current || !transportTileRef.current) return;
     (async () => {
       const XYZ = (await import("ol/source/XYZ")).default;
@@ -745,7 +646,7 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid", heat
       const hybrid = usesHybridOverlays(layer);
       labelTileRef.current.setVisible(hybrid);
       transportTileRef.current.setVisible(hybrid);
-      if ((layer === "Global TEC" || layer === "NOAA API") && olMapRef.current) {
+      if (layer === "Global TEC" && olMapRef.current) {
         olMapRef.current.getView().animate({ center: fromLonLat([0, 0]), zoom: 2, duration: 250 });
       }
       syncStationFeatures(stationsRef.current);
@@ -852,128 +753,6 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid", heat
             style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
           />
         </div>
-        {layer === "NOAA API" && (
-          <>
-            <div
-              style={{
-                position: "absolute",
-                top: "12px",
-                left: "12px",
-                zIndex: 6,
-                width: "min(430px, calc(100% - 24px))",
-                background: "rgba(2, 8, 18, 0.88)",
-                border: "1px solid #168bd2",
-                borderRadius: "8px",
-                padding: "0.75rem 0.9rem",
-                color: "#ffffff",
-                boxShadow: "0 16px 36px rgba(0,0,0,0.35)",
-              }}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between", gap: "0.75rem", alignItems: "flex-start" }}>
-                <div>
-                  <div style={{ fontSize: "0.68rem", fontWeight: 900, textTransform: "uppercase", color: "#63c7ff" }}>
-                    NOAA NCEI Space Weather Portal
-                  </div>
-                  <div style={{ fontSize: "0.9rem", fontWeight: 900, marginTop: "0.15rem" }}>
-                    SWPC model products on OpenStreetMap
-                  </div>
-                </div>
-                <a
-                  href={NOAA_API_URL}
-                  target="_blank"
-                  rel="noreferrer"
-                  style={{
-                    color: "#000",
-                    background: "#63c7ff",
-                    borderRadius: "6px",
-                    padding: "0.35rem 0.55rem",
-                    fontSize: "0.68rem",
-                    fontWeight: 900,
-                    textDecoration: "none",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  API
-                </a>
-              </div>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-                  gap: "0.45rem",
-                  marginTop: "0.65rem",
-                }}
-              >
-                {(noaaProducts.length > 0 ? noaaProducts : []).slice(0, 6).map((product) => {
-                  const level = noaaProductLevel(product);
-                  const color = level === "tec" ? "#00ff88" : level === "model" ? "#ffb347" : "#63c7ff";
-                  return (
-                    <div
-                      key={product.product}
-                      style={{
-                        minWidth: 0,
-                        border: `1px solid ${color}`,
-                        borderRadius: "7px",
-                        padding: "0.45rem",
-                        background: "rgba(8, 20, 35, 0.86)",
-                      }}
-                    >
-                      <div style={{ color, fontSize: "0.68rem", fontWeight: 900, overflowWrap: "anywhere" }}>
-                        {product.product}
-                      </div>
-                      <div style={{ fontSize: "0.62rem", color: "#dbeafe", marginTop: "0.2rem", lineHeight: 1.35 }}>
-                        {product.title}
-                      </div>
-                      <div style={{ fontSize: "0.58rem", color: "#94a3b8", marginTop: "0.25rem" }}>
-                        {product.instrument} · {product.level} · {product.quality}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              <div style={{ fontSize: "0.62rem", color: "#cbd5e1", marginTop: "0.55rem", lineHeight: 1.45 }}>
-                {noaaStatus === "loading"
-                  ? "Loading NOAA products from the Space Weather Portal API..."
-                  : noaaStatus === "fallback"
-                    ? "Browser fetch unavailable; showing core NOAA SWPC model products from the same API catalog."
-                    : "Products loaded from the NOAA NCEI Space Weather Portal API."}
-              </div>
-            </div>
-
-            <div
-              style={{
-                position: "absolute",
-                bottom: "12px",
-                left: "12px",
-                zIndex: 6,
-                background: "rgba(2, 8, 18, 0.88)",
-                border: "1px solid #168bd2",
-                borderRadius: "8px",
-                padding: "0.65rem 0.8rem",
-                color: "#ffffff",
-                fontSize: "0.72rem",
-                fontWeight: 800,
-              }}
-            >
-              <div style={{ color: "#94a3b8", fontSize: "0.64rem", textTransform: "uppercase", marginBottom: "0.35rem" }}>
-                NOAA Layer Legend
-              </div>
-              {[
-                { color: "#00ff88", label: "TEC models: GLOTEC / USTEC" },
-                { color: "#ffb347", label: "Space-weather models: DRAP / ENLIL" },
-                { color: "#63c7ff", label: "Satellite data products" },
-              ].map((item) => (
-                <div key={item.label} style={{ display: "flex", alignItems: "center", gap: "0.45rem", marginTop: "0.25rem" }}>
-                  <span className="dot" style={{ background: item.color }} />
-                  <span>{item.label}</span>
-                </div>
-              ))}
-              <div style={{ color: "#94a3b8", fontSize: "0.6rem", fontWeight: 500, marginTop: "0.45rem", maxWidth: "260px" }}>
-                Base map: OpenStreetMap · Data source: NOAA NCEI Space Weather Portal API v1
-              </div>
-            </div>
-          </>
-        )}
       </div>
       {selected && (
         <SiteDetailsPanel station={selected} heatmap={heatmap} onClose={() => setSelected(null)} />

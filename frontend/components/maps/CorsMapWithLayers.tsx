@@ -15,8 +15,7 @@ export type MapLayer =
   | "Zimbabwe ROTI Map"
   | "Scintillation Map"
   | "PWV Map"
-  | "Global TEC"
-  | "NOAA API";
+  | "Global TEC";
 
 interface Props {
   stations: Station[];
@@ -38,7 +37,6 @@ const LAYERS: MapLayer[] = [
   "Scintillation Map",
   "PWV Map",
   "Global TEC",
-  "NOAA API",
 ];
 
 function riskColor(level: string): string {
@@ -62,7 +60,6 @@ export default function CorsMapWithLayers({
   const scienceMapLayerActive =
     zimbabweTecLayerActive || layer === "Zimbabwe ROTI Map" || layer === "Scintillation Map" || layer === "PWV Map";
   const globalTecLayerActive = layer === "Global TEC";
-  const noaaLayerActive = layer === "NOAA API";
   const maxVtec = heatmap?.tec_max ?? null;
   const qualityBanner = heatmapQualityBanner(inferHeatmapQuality(heatmap ?? null), heatmap?.message);
   const awaitingVtecBanner =
@@ -195,7 +192,7 @@ export default function CorsMapWithLayers({
           </div>
         )}
 
-        {!globalTecLayerActive && !noaaLayerActive && !scienceMapLayerActive && (
+        {!globalTecLayerActive && !scienceMapLayerActive && (
           <div
             style={{
               position: "absolute",
