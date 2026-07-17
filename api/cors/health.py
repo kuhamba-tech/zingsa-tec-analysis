@@ -16,4 +16,14 @@ app = FastAPI()
 @app.get("/api/cors/health")
 @app.get("/api/cors/health/")
 async def health():
-    return await cors_network.health(_=None)
+    archived = cors_network._archived_status_counts()
+    if archived is not None:
+        online, degraded, offline, total = archived
+        return {"online": online, "degraded": degraded, "offline": offline, "total": total}
+    rows = cors_network.stations(refresh_ntrip=False, _=None)
+    return {
+        "online": sum(1 for row in rows if row.status == "online"),
+        "degraded": sum(1 for row in rows if row.status == "degraded"),
+        "offline": sum(1 for row in rows if row.status == "offline"),
+        "total": len(rows),
+    }
