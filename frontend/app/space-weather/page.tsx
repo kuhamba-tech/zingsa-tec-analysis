@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { getEkfAlertLog, getEkfStatus, getSpaceWeather, getSolarActivity, getTimelines, refreshSpaceWeather, getStations } from "@/lib/api";
 import ClickableMetricGrid from "@/components/spaceWeather/ClickableMetricGrid";
 import IndexScaleReference from "@/components/spaceWeather/IndexScaleReference";
@@ -88,6 +88,23 @@ const KP_BANDS = [
   { range: "8",   label: "Severe G4",      color: "#991b1b" },
   { range: "9",   label: "Extreme G5",     color: "#a855f7" },
 ];
+
+type SolarInfoKey =
+  | "summary"
+  | "flare"
+  | "xray"
+  | "wind"
+  | "alerts"
+  | "flareEvents"
+  | "cme"
+  | "storms"
+  | "impact";
+
+type SolarInfo = {
+  title: string;
+  summary: string;
+  detail: string;
+};
 
 // ── GNSS Impact ───────────────────────────────────────────────────────────────
 function getGnssImpact(kp: number | null, s4: number | null, flare: string, level: string) {
@@ -183,6 +200,7 @@ export default function SpaceWeatherPage() {
   const [liveStationCounts, setLiveStationCounts] = useState<LiveStationCounts | null>(null);
   const [ekf, setEkf] = useState<EkfStatus | null>(null);
   const [pendingAlerts, setPendingAlerts] = useState<EkfAlert[]>([]);
+  const [selectedSolarInfo, setSelectedSolarInfo] = useState<SolarInfoKey>("summary");
 
   useEffect(() => {
     const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
@@ -320,6 +338,72 @@ export default function SpaceWeatherPage() {
     null;
   const alertTime = displayText(latestAlert?.issue_datetime);
   const fluxLabel = displayFlux(sa?.flux);
+  const solarInfo: Record<SolarInfoKey, SolarInfo> = {
+    summary: {
+      title: "Solar Activity",
+      summary: `Current solar activity level: ${actLabel}. Current flare class: ${flareClass}. SWPC alerts: ${alertCount > 0 ? alertCount : "none"}.`,
+      detail: "This card summarises the Sun's present activity for GNSS operations. Low or quiet activity usually means normal ionospheric background conditions; higher activity can increase TEC, scintillation, and radio disturbance risk.",
+    },
+    flare: {
+      title: "Solar Flare - GOES X-Ray",
+      summary: `Current flare class: ${flareClass}${fluxLabel ? `, flux ${fluxLabel}` : ""}.`,
+      detail: "GOES X-ray class describes flare strength. A/B are background, C is moderate, M is major, and X is extreme. Strong flares can disturb HF radio and may affect GNSS signal tracking on the sunlit side of Earth.",
+    },
+    xray: {
+      title: "GOES X-Ray Flux",
+      summary: xraySlice.length > 0 ? `${xraySlice.length} recent X-ray samples are loaded.` : "X-ray flux data is unavailable.",
+      detail: "The X-ray chart shows short-term solar flare energy from NOAA GOES. Rising spikes indicate flare activity; flat low values mean the flare environment is quiet.",
+    },
+    wind: {
+      title: "Solar Wind",
+      summary: `Speed: ${sa?.solar_wind?.speed ? `${sa.solar_wind.speed.toFixed(0)} km/s` : "N/A"}; IMF Bz: ${sa?.solar_wind?.bz != null ? `${sa.solar_wind.bz.toFixed(1)} nT` : "N/A"}.`,
+      detail: "Solar wind carries charged particles from the Sun to Earth. Fast wind and southward IMF Bz can drive geomagnetic activity, increasing Kp and disturbing GNSS positioning.",
+    },
+    alerts: {
+      title: "NOAA Alerts / Watches / Warnings",
+      summary: alertMsg ? `Latest alert: ${alertMsg.length > 120 ? `${alertMsg.slice(0, 120)}...` : alertMsg}` : "No current NOAA SWPC alerts.",
+      detail: "NOAA SWPC alerts are operational warnings for solar radiation, radio blackout, and geomagnetic storm conditions. These warnings help decide when to monitor GNSS quality more closely.",
+    },
+    flareEvents: {
+      title: "Solar Flares",
+      summary: `${donkiFlares.length} flare event(s) in the selected 7-day window.`,
+      detail: "This count comes from DONKI flare events. A higher count means more recent solar eruptive activity, but storm impact at Earth still depends on direction, timing, and associated CME or solar-wind conditions.",
+    },
+    cme: {
+      title: "Coronal Mass Ejections",
+      summary: `${donkiCmes.length} CME event(s) in the selected 7-day window.`,
+      detail: "A CME is a large solar plasma eruption. If Earth-directed, it can arrive hours to days later and cause geomagnetic storms that affect GNSS, power grids, and HF radio.",
+    },
+    storms: {
+      title: "Geomagnetic Storms",
+      summary: `${donkiStorms.length} geomagnetic storm event(s) in the selected 7-day window.`,
+      detail: "Geomagnetic storm events show Earth-side magnetic disturbance. They are more directly linked to GNSS degradation than solar flare counts alone.",
+    },
+    impact: {
+      title: "Impact on GNSS & CORS Networks",
+      summary: `GNSS/CORS: ${impact.rtk}; HF radio: ${impact.hf}; power grids: ${kp !== null && kp >= 7 ? "GIC risk" : "minimal GIC"}.`,
+      detail: "This card translates solar and geomagnetic measurements into operational effects for positioning, radio, satellites, and power systems. It is the practical impact view for Zimbabwe CORS users.",
+    },
+  };
+  const selectedInfo = solarInfo[selectedSolarInfo];
+
+  const solarCardClickProps = (key: SolarInfoKey, style: CSSProperties = {}) => ({
+    role: "button",
+    tabIndex: 0,
+    onClick: () => setSelectedSolarInfo(key),
+    onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        setSelectedSolarInfo(key);
+      }
+    },
+    style: {
+      cursor: "pointer",
+      outline: selectedSolarInfo === key ? "2px solid var(--accent)" : "none",
+      outlineOffset: "2px",
+      ...style,
+    },
+  });
 
   return (
     <div className="page-stack">
@@ -390,7 +474,7 @@ export default function SpaceWeatherPage() {
         <div className="grid-3">
 
           {/* Solar Activity Summary */}
-          <div className="card" style={{ textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.7rem" }}>
+          <div className="card" {...solarCardClickProps("summary", { textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.7rem" })}>
             {/* Sun SVG */}
             <div style={{ position: "relative", width: "70px", height: "70px", marginTop: "0.2rem" }}>
               <svg viewBox="0 0 70 70" style={{ width: "70px", height: "70px" }}>
@@ -423,7 +507,7 @@ export default function SpaceWeatherPage() {
           </div>
 
           {/* Solar Flare (GOES X-Ray) */}
-          <div className="card" style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+          <div className="card" {...solarCardClickProps("flare", { display: "flex", flexDirection: "column", gap: "0.5rem" })}>
             <div style={{ fontSize: "0.62rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)" }}>Solar Flare (GOES X-Ray)</div>
             <div style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>Current class:</div>
             <div style={{ fontSize: "2.4rem", fontWeight: 900, lineHeight: 1, color: flareClassColor(flareClass), marginBottom: "0.3rem" }}>
@@ -449,7 +533,7 @@ export default function SpaceWeatherPage() {
           </div>
 
           {/* GOES X-Ray Flux chart */}
-          <div className="card" style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+          <div className="card" {...solarCardClickProps("xray", { display: "flex", flexDirection: "column", gap: "0.5rem" })}>
             <div style={{ fontSize: "0.62rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)" }}>GOES X-Ray Flux — Last Day</div>
             {xraySlice.length > 0 ? (
               <>
@@ -473,7 +557,7 @@ export default function SpaceWeatherPage() {
         <div className="sw-triple-grid">
 
           {/* Solar Wind */}
-          <div className="card">
+          <div className="card" {...solarCardClickProps("wind")}>
             <div style={{ fontSize: "0.62rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "0.8rem" }}>Solar Wind</div>
             {[
               { icon: "🌀", label: "Speed",       val: sa?.solar_wind?.speed,       unit: "km/s",   fmt: (v: number) => v.toFixed(0) },
@@ -495,7 +579,7 @@ export default function SpaceWeatherPage() {
           </div>
 
           {/* Alerts / Watches / Warnings */}
-          <div className="card" style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+          <div className="card" {...solarCardClickProps("alerts", { display: "flex", flexDirection: "column", gap: "0.5rem" })}>
             <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.2rem" }}>
               <span className="dot dot-ok" style={{ width: "7px", height: "7px", flexShrink: 0 }} />
               <span style={{ fontSize: "0.62rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)" }}>
@@ -523,7 +607,7 @@ export default function SpaceWeatherPage() {
           </div>
 
           {/* Solar Flares count */}
-          <div className="card" style={{ textAlign: "center" }}>
+          <div className="card" {...solarCardClickProps("flareEvents", { textAlign: "center" })}>
             <div style={{ fontSize: "0.62rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "0.6rem" }}>Solar Flares</div>
             <div style={{ fontSize: "3rem", fontWeight: 900, lineHeight: 1, marginBottom: "0.4rem", color: sa ? flareCountColor : "var(--text-muted)" }}>{sa ? donkiFlares.length : "N/A"}</div>
             <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
@@ -539,7 +623,7 @@ export default function SpaceWeatherPage() {
         <div className="sw-triple-grid">
 
           {/* CME count */}
-          <div className="card" style={{ textAlign: "center" }}>
+          <div className="card" {...solarCardClickProps("cme", { textAlign: "center" })}>
             <div style={{ fontSize: "0.62rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "0.6rem" }}>Coronal Mass Ejections</div>
             <div style={{ fontSize: "3rem", fontWeight: 900, lineHeight: 1, marginBottom: "0.4rem", color: sa ? cmeCountColor : "var(--text-muted)" }}>{sa ? donkiCmes.length : "N/A"}</div>
             <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
@@ -549,7 +633,7 @@ export default function SpaceWeatherPage() {
           </div>
 
           {/* Geomagnetic Storms count */}
-          <div className="card" style={{ textAlign: "center" }}>
+          <div className="card" {...solarCardClickProps("storms", { textAlign: "center" })}>
             <div style={{ fontSize: "0.62rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "0.6rem" }}>Geomagnetic Storms</div>
             <div style={{ fontSize: "3rem", fontWeight: 900, lineHeight: 1, marginBottom: "0.4rem", color: sa ? stormCountColor : "var(--text-muted)" }}>{sa ? donkiStorms.length : "N/A"}</div>
             <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
@@ -559,7 +643,7 @@ export default function SpaceWeatherPage() {
           </div>
 
           {/* Impact on GNSS & CORS Networks (compact) */}
-          <div className="card">
+          <div className="card" {...solarCardClickProps("impact")}>
             <div style={{ fontSize: "0.62rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "0.7rem" }}>Impact on GNSS &amp; CORS Networks</div>
             <div className="sw-double-grid">
               {[
@@ -580,7 +664,13 @@ export default function SpaceWeatherPage() {
 
       {/* ── Condition banner ── */}
       <div className={`banner banner-${conditionVariant}`}>
-        <strong>Current condition: {conditionLabel}</strong>
+        <strong>{selectedInfo.title}: {selectedInfo.summary}</strong>
+        <div style={{ marginTop: "0.35rem", fontSize: "0.8rem", lineHeight: 1.45 }}>
+          {selectedInfo.detail}
+        </div>
+        <div style={{ marginTop: "0.35rem", fontSize: "0.76rem", color: "var(--text-muted)" }}>
+          Current condition: {conditionLabel}
+        </div>
         {risk && risk !== "Low" && (
           <div style={{ marginTop: "0.25rem", fontSize: "0.8rem" }}>
             GNSS risk is {risk} — ionospheric conditions may affect positioning accuracy over Zimbabwe.
