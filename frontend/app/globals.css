@@ -3136,6 +3136,132 @@ select option {
   margin-top: 0.25rem;
   font-size: 1.1rem;
 }
+.scint-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-left: 4px solid var(--accent);
+}
+.scint-section-header h2 {
+  margin: 0.2rem 0 0.4rem;
+  font-size: 1.25rem;
+}
+.scint-section-header p {
+  max-width: 900px;
+  margin: 0;
+  color: var(--text);
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+.scint-update-badge {
+  min-width: 170px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem 0.9rem;
+  background: #000;
+  text-align: right;
+}
+.scint-update-badge span {
+  display: block;
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.scint-update-badge strong {
+  display: block;
+  margin-top: 0.2rem;
+  color: #00ff88;
+  font-size: 0.92rem;
+}
+.scint-station-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1.15rem;
+}
+.scint-station-card {
+  border-top: 1px solid rgba(255,255,255,0.28);
+  padding: 1rem 0 0.25rem;
+}
+.scint-station-head {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.7rem;
+}
+.scint-station-head h3 {
+  margin: 0;
+  color: #fff;
+  font-size: 1rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.scint-station-head p {
+  margin: 0.15rem 0 0;
+  color: var(--text);
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+.scint-map-thumb {
+  position: relative;
+  width: 74px;
+  height: 54px;
+  flex: 0 0 auto;
+  border: 1px solid #cbd5e1;
+  background:
+    radial-gradient(circle at 62% 42%, #111827 0 5px, transparent 6px),
+    linear-gradient(140deg, transparent 0 38%, #cbd5e1 39% 41%, transparent 42%),
+    radial-gradient(ellipse at 48% 52%, transparent 0 42%, #d7dde4 43% 45%, transparent 46%),
+    #ffffff;
+}
+.scint-map-thumb span {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  left: 43px;
+  top: 20px;
+  border-radius: 50%;
+  background: #000;
+}
+.scint-plot-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1.2rem;
+}
+.scint-plot {
+  overflow: hidden;
+  border: 1px solid #d6d6d6;
+  background: #fff;
+}
+.scint-plot svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.scint-plot-title {
+  fill: #111827;
+  font-size: 17px;
+  font-family: "Courier New", monospace;
+  font-weight: 700;
+}
+.scint-axis-text,
+.scint-x-label,
+.scint-y-label,
+.scint-threshold-text {
+  fill: #111827;
+  font-family: "Courier New", monospace;
+}
+.scint-axis-text {
+  font-size: 11px;
+}
+.scint-x-label,
+.scint-y-label {
+  font-size: 13px;
+}
+.scint-threshold-text {
+  font-size: 12px;
+}
 .table-scroll {
   overflow-x: auto;
 }
@@ -3187,6 +3313,16 @@ select option {
   }
   .comparison-grid {
     grid-template-columns: 1fr;
+  }
+  .scint-plot-grid {
+    grid-template-columns: 1fr;
+  }
+  .scint-section-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .scint-update-badge {
+    text-align: left;
   }
 }
 

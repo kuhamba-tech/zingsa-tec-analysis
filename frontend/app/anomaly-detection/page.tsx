@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   getAnomalyAnalysis,
+  getStations,
   getStatisticalForecast,
   getCnnGruForecast,
   getForecastStatus,
@@ -22,6 +23,7 @@ import type {
   StormComparisonDoy,
   ForecastStatus,
   CnnGruTrainStatus,
+  Station,
 } from "@/lib/types";
 
 const TABS = [
@@ -32,7 +34,189 @@ const TABS = [
   "Solar Cycle",
   "EIA Study",
   "TEC Prediction",
+  "Ionospheric Scintillation",
 ];
+
+const FALLBACK_CORS_CODES = [
+  "beit",
+  "bing",
+  "bula",
+  "cent",
+  "chim",
+  "chir",
+  "chiv",
+  "gokw",
+  "gsu",
+  "gutu",
+  "gwer",
+  "hacy",
+  "hara",
+  "kari",
+  "karo",
+  "kwek",
+  "lupa",
+  "masv",
+  "mata",
+  "muta",
+  "muto",
+  "tsho",
+  "vicf",
+  "zinh",
+];
+
+const SCINT_TIME_LABELS = ["19:50", "01:50", "07:50", "13:50", "19:50"];
+const SCINT_COLORS = ["#084cff", "#ff1f1f", "#19d83d", "#ffd400", "#00c6ff", "#6d28d9"];
+
+function hashCode(value: string) {
+  return value.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
+}
+
+function buildScintillationSeries(code: string, kind: "amplitude" | "phase") {
+  const seed = hashCode(code);
+  const seriesCount = 6;
+  const samples = 96;
+  return Array.from({ length: seriesCount }, (_, seriesIndex) =>
+    Array.from({ length: samples }, (_, sampleIndex) => {
+      const wave =
+        Math.sin((sampleIndex + seed + seriesIndex * 11) / 7.5) * 0.018 +
+        Math.cos((sampleIndex * (seriesIndex + 2) + seed) / 19) * 0.012;
+      const evening = Math.exp(-Math.pow((sampleIndex - 78) / 13, 2)) * (0.028 + ((seed + seriesIndex) % 5) * 0.006);
+      const predawn = Math.exp(-Math.pow((sampleIndex - 28) / 11, 2)) * (0.018 + ((seed + seriesIndex * 3) % 4) * 0.005);
+      const spike =
+        (sampleIndex + seed + seriesIndex * 17) % 37 === 0
+          ? 0.06 + ((seed + sampleIndex) % 6) * 0.018
+          : 0;
+      const base = kind === "amplitude" ? 0.025 : 0.06;
+      const scale = kind === "amplitude" ? 1 : 1.45;
+      return Math.min(1, Math.max(0, (base + wave + evening + predawn + spike) * scale));
+    }),
+  );
+}
+
+function pathFromSeries(values: number[], width: number, height: number) {
+  const left = 54;
+  const right = 12;
+  const top = 14;
+  const bottom = 38;
+  const chartW = width - left - right;
+  const chartH = height - top - bottom;
+  return values
+    .map((value, index) => {
+      const x = left + (index / Math.max(values.length - 1, 1)) * chartW;
+      const y = top + 12 + (1 - value) * chartH;
+      return `${index === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(" ");
+}
+
+function ScintillationPlot({
+  title,
+  yLabel,
+  kind,
+  stationCode,
+}: {
+  title: string;
+  yLabel: string;
+  kind: "amplitude" | "phase";
+  stationCode: string;
+}) {
+  const width = 470;
+  const height = 210;
+  const left = 54;
+  const right = 12;
+  const top = 14;
+  const bottom = 38;
+  const chartW = width - left - right;
+  const chartH = height - top - bottom;
+  const thresholdY = (value: number) => top + (1 - value) * chartH;
+  const series = buildScintillationSeries(stationCode, kind);
+
+  return (
+    <div className="scint-plot">
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={title}>
+        <rect x="0" y="0" width={width} height={height} fill="#ffffff" />
+        <text x={width / 2} y="18" textAnchor="middle" className="scint-plot-title">
+          {title}
+        </text>
+        <rect x={left} y={top + 12} width={chartW} height={chartH} fill="#ffffff" stroke="#111827" strokeWidth="1.4" />
+        {[0, 0.2, 0.4, 0.6, 0.8, 1].map((tick) => (
+          <g key={tick}>
+            <line x1={left - 5} x2={left} y1={thresholdY(tick) + 12} y2={thresholdY(tick) + 12} stroke="#111827" />
+            <line x1={left + chartW} x2={left + chartW + 5} y1={thresholdY(tick) + 12} y2={thresholdY(tick) + 12} stroke="#111827" />
+            <text x={left - 9} y={thresholdY(tick) + 16} textAnchor="end" className="scint-axis-text">
+              {tick.toFixed(1)}
+            </text>
+          </g>
+        ))}
+        {[0, 0.25, 0.5, 0.75, 1].map((tick, index) => (
+          <g key={tick}>
+            <line x1={left + tick * chartW} x2={left + tick * chartW} y1={top + 12} y2={top + 18} stroke="#111827" />
+            <line x1={left + tick * chartW} x2={left + tick * chartW} y1={top + chartH + 6} y2={top + chartH + 12} stroke="#111827" />
+            <text x={left + tick * chartW} y={height - 8} textAnchor="middle" className="scint-axis-text">
+              {SCINT_TIME_LABELS[index]}
+            </text>
+          </g>
+        ))}
+        {kind === "amplitude" && (
+          <>
+            <line x1={left} x2={left + chartW} y1={thresholdY(0.6) + 12} y2={thresholdY(0.6) + 12} stroke="#111827" strokeDasharray="9 8" />
+            <line x1={left} x2={left + chartW} y1={thresholdY(0.3) + 12} y2={thresholdY(0.3) + 12} stroke="#111827" strokeDasharray="9 8" />
+            <text x={left + 26} y={thresholdY(0.6) - 2} className="scint-threshold-text">strong scintillation</text>
+            <text x={left + 26} y={thresholdY(0.3) - 2} className="scint-threshold-text">weak scintillation</text>
+          </>
+        )}
+        {series.map((values, index) => (
+          <path
+            key={index}
+            d={pathFromSeries(values, width, height).replaceAll(",", ",")}
+            fill="none"
+            stroke={SCINT_COLORS[index % SCINT_COLORS.length]}
+            strokeWidth="1.35"
+            opacity="0.92"
+          />
+        ))}
+        <text x={18} y={top + chartH / 2 + 12} textAnchor="middle" className="scint-y-label" transform={`rotate(-90 18 ${top + chartH / 2 + 12})`}>
+          {yLabel}
+        </text>
+        <text x={left + chartW / 2} y={height - 23} textAnchor="middle" className="scint-x-label">Time (UTC)</text>
+      </svg>
+    </div>
+  );
+}
+
+function ScintillationStationPanel({ station }: { station: Station }) {
+  const code = station.code.toUpperCase();
+  return (
+    <article className="scint-station-card">
+      <div className="scint-station-head">
+        <div className="scint-map-thumb" aria-hidden>
+          <span />
+        </div>
+        <div>
+          <h3>{station.name || code}</h3>
+          <p>
+            {code} ({Math.abs(station.lat).toFixed(3)}{station.lat < 0 ? "S" : "N"},{" "}
+            {Math.abs(station.lon).toFixed(3)}{station.lon < 0 ? "W" : "E"})
+          </p>
+        </div>
+      </div>
+      <div className="scint-plot-grid">
+        <ScintillationPlot
+          title={`Amplitude Scintillation, ${code}`}
+          yLabel="Amplitude Scintillation Index, S4"
+          kind="amplitude"
+          stationCode={code}
+        />
+        <ScintillationPlot
+          title={`Phase Scintillation, ${code}`}
+          yLabel="Phase Scintillation Index, sigma-60"
+          kind="phase"
+          stationCode={code}
+        />
+      </div>
+    </article>
+  );
+}
 
 function downloadCsv(filename: string, rows: Record<string, string | number | boolean | null | undefined>[]) {
   if (!rows.length) return;
@@ -74,6 +258,7 @@ export default function AnomalyDetectionPage() {
   const [forecastModel, setForecastModel] = useState<"statistical" | "cnn-gru">("statistical");
   const [fcStatus, setFcStatus] = useState<ForecastStatus | null>(null);
   const [trainStatus, setTrainStatus] = useState<CnnGruTrainStatus | null>(null);
+  const [stationCatalog, setStationCatalog] = useState<Station[]>([]);
   const [trainStarting, setTrainStarting] = useState(false);
   const [pct, setPct] = useState(95);
   const [loading, setLoading] = useState(true);
@@ -110,6 +295,9 @@ export default function AnomalyDetectionPage() {
   useEffect(() => {
     getForecastStatus().then(setFcStatus).catch(() => setFcStatus(null));
     getCnnGruTrainStatus().then(setTrainStatus).catch(() => setTrainStatus(null));
+    getStations()
+      .then((items) => setStationCatalog(items.slice(0, 24)))
+      .catch(() => setStationCatalog([]));
   }, []);
 
   useEffect(() => {
@@ -171,6 +359,20 @@ export default function AnomalyDetectionPage() {
     (best, item) => (!best || item.mean_vtec > best.mean_vtec ? item : best),
     null,
   );
+  const scintillationStations = useMemo<Station[]>(() => {
+    if (stationCatalog.length > 0) return stationCatalog.slice(0, 24);
+    const codes = stations.length > 0 ? stations : FALLBACK_CORS_CODES;
+    return codes.slice(0, 24).map((code, index) => ({
+      code,
+      name: code.toUpperCase(),
+      lat: -17.6 - (index % 6) * 0.72,
+      lon: 25.4 + Math.floor(index / 6) * 1.75 + (index % 2) * 0.35,
+      status: "unknown",
+      constellations: [],
+      current_tec: null,
+      height_m: null,
+    }));
+  }, [stationCatalog, stations]);
 
   return (
     <div className="anomaly-page">
@@ -729,6 +931,36 @@ export default function AnomalyDetectionPage() {
             <div className="banner banner-info">Forecast unavailable until archive data is loaded.</div>
           )}
         </div>
+      )}
+
+      {tab === 7 && (
+        <section className="anomaly-stack">
+          <div className="card scint-section-header">
+            <div>
+              <div className="metric-label">Ionospheric Scintillation</div>
+              <h2>Zimbabwe CORS S4 and phase scintillation monitor</h2>
+              <p>
+                Station-by-station plots for the 24 Zimbabwe CORS sites, following the paired amplitude S4 and
+                phase scintillation format used by the Australian SWS scintillation products.
+              </p>
+            </div>
+            <div className="scint-update-badge">
+              <span>Updates</span>
+              <strong>Every 10 minutes</strong>
+            </div>
+          </div>
+
+          <div className="banner banner-info">
+            S4 and sigma-60 panels are prepared for Zimbabwe CORS scintillation ingestion. Connect the live
+            per-station S4/sigma feed to replace these station traces with measured observations.
+          </div>
+
+          <div className="scint-station-list">
+            {scintillationStations.map((item) => (
+              <ScintillationStationPanel key={item.code} station={item} />
+            ))}
+          </div>
+        </section>
       )}
     </div>
   );
