@@ -39,6 +39,26 @@ function displayFlux(flux: unknown): string | null {
   return `${n.toExponential(2)} W/m²`;
 }
 
+// Interprets a live GOES flare-class reading (e.g. "B4.3") in plain language:
+// the letter is the logarithmic class (each step ~10x the X-ray flux of the
+// last), the number is a linear multiplier within that class.
+function interpretFlareClass(cls: string): string | null {
+  const match = /^([ABCMX])([\d.]+)$/i.exec((cls || "").trim());
+  if (!match) return null;
+  const letter = match[1].toUpperCase();
+  const multiplier = parseFloat(match[2]);
+  const info: Record<string, { level: string; effect: string }> = {
+    A: { level: "background", effect: "essentially no radio or GNSS impact" },
+    B: { level: "background", effect: "essentially no radio or GNSS impact" },
+    C: { level: "moderate", effect: "minor effects, usually unnoticed operationally" },
+    M: { level: "major", effect: "can cause brief HF radio fades and minor GNSS ranging error on the sunlit side" },
+    X: { level: "extreme", effect: "can cause strong HF radio blackouts and measurable GNSS disturbance on the sunlit side" },
+  };
+  const meta = info[letter];
+  if (!meta) return null;
+  return `Right now: ${cls} means a ${letter}-class flare (${meta.level} level) with a multiplier of ${multiplier} within that class — ${meta.effect}.`;
+}
+
 function safePoints(points: TimelinePoint[] | undefined) {
   return Array.isArray(points) ? points : [];
 }
@@ -342,47 +362,58 @@ export default function SpaceWeatherPage() {
     summary: {
       title: "Solar Activity",
       summary: `Current solar activity level: ${actLabel}. Current flare class: ${flareClass}. SWPC alerts: ${alertCount > 0 ? alertCount : "none"}.`,
-      detail: "This card summarises the Sun's present activity for GNSS operations. Low or quiet activity usually means normal ionospheric background conditions; higher activity can increase TEC, scintillation, and radio disturbance risk.",
+      detail: [
+        "This card summarises the Sun's present activity for GNSS operations. \"Low\" means background flare levels (A/B class) and a quiet solar wind; \"Moderate\" means C-class flares or elevated solar wind are present; \"High\"/\"Severe\" mean M/X-class flares or active geomagnetic conditions that can raise TEC, scintillation, and radio disturbance risk.",
+        `Right now the level is "${actLabel}", driven by a ${flareClass} flare class${alertCount > 0 ? ` and ${alertCount} active NOAA alert(s)` : ""}.`,
+      ].join(" "),
     },
     flare: {
       title: "Solar Flare - GOES X-Ray",
       summary: `Current flare class: ${flareClass}${fluxLabel ? `, flux ${fluxLabel}` : ""}.`,
-      detail: "GOES X-ray class describes flare strength. A/B are background, C is moderate, M is major, and X is extreme. Strong flares can disturb HF radio and may affect GNSS signal tracking on the sunlit side of Earth.",
+      detail: [
+        "GOES X-ray class describes flare strength on a logarithmic scale: A and B are background, C is moderate, M is major, and X is extreme — each letter step is roughly 10× the peak X-ray flux of the one before it. The number after the letter (e.g. the \"4.3\" in B4.3) is a linear multiplier within that class, not a separate scale, so B4.3 sits about 43% of the way through the B range. Strong (M/X) flares can disturb HF radio and may affect GNSS signal tracking on the sunlit side of Earth.",
+        interpretFlareClass(flareClass),
+      ].filter(Boolean).join(" "),
     },
     xray: {
       title: "GOES X-Ray Flux",
       summary: xraySlice.length > 0 ? `${xraySlice.length} recent X-ray samples are loaded.` : "X-ray flux data is unavailable.",
-      detail: "The X-ray chart shows short-term solar flare energy from NOAA GOES. Rising spikes indicate flare activity; flat low values mean the flare environment is quiet.",
+      detail: "The X-ray chart shows short-term solar flare energy from NOAA GOES in the 0.1–0.8 nm band, scaled ×10⁻⁷ W/m² for readability (so a chart value of \"4.3\" is the same B4.3 flux shown in the flare card). Rising spikes indicate flare activity; flat low values (below ~1, i.e. A-class) mean the flare environment is quiet.",
     },
     wind: {
       title: "Solar Wind",
       summary: `Speed: ${sa?.solar_wind?.speed ? `${sa.solar_wind.speed.toFixed(0)} km/s` : "N/A"}; IMF Bz: ${sa?.solar_wind?.bz != null ? `${sa.solar_wind.bz.toFixed(1)} nT` : "N/A"}.`,
-      detail: "Solar wind carries charged particles from the Sun to Earth. Fast wind and southward IMF Bz can drive geomagnetic activity, increasing Kp and disturbing GNSS positioning.",
+      detail: [
+        "Solar wind carries charged particles from the Sun to Earth. Typical quiet-time speed is 300-500 km/s; above ~500 km/s is considered fast (often from a coronal hole or CME). IMF Bz is the north-south component of the interplanetary magnetic field: negative (southward) Bz links up with Earth's own field and drives geomagnetic activity, raising Kp and disturbing GNSS positioning, while positive (northward) Bz is generally quiet.",
+        sa?.solar_wind?.speed != null && sa?.solar_wind?.bz != null
+          ? `Right now: speed ${sa.solar_wind.speed.toFixed(0)} km/s (${sa.solar_wind.speed >= 500 ? "fast" : "typical"}), IMF Bz ${sa.solar_wind.bz.toFixed(1)} nT (${sa.solar_wind.bz < 0 ? "southward — more geoeffective" : "northward — quiet"}).`
+          : null,
+      ].filter(Boolean).join(" "),
     },
     alerts: {
       title: "NOAA Alerts / Watches / Warnings",
       summary: alertMsg ? `Latest alert: ${alertMsg.length > 120 ? `${alertMsg.slice(0, 120)}...` : alertMsg}` : "No current NOAA SWPC alerts.",
-      detail: "NOAA SWPC alerts are operational warnings for solar radiation, radio blackout, and geomagnetic storm conditions. These warnings help decide when to monitor GNSS quality more closely.",
+      detail: "NOAA SWPC alerts are operational warnings for solar radiation storms (S-scale), radio blackouts (R-scale), and geomagnetic storms (G-scale) — each scale runs 1 (minor) to 5 (extreme). These warnings help decide when to monitor GNSS quality more closely; an \"Electron flux exceeded\" alert like the one shown is a radiation-belt enhancement watch, not itself a confirmed storm.",
     },
     flareEvents: {
       title: "Solar Flares",
       summary: `${donkiFlares.length} flare event(s) in the selected 7-day window.`,
-      detail: "This count comes from DONKI flare events. A higher count means more recent solar eruptive activity, but storm impact at Earth still depends on direction, timing, and associated CME or solar-wind conditions.",
+      detail: `This count comes from DONKI flare events over the past 7 days. A higher count means more recent solar eruptive activity, but storm impact at Earth still depends on direction, timing, and associated CME or solar-wind conditions. ${donkiFlares.length === 0 ? "Zero here means no cataloged flare events in this window — a calm period." : "Check each event's class (A-X) for how strong it was."}`,
     },
     cme: {
       title: "Coronal Mass Ejections",
       summary: `${donkiCmes.length} CME event(s) in the selected 7-day window.`,
-      detail: "A CME is a large solar plasma eruption. If Earth-directed, it can arrive hours to days later and cause geomagnetic storms that affect GNSS, power grids, and HF radio.",
+      detail: `A CME is a large eruption of solar plasma and magnetic field. If Earth-directed, it can arrive 1-3 days later and cause a geomagnetic storm affecting GNSS, power grids, and HF radio. ${donkiCmes.length === 0 ? "Zero here means no cataloged eruptions in this window." : "Not every CME is Earth-directed — only halo/partial-halo events aimed at Earth typically matter operationally."}`,
     },
     storms: {
       title: "Geomagnetic Storms",
       summary: `${donkiStorms.length} geomagnetic storm event(s) in the selected 7-day window.`,
-      detail: "Geomagnetic storm events show Earth-side magnetic disturbance. They are more directly linked to GNSS degradation than solar flare counts alone.",
+      detail: `Geomagnetic storm events show Earth-side magnetic disturbance (measured via Kp/Dst), and are more directly linked to GNSS degradation than solar flare or CME counts alone. ${donkiStorms.length === 0 ? "Zero here means Earth's magnetic field has stayed quiet over this window." : "Higher Kp during these events means larger positioning error and possible RTK/PPP convergence delay."}`,
     },
     impact: {
       title: "Impact on GNSS & CORS Networks",
       summary: `GNSS/CORS: ${impact.rtk}; HF radio: ${impact.hf}; power grids: ${kp !== null && kp >= 7 ? "GIC risk" : "minimal GIC"}.`,
-      detail: "This card translates solar and geomagnetic measurements into operational effects for positioning, radio, satellites, and power systems. It is the practical impact view for Zimbabwe CORS users.",
+      detail: "This card translates the solar and geomagnetic readings above into operational effects: \"Nominal\"/\"Excellent\" means no expected disruption; \"Degraded\"/\"Delayed\" means slower RTK/PPP convergence and noisier ranging; \"Severely degraded\"/\"Blackout possible\" means significant positioning error and possible loss of HF radio during the event. It is the practical impact view for Zimbabwe CORS users.",
     },
   };
   const selectedInfo = solarInfo[selectedSolarInfo];
