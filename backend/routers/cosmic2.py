@@ -36,6 +36,30 @@ def _parse_date(value: str) -> date:
         raise HTTPException(status_code=422, detail="Invalid date format; use YYYY-MM-DD") from exc
 
 
+def _stringify_dates(row: dict) -> dict:
+    """Postgres returns native datetime.date/Timestamp objects via
+    pd.read_sql; SQLite returns the TEXT already stored. Both need to end
+    up as plain strings for the Pydantic response models.
+
+    NULL datetime columns come back as pandas NaT, which has an
+    .isoformat() method that returns the literal string "NaT" rather than
+    raising — must check for NA before calling isoformat, or a missing
+    timestamp silently becomes the text "NaT" instead of null."""
+    import pandas as pd
+
+    out: dict = {}
+    for key, value in row.items():
+        if value is None:
+            out[key] = None
+        elif hasattr(value, "isoformat"):
+            out[key] = None if pd.isna(value) else value.isoformat()
+        elif isinstance(value, float) and pd.isna(value):
+            out[key] = None
+        else:
+            out[key] = value
+    return out
+
+
 @router.get("/status", response_model=Cosmic2StatusResponse)
 async def status(_=Depends(require_api_key)):
     from zgiis.cosmic2.pipeline import get_status
@@ -65,7 +89,7 @@ async def profiles(
         raise HTTPException(status_code=502, detail=f"COSMIC-2 profiles read failed: {exc}") from exc
     return Cosmic2ProfileListResponse(
         start=start, end=end, quality_status=quality_status,
-        profiles=[Cosmic2Profile(**r) for r in rows],
+        profiles=[Cosmic2Profile(**_stringify_dates(r)) for r in rows],
     )
 
 
@@ -79,7 +103,7 @@ async def profile_detail(profile_id: str, _=Depends(require_api_key)):
         raise HTTPException(status_code=502, detail=f"COSMIC-2 profile read failed: {exc}") from exc
     if row is None:
         raise HTTPException(status_code=404, detail=f"No COSMIC-2 profile found for id {profile_id!r}")
-    return Cosmic2Profile(**row)
+    return Cosmic2Profile(**_stringify_dates(row))
 
 
 @router.get("/matches", response_model=Cosmic2MatchListResponse)
@@ -100,7 +124,7 @@ async def matches(
         raise HTTPException(status_code=502, detail=f"COSMIC-2 matches read failed: {exc}") from exc
     return Cosmic2MatchListResponse(
         start=start, end=end, match_quality=match_quality,
-        matches=[Cosmic2Match(**r) for r in rows],
+        matches=[Cosmic2Match(**_stringify_dates(r)) for r in rows],
     )
 
 
@@ -119,7 +143,7 @@ async def calibration(
         row = get_latest_calibration(start=start_d, end=end_d)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"COSMIC-2 calibration read failed: {exc}") from exc
-    return Cosmic2CalibrationResponse(calibration=Cosmic2CalibrationResult(**row) if row else None)
+    return Cosmic2CalibrationResponse(calibration=Cosmic2CalibrationResult(**_stringify_dates(row)) if row else None)
 
 
 @router.post("/analyse", response_model=Cosmic2AnalyseResponse)
