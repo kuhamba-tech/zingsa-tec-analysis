@@ -3262,6 +3262,159 @@ select option {
 .scint-threshold-text {
   font-size: 12px;
 }
+.cosmic-figure-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+.cosmic-figure {
+  overflow: hidden;
+  border: 1px solid #9eb6d8;
+  border-radius: 4px;
+  background: #f8fbff;
+  color: #0f172a;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.18);
+}
+.cosmic-figure-title {
+  border-bottom: 1px solid #bfd0e8;
+  background: #edf5ff;
+  color: #1d4ed8;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+.cosmic-profile-layout,
+.cosmic-match-layout,
+.cosmic-cal-layout {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.45rem;
+}
+.cosmic-profile-layout,
+.cosmic-cal-layout {
+  grid-template-columns: minmax(0, 1fr) 150px;
+}
+.cosmic-match-layout {
+  grid-template-columns: minmax(0, 1fr) 170px;
+}
+.cosmic-figure svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid #c9d7ea;
+  background: #fff;
+}
+.cosmic-axis-title,
+.cosmic-axis-text,
+.cosmic-map-label {
+  fill: #111827;
+  font-family: Arial, Helvetica, sans-serif;
+}
+.cosmic-axis-title {
+  font-size: 9px;
+  font-weight: 700;
+}
+.cosmic-axis-text,
+.cosmic-map-label {
+  font-size: 8px;
+}
+.cosmic-param-box,
+.cosmic-match-table,
+.cosmic-model-card {
+  border: 1px solid #b8c9e3;
+  border-radius: 4px;
+  background: #ffffff;
+  padding: 0.45rem;
+  font-size: 0.62rem;
+}
+.cosmic-param-box strong,
+.cosmic-match-table strong,
+.cosmic-model-card strong {
+  display: block;
+  margin-bottom: 0.35rem;
+  color: #1e3a8a;
+  text-align: center;
+}
+.cosmic-param-box dl,
+.cosmic-model-card dl {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.2rem 0.35rem;
+  margin: 0;
+}
+.cosmic-param-box dt,
+.cosmic-model-card dt {
+  font-weight: 800;
+}
+.cosmic-param-box dd,
+.cosmic-model-card dd {
+  margin: 0;
+  text-align: right;
+}
+.cosmic-map-box {
+  position: relative;
+}
+.cosmic-map-legend {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  border-radius: 3px;
+  background: rgba(255,255,255,0.88);
+  padding: 0.25rem 0.35rem;
+  color: #111827;
+  font-size: 0.56rem;
+  font-weight: 700;
+}
+.cors-dot,
+.madimbo-dot,
+.cosmic-star {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 0.25rem;
+  border-radius: 50%;
+  vertical-align: -1px;
+}
+.cors-dot {
+  background: #2563eb;
+}
+.madimbo-dot {
+  background: #ef4444;
+}
+.cosmic-star {
+  background: #facc15;
+  border-radius: 0;
+  transform: rotate(45deg);
+}
+.cosmic-match-table div {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.45rem;
+  border-bottom: 1px solid #dbe7f7;
+  padding: 0.17rem 0;
+}
+.cosmic-match-table span {
+  font-weight: 800;
+}
+.cosmic-match-table b {
+  text-align: right;
+}
+.cosmic-equation {
+  margin-top: 0.5rem;
+  border: 1px solid #60a5fa;
+  border-radius: 4px;
+  background: #eff6ff;
+  padding: 0.45rem;
+  color: #1d4ed8;
+  font-size: 0.7rem;
+  font-weight: 900;
+  text-align: center;
+}
 .table-scroll {
   overflow-x: auto;
 }
@@ -3323,6 +3476,12 @@ select option {
   }
   .scint-update-badge {
     text-align: left;
+  }
+  .cosmic-figure-grid,
+  .cosmic-profile-layout,
+  .cosmic-match-layout,
+  .cosmic-cal-layout {
+    grid-template-columns: 1fr;
   }
 }
 
