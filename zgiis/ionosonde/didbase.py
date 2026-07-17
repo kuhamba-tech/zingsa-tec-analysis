@@ -107,3 +107,13 @@ def get_ionosonde_metadata(ursi_code: str) -> dict[str, Any]:
             "Numerical foF2/hmF2/spread-F comparison needs a DIDBase/SAOExplorer data-account feed."
         ),
     }
+
+
+def get_madimbo_metadata() -> dict[str, Any]:
+    """Compatibility helper for heatmap diagnostics.
+
+    Older map code imports this specific function name. Keep it as a thin
+    wrapper around the generic station metadata helper so the heatmap endpoint
+    does not fail when DIDBase support is refactored.
+    """
+    return get_ionosonde_metadata(MADIMBO_URSI)

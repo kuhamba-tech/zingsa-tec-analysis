@@ -10,6 +10,8 @@ import socket
 import time
 from typing import Any
 
+from zgiis.live.ntrip_config import ntrip_host_from_env
+
 _STR_FIELDS = [
     "mountpoint", "identifier", "format", "format_details", "carrier",
     "nav_system", "network", "country", "lat", "lon", "nmea", "solution",
@@ -19,7 +21,7 @@ _STR_FIELDS = [
 
 def _load_ntrip_cfg() -> dict[str, Any]:
     return {
-        "host": os.getenv("NTRIP_HOST", "").strip(),
+        "host": ntrip_host_from_env(),
         "port": int(os.getenv("NTRIP_PORT", "2101")),
         "username": os.getenv("NTRIP_USERNAME", "").strip(),
         "password": os.getenv("NTRIP_PASSWORD", "").strip(),

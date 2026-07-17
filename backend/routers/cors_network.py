@@ -29,6 +29,17 @@ def _live_pipeline_can_poll() -> bool:
         return False
 
 
+def _schedule_station_status_poll(*, source: str) -> None:
+    if not _live_pipeline_can_poll():
+        return
+    threading.Thread(
+        target=poll_and_log,
+        kwargs={"source": source, "force": False},
+        daemon=True,
+        name=f"zgiis-station-status-{source}",
+    ).start()
+
+
 def _archive_freshness_hours() -> float:
     raw = os.getenv("LIVE_STATUS_ARCHIVE_HOURS", "1").strip()
     try:
@@ -233,15 +244,16 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
             log.exception("Failed to start live ingest for probed-online CORS stations")
 
     sourcetable_by_station: dict[str, dict] = {}
-    try:
-        from zgiis.live.ntrip_sourcetable_cache import get_cached_sourcetable_diagnostics
+    if refresh_ntrip:
+        try:
+            from zgiis.live.ntrip_sourcetable_cache import get_cached_sourcetable_diagnostics
 
-        mountpoints = _parse_mountpoints_for_sourcetable()
-        if mountpoints:
-            diag = get_cached_sourcetable_diagnostics(mountpoints, refresh=refresh_ntrip)
-            sourcetable_by_station = diag.get("by_station") or {}
-    except Exception:
-        log.exception("Failed to fetch NTRIP caster sourcetable diagnostics")
+            mountpoints = _parse_mountpoints_for_sourcetable()
+            if mountpoints:
+                diag = get_cached_sourcetable_diagnostics(mountpoints, refresh=refresh_ntrip)
+                sourcetable_by_station = diag.get("by_station") or {}
+        except Exception:
+            log.exception("Failed to fetch NTRIP caster sourcetable diagnostics")
 
     merged = []
     for station in stations:
@@ -341,8 +353,7 @@ def stations(
     refresh_ntrip: bool = Query(False),
     _=Depends(require_api_key),
 ):
-    if _live_pipeline_can_poll():
-        poll_and_log(source="cors_stations", force=False)
+    _schedule_station_status_poll(source="cors_stations")
     return [_station_out(s) for s in _stations(refresh_ntrip=refresh_ntrip)]
 
 
@@ -356,8 +367,7 @@ async def station_detail(code: str, _=Depends(require_api_key)):
 
 @router.get("/health", response_model=CorsHealthOut)
 async def health(_=Depends(require_api_key)):
-    if _live_pipeline_can_poll():
-        poll_and_log(source="cors_health", force=False)
+    _schedule_station_status_poll(source="cors_health")
     archived = _archived_status_counts()
     if archived is not None:
         online, degraded, offline, total = archived

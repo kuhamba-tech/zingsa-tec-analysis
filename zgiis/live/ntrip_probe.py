@@ -20,6 +20,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from typing import Any
 
+from zgiis.live.ntrip_config import ntrip_host_from_env
+
 
 
 try:
@@ -58,7 +60,7 @@ def _load_ntrip_cfg() -> dict[str, Any]:
 
     return {
 
-        "host": os.getenv("NTRIP_HOST", "").strip(),
+        "host": ntrip_host_from_env(),
 
         "port": int(os.getenv("NTRIP_PORT", "2101")),
 

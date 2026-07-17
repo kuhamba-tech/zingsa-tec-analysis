@@ -244,7 +244,9 @@ def start(*, priority_codes: list[str] | None = None) -> None:
         log.info(_status_message)
         return
 
-    host = os.getenv("NTRIP_HOST", "").strip()
+    from zgiis.live.ntrip_config import ntrip_host_from_env
+
+    host = ntrip_host_from_env()
     username = os.getenv("NTRIP_USERNAME", "").strip()
     password = os.getenv("NTRIP_PASSWORD", "").strip()
     merged_priority = _priority_codes_from_env()
@@ -305,8 +307,11 @@ def start(*, priority_codes: list[str] | None = None) -> None:
         "connection": os.getenv("NTRIP_CONNECTION", "TCP"),
     }
 
-    max_concurrent_raw = os.getenv("NTRIP_LIVE_MAX_CONCURRENT", "").strip()
-    max_concurrent = int(max_concurrent_raw) if max_concurrent_raw else None
+    max_concurrent_raw = os.getenv("NTRIP_LIVE_MAX_CONCURRENT", "4").strip()
+    try:
+        max_concurrent = max(1, int(max_concurrent_raw)) if max_concurrent_raw else 4
+    except ValueError:
+        max_concurrent = 4
 
     manager = LiveNtripManager(
         ntrip_cfg,
@@ -321,7 +326,10 @@ def start(*, priority_codes: list[str] | None = None) -> None:
     _configured = True
     _status_message = f"Live NTRIP pipeline started for {len(mountpoints)} station(s)."
     _start_flush_thread()
-    _start_ephemeris_thread()
+    if _env_enabled("ZGIIS_EPHEMERIS_REFRESH_ENABLED"):
+        _start_ephemeris_thread()
+    else:
+        log.info("Broadcast ephemeris refresh disabled. Set ZGIIS_EPHEMERIS_REFRESH_ENABLED=1 to compute live VTEC.")
     log.info("Live NTRIP pipeline started for %d station(s): %s", len(mountpoints), list(mountpoints))
 
 

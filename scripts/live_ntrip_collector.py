@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 log = logging.getLogger("zgiis.collector")
-DEFAULT_STATUS_PUSH_URL = "https://zingsa-gnss-tec.vercel.app/cors/status/snapshots"
+DEFAULT_STATUS_PUSH_URL = "https://zingsa-gnss-tec.vercel.app/api/cors/status/snapshots/"
 
 
 def _load_env() -> None:
@@ -71,6 +71,12 @@ def _push_status_snapshots(streams: dict[str, dict]) -> None:
     url = (os.getenv("STATUS_SNAPSHOT_PUSH_URL") or DEFAULT_STATUS_PUSH_URL).strip()
     if not url:
         return
+    url = url.replace(
+        "https://zingsa-gnss-tec.vercel.app/cors/status/snapshots",
+        "https://zingsa-gnss-tec.vercel.app/api/cors/status/snapshots/",
+    )
+    if url.endswith("/api/cors/status/snapshots"):
+        url = f"{url}/"
 
     from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS, derive_status_from_stream
 
@@ -107,7 +113,9 @@ def main() -> int:
     )
     _load_env()
 
-    host = os.getenv("NTRIP_HOST", "").strip()
+    from zgiis.live.ntrip_config import ntrip_host_from_env
+
+    host = ntrip_host_from_env()
     port = int(os.getenv("NTRIP_PORT", "2101"))
     username = os.getenv("NTRIP_USERNAME", "").strip()
     password = os.getenv("NTRIP_PASSWORD", "").strip()
@@ -149,6 +157,12 @@ def main() -> int:
     before = db.record_count()
     nav_cache = LiveNavCache()
     pipeline = LiveVtecPipeline(db=db, nav_cache=nav_cache, db_flush_n=int(os.getenv("ZGIIS_DB_FLUSH_N", "1")))
+    max_concurrent_raw = os.getenv("NTRIP_LIVE_MAX_CONCURRENT", "4").strip()
+    try:
+        max_concurrent = max(1, int(max_concurrent_raw)) if max_concurrent_raw else 4
+    except ValueError:
+        max_concurrent = 4
+
     manager = LiveNtripManager(
         {
             "host": host,
@@ -159,6 +173,7 @@ def main() -> int:
         },
         on_observation=pipeline.ingest,
         nav_cache=nav_cache,
+        max_concurrent=max_concurrent,
     )
     manager.start(mountpoints)
     start_refresh_thread(

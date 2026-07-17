@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import sys
 import threading
 from contextlib import asynccontextmanager
@@ -24,11 +25,16 @@ from dotenv import load_dotenv
 
 for env_file in (
     PROJECT_ROOT / ".env.local",
-    PROJECT_ROOT / ".env.vercel.production",
-    PROJECT_ROOT / ".vercel" / ".env.production.local",
     PROJECT_ROOT / "backend" / ".env",
 ):
     load_dotenv(env_file, override=False)
+
+if os.getenv("ZGIIS_LOAD_VERCEL_ENV", "").strip().lower() in {"1", "true", "yes", "on"}:
+    for env_file in (
+        PROJECT_ROOT / ".env.vercel.production",
+        PROJECT_ROOT / ".vercel" / ".env.production.local",
+    ):
+        load_dotenv(env_file, override=False)
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -50,8 +56,18 @@ from backend.routers import (
 )
 
 
+def _background_services_enabled() -> bool:
+    raw = os.getenv("ZGIIS_BACKGROUND_SERVICES", "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if not _background_services_enabled():
+        log.info("Background services disabled. Set ZGIIS_BACKGROUND_SERVICES=1 to start NTRIP/logging schedulers.")
+        yield
+        return
+
     # NTRIP ingest can take time to connect 24 mountpoints — do not block API startup.
     threading.Thread(
         target=live_manager.start,

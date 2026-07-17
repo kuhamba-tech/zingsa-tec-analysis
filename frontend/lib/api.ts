@@ -87,8 +87,8 @@ function apiBase(): string {
     if (hostname === "localhost" || hostname === "127.0.0.1") {
       return "http://localhost:8000";
     }
-    // Combined Vercel/static_export deploy — API shares the same origin.
-    return window.location.origin;
+    // Vercel/static export deploy — backend is exposed through /api.
+    return `${window.location.origin}/api`;
   }
   return "http://localhost:8000";
 }
