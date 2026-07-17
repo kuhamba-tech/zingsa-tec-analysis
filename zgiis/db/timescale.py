@@ -24,6 +24,11 @@ log = logging.getLogger(__name__)
 _TSDB_DSN = database_dsn()
 _SQLITE_PATH = Path(__file__).resolve().parents[2] / "static" / "data" / "vtec_live.db"
 
+# Set once the first TecDB() in this process has confirmed the Postgres
+# schema (DDL/audit-columns/hypertable/index) exists, so later instances
+# skip re-running it — see _init_pg().
+_PG_SCHEMA_READY = False
+
 # Postgres schema
 _PG_DDL = """
 CREATE TABLE IF NOT EXISTS vtec_obs (
@@ -96,9 +101,19 @@ class TecDB:
         log.info("TecDB ready (%s)", label)
 
     def _init_pg(self) -> None:
+        global _PG_SCHEMA_READY
         try:
             import psycopg2
             self._conn = psycopg2.connect(self._dsn)
+            if _PG_SCHEMA_READY:
+                # Schema (DDL/audit-columns/hypertable/index) was already
+                # ensured once by an earlier TecDB() instance in this
+                # process. Re-running that full sequence on every single
+                # instantiation (this class has no connection pooling —
+                # every call site does a fresh TecDB()) turns any Supabase
+                # pooler slowness into request-time latency that compounds
+                # across every DB-backed endpoint. Just connect.
+                return
             with self._conn.cursor() as cur:
                 cur.execute(_PG_DDL)
             self._conn.commit()
@@ -113,6 +128,7 @@ class TecDB:
             with self._conn.cursor() as cur:
                 cur.execute(_PG_IDX)
             self._conn.commit()
+            _PG_SCHEMA_READY = True
         except ImportError:
             log.error("psycopg2 not installed — pip install psycopg2-binary")
             self._is_pg = False
@@ -165,6 +181,17 @@ class TecDB:
                     self._conn.execute(f"ALTER TABLE vtec_obs ADD COLUMN {name} {sql_type}")
             self._conn.commit()
         except Exception as exc:
+            # Without a rollback, a failed statement here leaves the
+            # connection's transaction aborted, so every later statement in
+            # _init_pg() (e.g. the hypertable/index setup) fails immediately
+            # with "current transaction is aborted" instead of the real
+            # error, and _init_pg()'s own broad except then treats THAT as
+            # a fresh failure — cascading one transient error into the
+            # entire schema-setup sequence failing.
+            try:
+                self._conn.rollback()
+            except Exception:
+                pass
             log.debug("vtec_obs audit-column migration skipped: %s", exc)
 
     # ── Write ─────────────────────────────────────────────────────────────────

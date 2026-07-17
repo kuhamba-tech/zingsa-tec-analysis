@@ -49,12 +49,16 @@ if (-not (Test-Path $venvPython)) {
 Write-Host "Starting backend (uvicorn) on port $BackendPort..."
 $backendLog = Join-Path $projectRoot "backend-dev.log"
 $backendErrLog = Join-Path $projectRoot "backend-dev.err.log"
-# Without this, backend/main.py's lifespan never starts the live NTRIP ->
-# STEC/VTEC pipeline (or the space-weather/station-status loggers), so the
-# CORS network page always reads 0/24 connected regardless of whether the
-# stations are actually reachable. Real NTRIP credentials for all 24
-# mountpoints are already configured in backend/.env.
-$env:ZGIIS_BACKGROUND_SERVICES = "1"
+# NOTE: ZGIIS_BACKGROUND_SERVICES=1 would start the local live NTRIP pipeline
+# (backend/main.py's lifespan) so CORS Connected reads real numbers instead
+# of always 0/24 -- tried this, but it opens ~24+ concurrent connections to
+# the SAME shared Supabase pooler that scripts/live_ntrip_collector.py's
+# always-on Task Scheduler job and production Vercel traffic also use.
+# In testing this exhausted the pooler (Postgres connect timeouts, requests
+# hanging 280s+) rather than just being locally slow. Leave this OFF for
+# local dev -- the standalone collector (already running via the
+# ZGIIS-NTRIP-Collector scheduled task) is the correct always-on source for
+# live station status; don't duplicate live ingestion here too.
 Start-Process -FilePath $venvPython `
     -ArgumentList "-m", "uvicorn", "backend.main:app", "--host", "127.0.0.1", "--port", "$BackendPort" `
     -WorkingDirectory $projectRoot `
