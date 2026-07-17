@@ -25,6 +25,7 @@ static/data/storm_notify_state.json
 static/data/broadcast_recipients.private.json
 static/data/facebook_credentials.private.json
 static/data/navigation_news_cache.json
+static/data/cosmic2_cache/
 
 # Cache / tools
 .pytest_cache/

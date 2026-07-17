@@ -9,6 +9,7 @@ numpy>=1.26.0
 pandas>=2.2.0
 requests>=2.31.0
 georinex>=1.16.0
+netCDF4>=1.7.0
 # ── CNN-GRU forecast (optional, lazy-imported) ─────────────────────────────────
 # CPU-only PyTorch (lightweight):
 #   pip install torch --index-url https://download.pytorch.org/whl/cpu
