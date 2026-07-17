@@ -163,6 +163,36 @@ function scienceLayerMeta(layer: MapLayer) {
   };
 }
 
+function scienceLayerLabelPositions(layer: MapLayer): Array<{ label: string; lon: number; lat: number }> {
+  const meta = scienceLayerMeta(layer);
+  if (layer === "Scintillation Map") {
+    return [
+      { label: meta.contours[0], lon: -58, lat: 12 },
+      { label: meta.contours[1], lon: 8, lat: -2 },
+      { label: meta.contours[2], lon: 58, lat: -18 },
+    ];
+  }
+  if (layer === "PWV Map") {
+    return [
+      { label: meta.contours[0], lon: -55, lat: -8 },
+      { label: meta.contours[1], lon: 18, lat: -15 },
+      { label: meta.contours[2], lon: 66, lat: -23 },
+    ];
+  }
+  if (layer === "Zimbabwe ROTI Map") {
+    return [
+      { label: meta.contours[0], lon: -62, lat: 4 },
+      { label: meta.contours[1], lon: 2, lat: -6 },
+      { label: meta.contours[2], lon: 55, lat: -20 },
+    ];
+  }
+  return [
+    { label: meta.contours[0], lon: -62, lat: -4 },
+    { label: meta.contours[1], lon: 4, lat: -10 },
+    { label: meta.contours[2], lon: 58, lat: -18 },
+  ];
+}
+
 function noaaProductLevel(product: NoaaProduct): "tec" | "model" | "satellite" {
   if (/tec|glotec|ustec/i.test(`${product.product} ${product.title} ${product.instrument}`)) return "tec";
   if (/model|enlil|drap/i.test(`${product.product} ${product.title} ${product.instrument}`)) return "model";
@@ -252,6 +282,8 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid", heat
   const transportTileRef = useRef<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const heatLayerRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const scienceLayerRef = useRef<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const vectorSourceRef = useRef<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -389,6 +421,121 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid", heat
     });
   };
 
+  const buildScienceLayer = async () => {
+    const currentLayer = layerRef.current;
+    if (!isZimbabweScienceLayer(currentLayer)) return null;
+
+    const { fromLonLat } = await import("ol/proj");
+    const ImageLayer = (await import("ol/layer/Image")).default;
+    const ImageCanvas = (await import("ol/source/ImageCanvas")).default;
+    const meta = scienceLayerMeta(currentLayer);
+    const labels = scienceLayerLabelPositions(currentLayer);
+
+    const source = new ImageCanvas({
+      projection: "EPSG:3857",
+      canvasFunction: (extent, _resolution, _pixelRatio, size) => {
+        const canvas = document.createElement("canvas");
+        canvas.width = size[0];
+        canvas.height = size[1];
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return canvas;
+
+        const [minX, minY, maxX, maxY] = extent as [number, number, number, number];
+        const width = size[0];
+        const heightPx = size[1];
+        const toPixel = (lon: number, lat: number): [number, number] => {
+          const [x, y] = fromLonLat([lon, lat]);
+          return [((x - minX) / (maxX - minX)) * width, ((maxY - y) / (maxY - minY)) * heightPx];
+        };
+
+        const gradient = ctx.createLinearGradient(0, heightPx * 0.46, width, heightPx * 0.56);
+        meta.colors.forEach((color, index) => {
+          gradient.addColorStop(index / Math.max(meta.colors.length - 1, 1), color);
+        });
+        ctx.globalAlpha = 0.46;
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, width, heightPx);
+
+        const [hotX, hotY] = toPixel(-50, -8);
+        const radius = Math.max(Math.min(width, heightPx) * 0.34, 120);
+        const hot = ctx.createRadialGradient(hotX, hotY, 0, hotX, hotY, radius);
+        hot.addColorStop(0, `${meta.colors[meta.colors.length - 1]}e8`);
+        hot.addColorStop(0.42, `${meta.colors[2]}70`);
+        hot.addColorStop(1, `${meta.colors[0]}00`);
+        ctx.fillStyle = hot;
+        ctx.fillRect(hotX - radius, hotY - radius, radius * 2, radius * 2);
+
+        ctx.globalAlpha = 0.82;
+        ctx.lineCap = "round";
+        ctx.setLineDash([14, 10]);
+        ctx.strokeStyle = "rgba(255,255,255,0.86)";
+        ctx.lineWidth = 4;
+        [-42, -7, 28].forEach((baseLat, index) => {
+          ctx.beginPath();
+          for (let lon = -180; lon <= 180; lon += 4) {
+            const lat = baseLat + Math.sin(((lon + index * 26) * Math.PI) / 58) * 8;
+            const [px, py] = toPixel(lon, lat);
+            if (lon === -180) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+          }
+          ctx.stroke();
+        });
+
+        ctx.setLineDash([6, 7]);
+        ctx.strokeStyle = "rgba(0,0,0,0.52)";
+        ctx.lineWidth = 3;
+        [-90, 0, 90].forEach((baseLon, index) => {
+          ctx.beginPath();
+          for (let lat = -85; lat <= 85; lat += 4) {
+            const lon = baseLon + Math.sin(((lat + index * 30) * Math.PI) / 45) * 6;
+            const [px, py] = toPixel(lon, lat);
+            if (lat === -85) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+          }
+          ctx.stroke();
+        });
+
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.font = "800 30px sans-serif";
+        labels.forEach(({ label, lon, lat }) => {
+          const [px, py] = toPixel(lon, lat);
+          ctx.lineWidth = 6;
+          ctx.strokeStyle = "rgba(0,0,0,0.55)";
+          ctx.strokeText(label, px, py);
+          ctx.fillStyle = "#ffffff";
+          ctx.fillText(label, px, py);
+        });
+
+        return canvas;
+      },
+    });
+
+    return new ImageLayer({
+      source,
+      opacity: 0.82,
+      zIndex: 1.6,
+    });
+  };
+
+  const syncScienceLayer = async () => {
+    const map = olMapRef.current;
+    if (!map) return;
+
+    if (scienceLayerRef.current) {
+      map.removeLayer(scienceLayerRef.current);
+      scienceLayerRef.current = null;
+    }
+
+    const next = await buildScienceLayer();
+    if (next) {
+      map.getLayers().insertAt(3, next);
+      scienceLayerRef.current = next;
+    }
+  };
+
   const syncHeatLayer = async () => {
     const map = olMapRef.current;
     if (!map) return;
@@ -524,6 +671,7 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid", heat
       labelTileRef.current = labelTile;
       transportTileRef.current = transportTile;
       await syncHeatLayer();
+      await syncScienceLayer();
     })();
 
     return () => {
@@ -536,6 +684,7 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid", heat
       labelTileRef.current = null;
       transportTileRef.current = null;
       heatLayerRef.current = null;
+      scienceLayerRef.current = null;
       vectorSourceRef.current = null;
       olHelpersRef.current = null;
       if (popupEl) {
@@ -601,6 +750,7 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid", heat
       }
       syncStationFeatures(stationsRef.current);
       await syncHeatLayer();
+      await syncScienceLayer();
     })();
   }, [layer, heatmap]);
 
@@ -622,67 +772,6 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid", heat
               borderRadius: "8px",
             }}
           >
-            <svg
-              viewBox="0 0 1000 520"
-              preserveAspectRatio="none"
-              aria-label={`${scienceMeta.title} overlay`}
-              style={{ width: "100%", height: "100%", display: "block", opacity: 0.82 }}
-            >
-              <defs>
-                <linearGradient id={`scienceGradient-${layer.replace(/\W/g, "")}`} x1="0%" y1="45%" x2="100%" y2="55%">
-                  {scienceMeta.colors.map((color, index) => (
-                    <stop key={color} offset={`${(index / (scienceMeta.colors.length - 1)) * 100}%`} stopColor={color} />
-                  ))}
-                </linearGradient>
-                <radialGradient id={`scienceHotspot-${layer.replace(/\W/g, "")}`} cx="44%" cy="52%" r="38%">
-                  <stop offset="0%" stopColor={scienceMeta.colors[scienceMeta.colors.length - 1]} stopOpacity="0.92" />
-                  <stop offset="42%" stopColor={scienceMeta.colors[2]} stopOpacity="0.42" />
-                  <stop offset="100%" stopColor={scienceMeta.colors[0]} stopOpacity="0" />
-                </radialGradient>
-                <filter id={`scienceBlur-${layer.replace(/\W/g, "")}`}>
-                  <feGaussianBlur stdDeviation="10" />
-                </filter>
-              </defs>
-              <rect x="0" y="0" width="1000" height="520" fill={`url(#scienceGradient-${layer.replace(/\W/g, "")})`} opacity="0.46" />
-              <ellipse cx="430" cy="265" rx="330" ry="155" fill={`url(#scienceHotspot-${layer.replace(/\W/g, "")})`} filter={`url(#scienceBlur-${layer.replace(/\W/g, "")})`} />
-              <ellipse cx="675" cy="210" rx="200" ry="105" fill={scienceMeta.colors[1]} opacity="0.22" filter={`url(#scienceBlur-${layer.replace(/\W/g, "")})`} />
-              {[150, 270, 390].map((y, index) => (
-                <path
-                  key={y}
-                  d={`M 20 ${y + index * 8} C 170 ${y - 45}, 260 ${y + 35}, 405 ${y - 5} S 650 ${y + 38}, 815 ${y - 18} S 930 ${y + 15}, 990 ${y - 8}`}
-                  fill="none"
-                  stroke="rgba(255,255,255,0.86)"
-                  strokeWidth="4"
-                  strokeDasharray="14 10"
-                />
-              ))}
-              {[220, 500, 760].map((x, index) => (
-                <path
-                  key={x}
-                  d={`M ${x} 18 C ${x - 45} 120, ${x + 38} 205, ${x - 16} 310 S ${x + 42} 438, ${x - 12} 505`}
-                  fill="none"
-                  stroke="rgba(0,0,0,0.52)"
-                  strokeWidth="3"
-                  strokeDasharray="6 7"
-                />
-              ))}
-              {scienceMeta.contours.map((label, index) => (
-                <text
-                  key={label}
-                  x={260 + index * 180}
-                  y={200 + index * 52}
-                  fill="#ffffff"
-                  fontSize="30"
-                  fontWeight="800"
-                  stroke="rgba(0,0,0,0.45)"
-                  strokeWidth="3"
-                  paintOrder="stroke"
-                >
-                  {label}
-                </text>
-              ))}
-            </svg>
-
             <div
               style={{
                 position: "absolute",
