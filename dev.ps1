@@ -49,6 +49,12 @@ if (-not (Test-Path $venvPython)) {
 Write-Host "Starting backend (uvicorn) on port $BackendPort..."
 $backendLog = Join-Path $projectRoot "backend-dev.log"
 $backendErrLog = Join-Path $projectRoot "backend-dev.err.log"
+# Without this, backend/main.py's lifespan never starts the live NTRIP ->
+# STEC/VTEC pipeline (or the space-weather/station-status loggers), so the
+# CORS network page always reads 0/24 connected regardless of whether the
+# stations are actually reachable. Real NTRIP credentials for all 24
+# mountpoints are already configured in backend/.env.
+$env:ZGIIS_BACKGROUND_SERVICES = "1"
 Start-Process -FilePath $venvPython `
     -ArgumentList "-m", "uvicorn", "backend.main:app", "--host", "127.0.0.1", "--port", "$BackendPort" `
     -WorkingDirectory $projectRoot `
