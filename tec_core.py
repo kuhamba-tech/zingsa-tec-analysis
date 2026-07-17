@@ -17,6 +17,7 @@ for _stream in ("stdout", "stderr"):
 from dataclasses import dataclass
 import logging
 from pathlib import Path
+import tempfile
 from typing import Iterable, Optional
 
 import numpy as np
@@ -25,6 +26,9 @@ import pandas as pd
 from zgiis.space_weather.geomagnetic_scale import classify_kp
 
 LOGGER = logging.getLogger(__name__)
+
+_CODE_DCB_BASE_URL = "https://www.aiub.unibe.ch/download/BSWUSER52/ORB"
+_CODE_DCB_PRODUCTS = ("P1C1", "P1P2")
 
 
 def _ascii_diagnostic(value: object) -> str:
@@ -78,7 +82,16 @@ def _default_dcb_folder() -> Optional[Path]:
     ):
         if candidate.is_dir():
             return candidate
-    return None
+    return _code_dcb_cache_dir()
+
+
+def _code_dcb_cache_dir() -> Path:
+    import os
+
+    env = os.getenv("TEC_DCB_CACHE_DIR", "").strip()
+    if env:
+        return Path(env)
+    return Path(tempfile.gettempdir()) / "zgiis_code_dcb"
 
 
 def _find_nav_file(
@@ -387,14 +400,100 @@ def _parse_dcb_file(path: Path) -> dict[str, float]:
     return result
 
 
+def _is_cache_fresh(path: Path) -> bool:
+    if not path.exists() or path.stat().st_size == 0:
+        return False
+    try:
+        cached = pd.Timestamp(path.stat().st_mtime, unit="s", tz="UTC").date()
+    except (OSError, ValueError):
+        return False
+    return cached == pd.Timestamp.utcnow().date()
+
+
+def _download_code_dcb_product(product: str, folder: Path, force: bool = False) -> Optional[Path]:
+    """
+    Download the daily CODE satellite DCB product into *folder*.
+
+    CODE publishes daily-updated P1C1.DCB and P1P2.DCB products. These files
+    are used as a fallback when the historical monthly P1C1YYMM/P1P2YYMM files
+    are not available locally.
+    """
+    if product not in _CODE_DCB_PRODUCTS:
+        raise ValueError(f"Unsupported CODE DCB product: {product}")
+
+    target = folder / f"{product}.DCB"
+    if not force and _is_cache_fresh(target):
+        return target
+
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        folder = _code_dcb_cache_dir()
+        target = folder / f"{product}.DCB"
+        folder.mkdir(parents=True, exist_ok=True)
+
+    try:
+        import requests
+
+        url = f"{_CODE_DCB_BASE_URL}/{product}.DCB"
+        response = requests.get(url, timeout=20)
+        response.raise_for_status()
+        text = response.text
+        parsed_preview = _parse_dcb_text(text)
+        if not parsed_preview:
+            LOGGER.warning("Downloaded CODE %s.DCB but no satellite biases were parsed.", product)
+            return target if target.exists() else None
+        tmp = target.with_suffix(".tmp")
+        tmp.write_text(text, encoding="ascii", errors="ignore")
+        tmp.replace(target)
+        return target
+    except Exception as exc:
+        LOGGER.warning("Could not retrieve CODE %s.DCB: %s", product, _ascii_diagnostic(exc))
+        return target if target.exists() else None
+
+
+def _parse_dcb_text(text: str) -> dict[str, float]:
+    result: dict[str, float] = {}
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[0] and parts[0][0] in ("G", "R", "E", "C", "J"):
+            try:
+                result[parts[0]] = float(parts[1])
+            except ValueError:
+                pass
+    return result
+
+
+def _load_daily_code_dcb(dcb_folder: Path) -> tuple[dict[str, float], dict[str, float]]:
+    folder = dcb_folder
+    p1c1_path = folder / "P1C1.DCB"
+    p1p2_path = folder / "P1P2.DCB"
+
+    if not _is_cache_fresh(p1c1_path):
+        p1c1_path = _download_code_dcb_product("P1C1", folder) or p1c1_path
+    if not _is_cache_fresh(p1p2_path):
+        p1p2_path = _download_code_dcb_product("P1P2", folder) or p1p2_path
+
+    return _parse_dcb_file(p1c1_path), _parse_dcb_file(p1p2_path)
+
+
 def _load_dcb_for_date(dcb_folder: Path, date: pd.Timestamp) -> tuple[dict[str, float], dict[str, float]]:
     """
-    Load P1C1 and P1P2 DCB files for the month containing *date*.
+    Load CODE P1C1 and P1P2 satellite DCB files.
+
+    Historical monthly files (P1C1YYMM.DCB/P1P2YYMM.DCB) are preferred for the
+    month containing *date*. When they are missing, retrieve CODE's daily DCB
+    products and cache them locally for the processing run.
+
     Returns (p1c1_dict, p1p2_dict); empty dicts if files not found.
     """
     yymm = f"{date.year % 100:02d}{date.month:02d}"
     p1c1 = _parse_dcb_file(dcb_folder / f"P1C1{yymm}.DCB")
     p1p2 = _parse_dcb_file(dcb_folder / f"P1P2{yymm}.DCB")
+    if not p1c1 or not p1p2:
+        daily_p1c1, daily_p1p2 = _load_daily_code_dcb(dcb_folder)
+        p1c1 = p1c1 or daily_p1c1
+        p1p2 = p1p2 or daily_p1p2
     return p1c1, p1p2
 
 
