@@ -2,7 +2,7 @@
 
 import LineChart from "@/components/charts/LineChart";
 import GeomagneticConditionScale, { geomagneticConditionForKp } from "@/components/spaceWeather/GeomagneticConditionScale";
-import type { GfzKpAnalysisResponse } from "@/lib/types";
+import type { GfzKpAnalysisResponse, GfzKpDailyPoint } from "@/lib/types";
 
 interface Props {
   gfz: GfzKpAnalysisResponse | null;
@@ -15,6 +15,94 @@ interface Props {
 function fmt(v: number | null | undefined, digits = 1, suffix = "") {
   if (v === null || v === undefined) return "N/A";
   return `${v.toFixed(digits)}${suffix}`;
+}
+
+function shortDateLabel(date: string): string {
+  const parts = date.split("-");
+  if (parts.length === 3) return `${parts[2]}/${parts[1]}`;
+  return date.slice(5) || date;
+}
+
+function KpIndexBarChart({ rows }: { rows: GfzKpDailyPoint[] }) {
+  const width = 980;
+  const height = 310;
+  const left = 74;
+  const right = 36;
+  const top = 28;
+  const bottom = 58;
+  const chartW = width - left - right;
+  const chartH = height - top - bottom;
+  const values = rows.map((row) => row.kp ?? 0);
+  const maxValue = Math.max(9, ...values, 1);
+  const yFor = (value: number) => top + chartH - (value / maxValue) * chartH;
+  const barGap = 3;
+  const barW = Math.max(3, chartW / Math.max(rows.length, 1) - barGap);
+  const stormIndexes = rows
+    .map((row, index) => (row.storm_flag || (row.kp ?? 0) >= 5 ? index : -1))
+    .filter((index) => index >= 0);
+  const stormMin = stormIndexes.length > 0 ? Math.min(...stormIndexes) : -1;
+  const stormMax = stormIndexes.length > 0 ? Math.max(...stormIndexes) : -1;
+  const labelEvery = Math.max(1, Math.ceil(rows.length / 8));
+
+  return (
+    <div className="kp-bar-figure">
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="GFZ Kp index bar graph">
+        <rect width={width} height={height} fill="#ffffff" />
+        <rect x={left} y={top} width={chartW} height={chartH} fill="#ffffff" stroke="#111827" strokeWidth="1.4" />
+        {stormMin >= 0 && (
+          <rect
+            x={left + (stormMin / rows.length) * chartW}
+            y={top}
+            width={((stormMax - stormMin + 1) / rows.length) * chartW}
+            height={chartH}
+            fill="#fef3c7"
+            opacity="0.55"
+          />
+        )}
+        {[0, 3, 6, 9].map((tick) => {
+          const y = yFor(tick);
+          return (
+            <g key={tick}>
+              <line x1={left - 6} x2={left} y1={y} y2={y} stroke="#111827" />
+              <line x1={left} x2={left + chartW} y1={y} y2={y} stroke="#d1d5db" strokeDasharray="5 5" />
+              <text x={left - 12} y={y + 5} textAnchor="end" className="kp-bar-axis-text">{tick}</text>
+            </g>
+          );
+        })}
+        {rows.map((row, index) => {
+          const x = left + (index / rows.length) * chartW + barGap / 2;
+          const value = row.kp ?? 0;
+          const barHeight = Math.max(0, top + chartH - yFor(value));
+          const isStorm = row.storm_flag || value >= 5;
+          return (
+            <rect
+              key={row.date}
+              x={x}
+              y={top + chartH - barHeight}
+              width={barW}
+              height={barHeight}
+              fill={isStorm ? "#0f8ac4" : "#1f9bd2"}
+            />
+          );
+        })}
+        {rows.map((row, index) => {
+          if (index % labelEvery !== 0 && index !== rows.length - 1) return null;
+          const x = left + ((index + 0.5) / rows.length) * chartW;
+          return (
+            <g key={`label-${row.date}`}>
+              <line x1={x} x2={x} y1={top} y2={top + chartH} stroke="#9ca3af" strokeDasharray="6 6" />
+              <text x={x} y={height - 28} textAnchor="middle" className="kp-bar-axis-text">{shortDateLabel(row.date)}</text>
+            </g>
+          );
+        })}
+        <text x={width - 42} y={top + 18} textAnchor="middle" className="kp-bar-panel-label">(b) Kp</text>
+        <text x={left + chartW / 2} y={height - 8} textAnchor="middle" className="kp-bar-axis-title">Date</text>
+        <text x="24" y={top + chartH / 2} textAnchor="middle" className="kp-bar-axis-title" transform={`rotate(-90 24 ${top + chartH / 2})`}>
+          Kp index
+        </text>
+      </svg>
+    </div>
+  );
 }
 
 export default function GfzKpAnalysisPanel({
@@ -133,6 +221,14 @@ export default function GfzKpAnalysisPanel({
           />
         </div>
       )}
+
+      <div className="card">
+        <div style={{ fontWeight: 700, marginBottom: "0.35rem" }}>GFZ Kp index - bar graph</div>
+        <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginBottom: "0.65rem" }}>
+          Daily maximum Kp plotted as vertical bars. The pale band marks storm-class days where Kp is at least 5.
+        </p>
+        <KpIndexBarChart rows={gfz.series} />
+      </div>
 
       <div className="card">
         <div style={{ fontWeight: 700, marginBottom: "0.6rem" }}>GFZ indices — Kp &amp; ap</div>
