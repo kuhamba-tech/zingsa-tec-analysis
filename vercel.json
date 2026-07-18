@@ -2,5 +2,13 @@
   "framework": "nextjs",
   "installCommand": "npm install --package-lock=false && cd frontend && npm ci",
   "buildCommand": "cd frontend && npm run build",
-  "outputDirectory": "frontend/.next"
+  "outputDirectory": "frontend/.next",
+  "rewrites": [
+    { "source": "/api/tec/:path*", "destination": "/api/tec-router" },
+    { "source": "/api/navigation-news", "destination": "/api/navigation-news-router" },
+    { "source": "/api/navigation-news/:path*", "destination": "/api/navigation-news-router" },
+    { "source": "/api/cors/:path*", "destination": "/api/cors-router" },
+    { "source": "/api/space-weather/:path*", "destination": "/api/space-weather-router" },
+    { "source": "/api/processing/:path*", "destination": "/api/processing-router" }
+  ]
 }
