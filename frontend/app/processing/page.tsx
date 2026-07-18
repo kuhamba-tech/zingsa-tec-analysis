@@ -3,7 +3,7 @@ import { useState, useRef, useEffect } from "react";
 import dynamic from "next/dynamic";
 import {
   uploadCmn, uploadRinex, getSessionSummary, getSessionHourly, getSessionTecPlot, getSessionBias,
-  getStations, downloadSessionRaw, getLivePipelineStatus,
+  getStations, downloadSessionRaw, getLivePipelineStatus, getSessionStatus,
 } from "@/lib/api";
 import LineChart from "@/components/charts/LineChart";
 import RinexConverterPanel from "@/components/processing/RinexConverterPanel";
@@ -26,6 +26,495 @@ function formatHourLabel(hour: number) {
   const hh = Math.floor(hour);
   const mm = Math.round((hour - hh) * 60);
   return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+}
+
+interface VtecInterpretation {
+  coverageHours: [number, number];
+  sufficientForFullCycle: boolean;
+  minimum: { vtec: number; hour: number };
+  maximum: { vtec: number; hour: number };
+  nightBaseline: { meanVtec: number } | null;
+  sunrise: { onsetHour: number } | null;
+  daytimeReach: { hour: number; vtec: number } | null;
+  peak: { vtec: number; startHour: number; endHour: number } | null;
+  eveningDecayOnsetHour: number | null;
+  nightRecoveryHour: number | null;
+  fluctuation: { stdTecu: number } | null;
+}
+
+/**
+ * Derives a plain-language interpretation of the mean VTEC curve from the
+ * curve's own real values -- onset/peak/decay times and TECU levels are all
+ * computed from this session's actual data, never templated placeholders,
+ * per this project's no-fabricated-data policy. Any feature that can't be
+ * confidently detected in the available data (e.g. a short time window, or
+ * a day with no clean diurnal shape) comes back null and is reported as
+ * such rather than guessed.
+ */
+function interpretVtecCurve(points: { x: number | null; y: number | null }[]): VtecInterpretation | null {
+  const pts = points
+    .filter((p): p is { x: number; y: number } => p.x != null && p.y != null && Number.isFinite(p.x) && Number.isFinite(p.y))
+    .sort((a, b) => a.x - b.x);
+  if (pts.length < 8) return null;
+
+  const xs = pts.map((p) => p.x);
+  const ys = pts.map((p) => p.y);
+  const minIdx = ys.indexOf(Math.min(...ys));
+  const maxIdx = ys.indexOf(Math.max(...ys));
+  const minimum = { vtec: ys[minIdx], hour: xs[minIdx] };
+  const maximum = { vtec: ys[maxIdx], hour: xs[maxIdx] };
+  const coverageHours: [number, number] = [xs[0], xs[xs.length - 1]];
+  const sufficientForFullCycle = coverageHours[0] <= 1 && coverageHours[1] >= 22;
+
+  const nightPts = pts.filter((p) => p.x <= 4 || p.x >= 20);
+  const nightBaseline = nightPts.length >= 3
+    ? { meanVtec: nightPts.reduce((s, p) => s + p.y, 0) / nightPts.length }
+    : null;
+
+  const baseline = nightBaseline?.meanVtec ?? minimum.vtec;
+  const span = maximum.vtec - baseline;
+  const riseThreshold = baseline + 0.25 * span;
+  const reach90Threshold = baseline + 0.9 * span;
+  const plateauThreshold = maximum.vtec * 0.9;
+
+  // The mean-VTEC curve (an average of ~12 individual satellite arcs) still
+  // wobbles by a few TECU minute-to-minute from residual multipath and
+  // per-arc differences, even while genuinely sitting near its daily
+  // maximum. A raw point-by-point threshold walk collapses onto a single
+  // noisy spike instead of the multi-hour window a human reading the graph
+  // would call the peak. A short moving average -- used only to locate
+  // transitions, not to alter any reported value -- filters that minute-
+  // scale noise while preserving the real hour-scale diurnal shape.
+  const SMOOTH_HALF_WINDOW = 15;
+  const ysSmooth = ys.map((_, i) => {
+    const lo = Math.max(0, i - SMOOTH_HALF_WINDOW);
+    const hi = Math.min(ys.length - 1, i + SMOOTH_HALF_WINDOW);
+    let sum = 0;
+    for (let j = lo; j <= hi; j++) sum += ys[j];
+    return sum / (hi - lo + 1);
+  });
+  const smoothMaxIdx = ysSmooth.indexOf(Math.max(...ysSmooth));
+
+  let sunrise: VtecInterpretation["sunrise"] = null;
+  if (span > 1) {
+    for (let i = 1; i < smoothMaxIdx; i++) {
+      if (ysSmooth[i] >= riseThreshold && ysSmooth[i - 1] < riseThreshold) {
+        sunrise = { onsetHour: xs[i] };
+        break;
+      }
+    }
+  }
+
+  let daytimeReach: VtecInterpretation["daytimeReach"] = null;
+  if (span > 1) {
+    for (let i = 0; i <= smoothMaxIdx; i++) {
+      if (ysSmooth[i] >= reach90Threshold) {
+        daytimeReach = { hour: xs[i], vtec: ys[i] };
+        break;
+      }
+    }
+  }
+
+  let plateauStart = smoothMaxIdx;
+  while (plateauStart > 0 && ysSmooth[plateauStart - 1] >= plateauThreshold) plateauStart--;
+  let plateauEnd = smoothMaxIdx;
+  while (plateauEnd < ysSmooth.length - 1 && ysSmooth[plateauEnd + 1] >= plateauThreshold) plateauEnd++;
+  const peak = span > 1 ? { vtec: maximum.vtec, startHour: xs[plateauStart], endHour: xs[plateauEnd] } : null;
+
+  let eveningDecayOnsetHour: number | null = null;
+  if (span > 1) {
+    for (let i = plateauEnd + 1; i < ysSmooth.length; i++) {
+      if (ysSmooth[i] < reach90Threshold) {
+        eveningDecayOnsetHour = xs[i];
+        break;
+      }
+    }
+  }
+
+  let nightRecoveryHour: number | null = null;
+  if (eveningDecayOnsetHour != null && nightBaseline && span > 1) {
+    const recoverThreshold = nightBaseline.meanVtec + 0.15 * span;
+    const decayStartIdx = xs.findIndex((x) => x === eveningDecayOnsetHour);
+    for (let i = decayStartIdx; i < ysSmooth.length; i++) {
+      if (ysSmooth[i] <= recoverThreshold) {
+        nightRecoveryHour = xs[i];
+        break;
+      }
+    }
+  }
+
+  let fluctuation: VtecInterpretation["fluctuation"] = null;
+  if (peak) {
+    const fluctWindow = pts.filter((p) => p.x >= peak.startHour - 3 && p.x <= peak.endHour + 3);
+    if (fluctWindow.length >= 5) {
+      const diffs = fluctWindow.slice(1).map((p, i) => p.y - fluctWindow[i].y);
+      const meanDiff = diffs.reduce((s, d) => s + d, 0) / diffs.length;
+      const variance = diffs.reduce((s, d) => s + (d - meanDiff) ** 2, 0) / diffs.length;
+      fluctuation = { stdTecu: Math.sqrt(variance) };
+    }
+  }
+
+  return {
+    coverageHours, sufficientForFullCycle, minimum, maximum,
+    nightBaseline, sunrise, daytimeReach, peak,
+    eveningDecayOnsetHour, nightRecoveryHour, fluctuation,
+  };
+}
+
+interface RawBiasInterpretation {
+  pairedCount: number;
+  meanCorrectionTecu: number;
+  stdCorrectionTecu: number;
+  largestCorrection: { hour: number; correctionTecu: number; rawVtec: number; correctedVtec: number } | null;
+  implausibleRawFraction: number;
+  mostNegativeRaw: { hour: number; vtec: number } | null;
+}
+
+/**
+ * Compares the raw (leveled but not DCB-corrected) VTEC series against the
+ * final DCB-corrected series, both from this session's own processed data.
+ * Quantifies what the correction actually did rather than describing it in
+ * the abstract.
+ */
+function interpretRawVsCorrected(
+  hours: number[],
+  corrected: (number | null)[],
+  raw: (number | null)[],
+): RawBiasInterpretation | null {
+  const pairs: { hour: number; corrected: number; raw: number }[] = [];
+  for (let i = 0; i < hours.length; i++) {
+    const c = corrected[i];
+    const r = raw[i];
+    if (c != null && r != null && Number.isFinite(c) && Number.isFinite(r)) {
+      pairs.push({ hour: hours[i], corrected: c, raw: r });
+    }
+  }
+  if (pairs.length < 8) return null;
+
+  const diffs = pairs.map((p) => p.corrected - p.raw);
+  const meanCorrectionTecu = diffs.reduce((s, d) => s + d, 0) / diffs.length;
+  const variance = diffs.reduce((s, d) => s + (d - meanCorrectionTecu) ** 2, 0) / diffs.length;
+  const stdCorrectionTecu = Math.sqrt(variance);
+
+  let largestIdx = 0;
+  for (let i = 1; i < diffs.length; i++) {
+    if (Math.abs(diffs[i]) > Math.abs(diffs[largestIdx])) largestIdx = i;
+  }
+  const largestCorrection = {
+    hour: pairs[largestIdx].hour,
+    correctionTecu: diffs[largestIdx],
+    rawVtec: pairs[largestIdx].raw,
+    correctedVtec: pairs[largestIdx].corrected,
+  };
+
+  // VTEC is a physical electron column density and can't be meaningfully
+  // negative by more than a couple TECU of noise -- a raw value well below
+  // zero is a direct, visible symptom of the uncorrected hardware bias.
+  const implausible = pairs.filter((p) => p.raw < -2);
+  const implausibleRawFraction = implausible.length / pairs.length;
+  const mostNegativeRaw = implausible.length > 0
+    ? implausible.reduce((worst, p) => (p.raw < worst.vtec ? { hour: p.hour, vtec: p.raw } : worst), { hour: implausible[0].hour, vtec: implausible[0].raw })
+    : null;
+
+  return { pairedCount: pairs.length, meanCorrectionTecu, stdCorrectionTecu, largestCorrection, implausibleRawFraction, mostNegativeRaw };
+}
+
+function RawBiasInterpretationPanel({ interp }: { interp: RawBiasInterpretation | null }) {
+  if (!interp) {
+    return (
+      <div className="card processing-pipeline-explain" style={{ marginTop: "0.75rem", padding: "0.85rem 1rem" }}>
+        <p style={{ fontSize: "0.8rem", margin: 0, color: "var(--text-muted)" }}>
+          Not enough paired raw/corrected points in this session to compare the two series.
+        </p>
+      </div>
+    );
+  }
+  const { pairedCount, meanCorrectionTecu, stdCorrectionTecu, largestCorrection, implausibleRawFraction, mostNegativeRaw } = interp;
+  return (
+    <div className="card processing-pipeline-explain" style={{ marginTop: "0.75rem", padding: "0.9rem 1.1rem", fontSize: "0.82rem", lineHeight: 1.6 }}>
+      <div style={{ fontWeight: 700, fontSize: "0.88rem", marginBottom: "0.5rem" }}>
+        Interpretation of the Raw vs. Bias-Corrected Graph
+      </div>
+      <p style={{ margin: "0 0 0.6rem", color: "var(--text-muted)" }}>
+        Green is the same leveled slant-TEC series divided by the mapping function twice — once with satellite and
+        receiver differential code bias (DCB) removed (Eq 4.16), once without. Comparing the two, across
+        {" "}{pairedCount} paired epochs in this session:
+      </p>
+
+      <div style={{ marginBottom: "0.5rem" }}>
+        <strong>Average correction: </strong>
+        the DCB correction shifts VTEC by {meanCorrectionTecu >= 0 ? "+" : ""}{meanCorrectionTecu.toFixed(2)} TECU on
+        average (standard deviation {stdCorrectionTecu.toFixed(2)} TECU across the day) — this is the combined
+        satellite + receiver hardware delay the raw code measurement can&apos;t distinguish from real electron
+        content on its own.
+      </div>
+
+      {largestCorrection && (
+        <div style={{ marginBottom: "0.5rem" }}>
+          <strong>Largest single correction: </strong>
+          at {formatHourLabel(largestCorrection.hour)} UT, raw VTEC reads {largestCorrection.rawVtec.toFixed(1)} TECU
+          versus {largestCorrection.correctedVtec.toFixed(1)} TECU corrected — a{" "}
+          {Math.abs(largestCorrection.correctionTecu).toFixed(1)} TECU difference at that single epoch.
+        </div>
+      )}
+
+      <div style={{ marginBottom: "0.5rem" }}>
+        <strong>Physical plausibility: </strong>
+        {implausibleRawFraction > 0 && mostNegativeRaw
+          ? `${(implausibleRawFraction * 100).toFixed(0)}% of raw epochs read below -2 TECU, which isn't physically
+             possible for a real ionosphere (VTEC is a non-negative electron column density) -- the raw series dips
+             as low as ${mostNegativeRaw.vtec.toFixed(1)} TECU at ${formatHourLabel(mostNegativeRaw.hour)} UT. The
+             corrected series stays in a physically plausible range throughout, which is the practical evidence that
+             the DCB correction is necessary here, not optional.`
+          : "the raw series stays within a physically plausible range in this session, so the correction here is a smaller, mostly cosmetic adjustment rather than fixing an implausible raw signal."}
+      </div>
+
+      <p style={{ margin: "0.6rem 0 0", color: "var(--text-muted)", fontSize: "0.78rem" }}>
+        Scientific context: satellite and receiver hardware introduce a fixed group delay between the two GNSS
+        frequencies that has nothing to do with the ionosphere, but shows up in the raw code-based TEC estimate as
+        an offset (and, since it varies per satellite and drifts with receiver temperature/hardware state, as
+        additional noise and occasional large single-epoch excursions). DCB correction (CODE P1C1/P1P2 products plus
+        an estimated receiver bias) removes that instrument artifact, leaving the physically meaningful VTEC signal.
+      </p>
+    </div>
+  );
+}
+
+interface PrnArcSummary {
+  label: string;
+  windowStart: number;
+  windowEnd: number;
+  minVtec: number;
+  maxVtec: number;
+  shape: "rising" | "setting" | "peaked" | "dipped" | "flat" | "multi-pass";
+  gapHours: number | null;
+}
+
+/**
+ * Each PRN panel plots one satellite's own visibility window (only the
+ * epochs where that PRN was above the elevation mask), not the full day --
+ * so its shape mostly reflects whichever slice of the regional diurnal TEC
+ * curve that satellite happened to be up during, not an independent signal.
+ * Classified directly from that arc's own real min/max/gap structure.
+ */
+function summarizePrnArc(label: string, points: { x: number | null; y: number | null }[]): PrnArcSummary | null {
+  const pts = points
+    .filter((p): p is { x: number; y: number } => p.x != null && p.y != null && Number.isFinite(p.x) && Number.isFinite(p.y))
+    .sort((a, b) => a.x - b.x);
+  if (pts.length < 3) return null;
+
+  const xs = pts.map((p) => p.x);
+  const ys = pts.map((p) => p.y);
+  const minVtec = Math.min(...ys);
+  const maxVtec = Math.max(...ys);
+  const windowStart = xs[0];
+  const windowEnd = xs[xs.length - 1];
+
+  let maxGap = 0;
+  for (let i = 1; i < xs.length; i++) maxGap = Math.max(maxGap, xs[i] - xs[i - 1]);
+  if (maxGap > 1) {
+    return { label, windowStart, windowEnd, minVtec, maxVtec, shape: "multi-pass", gapHours: maxGap };
+  }
+
+  if (maxVtec - minVtec < 1) {
+    return { label, windowStart, windowEnd, minVtec, maxVtec, shape: "flat", gapHours: null };
+  }
+
+  const n = ys.length;
+  const maxIdx = ys.indexOf(maxVtec);
+  const minIdx = ys.indexOf(minVtec);
+  const edgeMargin = Math.max(1, Math.floor(n * 0.12));
+  const nearStart = (i: number) => i <= edgeMargin;
+  const nearEnd = (i: number) => i >= n - 1 - edgeMargin;
+
+  let shape: PrnArcSummary["shape"];
+  if (nearStart(maxIdx) && nearEnd(minIdx)) shape = "setting";
+  else if (nearStart(minIdx) && nearEnd(maxIdx)) shape = "rising";
+  else if (!nearStart(maxIdx) && !nearEnd(maxIdx)) shape = "peaked";
+  else if (!nearStart(minIdx) && !nearEnd(minIdx)) shape = "dipped";
+  else shape = ys[n - 1] - ys[0] >= 0 ? "rising" : "setting";
+
+  return { label, windowStart, windowEnd, minVtec, maxVtec, shape, gapHours: null };
+}
+
+const PRN_SHAPE_NOTE: Record<PrnArcSummary["shape"], string> = {
+  rising: "VTEC increases across this window — consistent with being visible during a rising portion of the regional diurnal curve (e.g. the post-sunrise ramp).",
+  setting: "VTEC decreases across this window — consistent with being visible during a declining portion of the diurnal curve (e.g. the evening decay).",
+  peaked: "VTEC rises then falls within this window, peaking partway through — the satellite was visible through a local maximum.",
+  dipped: "VTEC falls then rises within this window, bottoming out partway through — the satellite was visible through a local minimum.",
+  flat: "VTEC stays within about 1 TECU across this window — little diurnal change during this satellite's visibility period.",
+  "multi-pass": "this satellite had two separate visibility windows in this session (a gap of over an hour between points) — the panel plots both passes back to back.",
+};
+
+function PrnArcInterpretationPanel({ datasets }: { datasets: { label: string; points: { x: number | null; y: number | null }[] }[] }) {
+  const summaries = datasets
+    .map((ds) => summarizePrnArc(ds.label, ds.points))
+    .filter((s): s is PrnArcSummary => s !== null);
+
+  if (summaries.length === 0) {
+    return (
+      <div className="card processing-pipeline-explain" style={{ marginTop: "0.75rem", padding: "0.85rem 1rem" }}>
+        <p style={{ fontSize: "0.8rem", margin: 0, color: "var(--text-muted)" }}>
+          Not enough points in these arcs to characterize their shape.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="card processing-pipeline-explain" style={{ marginTop: "0.75rem", padding: "0.9rem 1.1rem", fontSize: "0.82rem", lineHeight: 1.6 }}>
+      <div style={{ fontWeight: 700, fontSize: "0.88rem", marginBottom: "0.5rem" }}>
+        Interpretation of the Per-PRN Arcs
+      </div>
+      <p style={{ margin: "0 0 0.7rem", color: "var(--text-muted)" }}>
+        Each panel above is one satellite&apos;s own VTEC arc, covering only the epochs that satellite was above the
+        elevation mask — not the full day. A window&apos;s shape mostly reflects which slice of the day that
+        satellite happened to be visible during, not a separate ionospheric signal. Read directly from each arc&apos;s
+        own data:
+      </p>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.78rem" }}>
+          <thead>
+            <tr style={{ textAlign: "left", color: "var(--text-muted)" }}>
+              <th style={{ padding: "0.3rem 0.6rem" }}>PRN</th>
+              <th style={{ padding: "0.3rem 0.6rem" }}>Window (UT)</th>
+              <th style={{ padding: "0.3rem 0.6rem" }}>VTEC range</th>
+              <th style={{ padding: "0.3rem 0.6rem" }}>Shape</th>
+            </tr>
+          </thead>
+          <tbody>
+            {summaries.map((s) => (
+              <tr key={s.label} style={{ borderTop: "1px solid var(--border)" }}>
+                <td style={{ padding: "0.3rem 0.6rem", fontWeight: 600 }}>{s.label}</td>
+                <td style={{ padding: "0.3rem 0.6rem" }}>{formatHourLabel(s.windowStart)}–{formatHourLabel(s.windowEnd)}</td>
+                <td style={{ padding: "0.3rem 0.6rem" }}>{s.minVtec.toFixed(1)}–{s.maxVtec.toFixed(1)} TECU</td>
+                <td style={{ padding: "0.3rem 0.6rem", textTransform: "capitalize" }}>{s.shape}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ marginTop: "0.7rem", display: "flex", flexDirection: "column", gap: "0.3rem" }}>
+        {(Object.keys(PRN_SHAPE_NOTE) as PrnArcSummary["shape"][])
+          .filter((shape) => summaries.some((s) => s.shape === shape))
+          .map((shape) => (
+            <div key={shape} style={{ color: "var(--text-muted)" }}>
+              <strong style={{ textTransform: "capitalize", color: "var(--text)" }}>{shape}: </strong>
+              {PRN_SHAPE_NOTE[shape]}
+            </div>
+          ))}
+      </div>
+    </div>
+  );
+}
+
+function utToLocalLabel(utHour: number): string {
+  // ZINGSA/Zimbabwe runs UTC+2 year-round (no DST) -- a safe general fact
+  // for this platform, not a per-station claim.
+  return formatHourLabel(((utHour + 2) % 24 + 24) % 24);
+}
+
+function TecInterpretationPanel({ interp, prnCount }: { interp: VtecInterpretation | null; prnCount: number }) {
+  if (!interp) {
+    return (
+      <div className="card processing-pipeline-explain" style={{ marginTop: "0.75rem", padding: "0.85rem 1rem" }}>
+        <p style={{ fontSize: "0.8rem", margin: 0, color: "var(--text-muted)" }}>
+          Not enough data points in this session to interpret the diurnal shape of the curve.
+        </p>
+      </div>
+    );
+  }
+
+  const {
+    coverageHours, sufficientForFullCycle, minimum, maximum,
+    nightBaseline, sunrise, daytimeReach, peak,
+    eveningDecayOnsetHour, nightRecoveryHour, fluctuation,
+  } = interp;
+
+  return (
+    <div className="card processing-pipeline-explain" style={{ marginTop: "0.75rem", padding: "0.9rem 1.1rem", fontSize: "0.82rem", lineHeight: 1.6 }}>
+      <div style={{ fontWeight: 700, fontSize: "0.88rem", marginBottom: "0.5rem" }}>
+        Interpretation of the Mean VTEC Graph
+      </div>
+      <p style={{ margin: "0 0 0.6rem", color: "var(--text-muted)" }}>
+        This graph shows the mean Vertical Total Electron Content (VTEC) across {prnCount} satellite
+        arc{prnCount === 1 ? "" : "s"} after leveling and DCB (differential code bias) removal. The values and times
+        below are read directly from this session&apos;s own processed curve — data covers
+        {" "}{formatHourLabel(coverageHours[0])}{"–"}{formatHourLabel(coverageHours[1])} UT.
+      </p>
+      {!sufficientForFullCycle && (
+        <p style={{ margin: "0 0 0.6rem", color: "var(--accent-warn, #ff8c00)" }}>
+          This session doesn&apos;t cover a full 00:00{"–"}24:00 UT day, so the nighttime/sunrise/decay
+          phases below may be partial or unavailable.
+        </p>
+      )}
+
+      <div style={{ marginBottom: "0.5rem" }}>
+        <strong>Nighttime baseline: </strong>
+        {nightBaseline
+          ? `mean VTEC stays low, around ${nightBaseline.meanVtec.toFixed(1)} TECU, during the covered night hours (00:00–04:00 and/or 20:00–24:00 UT). Minimal solar ionization and dominant recombination keep electron density low.`
+          : "not enough night-hour coverage (00:00–04:00 / 20:00–24:00 UT) in this session to establish a baseline."}
+      </div>
+
+      <div style={{ marginBottom: "0.5rem" }}>
+        <strong>Sunrise transition: </strong>
+        {sunrise
+          ? `VTEC begins a sustained rise around ${formatHourLabel(sunrise.onsetHour)} UT (${utToLocalLabel(sunrise.onsetHour)} local, UTC+2), as solar EUV radiation starts ionizing the upper atmosphere.`
+          : "no clear sustained rise from a night baseline was detected in this data."}
+      </div>
+
+      <div style={{ marginBottom: "0.5rem" }}>
+        <strong>Daytime development: </strong>
+        {daytimeReach
+          ? `VTEC reaches ${daytimeReach.vtec.toFixed(1)} TECU (within 90% of the day's peak) by ${formatHourLabel(daytimeReach.hour)} UT, as ion production continues to build through the morning.`
+          : "the curve doesn't show a clear morning build-up to near-peak levels in this data."}
+      </div>
+
+      <div style={{ marginBottom: "0.5rem" }}>
+        <strong>Peak: </strong>
+        {peak
+          ? `maximum VTEC of ${peak.vtec.toFixed(1)} TECU occurs between ${formatHourLabel(peak.startHour)} and ${formatHourLabel(peak.endHour)} UT (${utToLocalLabel(peak.startHour)}–${utToLocalLabel(peak.endHour)} local) — the point where ion production balances, then is overtaken by, recombination.`
+          : `maximum VTEC of ${maximum.vtec.toFixed(1)} TECU occurs at ${formatHourLabel(maximum.hour)} UT.`}
+      </div>
+
+      <div style={{ marginBottom: "0.5rem" }}>
+        <strong>Evening decay: </strong>
+        {eveningDecayOnsetHour != null
+          ? `VTEC starts falling off the peak plateau around ${formatHourLabel(eveningDecayOnsetHour)} UT (${utToLocalLabel(eveningDecayOnsetHour)} local) as solar ionization weakens and recombination dominates.`
+          : "no clear post-peak decline was detected — either the session doesn't extend into the evening, or the peak persisted through the covered window."}
+      </div>
+
+      <div style={{ marginBottom: "0.5rem" }}>
+        <strong>Night recovery: </strong>
+        {nightRecoveryHour != null
+          ? `VTEC returns close to nighttime levels by ${formatHourLabel(nightRecoveryHour)} UT (${utToLocalLabel(nightRecoveryHour)} local), completing the diurnal cycle.`
+          : "the session doesn't show VTEC returning to a night baseline within its covered window."}
+      </div>
+
+      <div style={{ marginBottom: "0.5rem" }}>
+        <strong>Minimum / maximum: </strong>
+        {minimum.vtec.toFixed(1)} TECU at {formatHourLabel(minimum.hour)} UT (minimum) to {maximum.vtec.toFixed(1)} TECU
+        at {formatHourLabel(maximum.hour)} UT (maximum) — a range of {(maximum.vtec - minimum.vtec).toFixed(1)} TECU.
+      </div>
+
+      {fluctuation && (
+        <div style={{ marginBottom: "0.5rem" }}>
+          <strong>Small fluctuations: </strong>
+          around the peak, point-to-point variation has a standard deviation of about {fluctuation.stdTecu.toFixed(2)} TECU
+          — typical of residual differences between individual satellite arcs, measurement noise, and brief tracking
+          interruptions averaged into the 12-PRN mean.
+        </div>
+      )}
+
+      <p style={{ margin: "0.6rem 0 0", color: "var(--text-muted)", fontSize: "0.78rem" }}>
+        Scientific context: quiet-day ionospheric TEC over a mid-latitude/equatorial station typically follows this
+        pattern — low nighttime TEC, a rapid post-sunrise rise driven by solar EUV ionization, an afternoon maximum
+        once ion production is overtaken by recombination, and a gradual decline after sunset back to nighttime
+        levels. A shape that deviates substantially from this (e.g. a second peak, an unusually sharp drop, or an
+        elevated night baseline) can indicate a geomagnetic or ionospheric disturbance rather than a quiet day.
+      </p>
+    </div>
+  );
 }
 
 function summaryDateLabel(dateStr: string, mode: "daily" | "monthly" | "yearly") {
@@ -132,6 +621,7 @@ export default function ProcessingPage() {
   const rinexRef = useRef<HTMLInputElement>(null);
   const folderRef = useRef<HTMLInputElement>(null);
   const cmnRef = useRef<HTMLInputElement>(null);
+  const navFollowUpRef = useRef<HTMLInputElement>(null);
 
   // Sidebar settings — parity with pages/2_Processing.py
   const [stationsList, setStationsList] = useState<Station[]>([]);
@@ -152,6 +642,10 @@ export default function ProcessingPage() {
   const [processingHostNote, setProcessingHostNote] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [pipelineStage, setPipelineStage] = useState<string | null>(null);
+  const [pipelineActiveStage, setPipelineActiveStage] = useState<string | null>(null);
+  const [showTecInterpretation, setShowTecInterpretation] = useState(false);
+  const [showBiasInterpretation, setShowBiasInterpretation] = useState(false);
+  const [showPrnInterpretation, setShowPrnInterpretation] = useState(false);
   const [mapStations, setMapStations] = useState<Station[]>([]);
 
   useEffect(() => {
@@ -243,6 +737,13 @@ export default function ProcessingPage() {
     return parts.join(",");
   }
 
+  function buildNavAccept(): string {
+    const parts: string[] = [];
+    if (browseN) parts.push(".nav", ".n", ".24n", ".25n", ".26n");
+    if (browseG) parts.push(".g", ".24g", ".25g", ".26g");
+    return parts.join(",");
+  }
+
   function rinexBaseStem(name: string): string {
     const lower = name.toLowerCase();
     const yr = /^(.+)\.\d{2}[ong]$/i.exec(name);
@@ -296,7 +797,7 @@ export default function ProcessingPage() {
     setTargetYear(d.getUTCFullYear());
   }
 
-  function classifyAndSetRinexFiles(files: File[], applyDateFilter: boolean) {
+  function classifyAndSetRinexFiles(files: File[], applyDateFilter: boolean): string[] {
     const obs: File[] = [];
     const nav: File[] = [];
     const unmatched: string[] = [];
@@ -327,6 +828,7 @@ export default function ProcessingPage() {
     setMissingNavFor(paired.missing);
     setUnmatchedNames(unmatched);
     if (finalObs.length > 0) syncTargetDateFromObs(finalObs);
+    return paired.missing;
   }
 
   function mergeIntoPool(incoming: File[]): File[] {
@@ -355,8 +857,29 @@ export default function ProcessingPage() {
         ? merged[0].name
         : `${merged.length} files (${merged.map((f) => f.name).join(", ")})`,
     );
-    classifyAndSetRinexFiles(merged, false);
+    const missing = classifyAndSetRinexFiles(merged, false);
     e.currentTarget.value = "";
+    // A plain <input type="file"> can't read sibling files off disk on its own --
+    // browsers don't expose that without a user gesture. Chaining a second
+    // .click() from inside this onChange handler was tried, but browsers
+    // don't reliably treat that as a fresh user gesture (Chrome silently
+    // no-ops it), so the dialog never actually opened. The "Select
+    // navigation file..." button in the warning banner below does the same
+    // thing from a real click handler, which browsers do honor.
+    if (missing.length > 0 && (browseN || browseG)) {
+      setStatus(`Missing navigation file for ${missing.join(", ")} — click "Select navigation file…" below.`);
+    }
+  }
+
+  function handleNavFollowUpBrowse(e: React.ChangeEvent<HTMLInputElement>) {
+    const picked = Array.from(e.currentTarget.files ?? []);
+    e.currentTarget.value = "";
+    if (picked.length === 0) return;
+    const merged = mergeIntoPool(picked);
+    setFilePool(merged);
+    setFolderLabel(`${merged.length} files (${merged.map((f) => f.name).join(", ")})`);
+    const missing = classifyAndSetRinexFiles(merged, false);
+    setStatus(missing.length > 0 ? `Still missing navigation file for ${missing.join(", ")}.` : "");
   }
 
   async function loadSummary(id: string, m: Mode) {
@@ -383,8 +906,27 @@ export default function ProcessingPage() {
     try { setBiasRows(await getSessionBias(id)); } catch { setBiasRows([]); }
   }
 
+  /**
+   * Polls the real backend session status until processing finishes.
+   * `stage` reflects whatever pipeline step the backend is actually running
+   * right now (tec_core.py reports it as it goes) -- not a simulated timer,
+   * since a fake progress animation would misrepresent what's happening.
+   */
+  async function waitForSession(id: string, maxMs = 5 * 60 * 1000) {
+    const start = Date.now();
+    for (;;) {
+      const s = await getSessionStatus(id);
+      setPipelineActiveStage(s.stage ?? null);
+      if (s.status === "done") return s;
+      if (s.status === "error") throw new Error(s.message || "Processing failed.");
+      if (Date.now() - start > maxMs) throw new Error("Processing timed out.");
+      await new Promise((r) => setTimeout(r, 700));
+    }
+  }
+
   async function handleProcess() {
     setBiasRows([]); setTecPlotRaw(null); setHourlyRows([]);
+    setPipelineActiveStage(null);
     if (tab === "cmn") {
       const file = cmnRef.current?.files?.[0];
       if (!file) return setStatus("Select a .Cmn file first.");
@@ -392,7 +934,8 @@ export default function ProcessingPage() {
       try {
         const sess = await uploadCmn(file, buildOptions());
         setSessionId(sess.session_id);
-        setStatus(`Done — ${sess.rows.toLocaleString()} observations`);
+        const finalSess = await waitForSession(sess.session_id);
+        setStatus(`Done — ${finalSess.rows.toLocaleString()} observations`);
         await loadSummary(sess.session_id, mode);
         await loadHourly(sess.session_id);
         try {
@@ -418,7 +961,8 @@ export default function ProcessingPage() {
       try {
         const sess = await uploadRinex(obsFiles, navFiles, buildOptions());
         setSessionId(sess.session_id);
-        setStatus(`Done — ${sess.rows.toLocaleString()} observations`);
+        const finalSess = await waitForSession(sess.session_id);
+        setStatus(`Done — ${finalSess.rows.toLocaleString()} observations`);
         await loadSummary(sess.session_id, mode);
         await loadHourly(sess.session_id);
         const plot = await getSessionTecPlot(sess.session_id);
@@ -428,6 +972,7 @@ export default function ProcessingPage() {
         if (outBias) await loadBias(sess.session_id);
       } catch (e) { setTecPlot(null); setStatus(`Error: ${e}`); }
     }
+    setPipelineActiveStage(null);
     setLoading(false);
   }
 
@@ -468,9 +1013,14 @@ export default function ProcessingPage() {
   const minVtecValues = useHourly ? hourlyRows.map((r) => r.min_vtec ?? 0) : rows.map((r) => r.min_vtec ?? 0);
   const daytimeVtecValues = rows.map((r) => r.daytime_mean_vtec ?? r.mean_vtec ?? 0);
   const tecMeanLabels = tecPlot?.mean.map((p) => (p.x ?? 0).toFixed(2)) ?? [];
+  const tecMeanHours = tecPlot?.mean.map((p) => p.x ?? 0) ?? [];
   const tecMeanValues = tecPlot?.mean.map((p) => p.y ?? null) ?? [];
   const rawMeanByX = new Map((tecPlotRaw?.mean ?? []).map((p) => [(p.x ?? 0).toFixed(2), p.y ?? null]));
   const rawMeanValuesAligned = tecMeanLabels.map((label) => rawMeanByX.get(label) ?? null);
+  const tecInterpretation = tecPlot ? interpretVtecCurve(tecPlot.mean) : null;
+  const biasInterpretation = tecPlot && tecPlotRaw
+    ? interpretRawVsCorrected(tecMeanHours, tecMeanValues, rawMeanValuesAligned)
+    : null;
   const processDisabled =
     loading ||
     (tab === "rinex" && (obsFiles.length === 0 || missingNavFor.length > 0)) ||
@@ -574,6 +1124,14 @@ export default function ProcessingPage() {
                 className="file-picker-input"
                 onChange={handleFilesBrowse}
               />
+              <input
+                ref={navFollowUpRef}
+                type="file"
+                multiple
+                accept={buildNavAccept()}
+                className="file-picker-input"
+                onChange={handleNavFollowUpBrowse}
+              />
             </div>
 
             <div>
@@ -630,10 +1188,20 @@ export default function ProcessingPage() {
               Or Ctrl/Cmd-click both files in one dialog. You can also pick the .o file first, then browse again to add the .24n.
             </p>
             {missingNavFor.length > 0 && (
-              <div className="banner banner-alert">
-                No matching navigation file for: {missingNavFor.join(", ")}.
-                Expected companion: {missingNavFor.flatMap(expectedNavNames).slice(0, 3).join(" or ")}.
-                Elevations cannot be computed without the .24n file.
+              <div className="banner banner-alert" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.6rem" }}>
+                <span>
+                  No matching navigation file for: {missingNavFor.join(", ")}.
+                  Expected companion: {missingNavFor.flatMap(expectedNavNames).slice(0, 3).join(" or ")}.
+                  Elevations cannot be computed without the .24n file.
+                </span>
+                <button
+                  type="button"
+                  className="btn"
+                  style={{ fontSize: "0.75rem", padding: "0.3rem 0.7rem", whiteSpace: "nowrap" }}
+                  onClick={() => navFollowUpRef.current?.click()}
+                >
+                  Select navigation file…
+                </button>
               </div>
             )}
             {unmatchedNames.length > 0 && (
@@ -855,22 +1423,45 @@ export default function ProcessingPage() {
       {/* Processing Pipeline */}
       <div>
         <div style={{ fontWeight: 700, fontSize: "0.9rem", marginBottom: "0.2rem" }}>Processing Pipeline</div>
-        <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.8rem" }}>Click a stage card for an explanation of that pipeline step.</div>
+        <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.8rem" }}>
+          {loading
+            ? "Processing — the glowing card is the stage the backend is running right now."
+            : "Click a stage card for an explanation of that pipeline step."}
+        </div>
         <div style={{ display: "flex", gap: "0.6rem", overflowX: "auto" }}>
-          {PIPELINE_STAGES.map(({ icon, label, color }, i) => (
-            <button
-              key={label}
-              type="button"
-              className={`card processing-pipeline-card${pipelineStage === label ? " processing-pipeline-card--selected" : ""}`}
-              style={{ flex: "1 1 0", minWidth: "120px", textAlign: "center", borderLeft: `3px solid ${color}`, padding: "0.8rem" }}
-              onClick={() => setPipelineStage((s) => (s === label ? null : label))}
-              aria-pressed={pipelineStage === label}
-            >
-              <div style={{ fontSize: "1.3rem", marginBottom: "0.3rem" }}>{icon}</div>
-              <div style={{ fontSize: "0.75rem", fontWeight: 600, lineHeight: 1.3 }}>{label}</div>
-              <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", marginTop: "0.25rem" }}>Stage {i + 1}</div>
-            </button>
-          ))}
+          {(() => {
+            const activeIndex = pipelineActiveStage
+              ? PIPELINE_STAGES.findIndex((s) => s.label === pipelineActiveStage)
+              : -1;
+            return PIPELINE_STAGES.map(({ icon, label, color }, i) => {
+              const isActive = loading && i === activeIndex;
+              const isDone = loading && activeIndex >= 0 && i < activeIndex;
+              const cls = [
+                "card",
+                "processing-pipeline-card",
+                pipelineStage === label && "processing-pipeline-card--selected",
+                isActive && "processing-pipeline-card--active",
+                isDone && "processing-pipeline-card--done",
+              ].filter(Boolean).join(" ");
+              return (
+                <button
+                  key={label}
+                  type="button"
+                  className={cls}
+                  style={{ flex: "1 1 0", minWidth: "120px", textAlign: "center", borderLeft: `3px solid ${color}`, padding: "0.8rem" }}
+                  onClick={() => setPipelineStage((s) => (s === label ? null : label))}
+                  aria-pressed={pipelineStage === label}
+                  aria-current={isActive ? "step" : undefined}
+                >
+                  <div style={{ fontSize: "1.3rem", marginBottom: "0.3rem" }}>{isDone ? "✓" : icon}</div>
+                  <div style={{ fontSize: "0.75rem", fontWeight: 600, lineHeight: 1.3 }}>{label}</div>
+                  <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", marginTop: "0.25rem" }}>
+                    {isActive ? "Running…" : `Stage ${i + 1}`}
+                  </div>
+                </button>
+              );
+            });
+          })()}
         </div>
         {pipelineStage && PIPELINE_EXPLANATIONS[pipelineStage] && (
           <div className="card processing-pipeline-explain" style={{ marginTop: "0.75rem", padding: "0.85rem 1rem" }}>
@@ -915,24 +1506,51 @@ export default function ProcessingPage() {
               <div className="metric-label" style={{ marginBottom: "0.6rem" }}>
                 {imgLabel} (GOP-style, bias removed) — {tecPlot.datasets.length} PRN arcs
               </div>
-              <LineChart
-                labels={tecMeanLabels}
-                datasets={[
-                  {
-                    label: "Mean VTEC",
-                    data: tecMeanValues,
-                    color: "#00cc66",
-                    fill: true,
-                    spanGaps: false,
-                  },
-                ]}
-                yLabel={tecPlot.ylabel}
-                height={300}
-              />
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => setShowTecInterpretation((s) => !s)}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setShowTecInterpretation((s) => !s); }}
+                style={{ cursor: "pointer" }}
+                aria-expanded={showTecInterpretation}
+                title="Click the graph for an interpretation of this result"
+              >
+                <LineChart
+                  labels={tecMeanLabels}
+                  datasets={[
+                    {
+                      label: "Mean VTEC",
+                      data: tecMeanValues,
+                      color: "#00cc66",
+                      fill: true,
+                      spanGaps: false,
+                    },
+                  ]}
+                  yLabel={tecPlot.ylabel}
+                  height={300}
+                  xValues={tecMeanHours}
+                  xLabel="UT (hrs)"
+                  xMin={0}
+                  xMax={24}
+                  xStepSize={2}
+                />
+              </div>
               <p style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>
                 Gopi Ch.4 pipeline: TECG/TECP (Eqs 4.10–4.12), leveling (4.14–4.15), DCB (4.16), mapping + VTEC (4.17).
                 Upload matching .24n navigation with every .24o file.
               </p>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setShowTecInterpretation((s) => !s)}
+                aria-expanded={showTecInterpretation}
+                style={{ fontSize: "0.78rem", padding: "0.4rem 0.9rem", marginTop: "0.5rem" }}
+              >
+                {showTecInterpretation ? "▲ Hide interpretation" : "▼ Interpret this graph"}
+              </button>
+              {showTecInterpretation && (
+                <TecInterpretationPanel interp={tecInterpretation} prnCount={tecPlot.datasets.length} />
+              )}
             </div>
           )}
           {outUnbias && tecPlot && tecPlotRaw && tecPlot.mean.length > 0 && (
@@ -946,7 +1564,24 @@ export default function ProcessingPage() {
                 ]}
                 yLabel={tecPlot.ylabel}
                 height={300}
+                xValues={tecMeanHours}
+                xLabel="UT (hrs)"
+                xMin={0}
+                xMax={24}
+                xStepSize={2}
               />
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setShowBiasInterpretation((s) => !s)}
+                aria-expanded={showBiasInterpretation}
+                style={{ fontSize: "0.78rem", padding: "0.4rem 0.9rem", marginTop: "0.5rem" }}
+              >
+                {showBiasInterpretation ? "▲ Hide interpretation" : "▼ Interpret this graph"}
+              </button>
+              {showBiasInterpretation && (
+                <RawBiasInterpretationPanel interp={biasInterpretation} />
+              )}
             </div>
           )}
           {outPrn && tecPlot && tecPlot.datasets.length > 0 && (
@@ -965,6 +1600,18 @@ export default function ProcessingPage() {
                   </div>
                 ))}
               </div>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setShowPrnInterpretation((s) => !s)}
+                aria-expanded={showPrnInterpretation}
+                style={{ fontSize: "0.78rem", padding: "0.4rem 0.9rem", marginTop: "0.8rem" }}
+              >
+                {showPrnInterpretation ? "▲ Hide interpretation" : "▼ Interpret these arcs"}
+              </button>
+              {showPrnInterpretation && (
+                <PrnArcInterpretationPanel datasets={tecPlot.datasets} />
+              )}
             </div>
           )}
           <div className="card">

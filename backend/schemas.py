@@ -300,6 +300,7 @@ class ProcessingSession(BaseModel):
     status: str  # queued | running | done | error
     message: str = ""
     rows: int = 0
+    stage: str | None = None
 
 
 class TecSummaryRow(BaseModel):

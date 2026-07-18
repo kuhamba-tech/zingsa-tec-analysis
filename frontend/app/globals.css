@@ -1598,6 +1598,19 @@ select option {
   border-color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent);
 }
+.processing-pipeline-card--active {
+  border-color: #00cc88;
+  box-shadow: 0 0 0 1px #00cc88, 0 0 12px rgba(0, 204, 136, 0.45);
+  animation: processing-pipeline-pulse 1.4s ease-in-out infinite;
+}
+.processing-pipeline-card--done {
+  border-color: #00cc88;
+  opacity: 0.65;
+}
+@keyframes processing-pipeline-pulse {
+  0%, 100% { box-shadow: 0 0 0 1px #00cc88, 0 0 8px rgba(0, 204, 136, 0.35); }
+  50% { box-shadow: 0 0 0 1px #00cc88, 0 0 16px rgba(0, 204, 136, 0.7); }
+}
 .processing-pipeline-explain {
   border-left: 3px solid var(--accent);
 }

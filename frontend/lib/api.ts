@@ -449,6 +449,8 @@ export async function convertRinex(files: File[], config: RinexConvertConfig): P
   return res.blob();
 }
 
+export const getSessionStatus = (id: string) => get<ProcessingSession>(`/processing/${id}/status`);
+
 export const getSessionSummary = (id: string, mode: "daily" | "monthly" | "yearly" = "daily") =>
   get<TecSummaryRow[]>(`/processing/${id}/summary`, { mode });
 
