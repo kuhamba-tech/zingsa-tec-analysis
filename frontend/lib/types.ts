@@ -285,6 +285,7 @@ export interface ProcessingSession {
   status: string;
   message: string;
   rows: number;
+  stage: string | null;
 }
 
 export interface TecSummaryRow {

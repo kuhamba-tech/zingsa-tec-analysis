@@ -56,6 +56,20 @@ interface Props {
   secondaryYLabel?: string;
   /** Checkbox legend — show/hide individual series. */
   toggleableLegend?: boolean;
+  /**
+   * Numeric x-values parallel to `labels`/each dataset's `data`. When set,
+   * the x-axis switches from the default category scale (ticks at
+   * evenly-spaced array indices) to a linear numeric scale (ticks at
+   * evenly-spaced real values) — for irregularly-sampled series (e.g. real
+   * GPS epochs across a day) the category scale's index-based ticks land on
+   * odd values instead of round hours.
+   */
+  xValues?: number[];
+  /** X-axis title, e.g. "UT (hrs)". Only used together with `xValues`. */
+  xLabel?: string;
+  xMin?: number;
+  xMax?: number;
+  xStepSize?: number;
 }
 
 function DatasetToggleLegend({
@@ -135,8 +149,14 @@ export default function LineChart({
   compact = false,
   secondaryYLabel,
   toggleableLegend = false,
+  xValues,
+  xLabel,
+  xMin,
+  xMax,
+  xStepSize,
 }: Props) {
   const COLORS = ["#168bd2", "#ff8c00", "#00ff88", "#ff4444", "#a78bfa", "#34d399"];
+  const useNumericX = !!xValues && xValues.length === labels.length;
   const useSecondary = datasets.some((ds) => ds.yAxisId === "y2");
   const datasetKey = useMemo(() => datasets.map((d) => d.label).join("\0"), [datasets]);
   const [visible, setVisible] = useState<boolean[]>(() => datasets.map(() => true));
@@ -220,10 +240,12 @@ export default function LineChart({
       <div style={{ height, position: "relative" }}>
       <Line
         data={{
-          labels,
+          labels: useNumericX ? undefined : labels,
           datasets: datasets.map((ds, i) => ({
             label: ds.label,
-            data: ds.data,
+            data: useNumericX
+              ? ds.data.map((v, idx) => ({ x: xValues![idx], y: v }))
+              : ds.data,
             hidden: !(visible[i] ?? true),
             borderColor: ds.color ?? COLORS[i % COLORS.length],
             backgroundColor: ds.fill ? `${ds.color ?? COLORS[i % COLORS.length]}22` : "transparent",
@@ -280,7 +302,16 @@ export default function LineChart({
             },
           },
           scales: {
-            x: { ticks: { color: "#ffffff", maxTicksLimit: 8 }, grid: { color: "#244d73" } },
+            x: useNumericX
+              ? {
+                  type: "linear" as const,
+                  min: xMin,
+                  max: xMax,
+                  title: xLabel ? { display: true, text: xLabel, color: "#ffffff" } : undefined,
+                  ticks: { color: "#ffffff", stepSize: xStepSize },
+                  grid: { color: "#244d73" },
+                }
+              : { ticks: { color: "#ffffff", maxTicksLimit: 8 }, grid: { color: "#244d73" } },
             y: {
               position: "left",
               title: { display: true, text: yLabel, color: "#ffffff" },

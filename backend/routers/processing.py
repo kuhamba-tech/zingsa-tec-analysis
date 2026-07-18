@@ -5,7 +5,7 @@ import uuid
 from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
 from backend.deps import require_api_key
@@ -57,30 +57,29 @@ def _storm_daily(df, kp_csv: str):
     return mark_storm_days(daily, kp_df=kp_df)
 
 
-@router.post("/cmn", response_model=ProcessingSession)
-async def upload_cmn(
-    file: UploadFile = File(...),
-    elevation_min: float = Form(30.0),
-    ipp_height: float = Form(350.0),
-    dcb_folder: str = Form(""),
-    stations: str = Form(""),
-    kp_csv: str = Form(""),
-    _=Depends(require_api_key),
-):
-    sid = str(uuid.uuid4())
-    tmp_path = _TMP / f"{sid}_{file.filename}"
-    content = await file.read()
-    tmp_path.write_bytes(content)
-
-    _sessions[sid] = {"status": "running", "path": str(tmp_path), "df": None, "daily": None}
+def _run_cmn_processing(
+    sid: str,
+    tmp_path: Path,
+    elevation_min: float,
+    ipp_height: float,
+    dcb_folder: str,
+    stations: str,
+    kp_csv: str,
+) -> None:
+    """Runs off the event loop (via BackgroundTasks, threadpooled) so the
+    /status endpoint stays servable for progress polling while this runs."""
     try:
         import sys; sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
         from tec_core import read_cmn_file
         from zgiis.processing.goptec_plot import build_tec_plot_series
 
+        def _progress(stage: str) -> None:
+            _sessions[sid]["stage"] = stage
+
         cfg = _build_cfg(elevation_min, ipp_height, dcb_folder)
-        df = read_cmn_file(str(tmp_path), cfg)
+        df = read_cmn_file(str(tmp_path), cfg, progress_cb=_progress)
         df = _filter_stations(df, stations)
+        _sessions[sid]["stage"] = "Map/table generation"
         daily = _storm_daily(df, kp_csv)
         plot = build_tec_plot_series(df, value_col="vtec")
         raw_col = "vtec_raw" if "vtec_raw" in df.columns else "vtec"
@@ -94,18 +93,87 @@ async def upload_cmn(
             "plot_raw": plot_raw,
             "kind": "cmn",
             "cfg": cfg,
+            "stage": "Map/table generation",
         })
-        return ProcessingSession(session_id=sid, status="done", rows=len(df))
-    except HTTPException:
-        _sessions[sid]["status"] = "error"
-        raise
     except Exception as exc:
         _sessions[sid]["status"] = "error"
-        raise HTTPException(status_code=422, detail=str(exc))
+        _sessions[sid]["message"] = str(exc)
+
+
+@router.post("/cmn", response_model=ProcessingSession)
+async def upload_cmn(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    elevation_min: float = Form(30.0),
+    ipp_height: float = Form(350.0),
+    dcb_folder: str = Form(""),
+    stations: str = Form(""),
+    kp_csv: str = Form(""),
+    _=Depends(require_api_key),
+):
+    sid = str(uuid.uuid4())
+    tmp_path = _TMP / f"{sid}_{file.filename}"
+    content = await file.read()
+    tmp_path.write_bytes(content)
+
+    _sessions[sid] = {
+        "status": "running", "path": str(tmp_path), "df": None, "daily": None,
+        "stage": "RINEX/CMN loading", "message": "",
+    }
+    background_tasks.add_task(
+        _run_cmn_processing, sid, tmp_path, elevation_min, ipp_height, dcb_folder, stations, kp_csv,
+    )
+    return ProcessingSession(session_id=sid, status="running", rows=0, stage="RINEX/CMN loading")
+
+
+def _run_rinex_processing(
+    sid: str,
+    obs_paths: list[str],
+    nav_paths: list[str],
+    elevation_min: float,
+    ipp_height: float,
+    dcb_folder: str,
+    stations: str,
+    kp_csv: str,
+) -> None:
+    try:
+        import sys; sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+        from tec_core import read_rinex_files, RINEX_EMPTY_HELP
+        from zgiis.processing.goptec_plot import build_tec_plot_series
+
+        def _progress(stage: str) -> None:
+            _sessions[sid]["stage"] = stage
+
+        cfg = _build_cfg(elevation_min, ipp_height, dcb_folder)
+        df = read_rinex_files(obs_paths, cfg, nav_files=nav_paths or None, progress_cb=_progress)
+        if df.empty:
+            _sessions[sid]["status"] = "error"
+            _sessions[sid]["message"] = RINEX_EMPTY_HELP
+            return
+        df = _filter_stations(df, stations)
+        _sessions[sid]["stage"] = "Map/table generation"
+        daily = _storm_daily(df, kp_csv)
+        plot = build_tec_plot_series(df, value_col="vtec")
+        plot_raw = build_tec_plot_series(df, value_col="vtec_raw")
+        _sessions[sid].update({
+            "status": "done",
+            "df": df,
+            "daily": daily,
+            "rows": len(df),
+            "plot": plot,
+            "plot_raw": plot_raw,
+            "kind": "rinex",
+            "cfg": cfg,
+            "stage": "Map/table generation",
+        })
+    except Exception as exc:
+        _sessions[sid]["status"] = "error"
+        _sessions[sid]["message"] = str(exc)
 
 
 @router.post("/rinex", response_model=ProcessingSession)
 async def upload_rinex(
+    background_tasks: BackgroundTasks,
     obs: list[UploadFile] = File(...),
     nav: list[UploadFile] = File(default=[]),
     elevation_min: float = Form(30.0),
@@ -126,37 +194,14 @@ async def upload_rinex(
         p.write_bytes(await f.read())
         nav_paths.append(str(p))
 
-    _sessions[sid] = {"status": "running", "df": None, "daily": None}
-    try:
-        import sys; sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-        from tec_core import read_rinex_files, RINEX_EMPTY_HELP
-        from zgiis.processing.goptec_plot import build_tec_plot_series
-
-        cfg = _build_cfg(elevation_min, ipp_height, dcb_folder)
-        df = read_rinex_files(obs_paths, cfg, nav_files=nav_paths or None)
-        if df.empty:
-            raise HTTPException(status_code=422, detail=RINEX_EMPTY_HELP)
-        df = _filter_stations(df, stations)
-        daily = _storm_daily(df, kp_csv)
-        plot = build_tec_plot_series(df, value_col="vtec")
-        plot_raw = build_tec_plot_series(df, value_col="vtec_raw")
-        _sessions[sid].update({
-            "status": "done",
-            "df": df,
-            "daily": daily,
-            "rows": len(df),
-            "plot": plot,
-            "plot_raw": plot_raw,
-            "kind": "rinex",
-            "cfg": cfg,
-        })
-        return ProcessingSession(session_id=sid, status="done", rows=len(df))
-    except HTTPException:
-        _sessions[sid]["status"] = "error"
-        raise
-    except Exception as exc:
-        _sessions[sid]["status"] = "error"
-        raise HTTPException(status_code=422, detail=str(exc))
+    _sessions[sid] = {
+        "status": "running", "df": None, "daily": None,
+        "stage": "RINEX/CMN loading", "message": "",
+    }
+    background_tasks.add_task(
+        _run_rinex_processing, sid, obs_paths, nav_paths, elevation_min, ipp_height, dcb_folder, stations, kp_csv,
+    )
+    return ProcessingSession(session_id=sid, status="running", rows=0, stage="RINEX/CMN loading")
 
 
 @router.post("/rinex-convert")
@@ -213,6 +258,8 @@ async def session_status(session_id: str, _=Depends(require_api_key)):
         session_id=session_id,
         status=s["status"],
         rows=len(df) if df is not None else 0,
+        stage=s.get("stage"),
+        message=s.get("message") or "",
     )
 
 

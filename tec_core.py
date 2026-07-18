@@ -18,7 +18,7 @@ from dataclasses import dataclass
 import logging
 from pathlib import Path
 import tempfile
-from typing import Iterable, Optional
+from typing import Callable, Iterable, Optional
 
 import numpy as np
 import pandas as pd
@@ -258,8 +258,17 @@ def _compute_elevations_from_nav(
             + nav_df['time'].dt.second
         )
 
+    # georinex builds the nav Dataset on the union of every satellite's
+    # broadcast timestamps (via xarray.merge), so each SV gets a padded row
+    # -- with all ephemeris fields NaN -- at every *other* SV's broadcast
+    # time where it didn't itself transmit a message. Drop those merge
+    # artifacts here; otherwise the nearest-record lookup below can select
+    # an empty row over a real one a few seconds away, and _gps_sat_ecef's
+    # missing-field guard then silently drops the epoch (elevation -> NaN).
     nav_by_sv: dict[str, pd.DataFrame] = {}
     for sv, grp in nav_df.groupby('sv'):
+        if 'Toe' in grp.columns:
+            grp = grp.dropna(subset=['Toe'])
         nav_by_sv[str(sv)] = grp.sort_values('time').reset_index(drop=True)
 
     def _normalise_sv(sv_raw: str) -> str:
@@ -342,7 +351,18 @@ def _parse_station_and_date(path: Path) -> tuple[str, Optional[pd.Timestamp]]:
     return station.lower(), None
 
 
-def read_cmn_file(path: Path | str, config: TecConfig) -> pd.DataFrame:
+def read_cmn_file(
+    path: Path | str,
+    config: TecConfig,
+    progress_cb: Optional[Callable[[str], None]] = None,
+) -> pd.DataFrame:
+    # A .Cmn file already carries GOPI's own precomputed STEC/VTEC -- cycle
+    # slip correction, bias correction, and slant/vertical TEC conversion
+    # already happened in that software. Only report the one stage that
+    # genuinely applies here rather than claiming steps this function never
+    # performs.
+    if progress_cb is not None:
+        progress_cb("RINEX/CMN loading")
     path = Path(path)
     station, parsed_date = _parse_station_and_date(path)
     df = pd.read_csv(
@@ -649,23 +669,47 @@ def _cycle_slip_correct(tecp: np.ndarray) -> np.ndarray:
     """
     Arithmetic cycle slip detection and correction.
     Book Chapter 4, Section 4.2.2, Eq 4.13:
-      - Detect slip when |xi - x_{i-1}| > sigma (std of last 10 samples).
-      - Correct by subtracting (current_diff - running_mean_of_5_prev_diffs) from
-        the current sample and all subsequent samples.
+      - Detect a slip when the current step-to-step diff deviates from the
+        recent run of diffs by more than 3 sigma (sigma = a robust,
+        median-based spread of those diffs).
+      - Correct by subtracting (current_diff - recent_median_diff) from the
+        current sample and all subsequent samples.
+
+    Sigma and the "expected" diff are both derived from the diff series, not
+    the raw TECP values: TECP itself trends smoothly but often steeply near
+    the elevation mask (a rising/setting satellite's geometry changes fast),
+    so a raw-value-based sigma is dominated by that trend rather than by
+    genuine noise. The spread is median/MAD-based rather than std-based so a
+    single still-uncorrected slip sitting in the recent window doesn't
+    inflate sigma and mask the next real slip.
+
+    A step needs at least 3 prior diffs before it can be judged anomalous
+    relative to the local trend -- with none, there's nothing to compare
+    against. But arc starts (right after a signal reacquisition) are exactly
+    where real slips are most likely, so that bootstrap window can't simply
+    trust every step either. Below that history threshold, fall back to an
+    absolute plausibility cap instead: no ordinary ionospheric/geometry
+    change moves the geometry-free phase combination by tens of TECU in a
+    single ~30s epoch, so a jump that large is a slip regardless of history.
     """
     result = tecp.copy().astype(float)
     n = len(result)
+    abs_jump_cap_tecu = 15.0
     for i in range(1, n):
-        prev_10 = result[max(0, i - 10):i]
-        sigma = float(np.std(prev_10)) if len(prev_10) > 1 else 1.0
-        sigma = max(sigma, 0.1)  # guard against near-zero sigma on flat signal
         current_diff = result[i] - result[i - 1]
-        if abs(current_diff) <= sigma:
+        prev_diffs = np.diff(result[max(0, i - 10):i])
+        if len(prev_diffs) >= 3:
+            recent = prev_diffs[-5:]
+            median_diff = float(np.median(recent))
+            sigma = max(1.4826 * float(np.median(np.abs(recent - median_diff))), 0.1)
+            deviation = current_diff - median_diff
+            is_slip = abs(deviation) > 3 * sigma
+        else:
+            deviation = current_diff
+            is_slip = abs(deviation) > abs_jump_cap_tecu
+        if not is_slip:
             continue
-        prev_diffs = np.diff(result[max(0, i - 5):i])
-        running_mean_diff = float(prev_diffs.mean()) if len(prev_diffs) > 0 else 0.0
-        slip = current_diff - running_mean_diff
-        result[i:] -= slip
+        result[i:] -= deviation
     return result
 
 
@@ -749,7 +793,13 @@ def _read_rinex_files_impl(
     rinex_files: Iterable[Path | str],
     config: TecConfig,
     nav_files: list[Path | str] | None = None,
+    progress_cb: Optional[Callable[[str], None]] = None,
 ) -> pd.DataFrame:
+    def _report(stage: str) -> None:
+        if progress_cb is not None:
+            progress_cb(stage)
+
+    _report("RINEX/CMN loading")
     rinex_paths = [Path(p) for p in rinex_files]
     nav_paths = [Path(p) for p in nav_files] if nav_files else None
     try:
@@ -851,9 +901,16 @@ def _read_rinex_files_impl(
             dfx["tecp"] = np.nan
 
         # ── TEC Leveling per arc: Book Eq 4.13–4.15 ─────────────────────────
+        _report("Cycle slip detection")
         if has_phase and not dfx["tecp"].isna().all():
             dfx["stec"] = _level_tec_all_prns(dfx)
-            dfx["stec"] = dfx["stec"].fillna(dfx["tecg"])
+            # _level_tec_all_prns already falls back to raw TECG for whole
+            # arcs with no phase data at all. Any STEC still NaN here is an
+            # isolated epoch *within* an otherwise-leveled arc where TECP
+            # itself was missing -- dropping it (rather than substituting
+            # the noisy, unleveled TECG for just that epoch) avoids
+            # multipath/glitch spikes of 100+ TECU on an otherwise-clean arc.
+            dfx = dfx.dropna(subset=["stec"]).copy()
         else:
             dfx["stec"] = dfx["tecg"]
 
@@ -872,6 +929,7 @@ def _read_rinex_files_impl(
         dfx["bias_method"] = "none"
 
         if config.dcb_folder is not None:
+            _report("Satellite bias correction")
             first_ts = pd.to_datetime(dfx["timestamp"].iloc[0])
             cache_key = (first_ts.year, first_ts.month)
             if cache_key not in _dcb_cache:
@@ -888,6 +946,7 @@ def _read_rinex_files_impl(
 
             # ── Receiver DCB estimation: Book Sec 4.2.5, Eq 4.21–4.22 ──────
             if dcb_applied:
+                _report("Receiver bias correction")
                 rcv_dcb = _estimate_receiver_dcb(dfx, config)
                 dfx["stec"] += rcv_dcb
                 dfx["bias_method"] = "code_dcb_receiver_estimate"
@@ -895,9 +954,13 @@ def _read_rinex_files_impl(
         if not dcb_applied:
             dfx = _apply_relative_vtec_bias_removal(dfx, config)
 
+        # Final leveled + bias-corrected slant TEC for this file is settled.
+        _report("Slant TEC calculation")
+
         # ── VTEC conversion: Book Eq 4.16–4.17 ───────────────────────────────
         # VTEC = STEC_corrected / S(E)   (S(E) = mapping function, Re=6378 km)
         dfx["vtec"] = dfx["stec"] / dfx["m"]
+        _report("Vertical TEC calculation")
 
         dfx["station"]     = path.stem[:4].lower()
         dfx["source_file"] = path.name
@@ -921,11 +984,13 @@ def read_rinex_files(
     rinex_files: Iterable[Path | str],
     config: TecConfig,
     nav_files: Iterable[Path | str] | None = None,
+    progress_cb: Optional[Callable[[str], None]] = None,
 ) -> pd.DataFrame:
     return _read_rinex_files_impl(
         rinex_files,
         config,
         nav_files=list(nav_files) if nav_files else None,
+        progress_cb=progress_cb,
     )
 
 
