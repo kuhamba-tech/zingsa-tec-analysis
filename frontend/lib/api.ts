@@ -101,6 +101,41 @@ function baseUrl(): string {
   return apiBase();
 }
 
+// Vercel's Hobby plan caps a deployment at 12 serverless functions, so
+// several backend route groups are consolidated into single Vercel
+// functions (tec-router, navigation-news-router, cors-router,
+// space-weather-router, processing-router). A vercel.json `rewrites` entry
+// was tried to keep clean URLs but never fired for this project's static
+// export build (confirmed by live testing) -- so on Vercel, requests for
+// a grouped route are sent to that group's real, named function URL, with
+// the actual backend route encoded as a query parameter
+// (backend/vercel_dispatch.py's make_group_dispatcher reads it back out).
+// Local dev talks straight to the FastAPI backend on :8000, which has no
+// such constraint, so this only rewrites when apiBase() resolves to the
+// Vercel-style "<origin>/api" base.
+const GROUP_ROUTERS: [prefix: string, router: string][] = [
+  ["/tec/", "/tec-router"],
+  ["/navigation-news", "/navigation-news-router"],
+  ["/cors/", "/cors-router"],
+  ["/space-weather/", "/space-weather-router"],
+  ["/processing/", "/processing-router"],
+];
+
+/** Builds the full request URL for `path`, routing through a consolidated
+ * group function (with the real route passed as ?__zr=) when running
+ * against the Vercel deployment. Every call site that used to concatenate
+ * `baseUrl() + path` should use this instead. */
+function apiUrl(path: string): string {
+  const base = baseUrl();
+  if (!base.endsWith("/api")) return base + path;
+  for (const [prefix, router] of GROUP_ROUTERS) {
+    if (path === prefix || path.startsWith(prefix)) {
+      return `${base}${router}?__zr=${encodeURIComponent(path)}`;
+    }
+  }
+  return base + path;
+}
+
 function friendlyFetchError(err: unknown, path: string): Error {
   if (err instanceof DOMException && err.name === "AbortError") {
     return new Error(
@@ -136,7 +171,7 @@ async function get<T>(
   params?: Record<string, string | number | undefined>,
   timeoutMs = FETCH_TIMEOUT_MS,
 ): Promise<T> {
-  const url = new URL(baseUrl() + path);
+  const url = new URL(apiUrl(path));
   if (params) {
     Object.entries(params).forEach(([k, v]) => {
       if (v !== undefined) url.searchParams.set(k, String(v));
@@ -172,7 +207,7 @@ export async function getWithRetry<T>(
 }
 
 async function post<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetchWithTimeout(baseUrl() + path, {
+  const res = await fetchWithTimeout(apiUrl(path), {
     method: "POST",
     headers: { "Content-Type": "application/json", ...(KEY ? { "X-API-Key": KEY } : {}) },
     body: JSON.stringify(body),
@@ -188,7 +223,7 @@ export const getSolarActivity = () => get<SolarActivityFull>("/space-weather/sol
 export const getTimelines = () =>
   getWithRetry<SpaceWeatherTimelines>("/space-weather/timelines", { _ts: Date.now() });
 export const refreshSpaceWeather = () =>
-  fetch(baseUrl() + "/space-weather/refresh", { method: "POST", headers: KEY ? { "X-API-Key": KEY } : {} });
+  fetch(apiUrl("/space-weather/refresh"), { method: "POST", headers: KEY ? { "X-API-Key": KEY } : {} });
 export const getSpaceWeatherLogStatus = () => get<SpaceWeatherLogStatus>("/space-weather/log/status");
 export const getSpaceWeatherHistory = (hours = 168, resample?: string) =>
   get<SpaceWeatherHistoryResponse>("/space-weather/history", { hours, resample });
@@ -203,7 +238,7 @@ export const getEkfStatusWithRetry = () =>
 export const getStormAlertStatus = () => get<StormAlertStatus>("/space-weather/storm-alerts/status");
 export const getEkfAlertLog = (hours = 24) => get<EkfAlert[]>("/space-weather/ekf/alerts", { hours });
 export const ackEkfAlert = (alertId: string) =>
-  fetch(baseUrl() + `/space-weather/ekf/alerts/${alertId}/ack`, {
+  fetch(apiUrl(`/space-weather/ekf/alerts/${alertId}/ack`), {
     method: "POST",
     headers: KEY ? { "X-API-Key": KEY } : {},
   });
@@ -258,7 +293,7 @@ export const updateBroadcastRecipient = (
   recipientId: string,
   body: Partial<BroadcastRecipientCreate> & { active?: boolean },
 ) =>
-  fetch(baseUrl() + `/navigation-news/recipients/${recipientId}`, {
+  fetch(apiUrl(`/navigation-news/recipients/${recipientId}`), {
     method: "PATCH",
     headers: { "Content-Type": "application/json", ...(KEY ? { "X-API-Key": KEY } : {}) },
     body: JSON.stringify(body),
@@ -268,7 +303,7 @@ export const updateBroadcastRecipient = (
   });
 
 export const deleteBroadcastRecipient = (recipientId: string) =>
-  fetch(baseUrl() + `/navigation-news/recipients/${recipientId}`, {
+  fetch(apiUrl(`/navigation-news/recipients/${recipientId}`), {
     method: "DELETE",
     headers: KEY ? { "X-API-Key": KEY } : {},
   }).then((res) => {
@@ -307,7 +342,7 @@ export const getNavigationFacebookStatus = async (): Promise<NavigationFacebookS
 
 export const sendNavigationWhatsApp = async (live = false): Promise<NavigationBroadcastRunResult> => {
   const res = await fetch(
-    baseUrl() + `/navigation-news/broadcast/whatsapp/send?live=${live ? "true" : "false"}`,
+    apiUrl(`/navigation-news/broadcast/whatsapp/send?live=${live ? "true" : "false"}`),
     {
       method: "POST",
       headers: KEY ? { "X-API-Key": KEY } : {},
@@ -323,7 +358,7 @@ export const sendNavigationWhatsApp = async (live = false): Promise<NavigationBr
 };
 
 export const runNavigationBroadcast = () =>
-  fetch(baseUrl() + "/navigation-news/broadcast/run", {
+  fetch(apiUrl("/navigation-news/broadcast/run"), {
     method: "POST",
     headers: KEY ? { "X-API-Key": KEY } : {},
   }).then(async (res) => {
@@ -338,7 +373,7 @@ export const testNavigationFacebookPost = async (live = false): Promise<Navigati
   ];
   let lastError = "Facebook test post failed";
   for (const path of paths) {
-    const res = await fetch(baseUrl() + path, {
+    const res = await fetch(apiUrl(path), {
       method: "POST",
       headers: KEY ? { "X-API-Key": KEY } : {},
     });
@@ -390,7 +425,7 @@ export async function uploadCmn(file: File, opts?: ProcessingOptions): Promise<P
   const fd = new FormData();
   fd.append("file", file);
   appendProcessingOptions(fd, opts);
-  const res = await fetch(baseUrl() + "/processing/cmn", {
+  const res = await fetch(apiUrl("/processing/cmn"), {
     method: "POST",
     headers: KEY ? { "X-API-Key": KEY } : {},
     body: fd,
@@ -405,7 +440,7 @@ export async function uploadRinex(obs: File[], nav: File[], opts?: ProcessingOpt
   nav.forEach((f) => fd.append("nav", f));
   appendProcessingOptions(fd, opts);
   const path = "/processing/rinex";
-  const res = await fetchWithTimeout(baseUrl() + path, {
+  const res = await fetchWithTimeout(apiUrl(path), {
     method: "POST",
     headers: KEY ? { "X-API-Key": KEY } : {},
     body: fd,
@@ -429,7 +464,7 @@ export async function convertRinex(files: File[], config: RinexConvertConfig): P
   const fd = new FormData();
   files.forEach((f) => fd.append("files", f));
   fd.append("config", JSON.stringify(config));
-  const res = await fetchWithTimeout(baseUrl() + "/processing/rinex-convert", {
+  const res = await fetchWithTimeout(apiUrl("/processing/rinex-convert"), {
     method: "POST",
     headers: KEY ? { "X-API-Key": KEY } : {},
     body: fd,
@@ -462,7 +497,7 @@ export const getSessionTecPlot = (id: string, raw = false) =>
 export const getSessionBias = (id: string) => get<BiasRow[]>(`/processing/${id}/bias`);
 
 export async function downloadSessionRaw(id: string): Promise<Blob> {
-  const res = await fetch(baseUrl() + `/processing/${id}/raw`, {
+  const res = await fetch(apiUrl(`/processing/${id}/raw`), {
     headers: KEY ? { "X-API-Key": KEY } : {},
   });
   if (!res.ok) throw new Error(`API /processing/${id}/raw → ${res.status}`);
