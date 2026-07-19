@@ -44,6 +44,7 @@ from backend import live_manager, navigation_broadcast_scheduler, space_weather_
 from backend.routers import (
     chat,
     cors_network,
+    cosmic2,
     forecast,
     gic,
     live,
@@ -109,6 +110,7 @@ app.include_router(navigation_news.router)
 app.include_router(cors_network.router)
 app.include_router(processing.router)
 app.include_router(tec.router)
+app.include_router(cosmic2.router)
 app.include_router(live.router)
 app.include_router(forecast.router)
 app.include_router(reports.router)

@@ -61,10 +61,7 @@ const NAV_GROUPS: { section: string; items: NavItem[] }[] = [
   {
     section: "Reports",
     items: [
-      { href: "/reports?period=daily", label: "Daily", icon: "📅", matchQuery: "period=daily" },
-      { href: "/reports?period=weekly", label: "Weekly", icon: "📆", matchQuery: "period=weekly" },
-      { href: "/reports?period=monthly", label: "Monthly", icon: "🗓️", matchQuery: "period=monthly" },
-      { href: "/reports?period=annual", label: "Annual", icon: "📊", matchQuery: "period=annual" },
+      { href: "/reports?period=daily", label: "Space Weather Reports", icon: "📅", matchQuery: "period=daily" },
     ],
   },
   {

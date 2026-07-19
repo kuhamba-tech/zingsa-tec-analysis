@@ -139,3 +139,61 @@ CREATE TABLE IF NOT EXISTS ekf_alert_log (
 );
 
 CREATE INDEX IF NOT EXISTS ekf_alert_time_idx ON ekf_alert_log (time DESC);
+
+-- COSMIC-2 Zimbabwe research module (Phase 1) — profile summaries, CORS
+-- matches, and calibration runs only. Raw electron-density sample arrays
+-- stay on disk (static/data/cosmic2_cache/); see zgiis/db/cosmic2_db.py.
+CREATE TABLE IF NOT EXISTS cosmic2_profiles (
+    profile_id              TEXT NOT NULL,
+    day                     DATE NOT NULL,
+    occ_time                TIMESTAMPTZ,
+    tangent_lat             DOUBLE PRECISION,
+    tangent_lon             DOUBLE PRECISION,
+    source_file             TEXT,
+    quality_status          TEXT NOT NULL,
+    quality_reasons         TEXT,
+    valid_sample_count      INTEGER,
+    nmf2_el_m3              DOUBLE PRECISION,
+    hmf2_km                 DOUBLE PRECISION,
+    fof2_mhz                DOUBLE PRECISION,
+    partial_tec_tecu        DOUBLE PRECISION,
+    tec_integration_min_km  DOUBLE PRECISION,
+    tec_integration_max_km  DOUBLE PRECISION,
+    computed_at             TIMESTAMPTZ NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS cosmic2_profiles_id_uq ON cosmic2_profiles (profile_id);
+CREATE INDEX IF NOT EXISTS cosmic2_profiles_day_idx ON cosmic2_profiles (day DESC);
+CREATE INDEX IF NOT EXISTS cosmic2_profiles_quality_idx ON cosmic2_profiles (quality_status);
+
+CREATE TABLE IF NOT EXISTS cosmic2_matches (
+    profile_id            TEXT NOT NULL,
+    day                   DATE NOT NULL,
+    station_code          TEXT,
+    station_distance_km   DOUBLE PRECISION,
+    cors_timestamp        TIMESTAMPTZ,
+    cors_vtec_tecu        DOUBLE PRECISION,
+    time_delta_minutes    DOUBLE PRECISION,
+    match_valid           BOOLEAN NOT NULL DEFAULT FALSE,
+    match_quality         TEXT NOT NULL,
+    match_reason          TEXT NOT NULL,
+    computed_at           TIMESTAMPTZ NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS cosmic2_matches_profile_uq ON cosmic2_matches (profile_id);
+CREATE INDEX IF NOT EXISTS cosmic2_matches_day_idx ON cosmic2_matches (day DESC);
+
+CREATE TABLE IF NOT EXISTS cosmic2_calibration_runs (
+    start_date      DATE NOT NULL,
+    end_date        DATE NOT NULL,
+    slope           DOUBLE PRECISION,
+    intercept       DOUBLE PRECISION,
+    r_squared       DOUBLE PRECISION,
+    pearson_r       DOUBLE PRECISION,
+    rmse_tecu       DOUBLE PRECISION,
+    mae_tecu        DOUBLE PRECISION,
+    mean_bias_tecu  DOUBLE PRECISION,
+    sample_count    INTEGER NOT NULL DEFAULT 0,
+    status          TEXT NOT NULL,
+    message         TEXT,
+    computed_at     TIMESTAMPTZ NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS cosmic2_calibration_range_uq ON cosmic2_calibration_runs (start_date, end_date);

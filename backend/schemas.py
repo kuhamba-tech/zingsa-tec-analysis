@@ -705,6 +705,105 @@ class Cosmic2AnalysisResponse(BaseModel):
     fetched_at: str | None = None
 
 
+# ── COSMIC-2 Zimbabwe research module (Phase 1) — real ionPrf profile,
+# CORS-matching, and calibration pipeline. Distinct from Cosmic2DailyPoint/
+# Cosmic2AnalysisResponse above, which stay unchanged and keep backing the
+# archive-coverage-check endpoint. ──
+
+class Cosmic2Profile(BaseModel):
+    profile_id: str
+    day: str
+    occ_time: str | None = None
+    tangent_lat: float | None = None
+    tangent_lon: float | None = None
+    source_file: str | None = None
+    quality_status: str
+    quality_reasons: str | None = None
+    valid_sample_count: int | None = None
+    nmf2_el_m3: float | None = None
+    hmf2_km: float | None = None
+    fof2_mhz: float | None = None
+    partial_tec_tecu: float | None = None
+    tec_integration_min_km: float | None = None
+    tec_integration_max_km: float | None = None
+
+
+class Cosmic2ProfileListResponse(BaseModel):
+    start: str
+    end: str
+    quality_status: str | None = None
+    profiles: list[Cosmic2Profile] = []
+
+
+class Cosmic2Match(BaseModel):
+    profile_id: str
+    day: str
+    station_code: str | None = None
+    station_distance_km: float | None = None
+    cors_timestamp: str | None = None
+    cors_vtec_tecu: float | None = None
+    time_delta_minutes: float | None = None
+    match_valid: bool = False
+    match_quality: str
+    match_reason: str
+
+
+class Cosmic2MatchListResponse(BaseModel):
+    start: str
+    end: str
+    match_quality: str | None = None
+    matches: list[Cosmic2Match] = []
+
+
+class Cosmic2CalibrationResult(BaseModel):
+    start_date: str
+    end_date: str
+    slope: float | None = None
+    intercept: float | None = None
+    r_squared: float | None = None
+    pearson_r: float | None = None
+    rmse_tecu: float | None = None
+    mae_tecu: float | None = None
+    mean_bias_tecu: float | None = None
+    sample_count: int = 0
+    status: str
+    message: str = ""
+
+
+class Cosmic2CalibrationResponse(BaseModel):
+    calibration: Cosmic2CalibrationResult | None = None
+
+
+class Cosmic2AnalyseRequest(BaseModel):
+    start: str
+    end: str
+    force_redownload: bool = False
+
+
+class Cosmic2AnalyseResponse(BaseModel):
+    start: str
+    end: str
+    files_checked: int = 0
+    files_downloaded: int = 0
+    profiles_found: int = 0
+    profiles_valid: int = 0
+    profiles_matched: int = 0
+    cors_stations_used: int = 0
+    cors_observation_source: str = "none"
+    calibration: Cosmic2CalibrationResult | None = None
+    warnings: list[str] = []
+    status: str = "complete"
+
+
+class Cosmic2StatusResponse(BaseModel):
+    source: str
+    level2_url: str
+    total_profiles: int = 0
+    total_ok_profiles: int = 0
+    total_valid_matches: int = 0
+    latest_profile_day: str | None = None
+
+
 class PrnRow(BaseModel):
     prn: str
     constellation: str
