@@ -157,11 +157,11 @@ def main() -> int:
     before = db.record_count()
     nav_cache = LiveNavCache()
     pipeline = LiveVtecPipeline(db=db, nav_cache=nav_cache, db_flush_n=int(os.getenv("ZGIIS_DB_FLUSH_N", "1")))
-    max_concurrent_raw = os.getenv("NTRIP_LIVE_MAX_CONCURRENT", "4").strip()
+    max_concurrent_raw = os.getenv("NTRIP_LIVE_MAX_CONCURRENT", "").strip()
     try:
-        max_concurrent = max(1, int(max_concurrent_raw)) if max_concurrent_raw else 4
+        max_concurrent = max(1, int(max_concurrent_raw)) if max_concurrent_raw else None
     except ValueError:
-        max_concurrent = 4
+        max_concurrent = None
 
     manager = LiveNtripManager(
         {
