@@ -75,9 +75,6 @@ export default function LivePipelinePage() {
     if (stations.status === "fulfilled") setStationStatus(stations.value);
     if (pipe.status === "fulfilled") setPipelineStatus(pipe.value);
     if (cors.status === "fulfilled") setCorsStations(cors.value);
-    getStations(true)
-      .then(setCorsStations)
-      .catch(() => null);
     if (fc.status === "fulfilled") {
       setFcStatus(fc.value);
       if (fc.value.model_exists && fc.value.torch_ok) {

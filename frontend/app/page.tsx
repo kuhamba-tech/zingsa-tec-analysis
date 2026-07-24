@@ -100,7 +100,6 @@ export default function HomePage() {
   const [pipelineNote, setPipelineNote] = useState<string | null>(null);
   const [tecHeatmap, setTecHeatmap] = useState<TecHeatmapResponse | null>(null);
   const [stationsLoading, setStationsLoading] = useState(true);
-  const [ntripRefreshing, setNtripRefreshing] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -176,26 +175,6 @@ export default function HomePage() {
         if (!cancelled) setStationsLoading(false);
       }
 
-      if (!cancelled) setNtripRefreshing(true);
-      getStations(true)
-        .then(async (fresh) => {
-          if (cancelled) return;
-          setStations(fresh);
-          const heatmap = await getTecHeatmap(6).catch(() => null);
-          if (!cancelled) setTecHeatmap(heatmap);
-          const liveCounts = countLiveStationStatuses(fresh);
-          const probed = fresh.find((s) => s.ntrip_probed_at)?.ntrip_probed_at;
-          if (probed) setNtripProbedAt(probed);
-          setDisplaySw((prev) =>
-            prev && fresh.some((s) => s.ntrip_verdict || s.status_source === "ntrip")
-              ? { ...prev, stations_online: connectedStreamCount(liveCounts), stations_total: liveCounts.total }
-              : prev,
-          );
-        })
-        .catch(() => {})
-        .finally(() => {
-          if (!cancelled) setNtripRefreshing(false);
-        });
     }
 
     load();
@@ -208,6 +187,7 @@ export default function HomePage() {
 
   const freshnessMsg = useFeedFreshness("space-weather", swStatus);
   const loading = swStatus === "pending";
+  const ntripRefreshing = false;
   const gnssRisk = displaySw?.gnss_risk ?? (loading ? "…" : "N/A");
 
   const liveCounts = countLiveStationStatuses(stations);

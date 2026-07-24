@@ -242,7 +242,7 @@ export default function GnssIntelligencePage() {
       try {
         const [swResult, stationsResult] = await Promise.allSettled([
           getSpaceWeather(),
-          getStations(true),
+          getStations(false),
         ]);
         if (cancelled) return;
 

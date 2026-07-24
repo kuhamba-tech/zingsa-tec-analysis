@@ -223,9 +223,6 @@ export default function DashboardPage() {
     if (stUptimeR.status === "fulfilled") setStationUptime(stUptimeR.value);
     if (ekfR.status === "fulfilled") setEkf(ekfR.value);
     if (stationsR.status === "fulfilled") setLiveStationCounts(countLiveStationStatuses(stationsR.value));
-    getStations(true)
-      .then((stations) => setLiveStationCounts(countLiveStationStatuses(stations)))
-      .catch(() => null);
     if (alertsR.status === "fulfilled") {
       setPendingAlerts(alertsR.value.filter((a) => !a.acknowledged_status));
     }

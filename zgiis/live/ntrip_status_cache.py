@@ -84,7 +84,7 @@ def get_cached_ntrip_probe(
     age = cache_age_sec()
     stale = _CACHE is None or age is None or age > ttl_sec
     if refresh or (stale and allow_blocking_refresh):
-        max_workers = max(1, int(os.getenv("NTRIP_PROBE_MAX_WORKERS", "1")))
+        max_workers = max(1, int(os.getenv("NTRIP_PROBE_MAX_WORKERS", "24")))
         _CACHE = probe_all_mountpoints(listen_sec=listen_sec, max_workers=max_workers)
         _CACHE_TS = time.monotonic()
     elif stale and not allow_blocking_refresh:

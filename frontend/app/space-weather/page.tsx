@@ -255,9 +255,6 @@ export default function SpaceWeatherPage() {
     getStations(false)
       .then((stations) => setLiveStationCounts(countLiveStationStatuses(stations)))
       .catch(() => null);
-    getStations(true)
-      .then((stations) => setLiveStationCounts(countLiveStationStatuses(stations)))
-      .catch(() => null);
     getEkfStatus()
       .then(setEkf)
       .catch(() => setEkf(null));

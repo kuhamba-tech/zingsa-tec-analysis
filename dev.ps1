@@ -60,7 +60,7 @@ $backendErrLog = Join-Path $projectRoot "backend-dev.err.log"
 # ZGIIS-NTRIP-Collector scheduled task) is the correct always-on source for
 # live station status; don't duplicate live ingestion here too.
 Start-Process -FilePath $venvPython `
-    -ArgumentList "-m", "uvicorn", "backend.main:app", "--host", "127.0.0.1", "--port", "$BackendPort" `
+    -ArgumentList "-m", "uvicorn", "backend.main:app", "--host", "127.0.0.1", "--port", "$BackendPort", "--workers", "4", "--timeout-keep-alive", "2" `
     -WorkingDirectory $projectRoot `
     -RedirectStandardOutput $backendLog `
     -RedirectStandardError $backendErrLog `

@@ -51,11 +51,11 @@ def _parse_mountpoints(*, priority_codes: list[str] | None = None) -> dict[str, 
 
 
 def _db_flush_n() -> int:
-    raw = os.getenv("ZGIIS_DB_FLUSH_N", "1").strip()
+    raw = os.getenv("ZGIIS_DB_FLUSH_N", "50").strip()
     try:
         return max(1, int(raw))
     except ValueError:
-        return 1
+        return 50
 
 
 def _priority_codes_from_env() -> list[str]:
@@ -307,11 +307,11 @@ def start(*, priority_codes: list[str] | None = None) -> None:
         "connection": os.getenv("NTRIP_CONNECTION", "TCP"),
     }
 
-    max_concurrent_raw = os.getenv("NTRIP_LIVE_MAX_CONCURRENT", "4").strip()
+    max_concurrent_raw = os.getenv("NTRIP_LIVE_MAX_CONCURRENT", "24").strip()
     try:
-        max_concurrent = max(1, int(max_concurrent_raw)) if max_concurrent_raw else 4
+        max_concurrent = max(1, int(max_concurrent_raw)) if max_concurrent_raw else 24
     except ValueError:
-        max_concurrent = 4
+        max_concurrent = 24
 
     manager = LiveNtripManager(
         ntrip_cfg,
