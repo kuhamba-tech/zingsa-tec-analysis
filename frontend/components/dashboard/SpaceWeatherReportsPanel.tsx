@@ -154,7 +154,15 @@ export default function SpaceWeatherReportsPanel({
           </div>
         </div>
         <div className="sw-report-header-actions">
-          <button type="button" className="btn sw-report-share-btn" onClick={() => navigator.clipboard?.writeText(window.location.href)}>
+          <button
+            type="button"
+            className="btn sw-report-share-btn"
+            onClick={() => {
+              navigator.clipboard?.writeText(window.location.href).catch(() => {
+                /* clipboard unavailable */
+              });
+            }}
+          >
             Share
           </button>
           <button type="button" className="btn sw-report-export-btn" onClick={handleExportJson} disabled={!report}>
