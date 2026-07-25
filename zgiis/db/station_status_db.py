@@ -159,6 +159,26 @@ class StationStatusDB:
         self._conn.executescript(_SQLITE_DDL)
         self._conn.commit()
 
+    def _with_reconnect(self, fn):
+        """Run fn(); on a Postgres connection error, reconnect once and retry.
+
+        Vercel's serverless containers can stay warm and reuse this same
+        StationStatusDB instance across requests. If the pooler drops an
+        idle connection in between, every read on this warm container would
+        otherwise fail forever (insert_snapshots/log_streams already
+        recovers by discarding the whole DB object on failure, but reads
+        like event_count/snapshot_count/query_events/query_snapshots had no
+        equivalent recovery) — reconnect transparently instead.
+        """
+        try:
+            return fn()
+        except Exception:
+            if not self._is_pg:
+                raise
+            log.warning("StationStatusDB connection appears stale; reconnecting")
+            self._init_pg()
+            return fn()
+
     def insert_event(self, row: dict[str, Any]) -> None:
         sql = """
         INSERT INTO station_status_events (
@@ -200,25 +220,32 @@ class StationStatusDB:
             )
             for r in rows
         ]
-        if self._is_pg:
-            sql = sql.replace("?", "%s")
-            with self._conn.cursor() as cur:
-                cur.executemany(sql, params)
-            self._conn.commit()
-        else:
-            self._conn.executemany(sql, params)
-            self._conn.commit()
+
+        def _do() -> None:
+            if self._is_pg:
+                pg_sql = sql.replace("?", "%s")
+                with self._conn.cursor() as cur:
+                    cur.executemany(pg_sql, params)
+                self._conn.commit()
+            else:
+                self._conn.executemany(sql, params)
+                self._conn.commit()
+
+        self._with_reconnect(_do)
         return len(params)
 
     def _exec(self, sql: str, params: tuple) -> None:
-        if self._is_pg:
-            sql = sql.replace("?", "%s")
-            with self._conn.cursor() as cur:
-                cur.execute(sql, params)
-            self._conn.commit()
-        else:
-            self._conn.execute(sql, params)
-            self._conn.commit()
+        def _do() -> None:
+            if self._is_pg:
+                pg_sql = sql.replace("?", "%s")
+                with self._conn.cursor() as cur:
+                    cur.execute(pg_sql, params)
+                self._conn.commit()
+            else:
+                self._conn.execute(sql, params)
+                self._conn.commit()
+
+        self._with_reconnect(_do)
 
     def query_events(
         self,
@@ -247,11 +274,13 @@ class StationStatusDB:
         LIMIT ?
         """
         params.append(limit)
-        if self._is_pg:
-            sql = sql.replace("?", "%s")
-            df = pd.read_sql(sql, self._conn, params=params)
-        else:
-            df = pd.read_sql_query(sql, self._conn, params=params)
+        def _do() -> pd.DataFrame:
+            if self._is_pg:
+                pg_sql = sql.replace("?", "%s")
+                return pd.read_sql(pg_sql, self._conn, params=params)
+            return pd.read_sql_query(sql, self._conn, params=params)
+
+        df = self._with_reconnect(_do)
         if not df.empty:
             df = df.sort_values("time").reset_index(drop=True)
         return df
@@ -274,10 +303,13 @@ class StationStatusDB:
         WHERE {' AND '.join(clauses)}
         ORDER BY time
         """
-        if self._is_pg:
-            sql = sql.replace("?", "%s")
-            return pd.read_sql(sql, self._conn, params=params)
-        return pd.read_sql_query(sql, self._conn, params=params)
+        def _do() -> pd.DataFrame:
+            if self._is_pg:
+                pg_sql = sql.replace("?", "%s")
+                return pd.read_sql(pg_sql, self._conn, params=params)
+            return pd.read_sql_query(sql, self._conn, params=params)
+
+        return self._with_reconnect(_do)
 
     def latest_snapshots(self, hours: float = 1.0) -> dict[str, dict[str, Any]]:
         """Latest archived live status for each station within the freshness window."""
@@ -340,14 +372,20 @@ class StationStatusDB:
         return out
 
     def event_count(self) -> int:
-        cur = self._conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM station_status_events")
-        return int(cur.fetchone()[0])
+        def _do() -> int:
+            cur = self._conn.cursor()
+            cur.execute("SELECT COUNT(*) FROM station_status_events")
+            return int(cur.fetchone()[0])
+
+        return self._with_reconnect(_do)
 
     def snapshot_count(self) -> int:
-        cur = self._conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM station_status_snapshots")
-        return int(cur.fetchone()[0])
+        def _do() -> int:
+            cur = self._conn.cursor()
+            cur.execute("SELECT COUNT(*) FROM station_status_snapshots")
+            return int(cur.fetchone()[0])
+
+        return self._with_reconnect(_do)
 
     def close(self) -> None:
         if self._conn:

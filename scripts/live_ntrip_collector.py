@@ -14,6 +14,7 @@ import sys
 import time
 import json
 import urllib.request
+import urllib.parse
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -23,7 +24,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 log = logging.getLogger("zgiis.collector")
-DEFAULT_STATUS_PUSH_URL = "https://zingsa-gnss-tec.vercel.app/api/cors/status/snapshots/"
+DEFAULT_STATUS_PUSH_URL = (
+    "https://zingsa-gnss-tec.vercel.app/api/cors-router"
+    "?__zr=%2Fcors%2Fstatus%2Fsnapshots"
+)
 
 
 def _load_env() -> None:
@@ -66,17 +70,35 @@ def _parse_mountpoints() -> dict[str, str]:
     return parse_mountpoints(station_filter=only or None)
 
 
+def _status_push_url() -> str:
+    """Return the deployable status endpoint.
+
+    The Vercel build uses one statically named function per API group. Dynamic
+    ``/api/cors/*`` paths return Vercel's own 404, so requests to the production
+    host must target ``cors-router`` and carry the real FastAPI route in
+    ``__zr`` (the same contract used by frontend/lib/api.ts).
+    """
+    raw = (os.getenv("STATUS_SNAPSHOT_PUSH_URL") or DEFAULT_STATUS_PUSH_URL).strip()
+    if not raw:
+        return ""
+
+    parsed = urllib.parse.urlsplit(raw)
+    if parsed.hostname == "zingsa-gnss-tec.vercel.app" and parsed.path.rstrip("/") in {
+        "/cors/status/snapshots",
+        "/api/cors/status/snapshots",
+    }:
+        query = urllib.parse.urlencode({"__zr": "/cors/status/snapshots"})
+        return urllib.parse.urlunsplit(
+            (parsed.scheme, parsed.netloc, "/api/cors-router", query, parsed.fragment)
+        )
+    return raw
+
+
 def _push_status_snapshots(streams: dict[str, dict]) -> None:
     """Push station snapshots to the deployed API as a DB-independent fallback."""
-    url = (os.getenv("STATUS_SNAPSHOT_PUSH_URL") or DEFAULT_STATUS_PUSH_URL).strip()
+    url = _status_push_url()
     if not url:
         return
-    url = url.replace(
-        "https://zingsa-gnss-tec.vercel.app/cors/status/snapshots",
-        "https://zingsa-gnss-tec.vercel.app/api/cors/status/snapshots/",
-    )
-    if url.endswith("/api/cors/status/snapshots"):
-        url = f"{url}/"
 
     from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS, derive_status_from_stream
 

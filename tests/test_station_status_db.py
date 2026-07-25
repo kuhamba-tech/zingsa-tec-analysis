@@ -1,6 +1,9 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import Mock, patch
+
+import pandas as pd
 
 from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
 from zgiis.db.station_status_db import StationStatusDB
@@ -103,6 +106,42 @@ class StationStatusDBTests(unittest.TestCase):
         uptime = self.db.uptime_summary(hours=48)
         self.assertEqual(len(uptime), len(ZIMBABWE_CORS_STATIONS))
         self.assertTrue(all(r["samples"] == 0 for r in uptime))
+
+    def test_postgres_snapshot_read_reconnects_once(self) -> None:
+        db = object.__new__(StationStatusDB)
+        db._dsn = "postgresql://example.invalid/status"
+        db._is_pg = True
+        db._conn = Mock()
+        stale = db._conn
+        replacement = Mock()
+
+        def reconnect() -> None:
+            db._conn = replacement
+
+        db._init_pg = Mock(side_effect=reconnect)
+        expected = pd.DataFrame(
+            [
+                {
+                    "time": "2026-07-25T05:18:00+00:00",
+                    "station_code": "zinh",
+                    "status": "online",
+                    "api_reachable": True,
+                    "source": "collector",
+                }
+            ]
+        )
+
+        with patch(
+            "zgiis.db.station_status_db.pd.read_sql",
+            side_effect=[RuntimeError("stale connection"), expected],
+        ) as read_sql:
+            result = db.query_snapshots(hours=1)
+
+        self.assertTrue(result.equals(expected))
+        self.assertEqual(read_sql.call_count, 2)
+        self.assertIs(read_sql.call_args_list[0].args[1], stale)
+        self.assertIs(read_sql.call_args_list[1].args[1], replacement)
+        db._init_pg.assert_called_once_with()
 
 
 if __name__ == "__main__":
