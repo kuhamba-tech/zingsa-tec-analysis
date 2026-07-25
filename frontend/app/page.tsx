@@ -176,26 +176,37 @@ export default function HomePage() {
         if (!cancelled) setStationsLoading(false);
       }
 
-      if (!cancelled) setNtripRefreshing(true);
-      getStations(true)
-        .then(async (fresh) => {
-          if (cancelled) return;
-          setStations(fresh);
-          const heatmap = await getTecHeatmap(6).catch(() => null);
-          if (!cancelled) setTecHeatmap(heatmap);
-          const liveCounts = countLiveStationStatuses(fresh);
-          const probed = fresh.find((s) => s.ntrip_probed_at)?.ntrip_probed_at;
-          if (probed) setNtripProbedAt(probed);
-          setDisplaySw((prev) =>
-            prev && fresh.some((s) => s.ntrip_verdict || s.status_source === "ntrip")
-              ? { ...prev, stations_online: connectedStreamCount(liveCounts), stations_total: liveCounts.total }
-              : prev,
-          );
-        })
-        .catch(() => {})
-        .finally(() => {
-          if (!cancelled) setNtripRefreshing(false);
-        });
+      // A Vercel function cannot maintain the long-lived sockets required to
+      // judge MSM streaming. Production reads the persistent collector's
+      // archived snapshots above; only local development performs an explicit
+      // one-shot caster probe.
+      const localBackend =
+        window.location.hostname === "localhost" ||
+        window.location.hostname === "127.0.0.1" ||
+        window.location.port === "3000" ||
+        window.location.port === "3001";
+      if (localBackend) {
+        if (!cancelled) setNtripRefreshing(true);
+        getStations(true)
+          .then(async (fresh) => {
+            if (cancelled) return;
+            setStations(fresh);
+            const heatmap = await getTecHeatmap(6).catch(() => null);
+            if (!cancelled) setTecHeatmap(heatmap);
+            const liveCounts = countLiveStationStatuses(fresh);
+            const probed = fresh.find((s) => s.ntrip_probed_at)?.ntrip_probed_at;
+            if (probed) setNtripProbedAt(probed);
+            setDisplaySw((prev) =>
+              prev && fresh.some((s) => s.ntrip_verdict || s.status_source === "ntrip")
+                ? { ...prev, stations_online: connectedStreamCount(liveCounts), stations_total: liveCounts.total }
+                : prev,
+            );
+          })
+          .catch(() => {})
+          .finally(() => {
+            if (!cancelled) setNtripRefreshing(false);
+          });
+      }
     }
 
     load();

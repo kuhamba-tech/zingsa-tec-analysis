@@ -19,6 +19,14 @@ _STATIONS_CACHE_TTL_SEC = 45.0
 _stations_cache: dict[str, object] = {"rows": None, "ts": 0.0}
 
 
+def _is_serverless_runtime() -> bool:
+    """Whether this request is running in deployment compute, not the collector."""
+    return any(
+        os.getenv(name)
+        for name in ("VERCEL", "VERCEL_ENV", "VERCEL_URL", "AWS_LAMBDA_FUNCTION_NAME")
+    )
+
+
 def _live_pipeline_can_poll() -> bool:
     try:
         from backend.live_manager import status as live_status
@@ -163,7 +171,7 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
     archive_applied = False
     if not pipeline_configured:
         stations, archive_applied = _merge_archived_live_statuses(stations)
-        if archive_applied and os.getenv("VERCEL"):
+        if archive_applied and _is_serverless_runtime():
             return stations
 
     probe_payload = None
@@ -198,8 +206,14 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
     except Exception:
         pass
 
-    run_probe = (not pipeline_configured and not archive_applied) or (
-        not vtec_by_station and not archive_applied
+    # Vercel functions must never replace persistent-collector snapshots with
+    # their own short socket probe. Those one-shot probes often see an accepted
+    # NTRIP connection but no MSM inside the small request window, which paints
+    # every station degraded even while the collector is receiving data.
+    # Local/persistent runtimes retain the probe fallback for diagnostics.
+    run_probe = not _is_serverless_runtime() and (
+        (not pipeline_configured and not archive_applied)
+        or (not vtec_by_station and not archive_applied)
     )
     if run_probe:
         try:
