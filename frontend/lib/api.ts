@@ -119,6 +119,13 @@ const GROUP_ROUTERS: [prefix: string, router: string][] = [
   ["/cors/", "/cors-router"],
   ["/space-weather/", "/space-weather-router"],
   ["/processing/", "/processing-router"],
+  ["/live/", "/core-router"],
+  ["/forecast/", "/core-router"],
+  ["/reports/", "/core-router"],
+  ["/chat", "/core-router"],
+  ["/theory/", "/core-router"],
+  ["/gic/", "/core-router"],
+  ["/cosmic2/", "/core-router"],
 ];
 
 /** Builds the full request URL for `path`, routing through a consolidated
@@ -571,7 +578,7 @@ export const getNtripStatus = (refresh = false, listen_sec = 4) =>
     listen_sec,
   });
 export async function runNtripProbe(listen_sec = 6) {
-  const url = new URL(baseUrl() + "/live/ntrip-probe");
+  const url = new URL(apiUrl("/live/ntrip-probe"));
   url.searchParams.set("listen_sec", String(listen_sec));
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 120_000);
@@ -631,7 +638,7 @@ export async function uploadGicFile(file: File, stationId: string): Promise<GicU
   const fd = new FormData();
   fd.append("file", file);
   fd.append("station_id", stationId);
-  const res = await fetch(baseUrl() + "/gic/upload", {
+  const res = await fetch(apiUrl("/gic/upload"), {
     method: "POST",
     headers: KEY ? { "X-API-Key": KEY } : {},
     body: fd,
@@ -651,7 +658,7 @@ export async function uploadGicFile(file: File, stationId: string): Promise<GicU
 }
 
 export async function downloadGicReportCsv(station_id: string, period: GicReportPeriod): Promise<Blob> {
-  const url = new URL(baseUrl() + "/gic/report");
+  const url = new URL(apiUrl("/gic/report"));
   url.searchParams.set("station_id", station_id);
   url.searchParams.set("period", period);
   url.searchParams.set("format", "csv");
