@@ -345,11 +345,28 @@ class StationStatusDB:
                 }
         return out
 
-    def uptime_summary(self, hours: float = 168.0) -> list[dict[str, Any]]:
+    @staticmethod
+    def default_bucket_minutes(hours: float) -> int:
+        """Choose a sensible aggregation bucket for chart payloads."""
+        if hours <= 24:
+            return 30
+        if hours <= 168:
+            return 60
+        if hours <= 720:
+            return 360
+        return 1440
+
+    def uptime_summary(
+        self,
+        hours: float = 168.0,
+        *,
+        station_code: str | None = None,
+    ) -> list[dict[str, Any]]:
         """Fraction of snapshots in each status per station (all registered CORS sites)."""
         from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
 
-        df = self.query_snapshots(hours=hours)
+        code_filter = station_code.lower().rstrip("_") if station_code else None
+        df = self.query_snapshots(hours=hours, station_code=code_filter)
         by_code: dict[str, dict[str, Any]] = {}
 
         if not df.empty:
@@ -366,8 +383,12 @@ class StationStatusDB:
                     "unknown_pct": round(100.0 * counts.get("unknown", 0) / total, 1),
                 }
 
+        stations = ZIMBABWE_CORS_STATIONS
+        if code_filter:
+            stations = [s for s in stations if s.code.lower().rstrip("_") == code_filter]
+
         out: list[dict[str, Any]] = []
-        for station in ZIMBABWE_CORS_STATIONS:
+        for station in stations:
             code = station.code.lower().rstrip("_")
             row = by_code.get(code)
             if row:
@@ -385,6 +406,152 @@ class StationStatusDB:
                     }
                 )
         return out
+
+    def uptime_timeline(
+        self,
+        hours: float = 168.0,
+        *,
+        station_code: str | None = None,
+        bucket_minutes: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Bucketed online-% series for one station or the whole network.
+
+        Network mode: within each bucket, take the latest sample per station,
+        then online_pct = 100 * online_stations / stations_seen.
+        Station mode: online_pct = 100 * online_samples / samples in the bucket.
+        """
+        code = station_code.lower().rstrip("_") if station_code else None
+        bucket = max(1, int(bucket_minutes or self.default_bucket_minutes(hours)))
+        df = self.query_snapshots(hours=hours, station_code=code)
+        if df.empty:
+            return []
+
+        work = df.copy()
+        work["status"] = work["status"].map(_normalize_stored_status)
+        work["station_code"] = work["station_code"].map(
+            lambda c: str(c).lower().rstrip("_") if c is not None else ""
+        )
+        work["time"] = pd.to_datetime(work["time"], utc=True, errors="coerce")
+        work = work.dropna(subset=["time"])
+        if work.empty:
+            return []
+
+        work = work.sort_values("time")
+        work["bucket"] = work["time"].dt.floor(f"{bucket}min")
+
+        points: list[dict[str, Any]] = []
+        for bucket_ts, grp in work.groupby("bucket", sort=True):
+            if code:
+                statuses = grp["status"].tolist()
+            else:
+                # Latest status per station inside the bucket.
+                latest = grp.sort_values("time").groupby("station_code", sort=False).tail(1)
+                statuses = latest["status"].tolist()
+            samples = len(statuses)
+            online_n = sum(1 for s in statuses if s == "online")
+            offline_n = sum(1 for s in statuses if s == "offline")
+            unknown_n = sum(1 for s in statuses if s == "unknown")
+            online_pct = round(100.0 * online_n / samples, 1) if samples else 0.0
+            ts = pd.Timestamp(bucket_ts)
+            if ts.tzinfo is None:
+                ts = ts.tz_localize("UTC")
+            else:
+                ts = ts.tz_convert("UTC")
+            points.append(
+                {
+                    "time": ts.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+                    "online_pct": online_pct,
+                    "online_count": int(online_n),
+                    "offline_count": int(offline_n),
+                    "unknown_count": int(unknown_n),
+                    "samples": int(samples),
+                }
+            )
+        return points
+
+    def uptime_analysis(
+        self,
+        hours: float = 168.0,
+        *,
+        station_code: str | None = None,
+        bucket_minutes: int | None = None,
+    ) -> dict[str, Any]:
+        """Summary metrics + timeline + per-station rows for dashboard analysis."""
+        from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
+
+        code = station_code.lower().rstrip("_") if station_code else None
+        bucket = max(1, int(bucket_minutes or self.default_bucket_minutes(hours)))
+        stations = self.uptime_summary(hours=hours, station_code=None)
+        timeline = self.uptime_timeline(
+            hours=hours, station_code=code, bucket_minutes=bucket
+        )
+
+        station_name: str | None = None
+        if code:
+            match = next(
+                (s for s in ZIMBABWE_CORS_STATIONS if s.code.lower().rstrip("_") == code),
+                None,
+            )
+            station_name = match.name if match else code.upper()
+            focus = next((r for r in stations if r["station_code"] == code), None)
+            if focus is None:
+                focus = {
+                    "station_code": code,
+                    "station_name": station_name or code,
+                    "samples": 0,
+                    "online_pct": 0.0,
+                    "degraded_pct": 0.0,
+                    "offline_pct": 0.0,
+                    "unknown_pct": 0.0,
+                }
+            samples = int(focus["samples"])
+            online_pct = float(focus["online_pct"])
+            offline_pct = float(focus["offline_pct"])
+            unknown_pct = float(focus["unknown_pct"])
+        else:
+            with_samples = [r for r in stations if int(r["samples"]) > 0]
+            samples = sum(int(r["samples"]) for r in stations)
+            if with_samples:
+                online_pct = round(
+                    sum(float(r["online_pct"]) for r in with_samples) / len(with_samples), 1
+                )
+                offline_pct = round(
+                    sum(float(r["offline_pct"]) for r in with_samples) / len(with_samples), 1
+                )
+                unknown_pct = round(
+                    sum(float(r["unknown_pct"]) for r in with_samples) / len(with_samples), 1
+                )
+            else:
+                online_pct = offline_pct = unknown_pct = 0.0
+
+        events = self.query_events(hours=hours, station_code=code, limit=2000)
+        outage_events = 0
+        if not events.empty:
+            status = events["status"].map(_normalize_stored_status)
+            outage_mask = (events["event_type"] == "status_change") & (status == "offline")
+            outage_events = int(outage_mask.sum())
+
+        network_with = [r for r in stations if int(r["samples"]) > 0]
+        network_online_pct = (
+            round(sum(float(r["online_pct"]) for r in network_with) / len(network_with), 1)
+            if network_with
+            else 0.0
+        )
+
+        return {
+            "hours": float(hours),
+            "bucket_minutes": bucket,
+            "station_code": code,
+            "station_name": station_name,
+            "samples": samples,
+            "online_pct": online_pct,
+            "offline_pct": offline_pct,
+            "unknown_pct": unknown_pct,
+            "outage_events": outage_events,
+            "network_online_pct": network_online_pct,
+            "stations": stations,
+            "timeline": timeline,
+        }
 
     def event_count(self) -> int:
         def _do() -> int:

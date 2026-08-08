@@ -62,7 +62,9 @@ import type {
   StationLiveStatus,
   StationStatusEvent,
   StationStatusLogStatus,
+  StationUptimeAnalysis,
   StationUptimeRow,
+  StationUptimeTimelinePoint,
   RoverClientsSnapshot,
   TecHeatmapResponse,
   TecObservation,
@@ -422,7 +424,28 @@ export const getRoverClients = (refresh = false) =>
 export const getStationStatusLog = () => get<StationStatusLogStatus>("/cors/status/log");
 export const getStationStatusEvents = (hours = 168, station?: string, event_type?: string) =>
   get<StationStatusEvent[]>("/cors/status/events", { hours, station, event_type });
-export const getStationUptime = (hours = 168) => get<StationUptimeRow[]>("/cors/status/uptime", { hours });
+export const getStationUptime = (hours = 168, station?: string) =>
+  get<StationUptimeRow[]>("/cors/status/uptime", { hours, station });
+export const getStationUptimeTimeline = (
+  hours = 168,
+  station?: string,
+  bucket_minutes?: number,
+) =>
+  get<StationUptimeTimelinePoint[]>("/cors/status/timeline", {
+    hours,
+    station,
+    bucket_minutes,
+  });
+export const getStationUptimeAnalysis = (
+  hours = 168,
+  station?: string,
+  bucket_minutes?: number,
+) =>
+  get<StationUptimeAnalysis>("/cors/status/analysis", {
+    hours,
+    station,
+    bucket_minutes,
+  });
 
 // ── Processing ────────────────────────────────────────────────────────────────
 function appendProcessingOptions(fd: FormData, opts?: ProcessingOptions) {

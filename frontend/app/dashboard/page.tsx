@@ -7,8 +7,6 @@ import {
   refreshSpaceWeather,
   getSpaceWeatherLogStatus,
   getStationStatusLog,
-  getStationStatusEvents,
-  getStationUptime,
   getEkfStatus,
   getEkfStatusWithRetry,
   getStations,
@@ -29,16 +27,15 @@ import { countLiveStationStatuses, connectedStreamCount, type LiveStationCounts 
 import { alignEkfToPoints } from "@/lib/ekfAlign";
 import { conditionsForSeries } from "@/lib/spaceWeatherMetrics";
 import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
+import NetworkUptimePanel from "@/components/dashboard/NetworkUptimePanel";
 import type { ChartAnalysisBlock } from "@/lib/multiSourceChartAnalysis";
 import LineChart from "@/components/charts/LineChart";
-import StationStatusBarChart from "@/components/charts/StationStatusBarChart";
 import {
   analyzeF107Timeline,
   analyzeGnssRiskTimeline,
   analyzeKpDstTimeline,
   analyzeS4Timeline,
   analyzeSolarWindTimeline,
-  analyzeStationUptime,
   analyzeStationsOnlineTimeline,
   analyzeTecTimeline,
 } from "@/lib/dashboardChartAnalysis";
@@ -51,8 +48,6 @@ import type {
   TimelinePoint,
   SpaceWeatherLogStatus,
   StationStatusLogStatus,
-  StationStatusEvent,
-  StationUptimeRow,
 } from "@/lib/types";
 
 function timelineLabels(points: TimelinePoint[]) {
@@ -174,8 +169,6 @@ export default function DashboardPage() {
   const [feedStatus, setFeedStatus] = useState<FeedStatus>("pending");
   const [logStatus, setLogStatus] = useState<SpaceWeatherLogStatus | null>(null);
   const [stationLog, setStationLog] = useState<StationStatusLogStatus | null>(null);
-  const [stationEvents, setStationEvents] = useState<StationStatusEvent[]>([]);
-  const [stationUptime, setStationUptime] = useState<StationUptimeRow[]>([]);
   const [ekf, setEkf] = useState<EkfStatus | null>(null);
   const [liveStationCounts, setLiveStationCounts] = useState<LiveStationCounts | null>(null);
   const [gicBundle, setGicBundle] = useState<GicTimelineBundle | null>(null);
@@ -200,8 +193,6 @@ export default function DashboardPage() {
     const [
       logR,
       stLogR,
-      stEventsR,
-      stUptimeR,
       ekfR,
       stationsR,
       alertsR,
@@ -209,8 +200,6 @@ export default function DashboardPage() {
     ] = await Promise.allSettled([
       getSpaceWeatherLogStatus(),
       getStationStatusLog(),
-      getStationStatusEvents(168),
-      getStationUptime(168),
       getEkfStatus(),
       getStations(false),
       getEkfAlertLog(24),
@@ -219,8 +208,6 @@ export default function DashboardPage() {
 
     if (logR.status === "fulfilled") setLogStatus(logR.value);
     if (stLogR.status === "fulfilled") setStationLog(stLogR.value);
-    if (stEventsR.status === "fulfilled") setStationEvents(stEventsR.value.slice(-12).reverse());
-    if (stUptimeR.status === "fulfilled") setStationUptime(stUptimeR.value);
     if (ekfR.status === "fulfilled") setEkf(ekfR.value);
     if (stationsR.status === "fulfilled") setLiveStationCounts(countLiveStationStatuses(stationsR.value));
     getStations(true)
@@ -442,50 +429,7 @@ export default function DashboardPage() {
         />
       </section>
 
-      {(stationEvents.length > 0 || stationUptime.length > 0) && (
-        <div className="card card-accent">
-          <div className="operations-chart-title">
-            CORS Station Status Archive (last 7 days)
-            {stationUptime.length > 0 ? ` · ${stationUptime.length} stations` : ""}
-          </div>
-          <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "0.75rem" }}>
-            Online and offline transitions are logged when station-health is polled for all 24 Zimbabwe CORS sites.
-          </p>
-          {stationUptime.length > 0 && (
-            <>
-              <StationStatusBarChart rows={stationUptime} height={440} />
-              <ChartAnalysisBox block={analyzeStationUptime(stationUptime)} />
-            </>
-          )}
-          {stationEvents.length > 0 && (
-            <>
-              <div className="operations-chart-title" style={{ marginTop: stationUptime.length > 0 ? "1.25rem" : 0 }}>
-                Recent station status events
-              </div>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.82rem" }}>
-                <thead>
-                  <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                    <th style={{ textAlign: "left", padding: "0.35rem 0.5rem" }}>Time (UTC)</th>
-                    <th style={{ textAlign: "left", padding: "0.35rem 0.5rem" }}>Station</th>
-                    <th style={{ textAlign: "left", padding: "0.35rem 0.5rem" }}>Event</th>
-                    <th style={{ textAlign: "left", padding: "0.35rem 0.5rem" }}>Detail</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {stationEvents.map((ev, i) => (
-                    <tr key={`${ev.time}-${ev.station_code ?? "net"}-${i}`} style={{ borderBottom: "1px solid rgba(36,77,115,0.35)" }}>
-                      <td style={{ padding: "0.35rem 0.5rem", whiteSpace: "nowrap" }}>{ev.time.replace("T", " ").slice(0, 19)}</td>
-                      <td style={{ padding: "0.35rem 0.5rem" }}>{ev.station_code?.toUpperCase() ?? "—"}</td>
-                      <td style={{ padding: "0.35rem 0.5rem" }}>{ev.event_type.replace(/_/g, " ")}</td>
-                      <td style={{ padding: "0.35rem 0.5rem" }}>{ev.message ?? `${ev.previous_status ?? "?"} → ${ev.status}`}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </>
-          )}
-        </div>
-      )}
+      <NetworkUptimePanel />
 
       <StormWatchLog compact hours={24} />
 

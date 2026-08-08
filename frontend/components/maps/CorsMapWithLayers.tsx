@@ -28,6 +28,12 @@ interface Props {
   ntripProbedAt?: string | null;
   stationsLoading?: boolean;
   heatmap?: TecHeatmapResponse | null;
+  highlightCode?: string | null;
+  onStationSelect?: (station: Station | null) => void;
+  /** Layer buttons to show. Defaults to the full home-page set. */
+  layers?: MapLayer[];
+  /** Sourcetable identity mismatch banner (home page). Off for RINEX picker. */
+  showSourcetableWarning?: boolean;
 }
 
 const LAYERS: MapLayer[] = [
@@ -43,6 +49,9 @@ const LAYERS: MapLayer[] = [
   "Network Distances",
 ];
 
+/** Base basemap options only — used by RINEX Data and similar pickers. */
+export const BASE_MAP_LAYERS: MapLayer[] = ["Hybrid", "Satellite", "Street"];
+
 function riskColor(level: string): string {
   if (level === "High") return "#ff4444";
   if (level === "Moderate") return "#ff8c00";
@@ -57,9 +66,21 @@ export default function CorsMapWithLayers({
   ntripProbedAt = null,
   stationsLoading = false,
   heatmap = null,
+  highlightCode = null,
+  onStationSelect,
+  layers = LAYERS,
+  showSourcetableWarning = true,
 }: Props) {
-  const [layer, setLayer] = useState<MapLayer>("Hybrid");
+  const availableLayers = layers.length > 0 ? layers : LAYERS;
+  const [layer, setLayer] = useState<MapLayer>(availableLayers[0] ?? "Hybrid");
   const [proposedCorsSites, setProposedCorsSites] = useState<ProposedCorsSite[]>([]);
+
+  useEffect(() => {
+    if (!availableLayers.includes(layer)) {
+      setLayer(availableLayers[0] ?? "Hybrid");
+    }
+  }, [availableLayers, layer]);
+
   const tecLayerActive = layer === "TEC Heat Map";
   const zimbabweTecLayerActive = layer === "Zimbabwe TEC Map";
   const scienceMapLayerActive =
@@ -72,7 +93,6 @@ export default function CorsMapWithLayers({
       setProposedCorsSites([]);
     }
   }, [networkDistancesActive, proposedCorsSites.length]);
-
   const maxVtec = heatmap?.tec_max ?? null;
   const qualityBanner = heatmapQualityBanner(inferHeatmapQuality(heatmap ?? null), heatmap?.message);
   const awaitingVtecBanner =
@@ -101,7 +121,7 @@ export default function CorsMapWithLayers({
           {qualityBanner}
         </div>
       )}
-      {sourcetableMismatches.length > 0 && (
+      {showSourcetableWarning && sourcetableMismatches.length > 0 && (
         <div
           className="banner banner-warn"
           style={{ fontSize: "0.78rem", marginBottom: "0.5rem" }}
@@ -130,7 +150,7 @@ export default function CorsMapWithLayers({
 
         <div className="home-map-toolbar-center">
           <span className="home-map-layer-label">Map Layer</span>
-          {LAYERS.map((l) => (
+          {availableLayers.map((l) => (
             <button
               key={l}
               type="button"
@@ -166,6 +186,8 @@ export default function CorsMapWithLayers({
           layer={layer}
           heatmap={heatmap}
           proposedCorsSites={networkDistancesActive ? proposedCorsSites : []}
+          highlightCode={highlightCode}
+          onStationSelect={onStationSelect}
         />
 
         {networkDistancesActive && (

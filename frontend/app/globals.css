@@ -1296,9 +1296,9 @@ select option {
 }
 .rinex-pp-body {
   display: grid;
-  grid-template-columns: minmax(280px, 1.1fr) minmax(260px, 0.9fr);
+  grid-template-columns: minmax(260px, 0.85fr) minmax(340px, 1.25fr);
   gap: 0.75rem;
-  min-height: 420px;
+  min-height: 520px;
 }
 .rinex-pp-list-pane,
 .rinex-pp-map-pane {
@@ -1308,6 +1308,12 @@ select option {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+.rinex-pp-map-pane--hybrid {
+  overflow: auto;
+  padding: 0.35rem 0.35rem 0.55rem;
+  background: transparent;
+  border: none;
 }
 .rinex-pp-list-head {
   padding: 0.55rem;

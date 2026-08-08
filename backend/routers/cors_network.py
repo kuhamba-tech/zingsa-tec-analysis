@@ -15,7 +15,9 @@ from backend.schemas import (
     StationOut,
     StationStatusEventOut,
     StationStatusLogStatus,
+    StationUptimeAnalysis,
     StationUptimeRow,
+    StationUptimeTimelinePoint,
 )
 from backend.station_status_logger import poll_and_log, status as station_log_status
 
@@ -548,10 +550,52 @@ async def ingest_status_snapshots(
 
 
 @router.get("/status/uptime", response_model=list[StationUptimeRow])
-async def status_uptime(hours: float = 168.0, _=Depends(require_api_key)):
+async def status_uptime(
+    hours: float = 168.0,
+    station: str | None = Query(None, description="Optional station code filter"),
+    _=Depends(require_api_key),
+):
     from backend.station_status_logger import get_db
 
-    return [StationUptimeRow(**row) for row in get_db().uptime_summary(hours=hours)]
+    return [
+        StationUptimeRow(**row)
+        for row in get_db().uptime_summary(hours=hours, station_code=station)
+    ]
+
+
+@router.get("/status/timeline", response_model=list[StationUptimeTimelinePoint])
+async def status_timeline(
+    hours: float = 168.0,
+    station: str | None = Query(None, description="Station code; omit for whole network"),
+    bucket_minutes: int | None = Query(
+        None, ge=1, le=10080, description="Aggregation bucket; defaults by window size"
+    ),
+    _=Depends(require_api_key),
+):
+    from backend.station_status_logger import get_db
+
+    rows = get_db().uptime_timeline(
+        hours=hours, station_code=station, bucket_minutes=bucket_minutes
+    )
+    return [StationUptimeTimelinePoint(**row) for row in rows]
+
+
+@router.get("/status/analysis", response_model=StationUptimeAnalysis)
+async def status_analysis(
+    hours: float = 168.0,
+    station: str | None = Query(None, description="Station code; omit for whole network"),
+    bucket_minutes: int | None = Query(
+        None, ge=1, le=10080, description="Aggregation bucket; defaults by window size"
+    ),
+    _=Depends(require_api_key),
+):
+    """Network / per-station uptime metrics + bucketed timeline for 1d–1y analysis."""
+    from backend.station_status_logger import get_db
+
+    payload = get_db().uptime_analysis(
+        hours=hours, station_code=station, bucket_minutes=bucket_minutes
+    )
+    return StationUptimeAnalysis(**payload)
 
 
 def _int_or_none(value: object) -> int | None:

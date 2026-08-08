@@ -16,6 +16,10 @@ interface Props {
   layer?: MapLayer;
   heatmap?: TecHeatmapResponse | null;
   proposedCorsSites?: ProposedCorsSite[];
+  /** Emphasize one station marker (e.g. uptime analysis selection). */
+  highlightCode?: string | null;
+  /** Fired when a CORS marker is clicked (or map background clears selection). */
+  onStationSelect?: (station: Station | null) => void;
 }
 
 const STATUS_COLOR: Record<string, string> = {
@@ -223,6 +227,8 @@ export default function CorsMap({
   layer = "Hybrid",
   heatmap = null,
   proposedCorsSites = [],
+  highlightCode = null,
+  onStationSelect,
 }: Props) {
   const mapRef = useRef<HTMLDivElement>(null);
   const popupElementRef = useRef<HTMLDivElement | null>(null);
@@ -252,6 +258,8 @@ export default function CorsMap({
   const heatmapRef = useRef(heatmap);
   const layerRef = useRef(layer);
   const proposedSitesRef = useRef(proposedCorsSites);
+  const highlightCodeRef = useRef(highlightCode);
+  const onStationSelectRef = useRef(onStationSelect);
   /** Tracks layer used for the last view animation — ignore heatmap-only updates. */
   const viewLayerRef = useRef<MapLayer | null>(null);
   const [selected, setSelected] = useState<Station | null>(null);
@@ -262,6 +270,8 @@ export default function CorsMap({
   heatmapRef.current = heatmap;
   layerRef.current = layer;
   proposedSitesRef.current = proposedCorsSites;
+  highlightCodeRef.current = highlightCode;
+  onStationSelectRef.current = onStationSelect;
 
   const buildFeatures = (list: Station[]) => {
     const helpers = olHelpersRef.current;
@@ -269,10 +279,12 @@ export default function CorsMap({
     const { fromLonLat, Feature, Point, Style, Circle, Fill, Stroke, Text } = helpers;
     const showTecLabels = layerRef.current === "TEC Heat Map";
     const networkMode = layerRef.current === "Network Distances";
+    const highlight = stationKey(highlightCodeRef.current || "");
     return list.map((s) => {
       const f = new Feature({ geometry: new Point(fromLonLat([s.lon, s.lat])), station: s });
       const tecValue = stationTecValue(s, heatmapRef.current);
       const isRef = networkMode && isReferenceCorsStation(s);
+      const isHighlight = Boolean(highlight) && stationKey(s.code) === highlight;
       const markerColor = networkMode
         ? isRef
           ? "#5ec8ff"
@@ -287,12 +299,16 @@ export default function CorsMap({
         : showTecLabels && tecValue != null
           ? `${s.code.toUpperCase()}\n${tecValue.toFixed(1)}`
           : s.code.toUpperCase();
+      const baseRadius = networkMode ? (isRef ? 8 : 7) : 7;
       f.setStyle(
         new Style({
           image: new Circle({
-            radius: networkMode ? (isRef ? 8 : 7) : 7,
+            radius: isHighlight ? baseRadius + 3 : baseRadius,
             fill: new Fill({ color: markerColor }),
-            stroke: new Stroke({ color: "#fff", width: 1.5 }),
+            stroke: new Stroke({
+              color: isHighlight ? "#ffd166" : "#fff",
+              width: isHighlight ? 3 : 1.5,
+            }),
           }),
           text: new Text({
             text: label,
@@ -712,9 +728,11 @@ export default function CorsMap({
         const f = map.forEachFeatureAtPixel(evt.pixel, (feat: any) => feat);
         if (f) {
           const s: Station = f.get("station");
+          if (!s) return;
           const tecValue = stationTecValue(s, heatmapRef.current);
           const heatmapStation = heatmapStationFor(s, heatmapRef.current);
           setSelectedRef.current(s);
+          onStationSelectRef.current?.(s);
           const icaoLine =
             tecValue != null
               ? `<div style="margin-top:0.25rem;color:${icaoTecColor(tecValue)};font-weight:700">${icaoTecLabel(tecValue)}</div>`
@@ -743,6 +761,7 @@ export default function CorsMap({
           popupEl.style.display = "block";
         } else {
           setSelectedRef.current(null);
+          onStationSelectRef.current?.(null);
           popupEl.style.display = "none";
           popup.setPosition(undefined);
         }
@@ -788,6 +807,10 @@ export default function CorsMap({
     syncStationFeatures(stations);
     void syncNetworkLayer();
   }, [stations]);
+
+  useEffect(() => {
+    syncStationFeatures(stationsRef.current);
+  }, [highlightCode]);
 
   useEffect(() => {
     void syncProposedSitesLayer();

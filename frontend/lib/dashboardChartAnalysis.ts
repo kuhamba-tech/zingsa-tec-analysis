@@ -322,7 +322,10 @@ export function analyzeGicTimeline(data: GicTimelineBundle | null): ChartAnalysi
   };
 }
 
-export function analyzeStationUptime(rows: StationUptimeRow[]): ChartAnalysisBlock {
+export function analyzeStationUptime(
+  rows: StationUptimeRow[],
+  periodLabel = "last 7 days",
+): ChartAnalysisBlock {
   if (!rows.length) {
     return { lead: "", bullets: [] };
   }
@@ -330,7 +333,7 @@ export function analyzeStationUptime(rows: StationUptimeRow[]): ChartAnalysisBlo
   const worst = sorted.slice(0, 3);
   const avg = mean(rows.map((r) => r.online_pct));
   const bullets: string[] = [
-    "Percentage of time each CORS station was online in the last 7 days — affects TEC map coverage and GNSS product reliability.",
+    `Percentage of archived samples each CORS station was online over ${periodLabel} — affects TEC map coverage and GNSS product reliability.`,
     `Network mean online time ${fmt(avg, 1)}% across ${rows.length} stations.`,
   ];
   if (worst[0] && worst[0].online_pct < 95) {

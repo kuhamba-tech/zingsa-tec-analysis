@@ -6,7 +6,10 @@ import {
   getRinexArchiveAvailability,
   getRinexArchiveStatus,
   getStations,
+  getSpaceWeather,
 } from "@/lib/api";
+import CorsMapWithLayers, { BASE_MAP_LAYERS } from "@/components/maps/CorsMapWithLayers";
+import { countLiveStationStatuses } from "@/lib/liveStationStatus";
 import type { Station } from "@/lib/types";
 
 type StationRow = {
@@ -41,9 +44,17 @@ function daysAgoIso(n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+function stationKey(code: string): string {
+  return code.toLowerCase().replace(/_+$/, "");
+}
+
 export default function RinexDownloadPanel() {
   const [stations, setStations] = useState<Station[]>([]);
+  const [stationsLoading, setStationsLoading] = useState(true);
+  const [ntripProbedAt, setNtripProbedAt] = useState<string | null>(null);
+  const [riskLevel, setRiskLevel] = useState("N/A");
   const [selected, setSelected] = useState<string[]>([]);
+  const [lastClicked, setLastClicked] = useState<string | null>(null);
   const [start, setStart] = useState(todayIso());
   const [end, setEnd] = useState(todayIso());
   const [projectName, setProjectName] = useState("");
@@ -60,19 +71,49 @@ export default function RinexDownloadPanel() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    getStations()
-      .then((rows) => setStations(rows))
-      .catch(() => setStations([]));
+    let cancelled = false;
+    setStationsLoading(true);
+    (async () => {
+      try {
+        const [catalog, sw] = await Promise.all([
+          getStations(false),
+          getSpaceWeather().catch(() => null),
+        ]);
+        if (cancelled) return;
+        setStations(catalog);
+        if (sw?.gnss_risk) setRiskLevel(sw.gnss_risk);
+        setNtripProbedAt(catalog.find((s) => s.ntrip_probed_at)?.ntrip_probed_at ?? null);
+        getStations(true)
+          .then((live) => {
+            if (cancelled) return;
+            setStations(live);
+            const probed = live.find((s) => s.ntrip_probed_at)?.ntrip_probed_at ?? null;
+            if (probed) setNtripProbedAt(probed);
+          })
+          .catch(() => null);
+      } catch {
+        if (!cancelled) setStations([]);
+      } finally {
+        if (!cancelled) setStationsLoading(false);
+      }
+    })();
     getRinexArchiveStatus()
       .then((s) => {
+        if (cancelled) return;
         setArchiveReady(Boolean(s.archive_exists || s.url_template_configured));
         setStatusMsg(s.message ?? null);
       })
       .catch(() => {
+        if (cancelled) return;
         setArchiveReady(false);
         setStatusMsg("Could not reach RINEX archive status endpoint.");
       });
+    return () => {
+      cancelled = true;
+    };
   }, []);
+
+  const liveCounts = useMemo(() => countLiveStationStatuses(stations), [stations]);
 
   const filteredStations = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -88,6 +129,7 @@ export default function RinexDownloadPanel() {
   const selectedSet = useMemo(() => new Set(selected), [selected]);
 
   const toggle = (code: string) => {
+    setLastClicked(stationKey(code));
     setSelected((prev) =>
       prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code],
     );
@@ -101,7 +143,16 @@ export default function RinexDownloadPanel() {
     });
   };
 
-  const clearSelection = () => setSelected([]);
+  const clearSelection = () => {
+    setSelected([]);
+    setLastClicked(null);
+  };
+
+  const handleMapStationSelect = (station: Station | null) => {
+    if (!station) return;
+    const match = stations.find((s) => stationKey(s.code) === stationKey(station.code));
+    toggle(match?.code ?? station.code);
+  };
 
   const checkAvailability = useCallback(async () => {
     if (selected.length === 0) {
@@ -182,6 +233,7 @@ export default function RinexDownloadPanel() {
           <p className="rinex-pp-lead">
             Download CORS observation files for office post-processing / PPK. Output is RINEX
             (archive native rate). Optionally include station nav and IGS BRDC broadcast ephemeris.
+            Use the Hybrid map on the right to pick stations (same map as the home page).
           </p>
         </div>
         <div className="rinex-pp-gauge" aria-label="Period data coverage">
@@ -290,7 +342,7 @@ export default function RinexDownloadPanel() {
 
           <ul className="rinex-pp-station-list">
             {filteredStations.map((s) => {
-              const row = rowByCode.get(s.code.toLowerCase().replace(/_$/, ""));
+              const row = rowByCode.get(stationKey(s.code));
               const pct = row?.availability_pct;
               const files = row?.obs_files ?? 0;
               const on = selectedSet.has(s.code);
@@ -327,32 +379,22 @@ export default function RinexDownloadPanel() {
           </ul>
         </aside>
 
-        <div className="rinex-pp-map-pane">
-          <div className="rinex-pp-map-grid">
-            {stations.map((s) => {
-              const on = selectedSet.has(s.code);
-              const row = rowByCode.get(s.code.toLowerCase().replace(/_$/, ""));
-              const hasData = (row?.obs_files ?? 0) > 0;
-              const live = (s.status || "").toLowerCase() === "online";
-              // Rough Zimbabwe plate: lon 25–33 → x, lat -22.4–-15.6 → y
-              const x = ((s.lon - 25.1) / (33.1 - 25.1)) * 100;
-              const y = ((-15.55 - s.lat) / (-15.55 - -22.4)) * 100;
-              return (
-                <button
-                  key={s.code}
-                  type="button"
-                  className={`rinex-pp-map-pin ${on ? "is-selected" : ""} ${hasData ? "has-data" : ""} ${live ? "is-live" : ""}`}
-                  style={{ left: `${Math.min(96, Math.max(4, x))}%`, top: `${Math.min(96, Math.max(4, y))}%` }}
-                  title={`${s.code.toUpperCase()} — ${s.name}`}
-                  onClick={() => toggle(s.code)}
-                >
-                  <span>{s.code.slice(0, 4).toUpperCase()}</span>
-                </button>
-              );
-            })}
-          </div>
+        <div className="rinex-pp-map-pane rinex-pp-map-pane--hybrid">
+          <CorsMapWithLayers
+            stations={stations}
+            height={520}
+            riskLevel={riskLevel}
+            liveCounts={liveCounts}
+            ntripProbedAt={ntripProbedAt}
+            stationsLoading={stationsLoading}
+            layers={BASE_MAP_LAYERS}
+            showSourcetableWarning={false}
+            highlightCode={lastClicked}
+            onStationSelect={handleMapStationSelect}
+          />
           <p className="rinex-pp-map-caption">
-            Click markers to select. Green ring = data in period · Dot = NTRIP online status.
+            Hybrid / Satellite / Street only. Click a marker to add/remove that station from the
+            download selection. Selected: {selected.length || "none"}.
           </p>
         </div>
       </div>

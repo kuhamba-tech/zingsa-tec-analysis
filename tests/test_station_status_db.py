@@ -107,6 +107,66 @@ class StationStatusDBTests(unittest.TestCase):
         self.assertEqual(len(uptime), len(ZIMBABWE_CORS_STATIONS))
         self.assertTrue(all(r["samples"] == 0 for r in uptime))
 
+    def test_uptime_timeline_and_analysis_for_station_and_network(self) -> None:
+        base = pd.Timestamp("2026-08-07T10:00:00Z")
+        rows = []
+        for i in range(4):
+            t = (base + pd.Timedelta(minutes=15 * i)).isoformat().replace("+00:00", "Z")
+            rows.append(
+                {
+                    "time": t,
+                    "station_code": "zinh",
+                    "status": "online" if i < 3 else "offline",
+                    "api_reachable": True,
+                    "source": "test",
+                }
+            )
+            rows.append(
+                {
+                    "time": t,
+                    "station_code": "zimw",
+                    "status": "offline" if i < 2 else "online",
+                    "api_reachable": True,
+                    "source": "test",
+                }
+            )
+        self.db.insert_snapshots(rows)
+        self.db.insert_event(
+            {
+                "time": rows[-1]["time"],
+                "station_code": "zinh",
+                "status": "offline",
+                "previous_status": "online",
+                "event_type": "status_change",
+                "online_count": 1,
+                "degraded_count": 0,
+                "offline_count": 1,
+                "unknown_count": 0,
+                "api_reachable": True,
+                "message": "online → offline",
+                "source": "test",
+            }
+        )
+
+        station_tl = self.db.uptime_timeline(hours=24 * 365, station_code="zinh", bucket_minutes=60)
+        self.assertGreaterEqual(len(station_tl), 1)
+        self.assertTrue(all("online_pct" in p for p in station_tl))
+
+        network_tl = self.db.uptime_timeline(hours=24 * 365, bucket_minutes=60)
+        self.assertGreaterEqual(len(network_tl), 1)
+
+        analysis = self.db.uptime_analysis(hours=24 * 365, station_code="zinh", bucket_minutes=60)
+        self.assertEqual(analysis["station_code"], "zinh")
+        self.assertGreater(analysis["samples"], 0)
+        self.assertEqual(analysis["outage_events"], 1)
+        self.assertEqual(len(analysis["stations"]), len(ZIMBABWE_CORS_STATIONS))
+        self.assertGreaterEqual(len(analysis["timeline"]), 1)
+
+        filtered = self.db.uptime_summary(hours=24 * 365, station_code="zinh")
+        self.assertEqual(len(filtered), 1)
+        self.assertEqual(filtered[0]["station_code"], "zinh")
+        self.assertEqual(filtered[0]["online_pct"], 75.0)
+
     def test_postgres_snapshot_read_reconnects_once(self) -> None:
         db = object.__new__(StationStatusDB)
         db._dsn = "postgresql://example.invalid/status"

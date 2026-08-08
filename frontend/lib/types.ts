@@ -308,6 +308,30 @@ export interface StationUptimeRow {
   unknown_pct: number;
 }
 
+export interface StationUptimeTimelinePoint {
+  time: string;
+  online_pct: number;
+  online_count: number;
+  offline_count: number;
+  unknown_count: number;
+  samples: number;
+}
+
+export interface StationUptimeAnalysis {
+  hours: number;
+  bucket_minutes: number;
+  station_code: string | null;
+  station_name: string | null;
+  samples: number;
+  online_pct: number;
+  offline_pct: number;
+  unknown_pct: number;
+  outage_events: number;
+  network_online_pct: number;
+  stations: StationUptimeRow[];
+  timeline: StationUptimeTimelinePoint[];
+}
+
 // ── Processing ────────────────────────────────────────────────────────────────
 export interface ProcessingSession {
   session_id: string;

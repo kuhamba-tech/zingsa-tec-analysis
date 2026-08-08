@@ -319,6 +319,30 @@ class StationUptimeRow(BaseModel):
     unknown_pct: float
 
 
+class StationUptimeTimelinePoint(BaseModel):
+    time: str
+    online_pct: float
+    online_count: int
+    offline_count: int
+    unknown_count: int
+    samples: int
+
+
+class StationUptimeAnalysis(BaseModel):
+    hours: float
+    bucket_minutes: int
+    station_code: str | None = None
+    station_name: str | None = None
+    samples: int
+    online_pct: float
+    offline_pct: float
+    unknown_pct: float
+    outage_events: int
+    network_online_pct: float
+    stations: list[StationUptimeRow]
+    timeline: list[StationUptimeTimelinePoint]
+
+
 # ── Processing ─────────────────────────────────────────────────────────────────
 
 class ProcessingSession(BaseModel):

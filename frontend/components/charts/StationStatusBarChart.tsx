@@ -23,9 +23,14 @@ const STATUS_COLORS = {
 interface Props {
   rows: StationUptimeRow[];
   height?: number;
+  yLabel?: string;
 }
 
-export default function StationStatusBarChart({ rows, height = 420 }: Props) {
+export default function StationStatusBarChart({
+  rows,
+  height = 420,
+  yLabel = "% of samples (7 days)",
+}: Props) {
   const labels = rows.map((r) => r.station_code.toUpperCase());
 
   return (
@@ -94,7 +99,7 @@ export default function StationStatusBarChart({ rows, height = 420 }: Props) {
               stacked: true,
               min: 0,
               max: 100,
-              title: { display: true, text: "% of samples (7 days)", color: "#ffffff" },
+              title: { display: true, text: yLabel, color: "#ffffff" },
               ticks: { color: "#ffffff", callback: (v) => `${v}%` },
               grid: { color: "rgba(36,77,115,0.35)" },
             },
