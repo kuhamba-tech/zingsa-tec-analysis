@@ -8,7 +8,7 @@ import {
   isGeomagneticStorm,
   isPossibleGeomagneticStorm,
 } from "@/lib/geomagneticStormAlerts";
-import type { EkfStatus, SpaceWeatherCurrent, StormAlertStatus } from "@/lib/types";
+import type { SpaceWeatherCurrent, StormAlertStatus } from "@/lib/types";
 
 function fmt(v: number | null | undefined, digits = 1): string {
   if (v == null || Number.isNaN(v)) return "—";
@@ -28,16 +28,16 @@ function notificationSubtext(stormStatus: StormAlertStatus | null): string {
   return `2 alert rules · ${rules[0]?.split(":")[0] ?? "Kp/Dst"}`;
 }
 
-/** Live storm snapshot: indices, active EKF alerts, notification status. */
+/** Live storm snapshot from observed Kp / Dst only (not EKF residuals). */
 export default function StormWatchSummary({
   sw,
   stormStatus,
-  ekf,
   loading,
 }: {
   sw: SpaceWeatherCurrent | null;
   stormStatus: StormAlertStatus | null;
-  ekf: EkfStatus | null;
+  /** @deprecated Ignored — storm status is index-based, not EKF. */
+  ekf?: unknown;
   loading: boolean;
 }) {
   if (loading && !sw) {
@@ -52,12 +52,13 @@ export default function StormWatchSummary({
   const level = stormStatus?.geomagnetic_level ?? geomagneticAlertLevel(sw);
   const geomagneticStorm = level === "storm" || isGeomagneticStorm(sw);
   const possibleStorm = level === "possible" || isPossibleGeomagneticStorm(sw);
-  const activeCount = stormStatus?.active_count ?? ekf?.active_alert_count ?? 0;
-  const ekfAlerts = stormStatus?.ekf_alert_count ?? 0;
-  const stormLevel = stormStatus?.kp_storm_level ?? ekf?.kp_storm_level ?? null;
-  const banner = stormStatus?.banner ?? ekf?.banner ?? geo.headline;
+  const stormLevel = stormStatus?.kp_storm_level ?? null;
+  const banner =
+    (stormStatus?.geomagnetic_level && stormStatus.geomagnetic_level !== "none"
+      ? stormStatus.banner
+      : null) ?? geo.headline;
 
-  const statusTone = geomagneticStorm || activeCount > 0
+  const statusTone = geomagneticStorm
     ? "storm-summary--alert"
     : possibleStorm
       ? "storm-summary--warn"
@@ -67,7 +68,7 @@ export default function StormWatchSummary({
     ? "Geomagnetic storm thresholds exceeded (Kp ≥ 5 or Dst ≤ −50 nT)."
     : possibleStorm
       ? "Possible geomagnetic storm — Kp ≥ 4 or Dst ≤ −30 nT."
-      : "No active geomagnetic or EKF deviation alerts.";
+      : "Quiet — Kp and Dst are below storm watch thresholds.";
 
   return (
     <div className={`card storm-summary ${statusTone}`}>
@@ -101,9 +102,13 @@ export default function StormWatchSummary({
           </span>
         </div>
         <div className="storm-summary-metric">
-          <span className="storm-summary-label">Active alerts</span>
-          <strong>{activeCount}</strong>
-          <span className="storm-summary-sub">{ekfAlerts} EKF deviation{ekfAlerts === 1 ? "" : "s"}</span>
+          <span className="storm-summary-label">Storm level</span>
+          <strong>
+            {geomagneticStorm ? "Storm" : possibleStorm ? "Watch" : "Quiet"}
+          </strong>
+          <span className="storm-summary-sub">
+            {geo.reasons.length ? geo.reasons.join(" · ") : "Kp < 4 and Dst > −30 nT"}
+          </span>
         </div>
         <div className="storm-summary-metric">
           <span className="storm-summary-label">Notifications</span>

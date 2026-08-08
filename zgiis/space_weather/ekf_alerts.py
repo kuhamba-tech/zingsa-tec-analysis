@@ -119,9 +119,9 @@ def evaluate(series_by_param: dict[str, list[EkfPoint]]) -> dict:
 
         label = PARAM_LABELS.get(param, param)
         message = (
-            "Possible geomagnetic storm or ionospheric disturbance detected. "
-            f"The observed {label} value has deviated significantly from the "
-            "Extended Kalman Filter prediction."
+            f"Observed {label} has diverged from the filter forecast "
+            f"(error {s['error']:.3g} above threshold {s['threshold']:.3g}). "
+            "This is a filter residual flag for operator review — not a geomagnetic storm declaration."
         )
         alerts.append({
             "alert_id": str(uuid.uuid4()),

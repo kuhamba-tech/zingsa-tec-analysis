@@ -1530,6 +1530,30 @@ select option {
   font-size: clamp(1.75rem, 3.5vw, 2.35rem);
   line-height: 1;
 }
+.home-page-title-logo {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: clamp(88px, 12vw, 120px);
+  height: clamp(88px, 12vw, 120px);
+  margin: 0 auto 0.4rem;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+}
+.home-page-title-logo .home-hero-logo {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  object-fit: contain;
+  object-position: center;
+  border-radius: 0;
+  transform: none;
+}
 .home-page-title-text {
   display: flex;
   flex-direction: column;
@@ -1647,20 +1671,6 @@ select option {
 .home-metric-card:hover {
   border-color: #244d73;
   box-shadow: none;
-}
-.home-hero-logo-wrap {
-  flex-shrink: 0;
-  width: clamp(64px, 7.5vw, 96px);
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  align-self: flex-end;
-  margin-top: 1.75rem;
-  padding: 0 0 0.35rem;
-  border: none;
-  background: transparent;
-  box-shadow: none;
-  opacity: 0.9;
 }
 .home-hero-logo {
   display: block;
@@ -1962,6 +1972,17 @@ select option {
   border-color: var(--accent);
   background: var(--accent);
   color: #000;
+}
+.reports-type-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+}
+a.home-map-layer-btn {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
 }
 .home-map-toolbar-right {
   display: flex;
@@ -2416,11 +2437,6 @@ select option {
 @media (max-width: 900px) {
   .home-sw-row {
     flex-direction: column;
-  }
-  .home-hero-logo-wrap {
-    width: clamp(56px, 16vw, 80px);
-    align-self: flex-end;
-    margin-top: 0.75rem;
   }
   .home-map-toolbar {
     flex-direction: column;
@@ -3491,6 +3507,21 @@ select option {
   margin-bottom: 0.8rem;
   border-radius: 6px;
   background: #e7edf3;
+}
+.hardware-image-well--photo {
+  min-height: 160px;
+  padding: 0.65rem;
+  background: #f4f7fa;
+  overflow: hidden;
+}
+.hardware-product-photo {
+  width: 100%;
+  height: auto;
+  max-height: 180px;
+  object-fit: contain;
+}
+.hardware-product-photo--flow {
+  max-height: 110px;
 }
 .hardware-image-well svg,
 .hardware-flow-visual svg {

@@ -48,6 +48,22 @@ def test_build_alarm_summary_includes_rules():
     assert alarm["geomagnetic_level"] == "possible"
     assert len(alarm["alert_rules"]) == 2
     assert alarm["active"] is True
+    assert alarm["banner"] is not None
+    assert "EKF" not in alarm["banner"]
+    assert "Kalman" not in alarm["banner"]
+
+
+def test_build_alarm_summary_ignores_ekf_alerts_in_banner():
+    ekf_alerts = [{
+        "acknowledged_status": False,
+        "severity": "High",
+        "alert_message": "Observed S4 has diverged from the filter forecast",
+    }]
+    alarm = build_alarm_summary(kp=1.0, dst=-10.0, alerts=ekf_alerts)
+    assert alarm["geomagnetic_level"] == "none"
+    assert alarm["active"] is False
+    assert alarm["banner"] is None
+    assert alarm["ekf_alert_count"] == 1
 
 
 def test_geomagnetic_level_changed_detects_transition():

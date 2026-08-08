@@ -210,9 +210,9 @@ async def series(
             alerts = stored
             worst = stored[0]
             banner = (
-                f"⚠ Possible geomagnetic disturbance detected: {worst['parameter_label']} "
-                f"at {station_id.upper()} differs significantly from EKF prediction. "
-                "Check Kp, Dst, TEC and solar wind conditions."
+                f"Filter residual alert: {worst['parameter_label']} "
+                f"at {station_id.upper()} diverged from forecast. "
+                "Review Kp, Dst, TEC and solar wind — this is not a storm declaration."
             )
 
     # Kp/Dst context over the same window (independent series for frontend charts).

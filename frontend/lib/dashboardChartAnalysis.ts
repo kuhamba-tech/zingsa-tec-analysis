@@ -139,7 +139,7 @@ export function analyzeKpDstTimeline(
 
   if (hasKpEkf || hasDstEkf) {
     bullets.push(
-      "When observed and EKF lines diverge sharply, the filter may flag an unusual disturbance — check the storm alert banner at the top of the dashboard.",
+      "Dashed EKF lines are the filter forecast for comparison only — storm watches and alarms follow observed Kp / Dst thresholds, not filter residuals.",
     );
   }
 

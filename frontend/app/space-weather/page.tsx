@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState, type CSSProperties, type KeyboardEvent } from "react";
-import { getEkfAlertLog, getEkfStatus, getSpaceWeather, getSolarActivity, getTimelines, refreshSpaceWeather, getStations } from "@/lib/api";
+import { getSpaceWeather, getSolarActivity, getTimelines, refreshSpaceWeather, getStations } from "@/lib/api";
 import ClickableMetricGrid from "@/components/spaceWeather/ClickableMetricGrid";
 import IndexScaleReference from "@/components/spaceWeather/IndexScaleReference";
 import AiRecommendationPanel from "@/components/layout/AiRecommendationPanel";
@@ -8,7 +8,7 @@ import HomeStormAlertBanner from "@/components/layout/HomeStormAlertBanner";
 import LineChart from "@/components/charts/LineChart";
 import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
 import { countLiveStationStatuses, connectedStreamCount, type LiveStationCounts } from "@/lib/liveStationStatus";
-import type { EkfAlert, EkfStatus, SpaceWeatherCurrent, SolarActivityFull, SpaceWeatherTimelines, TimelinePoint } from "@/lib/types";
+import type { SpaceWeatherCurrent, SolarActivityFull, SpaceWeatherTimelines, TimelinePoint } from "@/lib/types";
 import {
   FLARE_SCALE,
   donkiCmeCountColor,
@@ -218,8 +218,6 @@ export default function SpaceWeatherPage() {
   const [nowCat, setNowCat] = useState("");
   const [feedStatus, setFeedStatus] = useState<FeedStatus>("pending");
   const [liveStationCounts, setLiveStationCounts] = useState<LiveStationCounts | null>(null);
-  const [ekf, setEkf] = useState<EkfStatus | null>(null);
-  const [pendingAlerts, setPendingAlerts] = useState<EkfAlert[]>([]);
   const [selectedSolarInfo, setSelectedSolarInfo] = useState<SolarInfoKey>("summary");
 
   useEffect(() => {
@@ -258,12 +256,6 @@ export default function SpaceWeatherPage() {
     getStations(true)
       .then((stations) => setLiveStationCounts(countLiveStationStatuses(stations)))
       .catch(() => null);
-    getEkfStatus()
-      .then(setEkf)
-      .catch(() => setEkf(null));
-    getEkfAlertLog(24)
-      .then((rows) => setPendingAlerts(rows.filter((a) => !a.acknowledged_status)))
-      .catch(() => setPendingAlerts([]));
   }, []);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
@@ -477,7 +469,7 @@ export default function SpaceWeatherPage() {
 
       {freshnessMsg && <div className="banner banner-warn">{freshnessMsg}</div>}
 
-      <HomeStormAlertBanner sw={sw} ekf={ekf} pendingAlerts={pendingAlerts} />
+      <HomeStormAlertBanner sw={sw} />
 
       <ClickableMetricGrid sw={sw} updatedUtc={sw?.updated_utc} liveStationCounts={liveStationCounts} />
       <IndexScaleReference />

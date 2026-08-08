@@ -13,7 +13,6 @@ import {
   getGicLiveModel,
   getGicSeries,
   getGicStatus,
-  getEkfAlertLog,
 } from "@/lib/api";
 import ClickableMetricGrid from "@/components/spaceWeather/ClickableMetricGrid";
 import IndexScaleReference from "@/components/spaceWeather/IndexScaleReference";
@@ -40,7 +39,6 @@ import {
   analyzeTecTimeline,
 } from "@/lib/dashboardChartAnalysis";
 import type {
-  EkfAlert,
   EkfPoint,
   EkfStatus,
   SpaceWeatherCurrent,
@@ -172,7 +170,6 @@ export default function DashboardPage() {
   const [ekf, setEkf] = useState<EkfStatus | null>(null);
   const [liveStationCounts, setLiveStationCounts] = useState<LiveStationCounts | null>(null);
   const [gicBundle, setGicBundle] = useState<GicTimelineBundle | null>(null);
-  const [pendingAlerts, setPendingAlerts] = useState<EkfAlert[]>([]);
 
   const loadGicBundle = useCallback(async (): Promise<GicTimelineBundle | null> => {
     const status = await getGicStatus().catch(() => null);
@@ -195,14 +192,12 @@ export default function DashboardPage() {
       stLogR,
       ekfR,
       stationsR,
-      alertsR,
       gicR,
     ] = await Promise.allSettled([
       getSpaceWeatherLogStatus(),
       getStationStatusLog(),
       getEkfStatus(),
       getStations(false),
-      getEkfAlertLog(24),
       loadGicBundle(),
     ]);
 
@@ -213,9 +208,6 @@ export default function DashboardPage() {
     getStations(true)
       .then((stations) => setLiveStationCounts(countLiveStationStatuses(stations)))
       .catch(() => null);
-    if (alertsR.status === "fulfilled") {
-      setPendingAlerts(alertsR.value.filter((a) => !a.acknowledged_status));
-    }
     if (gicR.status === "fulfilled" && gicR.value) setGicBundle(gicR.value);
   }, [loadGicBundle]);
 
@@ -318,12 +310,7 @@ export default function DashboardPage() {
         </p>
       )}
 
-      <StormWarningAlarm
-        ekf={ekf}
-        sw={sw}
-        pendingAlerts={pendingAlerts}
-        onAcknowledged={() => setPendingAlerts([])}
-      />
+      <StormWarningAlarm sw={sw} />
 
       <p style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
         Operational snapshot of every index — for solar flare, CME, and NOAA alert detail see{" "}

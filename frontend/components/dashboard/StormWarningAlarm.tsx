@@ -1,36 +1,32 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ackEkfAlert, getEkfAlertLog } from "@/lib/api";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   geomagneticAlertLevel,
+  geomagneticAlertMessages,
+} from "@/lib/geomagneticStormAlerts";
+import {
   startStormAlarmBeep,
   stopStormAlarmBeep,
   unlockStormAlarmAudio,
 } from "@/lib/stormAlarmSound";
-import type { EkfAlert, EkfStatus, SpaceWeatherCurrent } from "@/lib/types";
+import type { SpaceWeatherCurrent } from "@/lib/types";
 
-/** Prominent warning alarm bar for active / possible geomagnetic storms. */
+/** Warning alarm for observed geomagnetic storm conditions (Kp / Dst only). */
 export default function StormWarningAlarm({
-  ekf,
   sw,
-  pendingAlerts: externalPending,
-  onAcknowledged,
 }: {
-  ekf: EkfStatus | null;
   sw: SpaceWeatherCurrent | null;
-  pendingAlerts?: EkfAlert[];
-  /** Called after acknowledge so the parent can clear cached alert lists. */
+  /** @deprecated Ignored — storm alarm is index-based, not EKF. */
+  ekf?: unknown;
+  /** @deprecated Ignored — storm alarm is index-based, not EKF. */
+  pendingAlerts?: unknown;
   onAcknowledged?: () => void;
 }) {
-  /** User chose to silence beeps for the current storm episode (session only). */
   const [soundMuted, setSoundMuted] = useState(false);
-  /** User dismissed the banner for the current alert episode. */
   const [dismissed, setDismissed] = useState(false);
   const wasStormRef = useRef(false);
-  const [pendingAlerts, setPendingAlerts] = useState<EkfAlert[]>(externalPending ?? []);
 
-  // Drop legacy 1-hour mute so past sessions do not silence new storms.
   useEffect(() => {
     try {
       localStorage.removeItem("zgiis-storm-alarm-muted-until");
@@ -39,33 +35,14 @@ export default function StormWarningAlarm({
     }
   }, []);
 
-  const loadAlerts = useCallback(async () => {
-    if (externalPending !== undefined) return;
-    const rows = await getEkfAlertLog(24).catch(() => []);
-    setPendingAlerts(rows.filter((a) => !a.acknowledged_status));
-  }, [externalPending]);
-
-  useEffect(() => {
-    if (externalPending !== undefined) {
-      setPendingAlerts(externalPending);
-      return;
-    }
-    loadAlerts();
-    const id = window.setInterval(loadAlerts, 120000);
-    return () => window.clearInterval(id);
-  }, [loadAlerts, externalPending]);
-
   const kp = sw?.kp ?? null;
   const dst = sw?.dst ?? null;
   const geoLevel = geomagneticAlertLevel(sw);
   const activeStorm = geoLevel === "storm";
   const elevated = geoLevel === "possible";
-  const ekfCount = ekf?.active_alert_count ?? pendingAlerts.length;
-  const banner = ekf?.banner;
   const geomagneticStorm = activeStorm;
   const severeStorm = kp != null && kp >= 7;
 
-  // Each new geomagnetic storm episode starts with sound ON and banner visible.
   useEffect(() => {
     if (geomagneticStorm && !wasStormRef.current) {
       setSoundMuted(false);
@@ -74,23 +51,27 @@ export default function StormWarningAlarm({
     wasStormRef.current = geomagneticStorm;
   }, [geomagneticStorm]);
 
-  const showBanner =
-    !dismissed && (activeStorm || elevated || ekfCount > 0 || !!banner);
+  const showBanner = !dismissed && (activeStorm || elevated);
   const shouldBeep = geomagneticStorm && !soundMuted && !dismissed;
 
   const label = useMemo(() => {
-    const parts: string[] = [];
-    if (activeStorm && kp != null) {
-      parts.push(`GEOMAGNETIC STORM — Kp ${kp.toFixed(0)}${ekf?.kp_storm_level ? ` (${ekf.kp_storm_level})` : ""}`);
-    } else if (elevated && kp != null) {
-      parts.push(`Possible geomagnetic storm — Kp ${kp.toFixed(0)}`);
-    } else if (elevated && dst != null) {
-      parts.push(`Possible geomagnetic storm — Dst ${dst.toFixed(0)} nT`);
+    const messages = geomagneticAlertMessages(kp, dst);
+    const titleParts: string[] = [];
+    if (activeStorm && kp != null && kp >= 5) {
+      titleParts.push(`GEOMAGNETIC STORM — Kp ${kp.toFixed(0)}`);
+    } else if (activeStorm && dst != null && dst <= -50) {
+      titleParts.push(`GEOMAGNETIC STORM — Dst ${dst.toFixed(0)} nT`);
+    } else if (elevated && kp != null && kp >= 4) {
+      titleParts.push(`Possible geomagnetic storm — Kp ${kp.toFixed(0)}`);
+    } else if (elevated && dst != null && dst <= -30) {
+      titleParts.push(`Possible geomagnetic storm — Dst ${dst.toFixed(0)} nT`);
     }
-    if (banner) parts.push(banner.replace(/^⚠\s?/, ""));
-    const total = Math.max(ekfCount, pendingAlerts.length) + (activeStorm ? 1 : 0);
-    return { text: parts.join(" · ") || "Geomagnetic conditions require attention", total };
-  }, [activeStorm, elevated, kp, dst, banner, ekfCount, pendingAlerts.length, ekf?.kp_storm_level]);
+    return {
+      title: titleParts[0] ?? "Geomagnetic conditions require attention",
+      text: messages.join(" · ") || titleParts.join(" · "),
+      total: Math.max(1, messages.length),
+    };
+  }, [activeStorm, elevated, kp, dst]);
 
   useEffect(() => {
     if (!shouldBeep) {
@@ -126,21 +107,14 @@ export default function StormWarningAlarm({
     unlockStormAlarmAudio();
   };
 
-  const handleAckAll = async () => {
+  const handleDismiss = () => {
     stopStormAlarmBeep();
-    const unacked = pendingAlerts.filter((a) => !a.acknowledged_status);
-    await Promise.all(unacked.map((a) => ackEkfAlert(a.alert_id).catch(() => null)));
-    if (externalPending !== undefined) {
-      onAcknowledged?.();
-    } else {
-      await loadAlerts();
-    }
     setDismissed(true);
   };
 
   if (!showBanner) return null;
 
-  const severityClass = activeStorm || (ekf?.kp_storm_level && kp != null && kp >= 7)
+  const severityClass = activeStorm || severeStorm
     ? "storm-alarm-bar--severe"
     : "storm-alarm-bar--warn";
 
@@ -151,7 +125,10 @@ export default function StormWarningAlarm({
           {soundMuted || !geomagneticStorm ? "🔇" : "🔊"}
         </span>
         <div className="storm-alarm-bar-copy">
-          <strong>WARNING ALARM — {label.total} active alert{label.total === 1 ? "" : "s"}</strong>
+          <strong>
+            WARNING ALARM — {label.title}
+            {label.total > 1 ? ` · ${label.total} indicators` : ""}
+          </strong>
           <span className="storm-alarm-bar-msg">
             {label.text}
             {geomagneticStorm && soundMuted ? " · Alarm sound muted" : ""}
@@ -170,8 +147,8 @@ export default function StormWarningAlarm({
             </button>
           )
         )}
-        <button type="button" className="storm-alarm-btn storm-alarm-btn-ack" onClick={handleAckAll}>
-          ✓ Acknowledge
+        <button type="button" className="storm-alarm-btn storm-alarm-btn-ack" onClick={handleDismiss}>
+          ✓ Dismiss
         </button>
       </div>
     </div>

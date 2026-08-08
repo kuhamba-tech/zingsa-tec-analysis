@@ -578,9 +578,9 @@ export default function GicMonitorPanel() {
       <div className="card card-accent">
         <div className="operations-chart-title">GIC EKF Deviation Alerts</div>
         <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "0.75rem" }}>
-          When measured GIC at a monitoring station diverges from the Extended Kalman Filter prediction beyond
-          mean + 3σ of recent errors, an alert is logged. Severity escalates when Kp, Dst, S4, or solar wind
-          also show abnormal behaviour.
+          When measured GIC diverges from the filter forecast beyond mean + 3σ of recent errors, a residual
+          alert is logged for operator review. This is not a geomagnetic storm declaration — storm watches
+          still follow observed Kp / Dst.
         </p>
         {gicAlerts.length === 0 ? (
           <p style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>

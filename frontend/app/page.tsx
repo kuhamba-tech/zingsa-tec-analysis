@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { getEkfAlertLog, getEkfStatus, getLivePipelineStatus, getSpaceWeather, getStations, getTecHeatmap } from "@/lib/api";
+import { getEkfStatus, getLivePipelineStatus, getSpaceWeather, getStations, getTecHeatmap } from "@/lib/api";
 import { mergeSpaceWeatherWithEkf } from "@/lib/homeSpaceWeather";
 import { buildMetricCards } from "@/lib/spaceWeatherMetrics";
 import { countLiveStationStatuses, connectedStreamCount, formatCorsConnectedShort } from "@/lib/liveStationStatus";
@@ -10,7 +10,7 @@ import CorsMapWithLayers from "@/components/maps/CorsMapWithLayers";
 import AiRecommendationPanel from "@/components/layout/AiRecommendationPanel";
 import HomeStormAlertBanner from "@/components/layout/HomeStormAlertBanner";
 import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
-import type { EkfAlert, EkfStatus, Station, SpaceWeatherCurrent, TecHeatmapResponse } from "@/lib/types";
+import type { Station, SpaceWeatherCurrent, TecHeatmapResponse } from "@/lib/types";
 import type { MetricKey } from "@/lib/spaceWeatherMetrics";
 import Link from "next/link";
 import Image from "next/image";
@@ -91,9 +91,8 @@ function HomeMetricCard({
 
 export default function HomePage() {
   const [stations, setStations] = useState<Station[]>([]);
+  const [liveSw, setLiveSw] = useState<SpaceWeatherCurrent | null>(null);
   const [displaySw, setDisplaySw] = useState<SpaceWeatherCurrent | null>(null);
-  const [ekf, setEkf] = useState<EkfStatus | null>(null);
-  const [pendingAlerts, setPendingAlerts] = useState<EkfAlert[]>([]);
   const [ekfFilled, setEkfFilled] = useState<Set<string>>(new Set());
   const [swStatus, setSwStatus] = useState<FeedStatus>("pending");
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -115,11 +114,10 @@ export default function HomePage() {
         setStationsLoading(true);
       }
 
-      const [swResult, ekfResult, pipelineResult, alertResult] = await Promise.allSettled([
+      const [swResult, ekfResult, pipelineResult] = await Promise.allSettled([
         getSpaceWeather(),
         getEkfStatus(),
         getLivePipelineStatus(),
-        getEkfAlertLog(24),
       ]);
 
       if (cancelled) return;
@@ -128,10 +126,8 @@ export default function HomePage() {
       const ekfData = ekfResult.status === "fulfilled" ? ekfResult.value : null;
       const merged = mergeSpaceWeatherWithEkf(sw, ekfData);
 
-      if (ekfData) setEkf(ekfData);
-      if (alertResult.status === "fulfilled") {
-        setPendingAlerts(alertResult.value.filter((a) => !a.acknowledged_status));
-      }
+      // Storm banners use observed live indices only — never EKF-filled display values.
+      setLiveSw(sw);
 
       if (merged) {
         setDisplaySw(merged.data);
@@ -257,8 +253,15 @@ export default function HomePage() {
       <div className="home-hero-header">
         <div className="home-top-intro">
           <h1 className="page-title home-page-title">
-            <span className="home-page-title-icon" aria-hidden>
-              🛰️
+            <span className="home-page-title-icon home-page-title-logo" aria-hidden>
+              <Image
+                src="/zingsa_logo.webp"
+                alt=""
+                width={120}
+                height={120}
+                className="home-hero-logo"
+                priority
+              />
             </span>
             <span className="home-page-title-text">
               <span className="home-page-title-line">Zimbabwe Space Weather &amp; Navigation</span>
@@ -273,7 +276,7 @@ export default function HomePage() {
         </div>
       </div>
 
-      <HomeStormAlertBanner sw={displaySw} ekf={ekf} pendingAlerts={pendingAlerts} />
+      <HomeStormAlertBanner sw={liveSw} />
 
       <div className="home-sw-row">
         <section className="home-sw-panel" aria-label="Live space weather">
@@ -314,17 +317,6 @@ export default function HomePage() {
             ))}
           </div>
         </section>
-
-        <div className="home-hero-logo-wrap">
-          <Image
-            src="/zingsa_logo.webp"
-            alt="ZINGSA — Zimbabwe National Geospatial and Space Agency"
-            width={96}
-            height={96}
-            className="home-hero-logo"
-            priority
-          />
-        </div>
       </div>
 
       <AiRecommendationPanel

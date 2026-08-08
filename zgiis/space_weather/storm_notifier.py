@@ -76,7 +76,11 @@ def build_alarm_summary(
     dst: float | None,
     alerts: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """Build dashboard alarm payload from live indices + unacknowledged alerts."""
+    """Build dashboard alarm payload from live observed Kp/Dst.
+
+    Storm banners are index-based only. EKF residual alerts are counted
+    separately for filter monitoring and must not appear in the storm banner.
+    """
     geo = classify_geomagnetic_activity(kp, dst)
     active = [a for a in alerts if not a.get("acknowledged_status")]
     moderate_plus = [
@@ -84,24 +88,13 @@ def build_alarm_summary(
         if _SEVERITY_RANK.get(str(a.get("severity")), 0) >= _SEVERITY_RANK["Moderate"]
     ]
 
-    count = len(moderate_plus)
+    count = 0
     if geo["level"] == "storm":
         count += 1
     elif geo["level"] == "possible":
         count += 1
 
-    messages: list[str] = []
-    if geo.get("headline"):
-        messages.append(str(geo["headline"]))
-
-    if moderate_plus:
-        worst = max(moderate_plus, key=lambda a: _SEVERITY_RANK.get(str(a.get("severity")), 0))
-        messages.append(
-            f"EKF deviation: {worst.get('parameter_label')} differs from prediction — "
-            "check Kp, Dst, TEC and solar wind."
-        )
-
-    banner = " · ".join(messages) if messages else None
+    banner = str(geo["headline"]) if geo.get("headline") else None
     return {
         "active": count > 0,
         "active_count": count,
@@ -129,7 +122,7 @@ def _format_message(alert: dict[str, Any] | None, *, kp: float | None, dst: floa
             "",
             f"Parameter: {alert.get('parameter_label')}",
             f"Observed: {alert.get('observed_value')}",
-            f"EKF predicted: {alert.get('ekf_predicted_value')}",
+            f"Filter forecast: {alert.get('ekf_predicted_value')}",
             f"Error: {alert.get('prediction_error')} (threshold {alert.get('threshold')})",
             f"Severity: {alert.get('severity')}",
             "",

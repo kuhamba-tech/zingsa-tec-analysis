@@ -25,7 +25,7 @@ export interface StormWatchLogProps {
   hideTitle?: boolean;
 }
 
-/** Feed of EKF drift alerts: live readings vs forecast, flagged when they diverge. */
+/** Feed of filter residual alerts (observed vs forecast). Storm banners use Kp/Dst separately. */
 export default function StormWatchLog({
   alerts: externalAlerts,
   onAlertsChange,
@@ -62,7 +62,7 @@ export default function StormWatchLog({
     [alerts, compact],
   );
 
-  const title = compact ? "Recent Storm Watch alerts" : "Storm Watch Log (last 7 days)";
+  const title = compact ? "Recent filter residual alerts" : "Filter residual log (last 7 days)";
 
   if (loading) {
     return <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>Scanning recent conditions for disturbances…</p>;
@@ -73,7 +73,8 @@ export default function StormWatchLog({
       <div className="card card-ok">
         {!hideTitle && <div className="operations-chart-title">{title}</div>}
         <p style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
-          All clear. No readings have broken away from forecast over the last {Math.round(hours / 24)} day{hours >= 48 ? "s" : ""}.
+          All clear. No filter residual alerts over the last {Math.round(hours / 24)} day{hours >= 48 ? "s" : ""}.
+          Storm watches still follow observed Kp / Dst thresholds.
         </p>
       </div>
     );
@@ -84,10 +85,9 @@ export default function StormWatchLog({
       {!hideTitle && <div className="operations-chart-title">{title}</div>}
       {!compact && (
         <p className="storm-log-intro">
-          Every live reading is checked against where our forecast model expected it to land. When the gap blows past
-          the dynamic threshold (mean + 3σ of recent drift) it&apos;s logged here as a possible early signature of
-          geomagnetic or ionospheric disturbance. Severity escalates to Severe when two or more other indicators are
-          acting up at the same time.
+          Filter residuals compare each live reading to the forecast model. Large gaps are logged here for
+          operator review. Geomagnetic storm banners and alarms use observed Kp / Dst thresholds only —
+          not these residuals.
         </p>
       )}
 

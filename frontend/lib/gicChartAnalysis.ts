@@ -218,7 +218,7 @@ export function analyzeGicObservedChart(
 
   if (errMean != null) {
     bullets.push(
-      `Mean |observed − EKF| ${fmt(errMean, 2)} A in this window. A sustained gap beyond mean + 3σ of recent errors triggers the geomagnetic disturbance alert below.`,
+      `Mean |observed − EKF| ${fmt(errMean, 2)} A in this window. A sustained gap beyond mean + 3σ of recent errors logs a filter residual alert (not a Kp/Dst storm declaration).`,
     );
   }
 

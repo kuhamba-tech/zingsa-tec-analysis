@@ -4,7 +4,6 @@ import CorsMap from "./CorsMap";
 import NetworkDistancesPanel from "./NetworkDistancesPanel";
 import TecHeatMapLegend from "./TecHeatMapLegend";
 import { heatmapQualityBanner, icaoTecLabel, icaoTecLevel, inferHeatmapQuality } from "@/lib/icaoTecAdvisory";
-import type { ProposedCorsSite } from "@/lib/corsGeneticOptimizer";
 import type { Station, TecHeatmapResponse } from "@/lib/types";
 import type { LiveStationCounts } from "@/lib/liveStationStatus";
 
@@ -30,13 +29,14 @@ interface Props {
   heatmap?: TecHeatmapResponse | null;
   highlightCode?: string | null;
   onStationSelect?: (station: Station | null) => void;
-  /** Layer buttons to show. Defaults to the full home-page set. */
+  /** Layer buttons to show. Defaults to the full National Dashboard set. */
   layers?: MapLayer[];
   /** Sourcetable identity mismatch banner (home page). Off for RINEX picker. */
   showSourcetableWarning?: boolean;
 }
 
-const LAYERS: MapLayer[] = [
+/** Full National Dashboard map layers (Hybrid → Network Distances). */
+export const HOME_MAP_LAYERS: MapLayer[] = [
   "Hybrid",
   "Satellite",
   "Street",
@@ -49,8 +49,13 @@ const LAYERS: MapLayer[] = [
   "Network Distances",
 ];
 
-/** Base basemap options only — used by RINEX Data and similar pickers. */
+/** Network Distances only — optional focused view. */
+export const NETWORK_DISTANCES_LAYERS: MapLayer[] = ["Network Distances"];
+
+/** Base basemap options only — used by RINEX Data, Network Uptime, and similar pickers. */
 export const BASE_MAP_LAYERS: MapLayer[] = ["Hybrid", "Satellite", "Street"];
+
+const LAYERS: MapLayer[] = HOME_MAP_LAYERS;
 
 function riskColor(level: string): string {
   if (level === "High") return "#ff4444";
@@ -73,7 +78,6 @@ export default function CorsMapWithLayers({
 }: Props) {
   const availableLayers = layers.length > 0 ? layers : LAYERS;
   const [layer, setLayer] = useState<MapLayer>(availableLayers[0] ?? "Hybrid");
-  const [proposedCorsSites, setProposedCorsSites] = useState<ProposedCorsSite[]>([]);
 
   useEffect(() => {
     if (!availableLayers.includes(layer)) {
@@ -87,12 +91,7 @@ export default function CorsMapWithLayers({
     zimbabweTecLayerActive || layer === "Zimbabwe ROTI Map" || layer === "Scintillation Map" || layer === "PWV Map";
   const globalTecLayerActive = layer === "Global TEC";
   const networkDistancesActive = layer === "Network Distances";
-
-  useEffect(() => {
-    if (!networkDistancesActive && proposedCorsSites.length > 0) {
-      setProposedCorsSites([]);
-    }
-  }, [networkDistancesActive, proposedCorsSites.length]);
+  const showLayerSwitcher = availableLayers.length > 1;
   const maxVtec = heatmap?.tec_max ?? null;
   const qualityBanner = heatmapQualityBanner(inferHeatmapQuality(heatmap ?? null), heatmap?.message);
   const awaitingVtecBanner =
@@ -149,17 +148,21 @@ export default function CorsMapWithLayers({
         </div>
 
         <div className="home-map-toolbar-center">
-          <span className="home-map-layer-label">Map Layer</span>
-          {availableLayers.map((l) => (
-            <button
-              key={l}
-              type="button"
-              onClick={() => setLayer(l)}
-              className={`home-map-layer-btn${layer === l ? " is-active" : ""}`}
-            >
-              {l}
-            </button>
-          ))}
+          {showLayerSwitcher && (
+            <>
+              <span className="home-map-layer-label">Map Layer</span>
+              {availableLayers.map((l) => (
+                <button
+                  key={l}
+                  type="button"
+                  onClick={() => setLayer(l)}
+                  className={`home-map-layer-btn${layer === l ? " is-active" : ""}`}
+                >
+                  {l}
+                </button>
+              ))}
+            </>
+          )}
         </div>
 
         <div className="home-map-toolbar-right">
@@ -185,7 +188,6 @@ export default function CorsMapWithLayers({
           height={height}
           layer={layer}
           heatmap={heatmap}
-          proposedCorsSites={networkDistancesActive ? proposedCorsSites : []}
           highlightCode={highlightCode}
           onStationSelect={onStationSelect}
         />
@@ -201,12 +203,6 @@ export default function CorsMapWithLayers({
               <span className="dot" style={{ background: "#5ec8ff" }} />
               <span>Reference Station (HARARE)</span>
             </div>
-            {proposedCorsSites.length > 0 && (
-              <div className="network-distances-map-legend-row">
-                <span className="dot" style={{ background: "#ffb020" }} />
-                <span>GA proposed CORS site</span>
-              </div>
-            )}
             {stations.some((s) => s.connected_rovers != null) && (
               <div className="network-distances-map-legend-row">
                 <span className="dot" style={{ background: "#c4b5fd" }} />
@@ -215,7 +211,6 @@ export default function CorsMapWithLayers({
             )}
           </div>
         )}
-
         {tecLayerActive && (
           <div
             style={{
@@ -324,11 +319,7 @@ export default function CorsMapWithLayers({
         )}
         </div>
         {networkDistancesActive && (
-          <NetworkDistancesPanel
-            stations={stations}
-            proposedSites={proposedCorsSites}
-            onProposedSitesChange={setProposedCorsSites}
-          />
+          <NetworkDistancesPanel stations={stations} />
         )}
       </div>
 

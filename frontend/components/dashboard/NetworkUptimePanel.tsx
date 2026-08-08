@@ -11,7 +11,7 @@ import {
 import LineChart from "@/components/charts/LineChart";
 import StationStatusBarChart from "@/components/charts/StationStatusBarChart";
 import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
-import CorsMapWithLayers from "@/components/maps/CorsMapWithLayers";
+import CorsMapWithLayers, { BASE_MAP_LAYERS } from "@/components/maps/CorsMapWithLayers";
 import { analyzeStationUptime } from "@/lib/dashboardChartAnalysis";
 import { countLiveStationStatuses } from "@/lib/liveStationStatus";
 import { mergeTecHeatmapWithStations } from "@/lib/tecHeatmapMerge";
@@ -22,12 +22,23 @@ import type {
   TecHeatmapResponse,
 } from "@/lib/types";
 
-const RANGES: { label: string; hours: number; yLabel: string }[] = [
-  { label: "1 day", hours: 24, yLabel: "% online (1 day)" },
-  { label: "1 week", hours: 168, yLabel: "% online (1 week)" },
-  { label: "1 month", hours: 720, yLabel: "% online (1 month)" },
-  { label: "1 year", hours: 8760, yLabel: "% online (1 year)" },
+export type UptimeRangeKey = "1d" | "1w" | "1m" | "1y";
+
+const RANGES: { key: UptimeRangeKey; label: string; hours: number; yLabel: string }[] = [
+  { key: "1d", label: "1 day", hours: 24, yLabel: "% online (1 day)" },
+  { key: "1w", label: "1 week", hours: 168, yLabel: "% online (1 week)" },
+  { key: "1m", label: "1 month", hours: 720, yLabel: "% online (1 month)" },
+  { key: "1y", label: "1 year", hours: 8760, yLabel: "% online (1 year)" },
 ];
+
+export function uptimeRangeIndex(key: string | null | undefined): number {
+  const idx = RANGES.findIndex((r) => r.key === key);
+  return idx >= 0 ? idx : 1;
+}
+
+export function uptimeRangeKey(index: number): UptimeRangeKey {
+  return RANGES[index]?.key ?? "1w";
+}
 
 function downloadCsv(filename: string, rows: string[][]) {
   const body = rows
@@ -57,8 +68,17 @@ function stationKey(code: string): string {
   return code.toLowerCase().replace(/_+$/, "");
 }
 
-export default function NetworkUptimePanel() {
-  const [rangeIdx, setRangeIdx] = useState(1); // default 1 week
+export default function NetworkUptimePanel({
+  initialRangeKey = "1w",
+  onRangeKeyChange,
+  title = "Network Uptime Analysis",
+}: {
+  /** 1d / 1w / 1m / 1y — used by Reports → Station Uptime deep links. */
+  initialRangeKey?: UptimeRangeKey | string;
+  onRangeKeyChange?: (key: UptimeRangeKey) => void;
+  title?: string;
+}) {
+  const [rangeIdx, setRangeIdx] = useState(() => uptimeRangeIndex(initialRangeKey)); // default 1 week
   const [station, setStation] = useState(""); // "" = whole network
   const [mapStations, setMapStations] = useState<Station[]>([]);
   const [stationsLoading, setStationsLoading] = useState(true);
@@ -69,6 +89,15 @@ export default function NetworkUptimePanel() {
   const [events, setEvents] = useState<StationStatusEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setRangeIdx(uptimeRangeIndex(initialRangeKey));
+  }, [initialRangeKey]);
+
+  const selectRange = (index: number) => {
+    setRangeIdx(index);
+    onRangeKeyChange?.(uptimeRangeKey(index));
+  };
 
   const range = RANGES[rangeIdx] ?? RANGES[1];
   const liveCounts = useMemo(() => countLiveStationStatuses(mapStations), [mapStations]);
@@ -233,7 +262,7 @@ export default function NetworkUptimePanel() {
   return (
     <div className="card card-accent">
       <div className="operations-chart-title">
-        Network Uptime Analysis
+        {title}
         {analysis ? ` · ${formatPeriodLabel(analysis.hours)}` : ""}
       </div>
       <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "0.85rem" }}>
@@ -266,10 +295,10 @@ export default function NetworkUptimePanel() {
         </select>
         {RANGES.map((r, i) => (
           <button
-            key={r.label}
+            key={r.key}
             type="button"
             className={`home-map-layer-btn${rangeIdx === i ? " is-active" : ""}`}
-            onClick={() => setRangeIdx(i)}
+            onClick={() => selectRange(i)}
           >
             {r.label}
           </button>
@@ -306,6 +335,7 @@ export default function NetworkUptimePanel() {
           heatmap={displayHeatmap}
           highlightCode={station || null}
           onStationSelect={handleMapStationSelect}
+          layers={BASE_MAP_LAYERS}
         />
       </div>
 

@@ -2,26 +2,19 @@
 
 import Link from "next/link";
 import { buildHomeStormAlerts, shouldShowHomeStormAlerts } from "@/lib/homeStormAlerts";
-import type { EkfAlert, EkfStatus, SpaceWeatherCurrent } from "@/lib/types";
+import type { SpaceWeatherCurrent } from "@/lib/types";
 
 interface HomeStormAlertBannerProps {
   sw: SpaceWeatherCurrent | null;
-  ekf: EkfStatus | null;
-  pendingAlerts?: EkfAlert[];
 }
 
-/** Storm / EKF deviation alerts — shown on the home page when geomagnetic or ionospheric conditions require attention. */
-export default function HomeStormAlertBanner({
-  sw,
-  ekf,
-  pendingAlerts = [],
-}: HomeStormAlertBannerProps) {
-  if (!shouldShowHomeStormAlerts(sw, ekf, pendingAlerts)) return null;
+/** Storm alerts — shown when observed Kp/Dst cross storm thresholds (not EKF residuals). */
+export default function HomeStormAlertBanner({ sw }: HomeStormAlertBannerProps) {
+  if (!shouldShowHomeStormAlerts(sw)) return null;
 
-  const alerts = buildHomeStormAlerts(sw, ekf, pendingAlerts);
+  const alerts = buildHomeStormAlerts(sw);
   if (alerts.length === 0) return null;
 
-  // Single combined strip so the hero and metrics stay the focus.
   const severity = alerts.some((a) => a.severity === "alert") ? "alert" : "warn";
   const message = alerts.map((a) => a.message).join(" · ");
 

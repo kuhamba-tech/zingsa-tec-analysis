@@ -62,7 +62,8 @@ const NAV_GROUPS: { section: string; items: NavItem[] }[] = [
   {
     section: "Reports",
     items: [
-      { href: "/reports?period=daily", label: "Space Weather Reports", icon: "📅", matchQuery: "period=daily" },
+      { href: "/reports?period=daily", label: "Space Weather Reports", icon: "📅", matchQuery: "period=" },
+      { href: "/reports?type=uptime&range=1w", label: "Station Uptime", icon: "📶", matchQuery: "type=uptime" },
     ],
   },
   {
@@ -95,7 +96,17 @@ function isNavActive(
   const hash = item.matchHash ?? navHash(item.href);
 
   if (item.matchQuery) {
-    return pathname === path && searchQuery.includes(item.matchQuery);
+    // Prefer the most specific Reports sibling when both path-match (e.g. type=uptime vs period=).
+    if (pathname !== path) return false;
+    if (!searchQuery.includes(item.matchQuery)) return false;
+    const moreSpecificSibling = groupItems.some(
+      (s) =>
+        s !== item &&
+        s.matchQuery &&
+        searchQuery.includes(s.matchQuery) &&
+        s.matchQuery.length > item.matchQuery!.length,
+    );
+    return !moreSpecificSibling;
   }
 
   if (item.matchHash) {
