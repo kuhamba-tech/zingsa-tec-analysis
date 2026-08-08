@@ -6,9 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from zgiis.navigation.gnss_forecast import ForecastStatus, GnssForecastCity
-from zgiis.navigation.national_navigation_social import build_national_navigation_social
 from zgiis.navigation.zingsa_contact import (
-    ZINGSA_AGENCY,
     ZINGSA_BROADCAST_FOOTER,
     ZINGSA_NAVIGATION_CHANNELS,
     ZINGSA_NAVIGATION_MODERATE_ACTION,
@@ -125,47 +123,47 @@ def _fmt_num(value: float | int | None, digits: int = 1) -> str:
 
 def _kp_layman(kp: float | int | None) -> str:
     if kp is None:
-        return "Geomagnetic activity: data updating"
+        return "Earth's magnetic field: updating"
     if kp <= 2:
-        return f"Geomagnetic activity is quiet (Kp {_fmt_num(kp)} — like calm weather for Earth's magnetic field)"
+        return f"Earth's magnetic field is calm (Kp {_fmt_num(kp)})"
     if kp <= 4:
-        return f"Geomagnetic activity is unsettled (Kp {_fmt_num(kp)} — minor solar influence on Earth's field)"
+        return f"Earth's magnetic field is a little unsettled (Kp {_fmt_num(kp)})"
     if kp <= 6:
-        return f"Geomagnetic activity is elevated (Kp {_fmt_num(kp)} — a minor geomagnetic storm is under way)"
-    return f"Geomagnetic activity is strong (Kp {_fmt_num(kp)} — a significant geomagnetic storm is affecting Earth)"
+        return f"Mild magnetic storm under way (Kp {_fmt_num(kp)})"
+    return f"Strong magnetic storm under way (Kp {_fmt_num(kp)})"
 
 
 def _s4_layman(s4: float | int | None) -> str:
     if s4 is None:
-        return "GPS signal stability: data updating"
+        return "GPS signal strength: updating"
     if s4 < 0.15:
-        return f"GPS signal path is stable (S4 {_fmt_num(s4, 2)} — the ionosphere is calm)"
+        return f"GPS signals are steady (S4 {_fmt_num(s4, 2)})"
     if s4 < 0.3:
-        return f"GPS signals may flicker slightly (S4 {_fmt_num(s4, 2)} — the ionosphere is restless)"
-    return f"GPS signals are disturbed (S4 {_fmt_num(s4, 2)} — strong ionospheric scintillation over Zimbabwe)"
+        return f"GPS signals may flicker a little (S4 {_fmt_num(s4, 2)})"
+    return f"GPS signals are disturbed (S4 {_fmt_num(s4, 2)})"
 
 
 def _dst_layman(dst: float | int | None) -> str:
     if dst is None:
-        return "Solar wind pressure on Earth: data updating"
+        return "Solar wind pressure: updating"
     if dst > -30:
-        return f"Earth's magnetosphere is steady (Dst {_fmt_num(dst, 0)} nT)"
+        return f"No strong solar-wind push on Earth (Dst {_fmt_num(dst, 0)} nT)"
     if dst > -50:
-        return f"Earth's magnetic field is being pushed (Dst {_fmt_num(dst, 0)} nT — mild solar wind pressure)"
+        return f"Mild solar-wind pressure on Earth (Dst {_fmt_num(dst, 0)} nT)"
     if dst > -100:
-        return f"Magnetic field disturbance detected (Dst {_fmt_num(dst, 0)} nT — navigation may feel it)"
-    return f"Strong magnetic disturbance (Dst {_fmt_num(dst, 0)} nT — part of an active space-weather event)"
+        return f"Magnetic disturbance may affect GPS (Dst {_fmt_num(dst, 0)} nT)"
+    return f"Strong magnetic disturbance (Dst {_fmt_num(dst, 0)} nT)"
 
 
 def _risk_layman(risk: str | None) -> str:
     r = (risk or "unknown").lower()
     if r == "low":
-        return "Overall GNSS risk today: Low — everyday positioning should be fine"
+        return "GPS risk today: Low — maps should work normally"
     if r == "moderate":
-        return "Overall GNSS risk today: Moderate — some users may notice slower GPS"
+        return "GPS risk today: Moderate — location may be a bit slow or off"
     if r in ("high", "critical"):
-        return "Overall GNSS risk today: High — expect positioning problems in affected areas"
-    return f"Overall GNSS risk today: {risk or 'updating'}"
+        return "GPS risk today: High — do not trust a map pin alone"
+    return f"GPS risk today: {risk or 'updating'}"
 
 
 def build_space_weather_layman(
@@ -180,44 +178,28 @@ def build_space_weather_layman(
     kp_cond = (sw.get("kp_condition") if sw else None) or "updating"
 
     headlines: dict[ForecastStatus, str] = {
-        "excellent": "Quiet space weather — the Sun is not disturbing our navigation today",
-        "moderate": "Mild space weather — the Sun is gently affecting signals above Zimbabwe",
-        "warning": "Active space weather — solar and magnetic activity is impacting navigation",
+        "excellent": "Calm sky for GPS — maps should work normally",
+        "moderate": "Mild space weather — GPS may be a little slow or off",
+        "warning": "Active space weather — GPS may show the wrong place",
     }
 
     explainers: dict[ForecastStatus, str] = {
-        "excellent": (
-            "Space weather is what the Sun and near-Earth space do to our planet — solar wind, flares, "
-            "and magnetic storms. When conditions are quiet, the high-altitude layer that carries GPS signals "
-            "(the ionosphere) stays smooth. Most people never see this science, but every map pin, taxi route, "
-            "and farm GPS depends on it."
-        ),
+        "excellent": "Space weather is activity from the Sun that can affect GPS. Today it is quiet.",
         "moderate": (
-            "The Sun constantly sends charged particles toward Earth. Today those particles are stirring the "
-            "ionosphere — the invisible shell where navigation satellites talk to your phone. Think of it like "
-            "radio static in the sky: signals still get through, but they may wobble for a few seconds or drift "
-            "a few metres."
+            "The Sun is stirring the air high above us where GPS signals travel. Your phone still works, "
+            "but the blue dot may drift a few metres."
         ),
         "warning": (
-            "A burst of solar or geomagnetic activity is disturbing the ionosphere over southern Africa. "
-            "Satellite signals are taking longer paths or fading in and out — the same physics behind auroras "
-            "and radio blackouts, but felt on your phone as wrong map pins, lost GPS, or delayed location updates."
+            "Strong activity from the Sun is disturbing GPS over Zimbabwe. Maps and location apps may be "
+            "wrong until it settles."
         ),
     }
 
     impacts: dict[ForecastStatus, str] = {
-        "excellent": (
-            "For most Zimbabweans this is invisible good news: maps, mobile money location checks, "
-            "and in-car navigation should behave normally."
-        ),
-        "moderate": (
-            "You may notice your phone taking longer to find you, delivery apps showing a wider blue dot, or "
-            "precision equipment (surveyors, farmers) needing extra patience — especially in the afternoon."
-        ),
+        "excellent": "Use maps, taxis, and WhatsApp location as normal.",
+        "moderate": "If your pin looks wrong, wait a moment or step outside for a clearer sky view.",
         "warning": (
-            "Ordinary navigation can mislead you today. Do not trust a map pin alone for remote travel or meeting "
-            "someone at an exact spot. Space weather is temporary, but while it lasts, confirm locations by sight, "
-            f"address, or phone — or call ZINGSA on {ZINGSA_PHONE} for navigation guidance."
+            f"Do not trust a map pin alone. Confirm by phone or street signs. Help: {ZINGSA_PHONE}."
         ),
     }
 
@@ -254,98 +236,93 @@ def _citizen_brief(
 ) -> NavigationNewsBrief:
     status = tone
     sw_ctx = build_space_weather_layman(sw, tone)
-    regions = " · ".join(
-        f"{f.city.replace('VICTORIA FALLS', 'Vic Falls')}: {f.statusLabel}" for f in forecasts
+    poor_areas = [
+        f.city.replace("VICTORIA FALLS", "Vic Falls")
+        for f in forecasts
+        if f.status != "excellent"
+    ][:3]
+    area_note = (
+        f"Watch these areas: {', '.join(poor_areas)}."
+        if poor_areas
+        else "Nationwide outlook: good for everyday GPS."
     )
 
     headlines: dict[ForecastStatus, str] = {
-        "excellent": "Space weather is calm — your everyday apps should work as usual",
-        "moderate": "Space weather is mildly active — your phone location may wobble a little",
-        "warning": "Space weather alert — satellite navigation may let you down today",
+        "excellent": "Good GPS day — your maps should work normally",
+        "moderate": "GPS may wobble a little today",
+        "warning": "GPS alert — check your location carefully",
     }
 
     summaries: dict[ForecastStatus, str] = {
         "excellent": (
-            "Did you know your phone's location comes from satellites passing through space weather? Today the Sun "
-            "is quiet, Earth's magnetic field is stable, and the ionosphere over Zimbabwe is smooth. That means "
-            "Google Maps, WhatsApp live location, and ride-hailing apps can find you reliably."
+            "Your phone uses satellites for Maps, WhatsApp location, and taxis. "
+            "Today those signals are clear across Zimbabwe."
         ),
         "moderate": (
-            "Space weather is the 'weather in space' — solar wind and magnetic storms that ripple through the "
-            "ionosphere where GPS signals travel. Today those ripples are small but real. Your phone might take a "
-            "few extra seconds to lock on, or show you standing across the street from where you actually are. It "
-            "is not your phone breaking; it is the sky above you shifting."
+            "GPS is a bit unsettled. Your phone may take longer to find you, or show you a few metres "
+            "from where you stand. This is not a broken phone."
         ),
         "warning": (
-            "When the Sun throws energy at Earth, navigation satellites and your phone feel it first. Today "
-            "geomagnetic and ionospheric activity is high enough to disturb positioning across parts of Zimbabwe. "
-            f"Maps may show the wrong place and rides may pick up at the wrong corner — call {ZINGSA_AGENCY} on {ZINGSA_PHONE} if you "
-            "need help understanding conditions in your area."
+            f"GPS may show the wrong place today. Do not trust a map pin alone for meetings or travel. "
+            f"Call ZINGSA on {ZINGSA_PHONE} if you need help."
         ),
     }
 
     bullets: dict[ForecastStatus, list[str]] = {
         "excellent": [
-            "What you can do today: use maps and location apps normally",
-            f"Navigation outlook nationwide: {_status_word(status)}",
-            f"Regional detail: {regions}",
-            "Why it matters: even on calm days, ZINGSA monitors space weather to protect farmers, drivers, and surveyors",
+            "Use maps and location apps as normal",
+            area_note,
+            "ZINGSA is watching space weather for the country",
         ],
         "moderate": [
-            "What you might notice: slower GPS lock, blue dot a few metres off, apps saying ‘searching for GPS’",
-            f"Navigation outlook nationwide: {_status_word(status)}",
-            f"Regional detail: {regions}",
-            "Step outside with a clear view of the sky if your location looks wrong — buildings plus space weather make it worse",
+            "You may see a slow GPS lock or a blue dot a few metres off",
+            area_note,
+            "Step outside if your location looks wrong",
         ],
         "warning": [
-            "What you might notice: wrong map pins, ‘GPS signal lost’, delivery drivers at the wrong gate",
-            f"Navigation outlook nationwide: {_status_word(status)}",
-            f"Regional detail: {regions}",
-            "Tell family your travel route; keep offline maps or landmarks as backup",
+            "Map pins or delivery pickups may be wrong",
+            area_note,
+            "Confirm places by phone or street signs",
         ],
     }
 
     actions: dict[ForecastStatus, str] = {
-        "excellent": "No action needed. Enjoy the day — and know that quiet space weather is why your navigation works.",
+        "excellent": "No action needed.",
         "moderate": ZINGSA_NAVIGATION_MODERATE_ACTION,
         "warning": ZINGSA_NAVIGATION_WARNING_ACTION,
     }
 
     broadcast = _join_script([
-        "🇿🇼 *ZINGSA Navigation News — Space Weather & You*",
+        "🇿🇼 *ZINGSA Navigation News*",
         _format_utc(computed_at),
         "",
-        "🌌 *What is space weather?*",
-        "Activity on the Sun and in near-Earth space — solar wind, flares, and magnetic storms — that changes the ionosphere where GPS signals travel.",
-        "",
-        f"*Today:* {sw_ctx.headline}",
-        "",
+        f"*Today:* {headlines[status]}",
         summaries[status],
-        "",
-        "*Live conditions (plain language):*",
-        *[f"• {b}" for b in sw_ctx.readout],
-        "",
-        "*What this means for ordinary life:*",
-        sw_ctx.impact,
         "",
         *[f"• {b}" for b in bullets[status]],
         "",
-        f"👉 *Action:* {actions[status]}",
+        f"👉 *What to do:* {actions[status]}",
         "",
         *ZINGSA_BROADCAST_FOOTER,
     ])
 
-    social = build_national_navigation_social(status, sw, computed_at=computed_at, forecasts=forecasts)
+    social = _join_script([
+        "🇿🇼 ZINGSA Navigation News",
+        headlines[status],
+        summaries[status],
+        f"What to do: {actions[status]}",
+        "#ZINGSA #Zimbabwe #GPS",
+    ])
 
     return NavigationNewsBrief(
         id="citizen",
         icon="🌌",
-        title="Space Weather & You",
-        audience="General citizens, schools & community groups",
+        title="For Everyone",
+        audience="Ordinary citizens, schools & community groups",
         headline=headlines[status],
         summary=summaries[status],
-        space_weather_today=f"{sw_ctx.headline} {sw_ctx.explainer}",
-        space_weather_bullets=sw_ctx.readout,
+        space_weather_today=f"{sw_ctx.headline}. {sw_ctx.explainer}",
+        space_weather_bullets=sw_ctx.readout[:3],
         bullets=bullets[status],
         action=actions[status],
         status_tone=status,
@@ -368,79 +345,69 @@ def _farmer_brief(
     accuracy = _field(harare, "Expected Accuracy") or "See live forecast"
 
     headlines: dict[ForecastStatus, str] = {
-        "excellent": "Quiet space weather — good day for GPS-guided farming",
-        "moderate": "Mild space weather — schedule precision field work for the morning",
-        "warning": "Space weather disturbing GPS — caution with auto-steer and drone mapping",
+        "excellent": "Good day for tractor GPS and field mapping",
+        "moderate": "Do GPS field work in the morning if you can",
+        "warning": "Caution: auto-steer and drone mapping may drift",
     }
 
     summaries: dict[ForecastStatus, str] = {
         "excellent": (
-            "Solar activity is low and the ionosphere over Harare is stable. Space weather is not interfering with "
-            "tractor auto-steer, boundary mapping, or variable-rate spraying. Your GPS equipment is working in a calm sky."
+            "Tractor auto-steer, spraying, and boundary mapping should work well today. "
+            "Satellite GPS for the farm is steady."
         ),
         "moderate": (
-            "Space weather is stirring the ionosphere. Tractor GPS and agricultural drones still work, but satellite "
-            "signals may drift slightly — especially after midday when scintillation often peaks. Space weather is the "
-            "invisible reason your receiver may need longer to ‘fix’."
+            "Farm GPS still works, but lines may wander a little after midday. Auto-steer may take longer "
+            "to lock. Prefer morning planting, spraying, and mapping."
         ),
         "warning": (
-            "Active space weather is degrading precision GNSS over central Zimbabwe. The same solar and magnetic forces "
-            "that cause auroras are now thickening and rippling the ionosphere, so RTK and auto-steer may drift beyond "
-            "normal limits. Verify boundaries before any legal or financial commitments."
+            "Precision GPS may drift beyond normal farm limits. Check fence lines and spray paths before "
+            "any legal or payment decisions. Use known ground marks if you must map today."
         ),
     }
 
     bullets: dict[ForecastStatus, list[str]] = {
         "excellent": [
-            f"Field GPS outlook: {_status_word(status)} (Harare / HARA–ZINH)",
-            f"RTK reliability: {rtk} · Accuracy: {accuracy}",
+            f"Field GPS: {_status_word(status)} (Harare area)",
+            f"RTK: {rtk} · Accuracy: {accuracy}",
             f"Best work window: {window}",
-            "Space weather impact on farming today: minimal",
         ],
         "moderate": [
-            f"Field GPS outlook: {_status_word(status)} (Harare / HARA–ZINH)",
-            f"RTK reliability: {rtk} · Accuracy: {accuracy}",
-            f"Preferred window: {window} — before afternoon ionospheric disturbance",
-            "Space weather may add minutes to GPS lock on long boundary runs",
+            f"Field GPS: {_status_word(status)} (Harare area)",
+            f"RTK: {rtk} · Accuracy: {accuracy}",
+            f"Best window: {window} — finish GPS jobs before lunch if possible",
         ],
         "warning": [
-            f"Field GPS outlook: {_status_word(status)} (Harare / HARA–ZINH)",
-            f"RTK reliability: {rtk} · Accuracy: {accuracy}",
-            "Space weather is the driver — postpone centimetre-level mapping if possible",
-            "Use known ground control points before accepting drone or auto-steer boundaries",
+            f"Field GPS: {_status_word(status)} (Harare area)",
+            f"RTK: {rtk} · Accuracy: {accuracy}",
+            "Postpone centimetre mapping if you can; check ground marks before accepting boundaries",
         ],
     }
 
     actions: dict[ForecastStatus, str] = {
-        "excellent": "Proceed with precision agriculture. Quiet space weather supports reliable GPS.",
-        "moderate": "Plan GPS-heavy tasks before 11:00 when space weather effects are usually lighter.",
-        "warning": "Treat GPS boundaries with caution until space weather settles — use backup surveying if stakes are high.",
+        "excellent": "Go ahead with precision planting, spraying, and mapping.",
+        "moderate": "Schedule GPS-heavy field work before 11:00.",
+        "warning": "Do not rely on GPS alone for legal boundaries until conditions improve.",
     }
 
     broadcast = _join_script([
         "🌱 *ZINGSA Navigation News — Farmers*",
         f"📍 Harare & surrounds · {_format_utc(computed_at)}",
         "",
-        f"🌌 *Space weather today:* {sw_ctx.headline}",
-        *[f"• {b}" for b in sw_ctx.readout[:3]],
-        "",
         headlines[status],
-        "",
         summaries[status],
         "",
         *[f"• {b}" for b in bullets[status]],
         "",
-        f"👉 *Action:* {actions[status]}",
+        f"👉 *What to do:* {actions[status]}",
         "",
         *ZINGSA_BROADCAST_FOOTER,
     ])
 
     social = _join_script([
-        "🌱 ZINGSA Navigation News | Farmers",
-        sw_ctx.headline,
+        "🌱 ZINGSA | Farmers",
         headlines[status],
         f"Window {window} · RTK {rtk}",
-        "#SpaceWeather #PrecisionAg #Zimbabwe",
+        "#Farming #GPS #Zimbabwe",
     ])
 
     return NavigationNewsBrief(
@@ -450,8 +417,8 @@ def _farmer_brief(
         audience="Farmers, agronomists & smart-agri operators",
         headline=headlines[status],
         summary=summaries[status],
-        space_weather_today=f"{sw_ctx.headline} {sw_ctx.impact}",
-        space_weather_bullets=sw_ctx.readout,
+        space_weather_today=f"{sw_ctx.headline}. {sw_ctx.impact}",
+        space_weather_bullets=sw_ctx.readout[:3],
         bullets=bullets[status],
         action=actions[status],
         status_tone=status,
@@ -475,68 +442,70 @@ def _surveyor_brief(
     accuracy = _field(primary, "Expected Accuracy") or "See live forecast"
     rtk = _field(primary, "RTK Reliability") or "See live forecast"
     window = _field(primary, "Best Survey Window") or "07:00 – 14:00"
+    kp = _fmt_num(sw.get("kp") if sw else None)
+    s4 = _fmt_num(sw.get("s4") if sw else None, 2)
+    dst = _fmt_num(sw.get("dst") if sw else None, 0)
+    risk = (sw.get("gnss_risk") if sw else None) or "updating"
 
     headlines: dict[ForecastStatus, str] = {
-        "excellent": "Quiet ionosphere — survey-grade GNSS is reliable today",
-        "moderate": "Space weather adding noise — allow extra RTK occupation time",
-        "warning": "Space weather event — expect degraded survey accuracy",
+        "excellent": "CORS/RTK conditions favourable — proceed with survey",
+        "moderate": "Allow extra RTK occupation time — ionospheric delay elevated",
+        "warning": "Degraded GNSS — centimetre work needs redundancy",
     }
 
     summaries: dict[ForecastStatus, str] = {
         "excellent": (
-            "Geomagnetic and ionospheric conditions are calm. Space weather is not adding significant error to RTK "
-            "baselines or CORS corrections. Standard cadastral and engineering surveys can proceed."
+            "Ionosphere quiet. Negligible space-weather contribution to RTK baselines and CORS corrections. "
+            "Cadastral and engineering surveys can proceed to normal tolerances."
         ),
         "moderate": (
-            "Elevated space weather is increasing ionospheric delay and scintillation. RTK initialization may take "
-            "longer and fixed solutions may slip during midday. This is a space-weather effect, not necessarily a "
-            "faulty receiver or caster."
+            "Elevated ionospheric delay and scintillation. Expect longer RTK initialisation and possible float "
+            "slips around midday. Check receiver and caster before assuming a fault."
         ),
         "warning": (
-            "A space-weather disturbance is active. The ionosphere over eastern/central Zimbabwe is turbulent — "
-            "the layer your satellite corrections pass through. Centimetre-level GNSS alone may not meet legal survey "
-            "standards today; plan redundancy."
+            "Active ionospheric disturbance. Ambiguity-fixed centimetre GNSS alone may not meet legal accuracy "
+            "today. Hold centimetre submissions or add total-station / independent control checks."
         ),
     }
 
     warning_bullets = [
-        f"Survey site: {site} · GNSS: {_status_word(status)}",
-        f"Expected accuracy: {accuracy}",
-        "Space weather is dominating the error budget — verify control points independently",
-        f"Live drivers: {primary.cause}" if primary and primary.cause else "Monitor Kp and S4 before mobilising",
+        f"CORS focus: {site} · Status: {_status_word(status)}",
+        f"Expected accuracy: {accuracy} · RTK: {rtk}",
+        "Error budget dominated by space weather — verify control independently",
+        (
+            f"Drivers: {primary.cause}"
+            if primary and primary.cause
+            else f"Monitor Kp {kp} / S4 {s4} before mobilising"
+        ),
     ]
 
     bullets: dict[ForecastStatus, list[str]] = {
         "excellent": [
-            f"Survey site: {site} · GNSS: {_status_word(status)}",
-            f"Expected accuracy: {accuracy} · RTK: {rtk}",
-            f"Window: {window}",
-            "Space weather contribution to error: negligible",
+            f"CORS focus: {site} · Status: {_status_word(status)}",
+            f"Expected accuracy: {accuracy} · RTK reliability: {rtk}",
+            f"Preferred occupation window: {window}",
+            f"Indices: Kp {kp} · S4 {s4} · Dst {dst} nT",
         ],
         "moderate": [
-            f"Survey site: {site} · GNSS: {_status_word(status)}",
-            f"Expected accuracy: {accuracy} · RTK: {rtk}",
-            "Space weather: allow 15–30% longer initialization",
-            f"Best occupation: {window}",
+            f"CORS focus: {site} · Status: {_status_word(status)}",
+            f"Expected accuracy: {accuracy} · RTK reliability: {rtk}",
+            "Allow ~15–30% longer time to Fix; prefer morning occupations",
+            f"Window: {window} · Kp {kp} · S4 {s4}",
         ],
         "warning": warning_bullets,
     }
 
     actions: dict[ForecastStatus, str] = {
-        "excellent": "Mobilise crews as planned. Space weather is not a limiting factor today.",
-        "moderate": "Brief crews: space weather may extend fix times. Prefer morning occupations.",
-        "warning": "Delay centimetre-critical submissions or deploy total-station redundancy until conditions ease.",
+        "excellent": "Mobilise as planned. Space weather is not limiting today.",
+        "moderate": "Brief crews on longer Fix times. Prefer morning occupations.",
+        "warning": "Delay centimetre-critical lodgement or add total-station redundancy.",
     }
 
     broadcast = _join_script([
         "📐 *ZINGSA Navigation News — Surveyors*",
         f"📍 {site} · {_format_utc(computed_at)}",
         "",
-        f"🌌 *Space weather:* {sw_ctx.headline}",
-        *[f"• {b}" for b in sw_ctx.readout],
-        "",
         headlines[status],
-        "",
         summaries[status],
         "",
         *[f"• {b}" for b in bullets[status]],
@@ -547,10 +516,10 @@ def _surveyor_brief(
     ])
 
     social = _join_script([
-        "📐 ZINGSA Navigation News | Surveyors",
-        sw_ctx.headline,
-        f"{site} · {accuracy}",
-        "#SpaceWeather #Surveying #RTK #Zimbabwe",
+        "📐 ZINGSA | Surveyors",
+        headlines[status],
+        f"{site} · {accuracy} · RTK {rtk}",
+        "#Surveying #RTK #CORS #Zimbabwe",
     ])
 
     return NavigationNewsBrief(
@@ -560,8 +529,8 @@ def _surveyor_brief(
         audience="Land surveyors, engineers & cadastral teams",
         headline=headlines[status],
         summary=summaries[status],
-        space_weather_today=f"{sw_ctx.headline} {sw_ctx.explainer}",
-        space_weather_bullets=sw_ctx.readout,
+        space_weather_today=f"{sw_ctx.headline}. Kp {kp} · S4 {s4} · Dst {dst} nT.",
+        space_weather_bullets=[f"Kp {kp}", f"S4 {s4}", f"Dst {dst} nT", f"GNSS risk {risk}"],
         bullets=bullets[status],
         action=actions[status],
         status_tone=status,

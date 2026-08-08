@@ -1,30 +1,29 @@
 import type { Station } from "@/lib/types";
 
-export type LiveStationStatus = "online" | "degraded" | "offline" | "unavailable";
+export type LiveStationStatus = "online" | "offline" | "unavailable";
 
 export interface LiveStationCounts {
   online: number;
-  degraded: number;
   offline: number;
   unavailable: number;
   total: number;
 }
 
+/**
+ * Online only when MSM is streaming to us. Connected-but-silent (no MSM / no
+ * RTCM) is offline — no data ⇒ down.
+ */
 export function getLiveStationStatus(station: Station): LiveStationStatus {
   switch (station.ntrip_verdict) {
     case "msm_streaming":
       return "online";
     case "rtcm_no_msm":
     case "connected_no_data":
-      return "degraded";
     case "offline":
       return "offline";
     default:
-      if (
-        station.status_source === "ntrip" &&
-        (station.status === "online" || station.status === "degraded" || station.status === "offline")
-      ) {
-        return station.status;
+      if (station.status_source === "ntrip") {
+        return station.status === "online" ? "online" : "offline";
       }
       return "unavailable";
   }
@@ -33,7 +32,6 @@ export function getLiveStationStatus(station: Station): LiveStationStatus {
 export function countLiveStationStatuses(stations: Station[], expectedTotal = 24): LiveStationCounts {
   const counts: LiveStationCounts = {
     online: 0,
-    degraded: 0,
     offline: 0,
     unavailable: 0,
     total: stations.length || expectedTotal,
@@ -45,9 +43,9 @@ export function countLiveStationStatuses(stations: Station[], expectedTotal = 24
   return counts;
 }
 
-/** Stations with an active NTRIP connection (receiving or idle) — used for X/24 display. */
+/** Stations actively streaming MSM — used for X/24 “CORS Connected” display. */
 export function connectedStreamCount(counts: LiveStationCounts): number {
-  return counts.online + counts.degraded;
+  return counts.online;
 }
 
 export interface CorsConnectedDisplay {
@@ -59,17 +57,16 @@ export interface CorsConnectedDisplay {
 
 /** Compact one-line CORS status for home metric cards. */
 export function formatCorsConnectedShort(counts: LiveStationCounts): string {
-  const connected = connectedStreamCount(counts);
-  return `${connected}/${counts.total} · ${counts.online} recv · ${counts.degraded} idle`;
+  const down = counts.offline + counts.unavailable;
+  return `${counts.online}/${counts.total} streaming · ${down} offline`;
 }
 
 /** Shared CORS connected readout — same on home, space weather, dashboard, and live pipeline. */
 export function formatCorsConnectedDisplay(counts: LiveStationCounts): CorsConnectedDisplay {
-  const connected = connectedStreamCount(counts);
   return {
-    value: `${connected}/${counts.total}`,
-    note: `Receiving ${counts.online} · Idle ${counts.degraded} · Offline ${counts.offline} · Unavailable ${counts.unavailable}`,
-    connected,
+    value: `${counts.online}/${counts.total}`,
+    note: `Streaming ${counts.online} · Offline ${counts.offline} · Unavailable ${counts.unavailable}`,
+    connected: connectedStreamCount(counts),
     total: counts.total,
   };
 }

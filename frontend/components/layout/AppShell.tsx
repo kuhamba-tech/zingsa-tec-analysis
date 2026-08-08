@@ -28,6 +28,7 @@ const NAV_GROUPS: { section: string; items: NavItem[] }[] = [
   {
     section: "GNSS Processing",
     items: [
+      { href: "/processing#download", label: "RINEX Data", icon: "📥", matchHash: "#download" },
       { href: "/processing#converter", label: "RINEX Processor", icon: "🔄", matchHash: "#converter" },
       { href: "/processing", label: "TEC Processor", icon: "⚙️", excludeWhenHash: true },
       { href: "/prn-explorer", label: "PRN Explorer", icon: "🛰️" },
@@ -152,7 +153,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           <span className="app-hamburger-icon" aria-hidden="true">☰</span>
           <span className="app-hamburger-label">{mobileOpen ? "Close" : "Menu"}</span>
         </button>
-        <span className="app-topbar-title">Space Weather Platform</span>
+        <span className="app-topbar-title">Space Weather &amp; Navigation</span>
       </header>
 
       {mobileOpen && <div className="app-overlay" onClick={closeMobile} />}
@@ -162,7 +163,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         className={`app-sidebar${collapsed ? " is-collapsed" : ""}${mobileOpen ? " is-mobile-open" : ""}`}
       >
         <div className="app-sidebar-head">
-          <span className="app-logo-text">Space Weather Platform</span>
+          <span className="app-logo-text">Space Weather &amp; Navigation</span>
           <button
             className="app-collapse-btn"
             onClick={() => setCollapsed(!collapsed)}

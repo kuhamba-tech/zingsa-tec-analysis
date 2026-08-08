@@ -1,6 +1,6 @@
 """National Navigation & Space Weather social post templates (Facebook / X).
 
-Sample copy approved for ZINGSA public broadcasts — one template per storm tier.
+Short, sector-clear copy for public broadcasts — one template per storm tier.
 Live posts pick the tier from current Kp/Dst/GNSS risk and regional forecast tone.
 """
 from __future__ import annotations
@@ -13,142 +13,63 @@ from zgiis.navigation.national_gnss_status import build_national_gnss_status_blo
 StormSocialTier = Literal["mild", "moderate", "severe", "extreme"]
 
 _TEMPLATES: dict[StormSocialTier, str] = {
-    "mild": """🟡 ACTIVE (MILD) CONDITIONS
+    "mild": """🟡 Mild space weather
 
-🇿🇼 ZINGSA Navigation & Space Weather Update
+🇿🇼 ZINGSA Navigation Update
 
-🛰️ Today's Status: 🟡 Mild Geomagnetic Activity
+GPS for everyday use should work. Small wobbles possible.
 
-A minor geomagnetic disturbance is affecting Earth's magnetic field. Most GPS services will continue operating normally, although small reductions in positioning accuracy are possible.
+🚗 Drivers – Map pin may drift briefly, then correct.
+📐 Surveyors – RTK OK; allow a little extra time to Fix.
+🌾 Farmers – Tractor GPS and planting can continue.
+⚡ Power – Keep routine GIC watch on the grid.
 
-What this means
+Most people: use Maps as normal.
 
-🚗 Drivers – Your GPS may briefly drift before correcting itself.
+#ZINGSA #Zimbabwe #GPS""",
+    "moderate": """🟠 Moderate space weather
 
-📐 Surveyors – RTK remains available, but allow extra time to obtain a fixed solution.
+🇿🇼 ZINGSA Navigation Alert
 
-🌾 Farmers – Precision farming can continue normally.
+GPS may be slower or a few metres off — especially for precise work.
 
-🚁 Drone Operators – Check RTK quality before and during flights.
+🚗 Drivers – Check the road, not only the app, at junctions.
+📐 Surveyors – Longer RTK init; prefer morning occupations.
+🌾 Farmers – Finish GPS field work before late morning.
+⚡ Power – Watch GIC / transformer neutrals; minor geomagnetic disturbance.
 
-✈️ Aviation – Continue normal navigation procedures.
+Everyday maps still usable. Precision users: take care.
 
-⚡ Power Utilities – Routine monitoring is recommended.
+#ZINGSA #Zimbabwe #GPS #RTK""",
+    "severe": """🔴 Severe space weather
 
-🇿🇼 Navigation Outlook
+🇿🇼 ZINGSA Navigation Warning
 
-🟢 GPS Availability: Excellent
+GPS may show the wrong place. Do not trust a pin alone.
 
-🟡 RTK Accuracy: Minor fluctuations possible
+🚗 Drivers – Confirm pickups by phone; watch junctions.
+📐 Surveyors – Expect RTK drops; add control checks.
+🌾 Farmers – Pause critical auto-steer / legal boundary work if you can.
+⚡ Power – Heighten GIC monitoring on long HV lines.
 
-🟡 Geomagnetic Activity: Mild
+ZINGSA is monitoring. Updates to follow.
 
-There is no cause for concern. ZINGSA continues monitoring the national space environment.
+#ZINGSA #Zimbabwe #GPS #SpaceWeather""",
+    "extreme": """🟣 Extreme space weather
 
-#ZINGSA #Zimbabwe #GNSS #SpaceWeather #GPS""",
-    "moderate": """🟠 MODERATE GEOMAGNETIC STORM
+🇿🇼 ZINGSA National Advisory
 
-🇿🇼 ⚠️ ZINGSA Navigation Alert
+GPS and precision GNSS may fail in places. Confirm locations by other means.
 
-🛰️ Current Status: 🟠 Moderate Geomagnetic Storm
+🚗 Drivers – GPS unreliable in some areas.
+📐 Surveyors – Do not rely on cm GNSS until conditions ease.
+🌾 Farmers – Delay centimetre farm GPS jobs.
+⚡ Power – Increase grid / GIC monitoring.
+📡 Telecom – Watch GNSS timing holds.
 
-Zimbabwe is experiencing increased geomagnetic activity that may affect GPS and GNSS performance, particularly for high-precision applications.
+ZINGSA is monitoring via the national CORS network.
 
-Expected impacts
-
-🚗 Drivers – Occasional GPS position drift may occur.
-
-📐 Surveyors – Longer RTK initialisation times and reduced accuracy are possible.
-
-🌾 Farmers – Monitor positioning quality during precision field operations.
-
-🚁 Drone Operators – Verify RTK status before critical mapping missions.
-
-✈️ Aviation – Continue monitoring GNSS performance as part of standard procedures.
-
-⚡ Power Utilities – Continue observing GIC monitoring systems.
-
-🇿🇼 Navigation Outlook
-
-🟠 GPS Accuracy: Reduced
-
-🟠 RTK Reliability: Moderate
-
-🟠 Ionospheric Activity: Elevated
-
-Most users will continue to navigate successfully, but high-precision users should take extra care.
-
-#SpaceWeather #ZINGSA #Zimbabwe #GNSS #GPS #RTK""",
-    "severe": """🔴 SEVERE GEOMAGNETIC STORM
-
-🇿🇼 🚨 ZINGSA National Navigation Warning
-
-🔴 Severe Geomagnetic Storm in Progress
-
-A strong geomagnetic storm is affecting the ionosphere over Zimbabwe and may significantly reduce GPS and GNSS accuracy.
-
-Potential impacts
-
-🚗 Drivers – Navigation apps may occasionally display incorrect positions.
-
-📐 Surveyors – RTK interruptions and reduced positioning accuracy are likely.
-
-🌾 Farmers – Delay critical precision farming activities if possible.
-
-🚁 Drone Operators – Consider postponing high-precision mapping flights until conditions improve.
-
-✈️ Aviation – Continue enhanced monitoring of satellite navigation systems.
-
-⚡ Power Utilities – Increased geomagnetic activity may influence long transmission lines. Continue monitoring GIC systems.
-
-🇿🇼 Navigation Outlook
-
-🔴 GPS Accuracy: Reduced
-
-🔴 RTK Reliability: Poor
-
-🔴 Ionospheric Disturbance: High
-
-ZINGSA is closely monitoring the event and will provide updates as conditions evolve.
-
-Stay informed. Stay prepared.
-
-#ZINGSA #Zimbabwe #GeomagneticStorm #GNSS #GPS #SpaceWeather""",
-    "extreme": """🟣 EXTREME GEOMAGNETIC STORM
-
-🇿🇼 🚨 ZINGSA National Space Weather Emergency Advisory
-
-🟣 Extreme Geomagnetic Storm
-
-An extreme geomagnetic storm is currently affecting Earth's magnetic field. Significant disruptions to satellite navigation and other space-based technologies are possible.
-
-Expected impacts
-
-🚗 Drivers – GPS accuracy may be unreliable in some areas.
-
-📐 Surveyors – High-precision GNSS surveying is not recommended until conditions improve.
-
-🌾 Farmers – Delay precision agriculture activities that depend on centimetre-level positioning.
-
-🚁 Drone Operators – Postpone RTK-dependent flights where possible.
-
-✈️ Aviation – Operators should remain alert for GNSS degradation and follow established operational procedures.
-
-⚡ Power Utilities – Increased monitoring of power infrastructure and GIC systems is recommended.
-
-📡 Telecommunications – Some satellite-based timing and HF communication systems may experience disturbances.
-
-🇿🇼 Navigation Outlook
-
-🟣 GPS Accuracy: Significantly Reduced
-
-🟣 RTK Services: May Be Unavailable
-
-🟣 Space Weather Activity: Extreme
-
-ZINGSA is continuously monitoring the situation through Zimbabwe's national CORS network and international space weather services. Further updates will be issued as conditions change.
-
-#ZINGSA #Zimbabwe #SpaceWeather #GeomagneticStorm #GNSS #GPS #NationalAdvisory #CORS""",
+#ZINGSA #Zimbabwe #SpaceWeather #GPS""",
 }
 
 
@@ -179,8 +100,7 @@ def build_national_navigation_social(
 ) -> str:
     """Return the national Facebook/X Navigation News post for the current storm tier."""
     tier = resolve_storm_social_tier(tone, sw)
-    body = _TEMPLATES[tier]
-    parts = [body]
+    parts = [_TEMPLATES[tier]]
     if forecasts:
         parts.extend(["", build_national_gnss_status_block(forecasts, tone, sw)])
     if computed_at:

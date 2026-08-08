@@ -6,7 +6,7 @@ ZINGSA_WEBSITE_LABEL = "zingsa.ac.zw"
 ZINGSA_AGENCY = "ZINGSA (Zimbabwe National Geospatial and Space Agency)"
 
 ZINGSA_PHONE = "+263 8677009885"
-ZINGSA_EMAIL = "publicrelations@zingsa.ac.zw"
+ZINGSA_EMAIL = "cors@zingsa.ac.zw"
 ZINGSA_HOURS = "Mon–Fri, 8am–4pm"
 ZINGSA_ADDRESS = (
     "630 Churchill Avenue, Mount Pleasant, Harare "
@@ -18,15 +18,13 @@ ZINGSA_CONTACT_LINE = f"Call {ZINGSA_PHONE} or email {ZINGSA_EMAIL} ({ZINGSA_HOU
 ZINGSA_NAVIGATION_HELP_SHORT = f"contact {ZINGSA_AGENCY} on {ZINGSA_PHONE}"
 
 ZINGSA_NAVIGATION_MODERATE_ACTION = (
-    f"Wait a few seconds before trusting a map pin. If GPS still looks wrong, call ZINGSA on "
-    f"{ZINGSA_PHONE} or email {ZINGSA_EMAIL} — describe your suburb and landmarks in words, "
-    f"not only what the map shows. Office hours: {ZINGSA_HOURS}."
+    f"If your map looks wrong, wait a few seconds or step outside. Still unsure? "
+    f"Call ZINGSA on {ZINGSA_PHONE}."
 )
 
 ZINGSA_NAVIGATION_WARNING_ACTION = (
-    "Do not rely on GPS alone today. Confirm meeting points by phone with the other person. "
-    f"For space-weather and navigation advice, call ZINGSA on {ZINGSA_PHONE} or visit "
-    f"{ZINGSA_WEBSITE_LABEL}."
+    "Do not rely on GPS alone today. Confirm places by phone or street signs. "
+    f"Help: {ZINGSA_PHONE} or {ZINGSA_WEBSITE_LABEL}."
 )
 
 ZINGSA_NAVIGATION_CHANNELS = [

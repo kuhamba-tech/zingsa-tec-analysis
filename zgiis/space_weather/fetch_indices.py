@@ -478,18 +478,18 @@ def _live_ntrip_health() -> Dict[str, Any]:
     except Exception:
         pass
 
-    counts = {"online": 0, "degraded": 0, "offline": 0, "unknown": 0}
+    counts = {"online": 0, "offline": 0, "unknown": 0}
     rows = []
     for s in stations:
-        key = s.status if s.status in counts else "unknown"
-        counts[key] += 1
-        rows.append({"station_id": s.code, "status": s.status.upper()})
+        status = "online" if s.status == "online" else ("unknown" if s.status == "unknown" else "offline")
+        counts[status] += 1
+        rows.append({"station_id": s.code, "status": status.upper()})
 
     return {
         "health_summary": {
             "telemetry_live": counts["online"],
             "online": counts["online"],
-            "degraded": counts["degraded"],
+            "degraded": 0,
             "offline": counts["offline"],
         },
         "stations": rows,
@@ -625,8 +625,8 @@ def get_space_weather(
             if use_third_party:
                 if telemetry_live > 0:
                     stations_online = summary.get("online")
-                    stations_degraded = summary.get("degraded")
-                    stations_offline = summary.get("offline")
+                    stations_degraded = 0
+                    stations_offline = int(summary.get("offline") or 0) + int(summary.get("degraded") or 0)
                     station_data_status = "live"
                     station_data_note = f"{telemetry_live} stations have live telemetry."
                     source = f"{source} · CORS live telemetry"
@@ -637,13 +637,12 @@ def get_space_weather(
                     )
             else:
                 stations_online = summary.get("online")
-                stations_degraded = summary.get("degraded")
-                stations_offline = summary.get("offline")
-                station_data_status = "live" if telemetry_live > 0 else "degraded"
+                stations_degraded = 0
+                stations_offline = int(summary.get("offline") or 0) + int(summary.get("degraded") or 0)
+                station_data_status = "live" if telemetry_live > 0 else "offline"
                 station_data_note = (
-                    f"{telemetry_live} station(s) actively streaming RTCM data; "
-                    f"{stations_degraded or 0} connected but idle, "
-                    f"{stations_offline or 0} offline (live NTRIP pipeline)."
+                    f"{telemetry_live} station(s) actively streaming MSM data; "
+                    f"{stations_offline} offline (live NTRIP pipeline)."
                 )
                 source = f"{source} · Live NTRIP pipeline"
 
@@ -655,8 +654,8 @@ def get_space_weather(
         ):
             summary = health.get("health_summary") or {}
             stations_online = summary.get("online")
-            stations_degraded = summary.get("degraded")
-            stations_offline = summary.get("offline")
+            stations_degraded = 0
+            stations_offline = int(summary.get("offline") or 0) + int(summary.get("degraded") or 0)
             station_data_status = "rtk_status"
             station_data_note = (
                 f"{stations_online} station(s) are reported online by the CORS/RTK "

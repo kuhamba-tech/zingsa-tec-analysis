@@ -4,8 +4,8 @@ import "./globals.css";
 import AppShell from "@/components/layout/AppShell";
 
 export const metadata: Metadata = {
-  title: "Zimbabwe National Space Weather & Navigation Intelligence Platform",
-  description: "Real-time space weather, ionospheric TEC, and GNSS navigation intelligence for Zimbabwe's CORS network",
+  title: "Zimbabwe Space Weather & Navigation",
+  description: "Real-time space weather, ionospheric TEC, and GNSS navigation from Zimbabwe's CORS network",
 };
 
 export const viewport: Viewport = {

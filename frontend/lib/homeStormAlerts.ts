@@ -51,17 +51,17 @@ export function buildHomeStormAlerts(
     push(message, geo.level === "storm" ? "alert" : "warn");
   }
 
-  if (ekf?.banner) {
-    for (const part of ekf.banner.split(" · ").map((p) => p.trim()).filter(Boolean)) {
-      if (isEkfBannerPart(part)) {
-        push(part, defaultSeverity);
-      }
-    }
-  }
-
+  // One soft EKF storm banner — avoid stacking near-duplicate amber strips
+  // (raw ekf.banner + formatted pending alert used to both appear).
   const worst = worstUnackedAlert(ekf, pendingAlerts);
   if (worst) {
     push(formatEkfDeviationAlert(worst), defaultSeverity);
+  } else if (ekf?.banner) {
+    const ekfPart = ekf.banner
+      .split(" · ")
+      .map((p) => p.trim())
+      .find((part) => isEkfBannerPart(part));
+    if (ekfPart) push(ekfPart, defaultSeverity);
   }
 
   return alerts;

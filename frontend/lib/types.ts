@@ -235,11 +235,39 @@ export interface Station {
   sourcetable_identifier?: string | null;
   sourcetable_mismatch?: boolean;
   sourcetable_note?: string | null;
+  /** Live NTRIP rover clients on this mountpoint (Spider feed). null = feed unavailable. */
+  connected_rovers?: number | null;
+  rover_peak_24h?: number | null;
+  rover_share_pct?: number | null;
+  rover_rank?: number | null;
+}
+
+export interface RoverClientStation {
+  code: string;
+  mountpoint: string;
+  name: string;
+  connected_rovers: number;
+  peak_24h: number | null;
+  share_pct: number | null;
+  rank: number | null;
+}
+
+export interface RoverClientsSnapshot {
+  available: boolean;
+  updated_at: string | null;
+  source: string | null;
+  message: string | null;
+  total_rovers: number;
+  stations_with_rovers: number;
+  busiest_code: string | null;
+  busiest_count: number;
+  stations: RoverClientStation[];
 }
 
 export interface CorsHealth {
   online: number;
-  degraded: number;
+  /** @deprecated Always 0 — no-stream stations are counted in offline. */
+  degraded?: number;
   offline: number;
   total: number;
 }
@@ -274,7 +302,8 @@ export interface StationUptimeRow {
   station_name: string;
   samples: number;
   online_pct: number;
-  degraded_pct: number;
+  /** @deprecated Always 0 — folded into offline_pct. */
+  degraded_pct?: number;
   offline_pct: number;
   unknown_pct: number;
 }

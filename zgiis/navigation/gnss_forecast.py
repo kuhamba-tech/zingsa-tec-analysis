@@ -61,9 +61,7 @@ def _pick_station(stations: list[Any], codes: list[str]) -> Any | None:
             return 1
         if verdict == "rtcm_no_msm":
             return 2
-        if status == "degraded":
-            return 3
-        return 4
+        return 3
 
     return sorted(candidates, key=rank)[0]
 
@@ -125,8 +123,6 @@ def _feed_reliability(station: Any | None) -> float:
         return 28.0
     if status == "online":
         return 72.0
-    if status == "degraded":
-        return 45.0
     return 12.0
 
 

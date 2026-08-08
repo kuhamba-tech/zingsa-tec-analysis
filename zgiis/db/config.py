@@ -30,7 +30,15 @@ def database_dsn() -> str:
 
 
 def _dsn_allowed(dsn: str) -> bool:
-    host = urlsplit(dsn).hostname or ""
+    try:
+        parts = urlsplit(dsn)
+        host = parts.hostname or ""
+    except ValueError:
+        # A malformed environment value must not prevent unrelated API routes
+        # from starting. Treat it as unconfigured and continue to fallbacks.
+        return False
+    if parts.scheme not in {"postgres", "postgresql"} or not host:
+        return False
     if "neon" not in host:
         return True
     return (os.getenv("ALLOW_LEGACY_NEON_DATABASE_URL") or "").strip().lower() in {"1", "true", "yes", "on"}

@@ -7,6 +7,7 @@ import {
 } from "@/lib/api";
 import LineChart from "@/components/charts/LineChart";
 import RinexConverterPanel from "@/components/processing/RinexConverterPanel";
+import RinexDownloadPanel from "@/components/processing/RinexDownloadPanel";
 import type { TecSummaryRow, TecHourlyRow, TecPlotSeries, BiasRow, Station } from "@/lib/types";
 import type { MapLayer } from "@/components/maps/CorsMapWithLayers";
 
@@ -600,7 +601,7 @@ export default function ProcessingPage() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [tecPlot, setTecPlot] = useState<TecPlotSeries | null>(null);
   const [loading, setLoading]   = useState(false);
-  const [tab, setTab]           = useState<"cmn" | "rinex" | "converter">("cmn");
+  const [tab, setTab]           = useState<"cmn" | "rinex" | "converter" | "download">("cmn");
   const [mapLayer, setMapLayer] = useState<MapLayer>("Hybrid");
   const [cmnName, setCmnName]   = useState("No file selected");
   const [obsFiles, setObsFiles] = useState<File[]>([]);
@@ -651,6 +652,7 @@ export default function ProcessingPage() {
   useEffect(() => {
     const applyHash = () => {
       if (window.location.hash === "#converter") setTab("converter");
+      if (window.location.hash === "#download" || window.location.hash === "#rinex-data") setTab("download");
     };
     applyHash();
     window.addEventListener("hashchange", applyHash);
@@ -662,7 +664,11 @@ export default function ProcessingPage() {
       if (window.location.hash !== "#converter") {
         window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#converter`);
       }
-    } else if (window.location.hash === "#converter") {
+    } else if (tab === "download") {
+      if (window.location.hash !== "#download") {
+        window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#download`);
+      }
+    } else if (window.location.hash === "#converter" || window.location.hash === "#download" || window.location.hash === "#rinex-data") {
       window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
     }
   }, [tab]);
@@ -1046,10 +1052,12 @@ export default function ProcessingPage() {
         <div className="tabs" style={{ marginBottom: "0.2rem" }}>
           <button className={`tab${tab === "cmn" ? " active" : ""}`} onClick={() => setTab("cmn")}>CMN File</button>
           <button className={`tab${tab === "rinex" ? " active" : ""}`} onClick={() => setTab("rinex")}>RINEX Files</button>
+          <button className={`tab${tab === "download" ? " active" : ""}`} onClick={() => setTab("download")}>RINEX Data</button>
           <button className={`tab${tab === "converter" ? " active" : ""}`} onClick={() => setTab("converter")}>RINEX Converter</button>
         </div>
 
         {tab === "converter" && <RinexConverterPanel />}
+        {tab === "download" && <RinexDownloadPanel />}
 
         {tab === "cmn" && (
           <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
@@ -1213,7 +1221,7 @@ export default function ProcessingPage() {
         )}
       </div>
 
-      {tab !== "converter" && (
+      {tab !== "converter" && tab !== "download" && (
       <>
       {/* Settings panel — parity with pages/2_Processing.py sidebar */}
       <div className="card" style={{ display: "flex", flexDirection: "column", gap: "0.8rem" }}>
@@ -1358,7 +1366,7 @@ export default function ProcessingPage() {
       </>
       )}
 
-      {tab !== "converter" && (
+      {tab !== "converter" && tab !== "download" && (
       <>
       {/* Map section */}
       <div>
@@ -1406,9 +1414,8 @@ export default function ProcessingPage() {
               Station Status
             </div>
             {[
-              { color: "#00ff88", label: "Online" },
-              { color: "#ff8c00", label: "Degraded" },
-              { color: "#ff4444", label: "Offline" },
+              { color: "#00ff88", label: "Online (MSM streaming)" },
+              { color: "#ff4444", label: "Offline (not streaming)" },
               { color: "#666",    label: "Telemetry Unavailable" },
             ].map(({ color, label }) => (
               <div key={label} style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>

@@ -51,10 +51,11 @@ def vendor_status_label(status: str, *, connected: bool = False, receiving: bool
     s = (status or "").lower()
     if s == "online" or receiving:
         return "Connected – receive data"
-    if s == "degraded" or connected:
-        return "Connected – no data"
     if s == "unknown":
         return "Status unknown"
+    # Connected without data is still offline for operations (no MSM stream).
+    if connected and not receiving:
+        return "Offline – no data"
     return "Disconnected"
 
 

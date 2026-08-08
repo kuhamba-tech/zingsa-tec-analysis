@@ -68,7 +68,7 @@ def fetch_space_weather_africa() -> Optional[Dict[str, Any]]:
 
 
 def fetch_station_health(*, country: str = "Zimbabwe") -> Optional[Dict[str, Any]]:
-    """GET /api/gnss/station-health — CORS online/degraded/offline counts."""
+    """GET /api/gnss/station-health — CORS online/offline counts."""
     return _get_json("gnss/station-health", params={"country": country})
 
 

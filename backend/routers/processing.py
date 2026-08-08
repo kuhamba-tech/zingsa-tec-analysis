@@ -10,6 +10,8 @@ from fastapi.responses import StreamingResponse
 
 from backend.deps import require_api_key
 from backend.schemas import BiasRow, ProcessingSession, TecHourlyRow, TecPlotSeries, TecSummaryRow
+from pydantic import BaseModel, Field
+from datetime import date as date_cls
 
 router = APIRouter(prefix="/processing", tags=["processing"])
 
@@ -247,6 +249,80 @@ async def rinex_convert(
         iter([payload]),
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="rinex_converted_{sid}.zip"'},
+    )
+
+
+class RinexDownloadRequest(BaseModel):
+    stations: list[str] = Field(default_factory=list)
+    start: str
+    end: str
+    include_nav: bool = True
+    include_brdc_nav: bool = True
+
+
+@router.get("/rinex-archive/status")
+async def rinex_archive_status(_=Depends(require_api_key)):
+    from zgiis.processing.rinex_download import list_station_catalog, status_summary
+
+    status = status_summary()
+    status["stations"] = list_station_catalog()
+    return status
+
+
+@router.get("/rinex-archive/availability")
+async def rinex_archive_availability(
+    stations: str = "",
+    start: str = "",
+    end: str = "",
+    include_nav: bool = True,
+    _=Depends(require_api_key),
+):
+    from zgiis.processing.rinex_download import availability
+
+    codes = [s.strip() for s in stations.split(",") if s.strip()]
+    if not codes or not start or not end:
+        raise HTTPException(status_code=422, detail="stations, start, and end are required")
+    try:
+        start_d = date_cls.fromisoformat(start[:10])
+        end_d = date_cls.fromisoformat(end[:10])
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid date: {exc}") from exc
+    return availability(codes, start_d, end_d, include_nav=include_nav)
+
+
+@router.post("/rinex-archive/download")
+async def rinex_archive_download(body: RinexDownloadRequest, _=Depends(require_api_key)):
+    """Zip CORS RINEX observation files for office post-processing / PPK."""
+    from zgiis.processing.rinex_download import build_download_zip
+
+    try:
+        start_d = date_cls.fromisoformat(body.start[:10])
+        end_d = date_cls.fromisoformat(body.end[:10])
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid date: {exc}") from exc
+
+    try:
+        payload, meta = build_download_zip(
+            body.stations,
+            start_d,
+            end_d,
+            include_nav=body.include_nav,
+            include_brdc_nav=body.include_brdc_nav,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"RINEX download failed: {exc}") from exc
+
+    stamp = f"{start_d.isoformat()}_{end_d.isoformat()}"
+    filename = f"zgiis_rinex_pp_{stamp}.zip"
+    return StreamingResponse(
+        iter([payload]),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-ZGIIS-Rinex-Files": str(meta.get("file_count", 0)),
+        },
     )
 
 

@@ -160,7 +160,6 @@ else:
 if show_stations:
     status_colors = {
         "online": "#1D9E75",
-        "degraded": "#EF9F27",
         "offline": "#ef4444",
     }
     traces.append(

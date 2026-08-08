@@ -72,8 +72,9 @@ def _ntrip_stream_counts() -> tuple[int | None, int | None]:
 
         archived = _archived_status_counts()
         if archived is not None:
-            online, degraded, _offline, total = archived
-            return online + degraded, total
+            online, _, _offline, total = archived
+            # Only MSM-streaming stations count as online — no data ⇒ offline.
+            return online, total
     except Exception:
         pass
 
@@ -84,8 +85,7 @@ def _ntrip_stream_counts() -> tuple[int | None, int | None]:
         latest = get_status_db().latest_snapshots(hours=1.0)
         if latest:
             online = sum(1 for row in latest.values() if row.get("status") == "online")
-            degraded = sum(1 for row in latest.values() if row.get("status") == "degraded")
-            return online + degraded, len(ZIMBABWE_CORS_STATIONS)
+            return online, len(ZIMBABWE_CORS_STATIONS)
     except Exception:
         pass
 
@@ -98,14 +98,10 @@ def _ntrip_stream_counts() -> tuple[int | None, int | None]:
         rows = probe.get("stations") or []
         if not rows:
             return None, None
-        online = degraded = 0
-        for row in rows:
-            verdict = str(row.get("verdict") or "").lower()
-            if verdict == "msm_streaming":
-                online += 1
-            elif verdict in {"rtcm_no_msm", "connected_no_data"}:
-                degraded += 1
-        return online + degraded, len(rows) or 24
+        online = sum(
+            1 for row in rows if str(row.get("verdict") or "").lower() == "msm_streaming"
+        )
+        return online, len(rows) or 24
     except Exception:
         return None, None
 

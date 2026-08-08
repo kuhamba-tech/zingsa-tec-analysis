@@ -1,8 +1,10 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import CorsMap from "./CorsMap";
+import NetworkDistancesPanel from "./NetworkDistancesPanel";
 import TecHeatMapLegend from "./TecHeatMapLegend";
 import { heatmapQualityBanner, icaoTecLabel, icaoTecLevel, inferHeatmapQuality } from "@/lib/icaoTecAdvisory";
+import type { ProposedCorsSite } from "@/lib/corsGeneticOptimizer";
 import type { Station, TecHeatmapResponse } from "@/lib/types";
 import type { LiveStationCounts } from "@/lib/liveStationStatus";
 
@@ -15,7 +17,8 @@ export type MapLayer =
   | "Zimbabwe ROTI Map"
   | "Scintillation Map"
   | "PWV Map"
-  | "Global TEC";
+  | "Global TEC"
+  | "Network Distances";
 
 interface Props {
   stations: Station[];
@@ -37,6 +40,7 @@ const LAYERS: MapLayer[] = [
   "Scintillation Map",
   "PWV Map",
   "Global TEC",
+  "Network Distances",
 ];
 
 function riskColor(level: string): string {
@@ -55,11 +59,20 @@ export default function CorsMapWithLayers({
   heatmap = null,
 }: Props) {
   const [layer, setLayer] = useState<MapLayer>("Hybrid");
+  const [proposedCorsSites, setProposedCorsSites] = useState<ProposedCorsSite[]>([]);
   const tecLayerActive = layer === "TEC Heat Map";
   const zimbabweTecLayerActive = layer === "Zimbabwe TEC Map";
   const scienceMapLayerActive =
     zimbabweTecLayerActive || layer === "Zimbabwe ROTI Map" || layer === "Scintillation Map" || layer === "PWV Map";
   const globalTecLayerActive = layer === "Global TEC";
+  const networkDistancesActive = layer === "Network Distances";
+
+  useEffect(() => {
+    if (!networkDistancesActive && proposedCorsSites.length > 0) {
+      setProposedCorsSites([]);
+    }
+  }, [networkDistancesActive, proposedCorsSites.length]);
+
   const maxVtec = heatmap?.tec_max ?? null;
   const qualityBanner = heatmapQualityBanner(inferHeatmapQuality(heatmap ?? null), heatmap?.message);
   const awaitingVtecBanner =
@@ -71,7 +84,7 @@ export default function CorsMapWithLayers({
   const liveLabel = stationsLoading
     ? "NTRIP probe running…"
     : ntripProbedAt || stations.length > 0
-      ? `Online ${liveCounts.online} · Degraded ${liveCounts.degraded} · Offline ${liveCounts.offline} · Unavailable ${liveCounts.unavailable}`
+      ? `Online ${liveCounts.online} · Offline ${liveCounts.offline} · Unavailable ${liveCounts.unavailable}`
       : "Live stream status";
 
   const sourcetableMismatches = stations.filter((s) => s.sourcetable_mismatch);
@@ -104,7 +117,11 @@ export default function CorsMapWithLayers({
         <div className="home-map-toolbar-left">
           <div className="home-map-toolbar-title">
             <span aria-hidden>🔗</span>
-            <span>Zimbabwe CORS Network</span>
+            <span>
+              {networkDistancesActive
+                ? "CORS Network Distances — Zimbabwe"
+                : "Zimbabwe CORS Network"}
+            </span>
           </div>
           <div className="home-map-toolbar-summary">
             {liveCounts.total} stations · {liveLabel} · {riskLevel} GNSS risk
@@ -138,8 +155,44 @@ export default function CorsMapWithLayers({
         </div>
       </div>
 
-      <div style={{ position: "relative" }}>
-        <CorsMap stations={stations} height={height} layer={layer} heatmap={heatmap} />
+      <div
+        className={networkDistancesActive ? "home-map-network-layout" : undefined}
+        style={networkDistancesActive ? undefined : { position: "relative" }}
+      >
+        <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
+        <CorsMap
+          stations={stations}
+          height={height}
+          layer={layer}
+          heatmap={heatmap}
+          proposedCorsSites={networkDistancesActive ? proposedCorsSites : []}
+        />
+
+        {networkDistancesActive && (
+          <div className="network-distances-map-legend" aria-hidden>
+            <div className="network-distances-map-legend-title">Legend</div>
+            <div className="network-distances-map-legend-row">
+              <span className="dot" style={{ background: "#00ff88" }} />
+              <span>CORS Station</span>
+            </div>
+            <div className="network-distances-map-legend-row">
+              <span className="dot" style={{ background: "#5ec8ff" }} />
+              <span>Reference Station (HARARE)</span>
+            </div>
+            {proposedCorsSites.length > 0 && (
+              <div className="network-distances-map-legend-row">
+                <span className="dot" style={{ background: "#ffb020" }} />
+                <span>GA proposed CORS site</span>
+              </div>
+            )}
+            {stations.some((s) => s.connected_rovers != null) && (
+              <div className="network-distances-map-legend-row">
+                <span className="dot" style={{ background: "#c4b5fd" }} />
+                <span>Label shows connected rovers</span>
+              </div>
+            )}
+          </div>
+        )}
 
         {tecLayerActive && (
           <div
@@ -192,7 +245,7 @@ export default function CorsMapWithLayers({
           </div>
         )}
 
-        {!globalTecLayerActive && !scienceMapLayerActive && (
+        {!globalTecLayerActive && !scienceMapLayerActive && !networkDistancesActive && (
           <div
             style={{
               position: "absolute",
@@ -232,9 +285,8 @@ export default function CorsMapWithLayers({
               Station Status
             </div>
             {[
-              { color: "#00ff88", label: "Online (NTRIP MSM streaming)" },
-              { color: "#ff8c00", label: "Degraded (connected, no MSM)" },
-              { color: "#ff4444", label: "Offline" },
+              { color: "#00ff88", label: "Online (MSM streaming to us)" },
+              { color: "#ff4444", label: "Offline (not streaming / no data)" },
               { color: "#666", label: "Status unavailable" },
             ].map(({ color, label }) => (
               <div key={label} style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
@@ -243,10 +295,18 @@ export default function CorsMapWithLayers({
               </div>
             ))}
             <div style={{ fontSize: "0.62rem", fontWeight: 400, color: "var(--text-muted)", marginTop: "0.15rem", maxWidth: "210px" }}>
-              Markers and counts use only the current live NTRIP stream status. Click a marker for site Details.
+              No MSM stream counts as offline — we need observation data. Click a marker for site Details.
             </div>
           </div>
           </div>
+        )}
+        </div>
+        {networkDistancesActive && (
+          <NetworkDistancesPanel
+            stations={stations}
+            proposedSites={proposedCorsSites}
+            onProposedSitesChange={setProposedCorsSites}
+          />
         )}
       </div>
 

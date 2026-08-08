@@ -22,15 +22,16 @@ export default function TecHeatmapPage() {
   const [heatmapStatus, setHeatmapStatus] = useState<FeedStatus>("pending");
   const [lastFetchedAt, setLastFetchedAt] = useState<Date | null>(null);
 
-  const loadHeatmap = useCallback(async () => {
-    setHeatmapStatus("pending");
+  const loadHeatmap = useCallback(async (background = false) => {
+    // Do not flip status to pending on interval refresh — that flashes banners/UI.
+    if (!background) setHeatmapStatus("pending");
     try {
       const payload = await getTecHeatmap(6);
       setHeatmap(payload);
       setHeatmapStatus(payload.available ? "ok" : "down");
       setLastFetchedAt(new Date());
     } catch {
-      setHeatmap(null);
+      if (!background) setHeatmap(null);
       setHeatmapStatus("down");
     }
   }, []);
@@ -48,8 +49,8 @@ export default function TecHeatmapPage() {
   }, []);
 
   useEffect(() => {
-    loadHeatmap();
-    const id = window.setInterval(loadHeatmap, HEATMAP_REFRESH_MS);
+    loadHeatmap(false);
+    const id = window.setInterval(() => loadHeatmap(true), HEATMAP_REFRESH_MS);
     return () => window.clearInterval(id);
   }, [loadHeatmap]);
 
@@ -138,9 +139,8 @@ export default function TecHeatmapPage() {
         <div className="tec-map-legend">
           <div className="tec-map-legend-title">Station Status</div>
           {[
-            { color: "#00ff88", label: "Online" },
-            { color: "#ff8c00", label: "Degraded" },
-            { color: "#ff4444", label: "Offline" },
+            { color: "#00ff88", label: "Online (MSM streaming)" },
+            { color: "#ff4444", label: "Offline (not streaming)" },
             { color: "#666", label: "Telemetry Unavailable" },
           ].map(({ color, label }) => (
             <div key={label} className="tec-map-legend-row">

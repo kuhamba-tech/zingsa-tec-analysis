@@ -31,3 +31,14 @@ def test_neon_urls_are_ignored_unless_explicitly_allowed(monkeypatch):
     assert parts.path == "/db"
     assert parse_qs(parts.query)["connect_timeout"] == ["5"]
     assert configured_database_env_key() == "DATABASE_URL"
+
+
+def test_malformed_database_url_is_ignored(monkeypatch):
+    monkeypatch.setenv(
+        "SUPABASE_DATABASE_URL",
+        "postgresql://postgres:pw@[db.example.supabase.co]:5432/postgres",
+    )
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+
+    assert database_dsn() == ""
+    assert configured_database_env_key() is None

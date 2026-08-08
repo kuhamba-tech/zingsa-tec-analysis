@@ -16,7 +16,6 @@ ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend)
 
 const STATUS_COLORS = {
   online: "#00ff88",
-  degraded: "#ffcc00",
   offline: "#ff7a00",
   unknown: "#94a3b8",
 } as const;
@@ -44,16 +43,8 @@ export default function StationStatusBarChart({ rows, height = 420 }: Props) {
               stack: "status",
             },
             {
-              label: "Degraded",
-              data: rows.map((r) => r.degraded_pct),
-              backgroundColor: STATUS_COLORS.degraded + "dd",
-              borderColor: STATUS_COLORS.degraded,
-              borderWidth: 1,
-              stack: "status",
-            },
-            {
               label: "Offline",
-              data: rows.map((r) => r.offline_pct),
+              data: rows.map((r) => r.offline_pct + (r.degraded_pct ?? 0)),
               backgroundColor: STATUS_COLORS.offline + "dd",
               borderColor: STATUS_COLORS.offline,
               borderWidth: 1,

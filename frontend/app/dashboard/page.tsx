@@ -449,7 +449,7 @@ export default function DashboardPage() {
             {stationUptime.length > 0 ? ` · ${stationUptime.length} stations` : ""}
           </div>
           <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "0.75rem" }}>
-            Online, degraded, and offline transitions are logged when station-health is polled for all 24 Zimbabwe CORS sites.
+            Online and offline transitions are logged when station-health is polled for all 24 Zimbabwe CORS sites.
           </p>
           {stationUptime.length > 0 && (
             <>

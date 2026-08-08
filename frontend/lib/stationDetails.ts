@@ -30,6 +30,23 @@ export function stationDetailRows(s: Station): { label: string; value: string; h
       value: s.site_status_label ?? s.status,
       highlight: true,
     },
+    ...(s.connected_rovers != null
+      ? [
+          {
+            label: "Connected rovers",
+            value:
+              s.rover_share_pct != null
+                ? `${s.connected_rovers} · ${s.rover_share_pct}% of network${
+                    s.rover_rank != null ? ` · #${s.rover_rank}` : ""
+                  }`
+                : String(s.connected_rovers),
+            highlight: true,
+          },
+        ]
+      : []),
+    ...(s.rover_peak_24h != null
+      ? [{ label: "Rover peak (24h)", value: String(s.rover_peak_24h) }]
+      : []),
     { label: "Latitude", value: decimalToDms(s.lat, true) },
     { label: "Longitude", value: decimalToDms(s.lon, false) },
     {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { getSpaceWeather, getStations } from "@/lib/api";
 import { buildGnssForecastBundle, type GnssForecastBundle } from "@/lib/gnssForecastEngine";
@@ -232,13 +232,17 @@ export default function GnssIntelligencePage() {
   const [sw, setSw] = useState<SpaceWeatherCurrent | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const swRef = useRef<SpaceWeatherCurrent | null>(null);
+  swRef.current = sw;
 
   useEffect(() => {
     let cancelled = false;
 
-    async function load() {
-      setLoading(true);
-      setError(null);
+    async function load(background = false) {
+      if (!background) {
+        setLoading(true);
+        setError(null);
+      }
       try {
         const [swResult, stationsResult] = await Promise.allSettled([
           getSpaceWeather(),
@@ -246,30 +250,38 @@ export default function GnssIntelligencePage() {
         ]);
         if (cancelled) return;
 
-        const sw: SpaceWeatherCurrent | null =
+        const nextSw: SpaceWeatherCurrent | null =
           swResult.status === "fulfilled" ? swResult.value : null;
         const stationsRaw =
           stationsResult.status === "fulfilled" ? stationsResult.value : [];
         const stations: Station[] = Array.isArray(stationsRaw) ? stationsRaw : [];
 
-        if (!sw && stations.length === 0) {
-          setError("Could not load space-weather or CORS station feeds.");
-          setBundle(null);
-          setSw(null);
+        if (!nextSw && stations.length === 0) {
+          if (!background) {
+            setError("Could not load space-weather or CORS station feeds.");
+            setBundle(null);
+            setSw(null);
+            swRef.current = null;
+          }
           return;
         }
 
-        setSw(sw);
-        setBundle(buildGnssForecastBundle(sw, stations));
+        const useSw = nextSw ?? (background ? swRef.current : null);
+        swRef.current = useSw;
+        setSw(useSw);
+        setBundle(buildGnssForecastBundle(useSw, stations));
+        setError(null);
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load forecast inputs");
+        if (!cancelled && !background) {
+          setError(e instanceof Error ? e.message : "Failed to load forecast inputs");
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
     }
 
-    load();
-    const timer = setInterval(load, 120_000);
+    load(false);
+    const timer = setInterval(() => load(true), 120_000);
     return () => {
       cancelled = true;
       clearInterval(timer);

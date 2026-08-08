@@ -16,19 +16,17 @@ LOGGER = logging.getLogger(__name__)
 
 STATUS_COLORS = {
     "online": "#1D9E75",
-    "degraded": "#EF9F27",
     "offline": "#ef4444",
     "unknown": "#94a3b8",
 }
 
 STATUS_LABELS = {
     "online": "ONLINE",
-    "degraded": "DEGRADED",
     "offline": "OFFLINE",
     "unknown": "TELEMETRY UNAVAILABLE",
 }
 
-LEGEND_STATUSES = ("online", "degraded", "offline", "unknown")
+LEGEND_STATUSES = ("online", "offline", "unknown")
 
 
 def _status_color(status: str) -> str:

@@ -1,6 +1,6 @@
 """
 Poll the live NTRIP pipeline's per-station connection state and log
-online / degraded / offline / unknown transitions.
+online / offline / unknown transitions.
 
 Status is derived entirely from backend.live_manager.status() (real RTCM
 handshake + last-seen-data timestamps) — no third-party API is involved.
@@ -40,12 +40,16 @@ def _now_iso() -> str:
 
 
 def _status_from_streams(streams: dict[str, dict]) -> dict[str, str]:
-    from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS, derive_status_from_stream
+    from zgiis.cors.stations import (
+        ZIMBABWE_CORS_STATIONS,
+        derive_status_from_stream,
+        normalize_station_status,
+    )
 
     result: dict[str, str] = {}
     for station in ZIMBABWE_CORS_STATIONS:
         code = station.code.lower().rstrip("_")
-        result[code] = derive_status_from_stream(streams.get(code))
+        result[code] = normalize_station_status(derive_status_from_stream(streams.get(code)))
     return result
 
 
@@ -61,8 +65,12 @@ def _status_from_live() -> dict[str, str]:
 def _counts(statuses: dict[str, str]) -> dict[str, int]:
     c = {"online": 0, "degraded": 0, "offline": 0, "unknown": 0}
     for status in statuses.values():
-        key = status if status in c else "unknown"
-        c[key] += 1
+        if status == "online":
+            c["online"] += 1
+        elif status == "unknown":
+            c["unknown"] += 1
+        else:
+            c["offline"] += 1
     return c
 
 

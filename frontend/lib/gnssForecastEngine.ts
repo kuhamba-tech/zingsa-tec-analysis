@@ -70,8 +70,7 @@ function pickStation(stations: Station[], codes: string[]): Station | null {
     if (s.ntrip_verdict === "msm_streaming") return 0;
     if (s.status === "online" && s.ntrip_verdict !== "rtcm_no_msm") return 1;
     if (s.ntrip_verdict === "rtcm_no_msm") return 2;
-    if (s.status === "degraded") return 3;
-    return 4;
+    return 3;
   };
   return [...candidates].sort((a, b) => rank(a) - rank(b))[0];
 }
@@ -281,7 +280,6 @@ function feedReliability(station: Station | null): number {
   if (station.ntrip_verdict === "rtcm_no_msm") return 48;
   if (station.ntrip_verdict === "connected_no_data") return 28;
   if (station.status === "online") return 72;
-  if (station.status === "degraded") return 45;
   return 12;
 }
 
@@ -428,14 +426,14 @@ function buildDigitalTwin(
     statusLabel:
       station?.ntrip_verdict === "msm_streaming"
         ? "MSM streaming"
-        : station?.ntrip_verdict === "rtcm_no_msm"
-          ? "Connected — no MSM"
+        : station?.ntrip_verdict === "rtcm_no_msm" || station?.ntrip_verdict === "connected_no_data"
+          ? "Offline — no MSM"
           : statusLabel(status),
     rtk:
       station?.ntrip_verdict === "msm_streaming"
         ? "Available"
-        : station?.ntrip_verdict === "rtcm_no_msm"
-          ? "Degraded — RTCM only"
+        : station?.ntrip_verdict === "rtcm_no_msm" || station?.ntrip_verdict === "connected_no_data"
+          ? "Offline — no stream"
           : "Limited",
     accuracy: expectedAccuracy(iono, feed),
     confidence,

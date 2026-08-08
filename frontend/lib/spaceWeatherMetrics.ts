@@ -38,7 +38,7 @@ export const METRIC_EXPLANATIONS: Record<MetricKey, string> = {
   gnss_risk:
     "GNSS Risk is a combined operational assessment for positioning and navigation users. It considers geomagnetic activity, ionospheric TEC, S4 scintillation and related space-weather indicators. Low risk supports routine CORS and RTK operations; increasing risk means users should verify fixes, use dual-frequency observations and consider post-processing.",
   stations:
-    "Stations Online shows how many Zimbabwe CORS stations have an active NTRIP connection (receiving MSM or connected idle) compared with the total network. Receiving = MSM streaming; Idle = connected without MSM yet. A lower connected count reduces geographic coverage and may weaken real-time correction reliability.",
+    "Stations Online shows how many Zimbabwe CORS stations are actively streaming MSM observations to us, compared with the total network. Connected without MSM counts as offline — without data the station is not usable for corrections. A lower streaming count reduces geographic coverage and real-time correction reliability.",
 };
 
 function dstColor(dst: number | null): string {

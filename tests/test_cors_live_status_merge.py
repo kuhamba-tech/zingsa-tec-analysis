@@ -8,10 +8,10 @@ def station(code: str, status: str, source: str = "catalog") -> CorsStation:
 
 
 def test_all_live_ntrip_states_are_propagated():
-    catalog = [station("onln", "online"), station("degr", "online"), station("offl", "online")]
+    catalog = [station("onln", "online"), station("idle", "online"), station("offl", "online")]
     live = [
         station("onln", "online", "ntrip"),
-        station("degr", "degraded", "ntrip"),
+        station("idle", "degraded", "ntrip"),  # legacy label → offline
         station("offl", "offline", "ntrip"),
     ]
 
@@ -19,7 +19,7 @@ def test_all_live_ntrip_states_are_propagated():
 
     assert [(row.status, row.status_source) for row in result] == [
         ("online", "ntrip"),
-        ("degraded", "ntrip"),
+        ("offline", "ntrip"),
         ("offline", "ntrip"),
     ]
 

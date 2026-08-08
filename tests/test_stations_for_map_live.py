@@ -11,10 +11,10 @@ class StationsForMapLiveTests(unittest.TestCase):
             "offline",
         )
 
-    def test_derive_status_degraded_when_connected_without_data(self):
+    def test_derive_status_offline_when_connected_without_data(self):
         self.assertEqual(
             derive_status_from_stream({"connected": True, "last_seen": None}),
-            "degraded",
+            "offline",
         )
 
     def test_derive_status_online_when_recent_data(self):
@@ -47,7 +47,7 @@ class StationsForMapLiveTests(unittest.TestCase):
 
         by_code = {s.code: s.status for s in rows}
         self.assertEqual(by_code["zinh"], "online")
-        self.assertEqual(by_code["gsu"], "degraded")
+        self.assertEqual(by_code["gsu"], "offline")
         self.assertEqual(by_code["hara"], "offline")
         # No stream entry while pipeline is configured → offline, not unknown.
         self.assertEqual(by_code["karo"], "offline")

@@ -177,8 +177,9 @@ export default function AiRecommendationPanel({
   const tone = newsBundle?.tone ?? "excellent";
   const updatedLabel = formatIndicesUpdatedLabel(sw);
 
+  // Never replace an existing bulletin with placeholders during background refresh.
   const showPreparing =
-    indicesLoading || (supplementLoading && recommendations.length === 0);
+    recommendations.length === 0 && (indicesLoading || supplementLoading);
   const displayRecs = showPreparing ? PLACEHOLDER_RECS : recommendations;
 
   return (

@@ -9,7 +9,14 @@ import time
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
 from backend.deps import require_api_key
-from backend.schemas import CorsHealthOut, StationOut, StationStatusEventOut, StationStatusLogStatus, StationUptimeRow
+from backend.schemas import (
+    CorsHealthOut,
+    RoverClientsOut,
+    StationOut,
+    StationStatusEventOut,
+    StationStatusLogStatus,
+    StationUptimeRow,
+)
 from backend.station_status_logger import poll_and_log, status as station_log_status
 
 router = APIRouter(prefix="/cors", tags=["cors"])
@@ -60,6 +67,8 @@ def _merge_live_station_statuses(stations: list, live_stations: list) -> list:
     """Overlay every live NTRIP state, not only the online state."""
     from dataclasses import replace
 
+    from zgiis.cors.stations import normalize_station_status
+
     live_by_code = {s.code.lower().rstrip("_"): s for s in live_stations}
     merged = []
     for station in stations:
@@ -67,7 +76,13 @@ def _merge_live_station_statuses(stations: list, live_stations: list) -> list:
         if live is None:
             merged.append(replace(station, status="offline", status_source="ntrip"))
         else:
-            merged.append(replace(station, status=live.status, status_source=live.status_source))
+            merged.append(
+                replace(
+                    station,
+                    status=normalize_station_status(live.status),
+                    status_source=live.status_source,
+                )
+            )
     return merged
 
 
@@ -133,11 +148,13 @@ def _archived_status_counts() -> tuple[int, int, int, int] | None:
 
     total = len(ZIMBABWE_CORS_STATIONS)
     online = sum(1 for row in latest.values() if row.get("status") == "online")
-    degraded = sum(1 for row in latest.values() if row.get("status") == "degraded")
-    offline_known = sum(1 for row in latest.values() if row.get("status") == "offline")
-    known = online + degraded + offline_known
+    # Legacy "degraded" snapshots count as offline (no MSM stream).
+    offline_known = sum(
+        1 for row in latest.values() if row.get("status") in {"offline", "degraded"}
+    )
+    known = online + offline_known
     offline = offline_known + max(0, total - known)
-    return online, degraded, offline, total
+    return online, 0, offline, total
 
 
 def _stations_impl(*, refresh_ntrip: bool = False) -> list:
@@ -209,7 +226,7 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
     # Vercel functions must never replace persistent-collector snapshots with
     # their own short socket probe. Those one-shot probes often see an accepted
     # NTRIP connection but no MSM inside the small request window, which paints
-    # every station degraded even while the collector is receiving data.
+    # every station offline even while the collector is receiving data.
     # Local/persistent runtimes retain the probe fallback for diagnostics.
     run_probe = not _is_serverless_runtime() and (
         (not pipeline_configured and not archive_applied)
@@ -296,6 +313,43 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
                 sourcetable_note=st_diag.get("note") or "",
             )
         merged.append(s)
+    return _merge_rover_clients(merged)
+
+
+def _merge_rover_clients(stations: list) -> list:
+    """Overlay live rover (NTRIP client) counts when a Spider/caster feed exists."""
+    from dataclasses import replace
+
+    try:
+        from zgiis.live.rover_clients import load_rover_clients
+    except Exception:
+        return stations
+
+    try:
+        snap = load_rover_clients()
+    except Exception:
+        log.exception("Failed to load rover client snapshot")
+        return stations
+
+    if not snap.available:
+        return stations
+
+    by_code = {s.code.lower().rstrip("_"): s for s in snap.stations}
+    merged = []
+    for station in stations:
+        row = by_code.get(station.code.lower().rstrip("_"))
+        if row is None:
+            merged.append(station)
+            continue
+        merged.append(
+            replace(
+                station,
+                connected_rovers=int(row.connected_rovers),
+                rover_peak_24h=row.peak_24h,
+                rover_share_pct=row.share_pct,
+                rover_rank=row.rank,
+            )
+        )
     return merged
 
 
@@ -359,6 +413,10 @@ def _station_out(s) -> StationOut:
         sourcetable_identifier=getattr(s, "sourcetable_identifier", None) or None,
         sourcetable_mismatch=bool(getattr(s, "sourcetable_mismatch", False)),
         sourcetable_note=getattr(s, "sourcetable_note", None) or None,
+        connected_rovers=getattr(s, "connected_rovers", None),
+        rover_peak_24h=getattr(s, "rover_peak_24h", None),
+        rover_share_pct=getattr(s, "rover_share_pct", None),
+        rover_rank=getattr(s, "rover_rank", None),
     )
 
 
@@ -369,6 +427,18 @@ def stations(
 ):
     _schedule_station_status_poll(source="cors_stations")
     return [_station_out(s) for s in _stations(refresh_ntrip=refresh_ntrip)]
+
+
+@router.get("/rover-clients", response_model=RoverClientsOut)
+def rover_clients(
+    refresh: bool = Query(False),
+    _=Depends(require_api_key),
+):
+    """Live NTRIP rover / client counts per CORS (Spider Business Center feed)."""
+    from zgiis.live.rover_clients import load_rover_clients
+
+    snap = load_rover_clients(force_refresh=refresh)
+    return RoverClientsOut(**snap.to_dict())
 
 
 @router.get("/stations/{code}", response_model=StationOut)
@@ -384,13 +454,12 @@ async def health(_=Depends(require_api_key)):
     _schedule_station_status_poll(source="cors_health")
     archived = _archived_status_counts()
     if archived is not None:
-        online, degraded, offline, total = archived
-        return CorsHealthOut(online=online, degraded=degraded, offline=offline, total=total)
+        online, _degraded, offline, total = archived
+        return CorsHealthOut(online=online, degraded=0, offline=offline, total=total)
     all_s = _stations()
     online = sum(1 for s in all_s if s.status == "online")
-    degraded = sum(1 for s in all_s if s.status == "degraded")
-    offline = sum(1 for s in all_s if s.status == "offline")
-    return CorsHealthOut(online=online, degraded=degraded, offline=offline, total=len(all_s))
+    offline = sum(1 for s in all_s if s.status != "online")
+    return CorsHealthOut(online=online, degraded=0, offline=offline, total=len(all_s))
 
 
 @router.get("/status/log", response_model=StationStatusLogStatus)

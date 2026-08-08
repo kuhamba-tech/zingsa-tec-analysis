@@ -2,6 +2,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { Station, TecHeatmapResponse } from "@/lib/types";
 import { getLiveStationStatus } from "@/lib/liveStationStatus";
+import { buildCorsNetworkEdges, isReferenceCorsStation } from "@/lib/corsNetworkDistances";
+import type { ProposedCorsSite } from "@/lib/corsGeneticOptimizer";
+import { isValidProposedCorsSite } from "@/lib/zimbabweBoundary";
 import { icaoTecColor, icaoTecDistanceLabel, icaoTecLabel } from "@/lib/icaoTecAdvisory";
 import { vtecToRgba } from "@/lib/tecHeatmapColors";
 import type { MapLayer } from "./CorsMapWithLayers";
@@ -12,14 +15,20 @@ interface Props {
   height?: number;
   layer?: MapLayer;
   heatmap?: TecHeatmapResponse | null;
+  proposedCorsSites?: ProposedCorsSite[];
 }
 
 const STATUS_COLOR: Record<string, string> = {
   online: "#00ff88",
-  degraded: "#ff8c00",
   offline: "#ff4444",
   unavailable: "#666",
 };
+
+/** Operational focus for the national CORS map (lon, lat). */
+const ZIMBABWE_CENTER: [number, number] = [29.5, -19.0];
+const ZIMBABWE_ZOOM = 6.2;
+const GLOBAL_TEC_CENTER: [number, number] = [0, 0];
+const GLOBAL_TEC_ZOOM = 2;
 
 const SATELLITE_URL =
   "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
@@ -43,7 +52,8 @@ function usesHybridOverlays(layer: MapLayer): boolean {
     layer === "Zimbabwe TEC Map" ||
     layer === "Zimbabwe ROTI Map" ||
     layer === "Scintillation Map" ||
-    layer === "PWV Map"
+    layer === "PWV Map" ||
+    layer === "Network Distances"
   );
 }
 
@@ -207,7 +217,13 @@ function stationTecValue(station: Station, heatmap: TecHeatmapResponse | null | 
     : null;
 }
 
-export default function CorsMap({ stations, height = 420, layer = "Hybrid", heatmap = null }: Props) {
+export default function CorsMap({
+  stations,
+  height = 420,
+  layer = "Hybrid",
+  heatmap = null,
+  proposedCorsSites = [],
+}: Props) {
   const mapRef = useRef<HTMLDivElement>(null);
   const popupElementRef = useRef<HTMLDivElement | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -223,12 +239,21 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid", heat
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const scienceLayerRef = useRef<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const networkLayerRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const networkSourceRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const proposedLayerRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const vectorSourceRef = useRef<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const olHelpersRef = useRef<any>(null);
   const stationsRef = useRef(stations);
   const heatmapRef = useRef(heatmap);
   const layerRef = useRef(layer);
+  const proposedSitesRef = useRef(proposedCorsSites);
+  /** Tracks layer used for the last view animation — ignore heatmap-only updates. */
+  const viewLayerRef = useRef<MapLayer | null>(null);
   const [selected, setSelected] = useState<Station | null>(null);
   const scienceMeta = scienceLayerMeta(layer);
   const setSelectedRef = useRef(setSelected);
@@ -236,31 +261,45 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid", heat
   stationsRef.current = stations;
   heatmapRef.current = heatmap;
   layerRef.current = layer;
+  proposedSitesRef.current = proposedCorsSites;
 
   const buildFeatures = (list: Station[]) => {
     const helpers = olHelpersRef.current;
     if (!helpers) return [];
     const { fromLonLat, Feature, Point, Style, Circle, Fill, Stroke, Text } = helpers;
     const showTecLabels = layerRef.current === "TEC Heat Map";
+    const networkMode = layerRef.current === "Network Distances";
     return list.map((s) => {
       const f = new Feature({ geometry: new Point(fromLonLat([s.lon, s.lat])), station: s });
       const tecValue = stationTecValue(s, heatmapRef.current);
-      const label = showTecLabels && tecValue != null
-        ? `${s.code.toUpperCase()}\n${tecValue.toFixed(1)}`
-        : s.code.toUpperCase();
+      const isRef = networkMode && isReferenceCorsStation(s);
+      const markerColor = networkMode
+        ? isRef
+          ? "#5ec8ff"
+          : "#00ff88"
+        : STATUS_COLOR[getLiveStationStatus(s)];
+      const label = networkMode
+        ? (() => {
+            const base = (s.name || s.code).toUpperCase();
+            const rovers = s.connected_rovers;
+            return typeof rovers === "number" ? `${base}\n${rovers} rover${rovers === 1 ? "" : "s"}` : base;
+          })()
+        : showTecLabels && tecValue != null
+          ? `${s.code.toUpperCase()}\n${tecValue.toFixed(1)}`
+          : s.code.toUpperCase();
       f.setStyle(
         new Style({
           image: new Circle({
-            radius: 7,
-            fill: new Fill({ color: STATUS_COLOR[getLiveStationStatus(s)] }),
+            radius: networkMode ? (isRef ? 8 : 7) : 7,
+            fill: new Fill({ color: markerColor }),
             stroke: new Stroke({ color: "#fff", width: 1.5 }),
           }),
           text: new Text({
             text: label,
-            offsetY: showTecLabels ? -22 : -14,
+            offsetY: showTecLabels && !networkMode ? -22 : -14,
             fill: new Fill({ color: "#fff" }),
             stroke: new Stroke({ color: "#000", width: 3 }),
-            font: showTecLabels ? "bold 11px sans-serif" : "bold 10px sans-serif",
+            font: showTecLabels && !networkMode ? "bold 11px sans-serif" : "bold 10px sans-serif",
             textAlign: "center",
           }),
         }),
@@ -274,6 +313,108 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid", heat
     if (!source) return;
     source.clear();
     source.addFeatures(buildFeatures(list));
+  };
+
+  const syncNetworkLayer = async () => {
+    const map = olMapRef.current;
+    if (!map) return;
+
+    if (networkLayerRef.current) {
+      map.removeLayer(networkLayerRef.current);
+      networkLayerRef.current = null;
+      networkSourceRef.current = null;
+    }
+
+    if (layerRef.current !== "Network Distances") return;
+
+    const helpers = olHelpersRef.current;
+    if (!helpers) return;
+
+    const { fromLonLat, Feature, Style, Stroke, Fill, Text } = helpers;
+    const LineString = (await import("ol/geom/LineString")).default;
+    const VectorSource = (await import("ol/source/Vector")).default;
+    const VectorLayer = (await import("ol/layer/Vector")).default;
+
+    const edges = buildCorsNetworkEdges(stationsRef.current, 3);
+    const source = new VectorSource();
+    for (const edge of edges) {
+      const geometry = new LineString([
+        fromLonLat([edge.fromLon, edge.fromLat]),
+        fromLonLat([edge.toLon, edge.toLat]),
+      ]);
+      const feature = new Feature({ geometry, edge });
+      feature.setStyle(
+        new Style({
+          stroke: new Stroke({ color: "rgba(255,255,255,0.88)", width: 1.6 }),
+          text: new Text({
+            text: `${edge.distanceKm.toFixed(1)} km`,
+            placement: "line",
+            fill: new Fill({ color: "#ffffff" }),
+            stroke: new Stroke({ color: "rgba(0,0,0,0.75)", width: 3 }),
+            font: "bold 11px sans-serif",
+            overflow: true,
+          }),
+        }),
+      );
+      source.addFeature(feature);
+    }
+
+    const layer = new VectorLayer({ source, zIndex: 3, declutter: true });
+    map.addLayer(layer);
+    networkLayerRef.current = layer;
+    networkSourceRef.current = source;
+  };
+
+  const syncProposedSitesLayer = async () => {
+    const map = olMapRef.current;
+    if (!map) return;
+
+    if (proposedLayerRef.current) {
+      map.removeLayer(proposedLayerRef.current);
+      proposedLayerRef.current = null;
+    }
+
+    if (layerRef.current !== "Network Distances") return;
+    // Hard rule: never plot a proposed CORS outside Zimbabwe.
+    const sites = proposedSitesRef.current.filter((s) => isValidProposedCorsSite(s.lat, s.lon));
+    if (!sites.length) return;
+
+    const helpers = olHelpersRef.current;
+    if (!helpers) return;
+
+    const { fromLonLat, Feature, Point, Style, Circle, Fill, Stroke, Text } = helpers;
+    const VectorSource = (await import("ol/source/Vector")).default;
+    const VectorLayer = (await import("ol/layer/Vector")).default;
+
+    const source = new VectorSource();
+    for (const site of sites) {
+      const feature = new Feature({
+        geometry: new Point(fromLonLat([site.lon, site.lat])),
+        proposed: site,
+      });
+      feature.setStyle(
+        new Style({
+          image: new Circle({
+            radius: 8,
+            fill: new Fill({ color: "#ffb020" }),
+            stroke: new Stroke({ color: "#fff7e6", width: 2 }),
+          }),
+          text: new Text({
+            text: `${site.label}\nproposed`,
+            offsetY: -18,
+            fill: new Fill({ color: "#ffd27a" }),
+            stroke: new Stroke({ color: "#000", width: 3 }),
+            font: "bold 10px sans-serif",
+            textAlign: "center",
+          }),
+        }),
+      );
+      source.addFeature(feature);
+    }
+
+    const layer = new VectorLayer({ source, zIndex: 5 });
+    map.addLayer(layer);
+    proposedLayerRef.current = layer;
   };
 
   const buildHeatLayer = async () => {
@@ -553,10 +694,11 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid", heat
       const map = new ol.Map({
         target: container,
         layers,
-        view: new View({ center: fromLonLat([29.5, -19.0]), zoom: 6 }),
+        view: new View({ center: fromLonLat(ZIMBABWE_CENTER), zoom: ZIMBABWE_ZOOM }),
         overlays: [popup],
         controls: [],
       });
+      viewLayerRef.current = layerRef.current;
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (map as any).on("pointermove", (evt: { pixel: [number, number] }) => {
@@ -592,7 +734,11 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid", heat
           const sourcetableLine = s.sourcetable_mismatch
             ? `<div style="margin-top:0.2rem;color:#ef9f27;font-weight:700">Warning: Shares caster identity with "${s.sourcetable_identifier}"</div>`
             : "";
-          popupEl.innerHTML = `<b>${s.code.toUpperCase()}</b>${tecLine}${tecSourceLine}${icaoLine}${distLine}${sourcetableLine}<div style="margin-top:0.2rem;color:#94a3b8">Click Details →</div>`;
+          const roverLine =
+            typeof s.connected_rovers === "number"
+              ? `<div style="margin-top:0.2rem;color:#c4b5fd;font-weight:700">${s.connected_rovers} connected rover${s.connected_rovers === 1 ? "" : "s"}</div>`
+              : "";
+          popupEl.innerHTML = `<b>${s.code.toUpperCase()}</b>${tecLine}${tecSourceLine}${icaoLine}${distLine}${sourcetableLine}${roverLine}<div style="margin-top:0.2rem;color:#94a3b8">Click Details →</div>`;
           popup.setPosition(evt.coordinate);
           popupEl.style.display = "block";
         } else {
@@ -608,6 +754,8 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid", heat
       transportTileRef.current = transportTile;
       await syncHeatLayer();
       await syncScienceLayer();
+      await syncNetworkLayer();
+      await syncProposedSitesLayer();
     })();
 
     return () => {
@@ -621,6 +769,9 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid", heat
       transportTileRef.current = null;
       heatLayerRef.current = null;
       scienceLayerRef.current = null;
+      networkLayerRef.current = null;
+      networkSourceRef.current = null;
+      proposedLayerRef.current = null;
       vectorSourceRef.current = null;
       olHelpersRef.current = null;
       if (popupEl) {
@@ -635,7 +786,12 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid", heat
 
   useEffect(() => {
     syncStationFeatures(stations);
+    void syncNetworkLayer();
   }, [stations]);
+
+  useEffect(() => {
+    void syncProposedSitesLayer();
+  }, [proposedCorsSites, layer]);
 
   useEffect(() => {
     if (!baseTileRef.current || !labelTileRef.current || !transportTileRef.current) return;
@@ -646,12 +802,33 @@ export default function CorsMap({ stations, height = 420, layer = "Hybrid", heat
       const hybrid = usesHybridOverlays(layer);
       labelTileRef.current.setVisible(hybrid);
       transportTileRef.current.setVisible(hybrid);
-      if (layer === "Global TEC" && olMapRef.current) {
-        olMapRef.current.getView().animate({ center: fromLonLat([0, 0]), zoom: 2, duration: 250 });
+
+      // Zimbabwe is the focus for every national layer. Global TEC may zoom out;
+      // leaving it (or switching Hybrid/Satellite/TEC/…) must return to Zimbabwe.
+      // Heatmap data refreshes must not yank the camera.
+      const layerChanged = viewLayerRef.current !== layer;
+      if (layerChanged && olMapRef.current) {
+        if (layer === "Global TEC") {
+          olMapRef.current.getView().animate({
+            center: fromLonLat(GLOBAL_TEC_CENTER),
+            zoom: GLOBAL_TEC_ZOOM,
+            duration: 280,
+          });
+        } else {
+          olMapRef.current.getView().animate({
+            center: fromLonLat(ZIMBABWE_CENTER),
+            zoom: ZIMBABWE_ZOOM,
+            duration: 280,
+          });
+        }
+        viewLayerRef.current = layer;
       }
+
       syncStationFeatures(stationsRef.current);
       await syncHeatLayer();
       await syncScienceLayer();
+      await syncNetworkLayer();
+      await syncProposedSitesLayer();
     })();
   }, [layer, heatmap]);
 

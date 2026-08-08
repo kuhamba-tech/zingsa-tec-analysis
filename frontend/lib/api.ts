@@ -63,6 +63,7 @@ import type {
   StationStatusEvent,
   StationStatusLogStatus,
   StationUptimeRow,
+  RoverClientsSnapshot,
   TecHeatmapResponse,
   TecObservation,
   TecSummaryRow,
@@ -413,6 +414,11 @@ export const getStations = (refreshNtrip = false) =>
   );
 export const getStation = (code: string) => get<Station>(`/cors/stations/${code}`);
 export const getCorsHealth = () => get<CorsHealth>("/cors/health");
+export const getRoverClients = (refresh = false) =>
+  get<RoverClientsSnapshot>("/cors/rover-clients", {
+    ...(refresh ? { refresh: "true" } : {}),
+    _ts: Date.now(),
+  });
 export const getStationStatusLog = () => get<StationStatusLogStatus>("/cors/status/log");
 export const getStationStatusEvents = (hours = 168, station?: string, event_type?: string) =>
   get<StationStatusEvent[]>("/cors/status/events", { hours, station, event_type });
@@ -487,6 +493,89 @@ export async function convertRinex(files: File[], config: RinexConvertConfig): P
       /* use raw text */
     }
     throw new Error(msg || `RINEX convert failed (${res.status})`);
+  }
+  return res.blob();
+}
+
+export type RinexArchiveStatus = {
+  archive_root: string | null;
+  archive_exists: boolean;
+  url_template_configured: boolean;
+  brdc_nav: boolean;
+  message: string | null;
+  stations?: Array<{ code: string; name: string; mountpoint: string }>;
+};
+
+export type RinexArchiveAvailability = {
+  ok: boolean;
+  message: string | null;
+  archive_configured: boolean;
+  url_configured: boolean;
+  brdc_nav_available: boolean;
+  coverage_pct?: number;
+  period_days?: number;
+  station_rows?: Array<{
+    code: string;
+    name: string;
+    mountpoint: string;
+    days_available: number;
+    days_requested: number;
+    obs_files: number;
+    availability_pct: number;
+  }>;
+  files?: unknown[];
+};
+
+export const getRinexArchiveStatus = () => get<RinexArchiveStatus>("/processing/rinex-archive/status");
+
+export const getRinexArchiveAvailability = (opts: {
+  stations: string[];
+  start: string;
+  end: string;
+  includeNav?: boolean;
+}) =>
+  get<RinexArchiveAvailability>("/processing/rinex-archive/availability", {
+    stations: opts.stations.join(","),
+    start: opts.start,
+    end: opts.end,
+    include_nav: opts.includeNav === false ? "false" : "true",
+  });
+
+export async function downloadRinexArchive(body: {
+  stations: string[];
+  start: string;
+  end: string;
+  include_nav?: boolean;
+  include_brdc_nav?: boolean;
+}): Promise<Blob> {
+  const res = await fetchWithTimeout(
+    apiUrl("/processing/rinex-archive/download"),
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(KEY ? { "X-API-Key": KEY } : {}),
+      },
+      body: JSON.stringify({
+        stations: body.stations,
+        start: body.start,
+        end: body.end,
+        include_nav: body.include_nav ?? true,
+        include_brdc_nav: body.include_brdc_nav ?? true,
+      }),
+    },
+    180_000,
+  );
+  if (!res.ok) {
+    const text = await res.text();
+    let msg = text;
+    try {
+      const j = JSON.parse(text) as { detail?: string };
+      if (typeof j.detail === "string") msg = j.detail;
+    } catch {
+      /* raw */
+    }
+    throw new Error(msg || `RINEX download failed (${res.status})`);
   }
   return res.blob();
 }

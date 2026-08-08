@@ -1,5 +1,6 @@
 """
-CORS station status archive — online / degraded / offline / unknown.
+CORS station status archive — online / offline / unknown.
+Legacy "degraded" rows are normalized to offline on read/write.
 
 Logs state transitions and periodic snapshots so uptime, outages, and
 correlation with space-weather metrics can be analysed later.
@@ -26,7 +27,17 @@ log = logging.getLogger(__name__)
 _TSDB_DSN = database_dsn()
 _SQLITE_PATH = Path(__file__).resolve().parents[2] / "static" / "data" / "station_status.sqlite"
 
-VALID_STATUSES = frozenset({"online", "degraded", "offline", "unknown"})
+VALID_STATUSES = frozenset({"online", "offline", "unknown"})
+_LEGACY_STATUSES = frozenset({"degraded"})  # folded into offline
+
+
+def _normalize_stored_status(status: str) -> str:
+    s = (status or "").lower()
+    if s in VALID_STATUSES:
+        return s
+    if s in _LEGACY_STATUSES:
+        return "offline"
+    return "unknown"
 
 _PG_EVENTS_DDL = """
 CREATE TABLE IF NOT EXISTS station_status_events (
@@ -190,11 +201,15 @@ class StationStatusDB:
         params = (
             str(row["time"]),
             row.get("station_code"),
-            row["status"],
-            row.get("previous_status"),
+            _normalize_stored_status(str(row.get("status") or "")),
+            (
+                _normalize_stored_status(str(row["previous_status"]))
+                if row.get("previous_status")
+                else None
+            ),
             row["event_type"],
             row.get("online_count"),
-            row.get("degraded_count"),
+            0,  # degraded_count retired — no-stream is offline
             row.get("offline_count"),
             row.get("unknown_count"),
             bool(row.get("api_reachable", True)),
@@ -214,7 +229,7 @@ class StationStatusDB:
             (
                 str(r["time"]),
                 r["station_code"],
-                r["status"],
+                _normalize_stored_status(str(r.get("status") or "")),
                 bool(r.get("api_reachable", True)),
                 r.get("source", "poll"),
             )
@@ -320,7 +335,7 @@ class StationStatusDB:
         out: dict[str, dict[str, Any]] = {}
         for _, row in latest.iterrows():
             code = str(row.get("station_code") or "").lower().rstrip("_")
-            status = str(row.get("status") or "").lower()
+            status = _normalize_stored_status(str(row.get("status") or ""))
             if code and status in VALID_STATUSES:
                 out[code] = {
                     "time": str(row.get("time") or ""),
@@ -340,13 +355,13 @@ class StationStatusDB:
         if not df.empty:
             for code, grp in df.groupby("station_code"):
                 total = len(grp)
-                counts = grp["status"].value_counts().to_dict()
+                counts = grp["status"].map(_normalize_stored_status).value_counts().to_dict()
                 key = str(code).lower().rstrip("_")
                 by_code[key] = {
                     "station_code": key,
                     "samples": int(total),
                     "online_pct": round(100.0 * counts.get("online", 0) / total, 1),
-                    "degraded_pct": round(100.0 * counts.get("degraded", 0) / total, 1),
+                    "degraded_pct": 0.0,
                     "offline_pct": round(100.0 * counts.get("offline", 0) / total, 1),
                     "unknown_pct": round(100.0 * counts.get("unknown", 0) / total, 1),
                 }

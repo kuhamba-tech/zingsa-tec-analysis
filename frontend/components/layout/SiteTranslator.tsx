@@ -32,7 +32,7 @@ const LANGUAGES: LanguageOption[] = [
   { id: "nambya", translateCode: "sn", short: "ZW", name: "Nambya", native: "Nambya", group: "Zimbabwe Languages" },
   { id: "ndau", translateCode: "sn", short: "ZW", name: "Ndau", native: "ChiNdau", group: "Zimbabwe Languages" },
   { id: "nr", translateCode: "nr", short: "ZW", name: "Ndebele", native: "isiNdebele", group: "Zimbabwe Languages" },
-  { id: "ts", translateCode: "ts", short: "ZW", name: "Shangani", native: "xiShangani", group: "Zimbabwe Languages" },
+  { id: "ts", translateCode: "ts", short: "LS", name: "Shangani", native: "xiShangani", group: "Zimbabwe Languages" },
   { id: "sn", translateCode: "sn", short: "ZW", name: "Shona", native: "ChiShona", group: "Zimbabwe Languages" },
   { id: "sign", translateCode: "en", short: "ZW", name: "Sign Language", native: "Zimbabwe Sign Language", group: "Zimbabwe Languages" },
   { id: "st", translateCode: "st", short: "LS", name: "Sotho", native: "Sesotho", group: "Zimbabwe Languages" },
@@ -135,7 +135,7 @@ export default function SiteTranslator() {
   };
 
   return (
-    <div className="site-translator" ref={panelRef}>
+    <div className={`site-translator${open ? " is-open" : ""}`} ref={panelRef}>
       <button
         type="button"
         className="site-translator-trigger"
@@ -143,26 +143,22 @@ export default function SiteTranslator() {
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
       >
-        <span className="site-translator-flag" aria-hidden>{activeLanguage.short}</span>
+        <span className="site-translator-glyph" aria-hidden>
+          A文
+        </span>
+        <span className="site-translator-flag">{activeLanguage.short}</span>
         <span className="site-translator-code">{activeLanguage.translateCode.toUpperCase()}</span>
-        <span className="site-translator-caret" aria-hidden>›</span>
-      </button>
-
-      <button
-        type="button"
-        className="site-translator-floating-button site-translator-chat-button"
-        aria-label="Open language options"
-        onClick={() => setOpen((value) => !value)}
-      >
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M5 6.5h14v9.5H9l-4 3v-12.5Z" />
-        </svg>
+        <span className="site-translator-caret" aria-hidden>
+          {open ? "˄" : "˅"}
+        </span>
       </button>
 
       {open && (
         <div className="site-translator-panel" role="dialog" aria-label="Translate this site">
           <div className="site-translator-head">
-            <div className="site-translator-icon" aria-hidden>A</div>
+            <div className="site-translator-icon" aria-hidden>
+              A文
+            </div>
             <div>
               <div className="site-translator-title">Translate this site</div>
               <div className="site-translator-subtitle">
@@ -189,7 +185,11 @@ export default function SiteTranslator() {
                         <span className="site-translator-name">{language.name}</span>
                         {language.native && <span className="site-translator-native">{language.native}</span>}
                       </span>
-                      {selected && <span className="site-translator-check" aria-hidden>OK</span>}
+                      {selected && (
+                        <span className="site-translator-check" aria-hidden>
+                          OK
+                        </span>
+                      )}
                     </button>
                   );
                 })}

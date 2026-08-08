@@ -3,21 +3,21 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from zgiis.navigation.gnss_forecast import GnssForecastCity
+from zgiis.navigation.gnss_forecast import ForecastStatus, GnssForecastCity
 from zgiis.navigation.audience_news import _effective_navigation_tone
 
 AiRecommendationAudience = Literal["surveyors", "farmers", "pilots", "power", "telecom"]
 
 _SURVEYOR_HEADLINE: dict[ForecastStatus, str] = {
-    "excellent": "Proceed.",
+    "excellent": "CORS/RTK favourable — proceed.",
     "moderate": "Allow extra RTK occupation time.",
     "warning": "Delay centimetre-critical surveys.",
 }
 
 _FARMER_HEADLINE: dict[ForecastStatus, str] = {
-    "excellent": "Good day for precision planting.",
-    "moderate": "Plan GPS-heavy field work before late morning.",
-    "warning": "Verify boundaries before legal or financial commitments.",
+    "excellent": "Good day for tractor GPS and planting.",
+    "moderate": "Do GPS field work before late morning.",
+    "warning": "Check boundaries before legal or payment decisions.",
 }
 
 
@@ -66,16 +66,16 @@ def _power_gic_note(sw: dict[str, Any] | None, gic: dict[str, Any] | None) -> st
     ]
 
     if any(l in ("severe", "high", "large") for l in levels):
-        return "GIC warning — elevated transformer-neutral currents detected."
+        return "GIC warning: check transformer neutrals and long HV lines."
     if (
         (kp is not None and kp >= 7)
         or (dst is not None and dst <= -100)
         or any(l == "elevated" for l in levels)
     ):
-        return "Elevated GIC risk — increase monitoring on long transmission lines."
+        return "Elevated GIC risk — heighten monitoring on long transmission corridors."
     if (kp is not None and kp >= 5) or (dst is not None and dst <= -50):
-        return "Routine GIC monitoring — minor geomagnetic disturbance under way."
-    return "No GIC warning."
+        return "Minor geomagnetic disturbance — keep routine GIC watch."
+    return "No GIC warning — grid geomagnetic risk low."
 
 
 def _telecom_note(sw: dict[str, Any] | None, tone: ForecastStatus) -> str:

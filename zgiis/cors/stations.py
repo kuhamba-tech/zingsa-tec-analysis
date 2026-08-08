@@ -11,7 +11,7 @@ class CorsStation:
     name: str
     lat: float
     lon: float
-    status: str  # "online" | "offline" | "degraded"
+    status: str  # "online" | "offline" | "unknown"
     constellations: List[str] = field(default_factory=list)
     last_file: str = ""
     current_tec: float = 0.0
@@ -41,12 +41,17 @@ class CorsStation:
     sourcetable_identifier: str = ""
     sourcetable_mismatch: bool = False
     sourcetable_note: str = ""
+    # Live NTRIP rover clients on this mountpoint (Spider Business Center feed).
+    # None = feed not available; 0 = feed available and no clients connected.
+    connected_rovers: int | None = None
+    rover_peak_24h: int | None = None
+    rover_share_pct: float | None = None
+    rover_rank: int | None = None
 
     @property
     def status_color(self) -> str:
         return {
             "online": "#1D9E75",
-            "degraded": "#EF9F27",
             "offline": "#ef4444",
         }.get(normalize_station_status(self.status), "#94a3b8")
 
@@ -54,21 +59,18 @@ class CorsStation:
     def status_icon(self) -> str:
         return {
             "online": "🟢",
-            "degraded": "🟡",
             "offline": "🔴",
         }.get(normalize_station_status(self.status), "⚪")
 
 
 def normalize_station_status(status: str) -> str:
-    """Map legacy/API labels to the three map legend statuses."""
+    """Map labels to online / offline / unknown. Legacy 'degraded' ⇒ offline."""
     s = (status or "").lower()
-    if s in ("online", "offline", "degraded"):
-        return s
+    if s == "online":
+        return "online"
     if s == "unknown":
-        return s
-    if s in ("warning", "critical"):
-        return "degraded" if s == "warning" else "offline"
-    # Legacy pipeline / catalog labels (registered, loaded, etc.)
+        return "unknown"
+    # degraded / warning / critical / catalog leftovers ⇒ offline (no stream = down)
     return "offline"
 
 
@@ -77,8 +79,6 @@ def api_status_to_map(status: str) -> str:
     s = (status or "").upper()
     if s == "ONLINE":
         return "online"
-    if s == "DEGRADED":
-        return "degraded"
     return "offline"
 
 
@@ -160,13 +160,12 @@ def stations_for_map(
 
 
 def derive_status_from_stream(stream: dict | None, *, stale_after_sec: float = 90.0) -> str:
-    """Map one station's live NTRIP stream state to online/degraded/offline/unknown.
+    """Map one station's live NTRIP stream state to online/offline/unknown.
 
     "unknown" means we have no stream entry at all (pipeline not configured for
-    this station). "offline" means the NTRIP handshake isn't connected.
-    "degraded" means connected but no RTCM data has arrived yet/recently —
-    this is the real state of most stations today (caster accepts the
-    connection but the physical receiver isn't transmitting).
+    this station). Online means recent RTCM/MSM data. Anything else that is not
+    streaming usable data to us is offline — a caster TCP accept without data
+    does not count as up.
     """
     if not stream:
         return "unknown"
@@ -174,16 +173,16 @@ def derive_status_from_stream(stream: dict | None, *, stale_after_sec: float = 9
         return "offline"
     last_seen = stream.get("last_seen")
     if not last_seen:
-        return "degraded"
+        return "offline"
     if isinstance(last_seen, str):
         try:
             last_seen = datetime.fromisoformat(last_seen.replace("Z", "+00:00"))
         except ValueError:
-            return "degraded"
+            return "offline"
     if last_seen.tzinfo is None:
         last_seen = last_seen.replace(tzinfo=timezone.utc)
     age_sec = (datetime.now(timezone.utc) - last_seen).total_seconds()
-    return "online" if age_sec <= stale_after_sec else "degraded"
+    return "online" if age_sec <= stale_after_sec else "offline"
 
 
 def stations_for_map_live(live_status: dict | None = None) -> List[CorsStation]:
@@ -224,11 +223,11 @@ def stations_for_map_live(live_status: dict | None = None) -> List[CorsStation]:
 ZIMBABWE_CORS_STATIONS: List[CorsStation] = [
     # Coordinates imported from CORS_FILES/corszingsa.xlsx on 2026-06-13.
     CorsStation("muto", "Mutoko",       -17.40452552, 32.21956895, "online",     ["GPS"], height_m=1265.3981),
-    CorsStation("mata", "Mataga",       -20.84527778, 30.19333333, "degraded",   ["GPS"], height_m=1000.0000),
+    CorsStation("mata", "Mataga",       -20.84527778, 30.19333333, "offline",    ["GPS"], height_m=1000.0000),
     CorsStation("muta", "Mutare",       -18.97829762, 32.67722325, "online",     ["GPS", "GLONASS"], height_m=1113.0200),
     CorsStation("bula", "Bulawayo",     -20.16531328, 28.64114319, "online",     ["GPS", "GLONASS"], height_m=1392.4000),
     CorsStation("gwer", "Gweru",        -19.51195226, 29.84053989, "online",     ["GPS", "GLONASS"], height_m=1438.8300),
-    CorsStation("hacy", "Harare City",  -17.82516600, 31.03351100, "degraded",   ["GPS", "GLONASS"]),
+    CorsStation("hacy", "Harare City",  -17.82516600, 31.03351100, "offline",    ["GPS", "GLONASS"]),
     CorsStation("masv", "Masvingo",     -20.08775776, 30.83149252, "online",     ["GPS", "GLONASS"], height_m=1096.5400),
     CorsStation("hara", "Harare",       -17.78140871, 31.04856188, "online",     ["GPS", "GLONASS"], height_m=1525.7100),
     CorsStation("zinh", "ZINGSA HQ",    -17.78483089, 31.05063364, "online",     ["GPS", "GLONASS", "Galileo", "BeiDou"], height_m=1514.9404),

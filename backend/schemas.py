@@ -249,11 +249,37 @@ class StationOut(BaseModel):
     sourcetable_identifier: str | None = None
     sourcetable_mismatch: bool = False
     sourcetable_note: str | None = None
+    connected_rovers: int | None = None
+    rover_peak_24h: int | None = None
+    rover_share_pct: float | None = None
+    rover_rank: int | None = None
+
+
+class RoverClientStationOut(BaseModel):
+    code: str
+    mountpoint: str
+    name: str = ""
+    connected_rovers: int = 0
+    peak_24h: int | None = None
+    share_pct: float | None = None
+    rank: int | None = None
+
+
+class RoverClientsOut(BaseModel):
+    available: bool
+    updated_at: str | None = None
+    source: str | None = None
+    message: str | None = None
+    total_rovers: int = 0
+    stations_with_rovers: int = 0
+    busiest_code: str | None = None
+    busiest_count: int = 0
+    stations: list[RoverClientStationOut] = []
 
 
 class CorsHealthOut(BaseModel):
     online: int
-    degraded: int
+    degraded: int = 0  # retained for API compat; always 0 (no-stream ⇒ offline)
     offline: int
     total: int
 

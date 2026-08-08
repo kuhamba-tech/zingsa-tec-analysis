@@ -15,9 +15,10 @@ import type { MetricKey } from "@/lib/spaceWeatherMetrics";
 import Link from "next/link";
 import Image from "next/image";
 import { DashboardHeaderClocks } from "@/components/dashboard/DashboardClocks";
+import { PRODUCT_SHORT_NAME, PRODUCT_TAGLINE } from "@/lib/navigationNewsBranding";
 
 const MODULES = [
-  { href: "/processing",        icon: "⚙️",  title: "Processing",        desc: "Upload and process RINEX/CMN files — includes RINEX converter" },
+  { href: "/processing",       icon: "⚙️",  title: "Processing",        desc: "Upload RINEX/CMN, download CORS RINEX for post-processing, or convert files" },
   { href: "/time-series",       icon: "📈",  title: "Time Series",       desc: "VTEC trends over time" },
   { href: "/prn-explorer",      icon: "🛰️",  title: "PRN Explorer",      desc: "Per-satellite TEC analysis" },
   { href: "/tec-heatmap",       icon: "🗺️",  title: "TEC Heatmap",       desc: "Interpolated VTEC grid over Zimbabwe" },
@@ -105,9 +106,14 @@ export default function HomePage() {
   useEffect(() => {
     let cancelled = false;
 
-    async function load() {
-      setSwStatus("pending");
-      setLoadError(null);
+    async function load(background = false) {
+      // Keep current values on screen during interval refresh — only the first
+      // load (or a cold retry with no data) may show pending/loading UI.
+      if (!background) {
+        setSwStatus("pending");
+        setLoadError(null);
+        setStationsLoading(true);
+      }
 
       const [swResult, ekfResult, pipelineResult, alertResult] = await Promise.allSettled([
         getSpaceWeather(),
@@ -122,7 +128,7 @@ export default function HomePage() {
       const ekfData = ekfResult.status === "fulfilled" ? ekfResult.value : null;
       const merged = mergeSpaceWeatherWithEkf(sw, ekfData);
 
-      setEkf(ekfData);
+      if (ekfData) setEkf(ekfData);
       if (alertResult.status === "fulfilled") {
         setPendingAlerts(alertResult.value.filter((a) => !a.acknowledged_status));
       }
@@ -131,17 +137,21 @@ export default function HomePage() {
         setDisplaySw(merged.data);
         setEkfFilled(merged.ekfFilled);
         setSwStatus("ok");
+        setLoadError(null);
       } else if (swResult.status === "fulfilled") {
         setDisplaySw(swResult.value);
         setEkfFilled(new Set());
         setSwStatus("ok");
-      } else {
+        setLoadError(null);
+      } else if (!background) {
         setDisplaySw(null);
         setEkfFilled(new Set());
         setSwStatus("down");
         setLoadError(
           "Live API is not connected on this Vercel frontend deployment. Figures below show N/A until the FastAPI backend URL is configured.",
         );
+      } else {
+        setSwStatus("down");
       }
 
       if (pipelineResult.status === "fulfilled") {
@@ -149,7 +159,6 @@ export default function HomePage() {
         setPipelineNote(p.message ?? null);
       }
 
-      setStationsLoading(true);
       try {
         const [stationsResult, heatmapResult] = await Promise.all([
           getStations(false),
@@ -158,7 +167,7 @@ export default function HomePage() {
         if (cancelled) return;
 
         setStations(stationsResult);
-        setTecHeatmap(heatmapResult);
+        if (heatmapResult) setTecHeatmap(heatmapResult);
         const liveCounts = countLiveStationStatuses(stationsResult);
         const probed = stationsResult.find((s) => s.ntrip_probed_at)?.ntrip_probed_at;
         if (probed) setNtripProbedAt(probed);
@@ -168,7 +177,7 @@ export default function HomePage() {
             : prev,
         );
       } catch {
-        if (!cancelled) {
+        if (!background && !cancelled) {
           setStations([]);
           setTecHeatmap(null);
         }
@@ -186,13 +195,14 @@ export default function HomePage() {
         window.location.port === "3000" ||
         window.location.port === "3001";
       if (localBackend) {
-        if (!cancelled) setNtripRefreshing(true);
+        // Probe silently on background polls — avoid the "Probing NTRIP…" banner flash.
+        if (!background && !cancelled) setNtripRefreshing(true);
         getStations(true)
           .then(async (fresh) => {
             if (cancelled) return;
             setStations(fresh);
             const heatmap = await getTecHeatmap(6).catch(() => null);
-            if (!cancelled) setTecHeatmap(heatmap);
+            if (!cancelled && heatmap) setTecHeatmap(heatmap);
             const liveCounts = countLiveStationStatuses(fresh);
             const probed = fresh.find((s) => s.ntrip_probed_at)?.ntrip_probed_at;
             if (probed) setNtripProbedAt(probed);
@@ -209,8 +219,8 @@ export default function HomePage() {
       }
     }
 
-    load();
-    const timer = window.setInterval(load, 60_000);
+    load(false);
+    const timer = window.setInterval(() => load(true), 60_000);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
@@ -251,14 +261,11 @@ export default function HomePage() {
               🛰️
             </span>
             <span className="home-page-title-text">
-              <span className="home-page-title-line">Zimbabwe National Space Weather</span>
-              <span className="home-page-title-line home-page-title-line--accent">
-                &amp; Navigation Intelligence Platform
-              </span>
+              <span className="home-page-title-line">Zimbabwe Space Weather &amp; Navigation</span>
             </span>
           </h1>
           <p className="page-subtitle home-page-subtitle">
-            Real-time ionospheric TEC, space weather, and GNSS navigation intelligence from the Zimbabwe CORS network
+            Real-time ionospheric TEC, space weather, and GNSS navigation from the Zimbabwe CORS network
           </p>
         </div>
         <div className="home-hero-clocks page-header-clocks" aria-label="Live clocks">
@@ -290,7 +297,7 @@ export default function HomePage() {
           {ntripProbedAt && !stationsLoading && (
             <div className="banner banner-info" style={{ fontSize: "0.72rem" }}>
               Live NTRIP probe at {ntripProbedAt.replace("T", " ").replace("Z", " UTC")} — Online {liveCounts.online},
-              Degraded {liveCounts.degraded}, Offline {liveCounts.offline}, Unavailable {liveCounts.unavailable}.
+              Offline {liveCounts.offline}, Unavailable {liveCounts.unavailable}.
             </div>
           )}
           <div className="dashboard-metric-grid home-metric-grid">
@@ -312,8 +319,8 @@ export default function HomePage() {
           <Image
             src="/zingsa_logo.webp"
             alt="ZINGSA — Zimbabwe National Geospatial and Space Agency"
-            width={168}
-            height={168}
+            width={96}
+            height={96}
             className="home-hero-logo"
             priority
           />

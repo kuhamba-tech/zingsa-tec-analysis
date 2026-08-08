@@ -1,10 +1,6 @@
 import type { SpaceWeatherCurrent } from "./types";
 import type { ForecastStatus, GnssForecastCity } from "./gnssWeatherIntelligence";
 import {
-  buildNationalNavigationSocial,
-} from "./nationalNavigationSocial";
-import {
-  ZINGSA_AGENCY,
   ZINGSA_BROADCAST_FOOTER,
   ZINGSA_NAVIGATION_CHANNELS,
   ZINGSA_NAVIGATION_MODERATE_ACTION,
@@ -113,34 +109,34 @@ function fmtNum(value: number | null | undefined, digits = 1): string {
 }
 
 function kpLayman(kp: number | null | undefined): string {
-  if (kp == null) return "Geomagnetic activity: data updating";
-  if (kp <= 2) return `Geomagnetic activity is quiet (Kp ${fmtNum(kp)} — like calm weather for Earth's magnetic field)`;
-  if (kp <= 4) return `Geomagnetic activity is unsettled (Kp ${fmtNum(kp)} — minor solar influence on Earth's field)`;
-  if (kp <= 6) return `Geomagnetic activity is elevated (Kp ${fmtNum(kp)} — a minor geomagnetic storm is under way)`;
-  return `Geomagnetic activity is strong (Kp ${fmtNum(kp)} — a significant geomagnetic storm is affecting Earth)`;
+  if (kp == null) return "Earth's magnetic field: updating";
+  if (kp <= 2) return `Earth's magnetic field is calm (Kp ${fmtNum(kp)})`;
+  if (kp <= 4) return `Earth's magnetic field is a little unsettled (Kp ${fmtNum(kp)})`;
+  if (kp <= 6) return `Mild magnetic storm under way (Kp ${fmtNum(kp)})`;
+  return `Strong magnetic storm under way (Kp ${fmtNum(kp)})`;
 }
 
 function s4Layman(s4: number | null | undefined): string {
-  if (s4 == null) return "GPS signal stability: data updating";
-  if (s4 < 0.15) return `GPS signal path is stable (S4 ${fmtNum(s4, 2)} — the ionosphere is calm)`;
-  if (s4 < 0.3) return `GPS signals may flicker slightly (S4 ${fmtNum(s4, 2)} — the ionosphere is restless)`;
-  return `GPS signals are disturbed (S4 ${fmtNum(s4, 2)} — strong ionospheric scintillation over Zimbabwe)`;
+  if (s4 == null) return "GPS signal strength: updating";
+  if (s4 < 0.15) return `GPS signals are steady (S4 ${fmtNum(s4, 2)})`;
+  if (s4 < 0.3) return `GPS signals may flicker a little (S4 ${fmtNum(s4, 2)})`;
+  return `GPS signals are disturbed (S4 ${fmtNum(s4, 2)})`;
 }
 
 function dstLayman(dst: number | null | undefined): string {
-  if (dst == null) return "Solar wind pressure on Earth: data updating";
-  if (dst > -30) return `Earth's magnetosphere is steady (Dst ${fmtNum(dst, 0)} nT)`;
-  if (dst > -50) return `Earth's magnetic field is being pushed (Dst ${fmtNum(dst, 0)} nT — mild solar wind pressure)`;
-  if (dst > -100) return `Magnetic field disturbance detected (Dst ${fmtNum(dst, 0)} nT — navigation may feel it)`;
-  return `Strong magnetic disturbance (Dst ${fmtNum(dst, 0)} nT — part of an active space-weather event)`;
+  if (dst == null) return "Solar wind pressure: updating";
+  if (dst > -30) return `No strong solar-wind push on Earth (Dst ${fmtNum(dst, 0)} nT)`;
+  if (dst > -50) return `Mild solar-wind pressure on Earth (Dst ${fmtNum(dst, 0)} nT)`;
+  if (dst > -100) return `Magnetic disturbance may affect GPS (Dst ${fmtNum(dst, 0)} nT)`;
+  return `Strong magnetic disturbance (Dst ${fmtNum(dst, 0)} nT)`;
 }
 
 function riskLayman(risk: string | null | undefined): string {
   const r = (risk ?? "unknown").toLowerCase();
-  if (r === "low") return "Overall GNSS risk today: Low — everyday positioning should be fine";
-  if (r === "moderate") return "Overall GNSS risk today: Moderate — some users may notice slower GPS";
-  if (r === "high" || r === "critical") return "Overall GNSS risk today: High — expect positioning problems in affected areas";
-  return `Overall GNSS risk today: ${risk ?? "updating"}`;
+  if (r === "low") return "GPS risk today: Low — maps should work normally";
+  if (r === "moderate") return "GPS risk today: Moderate — location may be a bit slow or off";
+  if (r === "high" || r === "critical") return "GPS risk today: High — do not trust a map pin alone";
+  return `GPS risk today: ${risk ?? "updating"}`;
 }
 
 /** Plain-language snapshot of live space weather for all audience briefs. */
@@ -156,27 +152,24 @@ export function buildSpaceWeatherLayman(
   const kpCond = sw?.kp_condition ?? "updating";
 
   const headlines: Record<ForecastStatus, string> = {
-    excellent: "Quiet space weather — the Sun is not disturbing our navigation today",
-    moderate: "Mild space weather — the Sun is gently affecting signals above Zimbabwe",
-    warning: "Active space weather — solar and magnetic activity is impacting navigation",
+    excellent: "Calm sky for GPS — maps should work normally",
+    moderate: "Mild space weather — GPS may be a little slow or off",
+    warning: "Active space weather — GPS may show the wrong place",
   };
 
   const explainers: Record<ForecastStatus, string> = {
     excellent:
-      "Space weather is what the Sun and near-Earth space do to our planet — solar wind, flares, and magnetic storms. When conditions are quiet, the high-altitude layer that carries GPS signals (the ionosphere) stays smooth. Most people never see this science, but every map pin, taxi route, and farm GPS depends on it.",
+      "Space weather is activity from the Sun that can affect GPS. Today it is quiet.",
     moderate:
-      "The Sun constantly sends charged particles toward Earth. Today those particles are stirring the ionosphere — the invisible shell where navigation satellites talk to your phone. Think of it like radio static in the sky: signals still get through, but they may wobble for a few seconds or drift a few metres.",
+      "The Sun is stirring the air high above us where GPS signals travel. Your phone still works, but the blue dot may drift a few metres.",
     warning:
-      "A burst of solar or geomagnetic activity is disturbing the ionosphere over southern Africa. Satellite signals are taking longer paths or fading in and out — the same physics behind auroras and radio blackouts, but felt on your phone as wrong map pins, lost GPS, or delayed location updates.",
+      "Strong activity from the Sun is disturbing GPS over Zimbabwe. Maps and location apps may be wrong until it settles.",
   };
 
   const impacts: Record<ForecastStatus, string> = {
-    excellent:
-      "For most Zimbabweans this is invisible good news: maps, mobile money location checks, and in-car navigation should behave normally.",
-    moderate:
-      "You may notice your phone taking longer to find you, delivery apps showing a wider blue dot, or precision equipment (surveyors, farmers) needing extra patience — especially in the afternoon.",
-    warning:
-      `Ordinary navigation can mislead you today. Do not trust a map pin alone for remote travel or meeting someone at an exact spot. Space weather is temporary, but while it lasts, confirm locations by sight, address, or phone — or call ZINGSA on ${ZINGSA_PHONE} for navigation guidance.`,
+    excellent: "Use maps, taxis, and WhatsApp location as normal.",
+    moderate: "If your pin looks wrong, wait a moment or step outside for a clearer sky view.",
+    warning: `Do not trust a map pin alone. Confirm by phone or street signs. Help: ${ZINGSA_PHONE}.`,
   };
 
   const readout: string[] = [
@@ -214,87 +207,85 @@ function citizenBrief(
 ): NavigationNewsBrief {
   const status = tone;
   const swCtx = buildSpaceWeatherLayman(sw, tone);
-  const regions = forecasts
-    .map((f) => `${f.city.replace("VICTORIA FALLS", "Vic Falls")}: ${f.statusLabel}`)
-    .join(" · ");
+  const poorAreas = forecasts
+    .filter((f) => f.status !== "excellent")
+    .map((f) => f.city.replace("VICTORIA FALLS", "Vic Falls"))
+    .slice(0, 3);
+  const areaNote =
+    poorAreas.length > 0
+      ? `Watch these areas: ${poorAreas.join(", ")}.`
+      : "Nationwide outlook: good for everyday GPS.";
 
   const headlines: Record<ForecastStatus, string> = {
-    excellent: "Space weather is calm — your everyday apps should work as usual",
-    moderate: "Space weather is mildly active — your phone location may wobble a little",
-    warning: "Space weather alert — satellite navigation may let you down today",
+    excellent: "Good GPS day — your maps should work normally",
+    moderate: "GPS may wobble a little today",
+    warning: "GPS alert — check your location carefully",
   };
 
   const summaries: Record<ForecastStatus, string> = {
     excellent:
-      "Did you know your phone's location comes from satellites passing through space weather? Today the Sun is quiet, Earth's magnetic field is stable, and the ionosphere over Zimbabwe is smooth. That means Google Maps, WhatsApp live location, and ride-hailing apps can find you reliably.",
+      "Your phone uses satellites for Maps, WhatsApp location, and taxis. Today those signals are clear across Zimbabwe.",
     moderate:
-      "Space weather is the 'weather in space' — solar wind and magnetic storms that ripple through the ionosphere where GPS signals travel. Today those ripples are small but real. Your phone might take a few extra seconds to lock on, or show you standing across the street from where you actually are. It is not your phone breaking; it is the sky above you shifting.",
+      "GPS is a bit unsettled. Your phone may take longer to find you, or show you a few metres from where you stand. This is not a broken phone.",
     warning:
-      `When the Sun throws energy at Earth, navigation satellites and your phone feel it first. Today geomagnetic and ionospheric activity is high enough to disturb positioning across parts of Zimbabwe. Maps may show the wrong place and rides may pick up at the wrong corner — call ${ZINGSA_AGENCY} on ${ZINGSA_PHONE} if you need help understanding conditions in your area.`,
+      `GPS may show the wrong place today. Do not trust a map pin alone for meetings or travel. Call ZINGSA on ${ZINGSA_PHONE} if you need help.`,
   };
 
   const bullets: Record<ForecastStatus, string[]> = {
     excellent: [
-      "What you can do today: use maps and location apps normally",
-      `Navigation outlook nationwide: ${statusWord(status)}`,
-      `Regional detail: ${regions}`,
-      "Why it matters: even on calm days, ZINGSA monitors space weather to protect farmers, drivers, and surveyors",
+      "Use maps and location apps as normal",
+      areaNote,
+      "ZINGSA is watching space weather for the country",
     ],
     moderate: [
-      "What you might notice: slower GPS lock, blue dot a few metres off, apps saying ‘searching for GPS’",
-      `Navigation outlook nationwide: ${statusWord(status)}`,
-      `Regional detail: ${regions}`,
-      "Step outside with a clear view of the sky if your location looks wrong — buildings plus space weather make it worse",
+      "You may see a slow GPS lock or a blue dot a few metres off",
+      areaNote,
+      "Step outside if your location looks wrong",
     ],
     warning: [
-      "What you might notice: wrong map pins, ‘GPS signal lost’, delivery drivers at the wrong gate",
-      `Navigation outlook nationwide: ${statusWord(status)}`,
-      `Regional detail: ${regions}`,
-      "Tell family your travel route; keep offline maps or landmarks as backup",
+      "Map pins or delivery pickups may be wrong",
+      areaNote,
+      "Confirm places by phone or street signs",
     ],
   };
 
   const actions: Record<ForecastStatus, string> = {
-    excellent: "No action needed. Enjoy the day — and know that quiet space weather is why your navigation works.",
+    excellent: "No action needed.",
     moderate: ZINGSA_NAVIGATION_MODERATE_ACTION,
     warning: ZINGSA_NAVIGATION_WARNING_ACTION,
   };
 
   const broadcast = joinScript([
-    "🇿🇼 *ZINGSA Navigation News — Space Weather & You*",
+    "🇿🇼 *ZINGSA Navigation News*",
     formatUtc(computedAt),
     "",
-    "🌌 *What is space weather?*",
-    "Activity on the Sun and in near-Earth space — solar wind, flares, and magnetic storms — that changes the ionosphere where GPS signals travel.",
-    "",
-    `*Today:* ${swCtx.headline}`,
-    "",
+    `*Today:* ${headlines[status]}`,
     summaries[status],
-    "",
-    "*Live conditions (plain language):*",
-    ...swCtx.readout.map((b) => `• ${b}`),
-    "",
-    "*What this means for ordinary life:*",
-    swCtx.impact,
     "",
     ...bullets[status].map((b) => `• ${b}`),
     "",
-    `👉 *Action:* ${actions[status]}`,
+    `👉 *What to do:* ${actions[status]}`,
     "",
     ...ZINGSA_BROADCAST_FOOTER,
   ]);
 
-  const social = buildNationalNavigationSocial(status, sw, computedAt, forecasts);
+  const social = joinScript([
+    "🇿🇼 ZINGSA Navigation News",
+    headlines[status],
+    summaries[status],
+    `What to do: ${actions[status]}`,
+    "#ZINGSA #Zimbabwe #GPS",
+  ]);
 
   return {
     id: "citizen",
     icon: "🌌",
-    title: "Space Weather & You",
-    audience: "General citizens, schools & community groups",
+    title: "For Everyone",
+    audience: "Ordinary citizens, schools & community groups",
     headline: headlines[status],
     summary: summaries[status],
-    spaceWeatherToday: `${swCtx.headline} ${swCtx.explainer}`,
-    spaceWeatherBullets: swCtx.readout,
+    spaceWeatherToday: `${swCtx.headline}. ${swCtx.explainer}`,
+    spaceWeatherBullets: swCtx.readout.slice(0, 3),
     bullets: bullets[status],
     action: actions[status],
     statusTone: status,
@@ -317,71 +308,63 @@ function farmerBrief(
   const accuracy = field(harare, "Expected Accuracy") ?? "See live forecast";
 
   const headlines: Record<ForecastStatus, string> = {
-    excellent: "Quiet space weather — good day for GPS-guided farming",
-    moderate: "Mild space weather — schedule precision field work for the morning",
-    warning: "Space weather disturbing GPS — caution with auto-steer and drone mapping",
+    excellent: "Good day for tractor GPS and field mapping",
+    moderate: "Do GPS field work in the morning if you can",
+    warning: "Caution: auto-steer and drone mapping may drift",
   };
 
   const summaries: Record<ForecastStatus, string> = {
     excellent:
-      "Solar activity is low and the ionosphere over Harare is stable. Space weather is not interfering with tractor auto-steer, boundary mapping, or variable-rate spraying. Your GPS equipment is working in a calm sky.",
+      "Tractor auto-steer, spraying, and boundary mapping should work well today. Satellite GPS for the farm is steady.",
     moderate:
-      "Space weather is stirring the ionosphere. Tractor GPS and agricultural drones still work, but satellite signals may drift slightly — especially after midday when scintillation often peaks. Space weather is the invisible reason your receiver may need longer to ‘fix’.",
+      "Farm GPS still works, but lines may wander a little after midday. Auto-steer may take longer to lock. Prefer morning planting, spraying, and mapping.",
     warning:
-      "Active space weather is degrading precision GNSS over central Zimbabwe. The same solar and magnetic forces that cause auroras are now thickening and rippling the ionosphere, so RTK and auto-steer may drift beyond normal limits. Verify boundaries before any legal or financial commitments.",
+      "Precision GPS may drift beyond normal farm limits. Check fence lines and spray paths before any legal or payment decisions. Use known ground marks if you must map today.",
   };
 
   const bullets: Record<ForecastStatus, string[]> = {
     excellent: [
-      `Field GPS outlook: ${statusWord(status)} (Harare / HARA–ZINH)`,
-      `RTK reliability: ${rtk} · Accuracy: ${accuracy}`,
+      `Field GPS: ${statusWord(status)} (Harare area)`,
+      `RTK: ${rtk} · Accuracy: ${accuracy}`,
       `Best work window: ${window}`,
-      "Space weather impact on farming today: minimal",
     ],
     moderate: [
-      `Field GPS outlook: ${statusWord(status)} (Harare / HARA–ZINH)`,
-      `RTK reliability: ${rtk} · Accuracy: ${accuracy}`,
-      `Preferred window: ${window} — before afternoon ionospheric disturbance`,
-      "Space weather may add minutes to GPS lock on long boundary runs",
+      `Field GPS: ${statusWord(status)} (Harare area)`,
+      `RTK: ${rtk} · Accuracy: ${accuracy}`,
+      `Best window: ${window} — finish GPS jobs before lunch if possible`,
     ],
     warning: [
-      `Field GPS outlook: ${statusWord(status)} (Harare / HARA–ZINH)`,
-      `RTK reliability: ${rtk} · Accuracy: ${accuracy}`,
-      "Space weather is the driver — postpone centimetre-level mapping if possible",
-      "Use known ground control points before accepting drone or auto-steer boundaries",
+      `Field GPS: ${statusWord(status)} (Harare area)`,
+      `RTK: ${rtk} · Accuracy: ${accuracy}`,
+      "Postpone centimetre mapping if you can; check ground marks before accepting boundaries",
     ],
   };
 
   const actions: Record<ForecastStatus, string> = {
-    excellent: "Proceed with precision agriculture. Quiet space weather supports reliable GPS.",
-    moderate: "Plan GPS-heavy tasks before 11:00 when space weather effects are usually lighter.",
-    warning: "Treat GPS boundaries with caution until space weather settles — use backup surveying if stakes are high.",
+    excellent: "Go ahead with precision planting, spraying, and mapping.",
+    moderate: "Schedule GPS-heavy field work before 11:00.",
+    warning: "Do not rely on GPS alone for legal boundaries until conditions improve.",
   };
 
   const broadcast = joinScript([
     "🌱 *ZINGSA Navigation News — Farmers*",
     `📍 Harare & surrounds · ${formatUtc(computedAt)}`,
     "",
-    `🌌 *Space weather today:* ${swCtx.headline}`,
-    ...swCtx.readout.slice(0, 3).map((b) => `• ${b}`),
-    "",
     headlines[status],
-    "",
     summaries[status],
     "",
     ...bullets[status].map((b) => `• ${b}`),
     "",
-    `👉 *Action:* ${actions[status]}`,
+    `👉 *What to do:* ${actions[status]}`,
     "",
     ...ZINGSA_BROADCAST_FOOTER,
   ]);
 
   const social = joinScript([
-    "🌱 ZINGSA Navigation News | Farmers",
-    swCtx.headline,
+    "🌱 ZINGSA | Farmers",
     headlines[status],
     `Window ${window} · RTK ${rtk}`,
-    "#SpaceWeather #PrecisionAg #Zimbabwe",
+    "#Farming #GPS #Zimbabwe",
   ]);
 
   return {
@@ -391,8 +374,8 @@ function farmerBrief(
     audience: "Farmers, agronomists & smart-agri operators",
     headline: headlines[status],
     summary: summaries[status],
-    spaceWeatherToday: `${swCtx.headline} ${swCtx.impact}`,
-    spaceWeatherBullets: swCtx.readout,
+    spaceWeatherToday: `${swCtx.headline}. ${swCtx.impact}`,
+    spaceWeatherBullets: swCtx.readout.slice(0, 3),
     bullets: bullets[status],
     action: actions[status],
     statusTone: status,
@@ -418,56 +401,54 @@ function surveyorBrief(
   const window = field(primary, "Best Survey Window") ?? "07:00 – 14:00";
 
   const headlines: Record<ForecastStatus, string> = {
-    excellent: "Quiet ionosphere — survey-grade GNSS is reliable today",
-    moderate: "Space weather adding noise — allow extra RTK occupation time",
-    warning: "Space weather event — expect degraded survey accuracy",
+    excellent: "CORS/RTK conditions favourable — proceed with survey",
+    moderate: "Allow extra RTK occupation time — ionospheric delay elevated",
+    warning: "Degraded GNSS — centimetre work needs redundancy",
   };
 
   const summaries: Record<ForecastStatus, string> = {
     excellent:
-      "Geomagnetic and ionospheric conditions are calm. Space weather is not adding significant error to RTK baselines or CORS corrections. Standard cadastral and engineering surveys can proceed.",
+      "Ionosphere quiet. Negligible space-weather contribution to RTK baselines and CORS corrections. Cadastral and engineering surveys can proceed to normal tolerances.",
     moderate:
-      "Elevated space weather is increasing ionospheric delay and scintillation. RTK initialization may take longer and fixed solutions may slip during midday. This is a space-weather effect, not necessarily a faulty receiver or caster.",
+      "Elevated ionospheric delay and scintillation. Expect longer RTK initialisation and possible float slips around midday. Check receiver and caster before assuming a fault.",
     warning:
-      "A space-weather disturbance is active. The ionosphere over eastern/central Zimbabwe is turbulent — the layer your satellite corrections pass through. Centimetre-level GNSS alone may not meet legal survey standards today; plan redundancy.",
+      "Active ionospheric disturbance. Ambiguity-fixed centimetre GNSS alone may not meet legal accuracy today. Hold centimetre submissions or add total-station / independent control checks.",
   };
 
   const bullets: Record<ForecastStatus, string[]> = {
     excellent: [
-      `Survey site: ${site} · GNSS: ${statusWord(status)}`,
-      `Expected accuracy: ${accuracy} · RTK: ${rtk}`,
-      `Window: ${window}`,
-      "Space weather contribution to error: negligible",
+      `CORS focus: ${site} · Status: ${statusWord(status)}`,
+      `Expected accuracy: ${accuracy} · RTK reliability: ${rtk}`,
+      `Preferred occupation window: ${window}`,
+      `Indices: Kp ${fmtNum(sw?.kp)} · S4 ${fmtNum(sw?.s4, 2)} · Dst ${fmtNum(sw?.dst, 0)} nT`,
     ],
     moderate: [
-      `Survey site: ${site} · GNSS: ${statusWord(status)}`,
-      `Expected accuracy: ${accuracy} · RTK: ${rtk}`,
-      "Space weather: allow 15–30% longer initialization",
-      `Best occupation: ${window}`,
+      `CORS focus: ${site} · Status: ${statusWord(status)}`,
+      `Expected accuracy: ${accuracy} · RTK reliability: ${rtk}`,
+      "Allow ~15–30% longer time to Fix; prefer morning occupations",
+      `Window: ${window} · Kp ${fmtNum(sw?.kp)} · S4 ${fmtNum(sw?.s4, 2)}`,
     ],
     warning: [
-      `Survey site: ${site} · GNSS: ${statusWord(status)}`,
-      `Expected accuracy: ${accuracy}`,
-      "Space weather is dominating the error budget — verify control points independently",
-      primary?.cause ? `Live drivers: ${primary.cause}` : "Monitor Kp and S4 before mobilising",
+      `CORS focus: ${site} · Status: ${statusWord(status)}`,
+      `Expected accuracy: ${accuracy} · RTK: ${rtk}`,
+      "Error budget dominated by space weather — verify control independently",
+      primary?.cause
+        ? `Drivers: ${primary.cause}`
+        : `Monitor Kp ${fmtNum(sw?.kp)} / S4 ${fmtNum(sw?.s4, 2)} before mobilising`,
     ],
   };
 
   const actions: Record<ForecastStatus, string> = {
-    excellent: "Mobilise crews as planned. Space weather is not a limiting factor today.",
-    moderate: "Brief crews: space weather may extend fix times. Prefer morning occupations.",
-    warning: "Delay centimetre-critical submissions or deploy total-station redundancy until conditions ease.",
+    excellent: "Mobilise as planned. Space weather is not limiting today.",
+    moderate: "Brief crews on longer Fix times. Prefer morning occupations.",
+    warning: "Delay centimetre-critical lodgement or add total-station redundancy.",
   };
 
   const broadcast = joinScript([
     "📐 *ZINGSA Navigation News — Surveyors*",
     `📍 ${site} · ${formatUtc(computedAt)}`,
     "",
-    `🌌 *Space weather:* ${swCtx.headline}`,
-    ...swCtx.readout.map((b) => `• ${b}`),
-    "",
     headlines[status],
-    "",
     summaries[status],
     "",
     ...bullets[status].map((b) => `• ${b}`),
@@ -478,10 +459,10 @@ function surveyorBrief(
   ]);
 
   const social = joinScript([
-    "📐 ZINGSA Navigation News | Surveyors",
-    swCtx.headline,
-    `${site} · ${accuracy}`,
-    "#SpaceWeather #Surveying #RTK #Zimbabwe",
+    "📐 ZINGSA | Surveyors",
+    headlines[status],
+    `${site} · ${accuracy} · RTK ${rtk}`,
+    "#Surveying #RTK #CORS #Zimbabwe",
   ]);
 
   return {
@@ -491,8 +472,13 @@ function surveyorBrief(
     audience: "Land surveyors, engineers & cadastral teams",
     headline: headlines[status],
     summary: summaries[status],
-    spaceWeatherToday: `${swCtx.headline} ${swCtx.explainer}`,
-    spaceWeatherBullets: swCtx.readout,
+    spaceWeatherToday: `${swCtx.headline}. Kp ${fmtNum(sw?.kp)} · S4 ${fmtNum(sw?.s4, 2)} · Dst ${fmtNum(sw?.dst, 0)} nT.`,
+    spaceWeatherBullets: [
+      `Kp ${fmtNum(sw?.kp)}`,
+      `S4 ${fmtNum(sw?.s4, 2)}`,
+      `Dst ${fmtNum(sw?.dst, 0)} nT`,
+      `GNSS risk ${sw?.gnss_risk ?? "updating"}`,
+    ],
     bullets: bullets[status],
     action: actions[status],
     statusTone: status,

@@ -69,19 +69,19 @@ function powerGicNote(sw: SpaceWeatherCurrent | null, gic: GicStatusResponse | n
     .filter(Boolean);
 
   if (levels.some((l) => l === "severe" || l === "high" || l === "large")) {
-    return "GIC warning — elevated transformer-neutral currents detected.";
+    return "GIC warning: check transformer neutrals and long HV lines.";
   }
   if (
     (kp != null && kp >= 7) ||
     (dst != null && dst <= -100) ||
     levels.some((l) => l === "elevated")
   ) {
-    return "Elevated GIC risk — increase monitoring on long transmission lines.";
+    return "Elevated GIC risk — heighten monitoring on long transmission corridors.";
   }
   if ((kp != null && kp >= 5) || (dst != null && dst <= -50)) {
-    return "Routine GIC monitoring — minor geomagnetic disturbance under way.";
+    return "Minor geomagnetic disturbance — keep routine GIC watch.";
   }
-  return "No GIC warning.";
+  return "No GIC warning — grid geomagnetic risk low.";
 }
 
 function telecomNote(sw: SpaceWeatherCurrent | null, tone: ForecastStatus): string {
@@ -97,15 +97,15 @@ function telecomNote(sw: SpaceWeatherCurrent | null, tone: ForecastStatus): stri
 }
 
 const SURVEYOR_HEADLINE: Record<ForecastStatus, string> = {
-  excellent: "Proceed.",
+  excellent: "CORS/RTK favourable — proceed.",
   moderate: "Allow extra RTK occupation time.",
   warning: "Delay centimetre-critical surveys.",
 };
 
 const FARMER_HEADLINE: Record<ForecastStatus, string> = {
-  excellent: "Good day for precision planting.",
-  moderate: "Plan GPS-heavy field work before late morning.",
-  warning: "Verify boundaries before legal or financial commitments.",
+  excellent: "Good day for tractor GPS and planting.",
+  moderate: "Do GPS field work before late morning.",
+  warning: "Check boundaries before legal or payment decisions.",
 };
 
 export function buildAiRecommendations(

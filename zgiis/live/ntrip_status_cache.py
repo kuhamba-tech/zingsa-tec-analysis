@@ -12,10 +12,12 @@ _CACHE: dict[str, Any] | None = None
 _CACHE_TS: float = 0.0
 DEFAULT_TTL_SEC = 120.0
 
+# No MSM / no RTCM to us ⇒ offline. Operational use needs observation data;
+# a bare NTRIP TCP accept without streaming is not "up".
 VERDICT_TO_STATUS: dict[str, str] = {
     "msm_streaming": "online",
-    "rtcm_no_msm": "degraded",
-    "connected_no_data": "degraded",
+    "rtcm_no_msm": "offline",
+    "connected_no_data": "offline",
     "offline": "offline",
 }
 
@@ -56,9 +58,9 @@ def verdict_site_label(verdict: str | None) -> str:
     if v == "msm_streaming":
         return "NTRIP live — MSM observations"
     if v == "rtcm_no_msm":
-        return "NTRIP connected — no MSM (RTCM only)"
+        return "Offline — NTRIP linked but no MSM stream"
     if v == "connected_no_data":
-        return "NTRIP connected — no RTCM in probe window"
+        return "Offline — NTRIP linked but no RTCM in probe window"
     if v == "offline":
         return "NTRIP offline"
     return "NTRIP status unknown"
