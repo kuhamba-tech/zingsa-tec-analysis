@@ -326,9 +326,37 @@ export default function CorsMap({
 
   const syncStationFeatures = (list: Station[]) => {
     const source = vectorSourceRef.current;
-    if (!source) return;
-    source.clear();
-    source.addFeatures(buildFeatures(list));
+    const helpers = olHelpersRef.current;
+    if (!source || !helpers) return;
+
+    // Update markers in place so online sites do not blink off/on on each poll.
+    const existing = source.getFeatures();
+    const byCode = new Map<string, any>();
+    for (const feature of existing) {
+      const station = feature.get("station") as Station | undefined;
+      if (station?.code) byCode.set(station.code.toLowerCase(), feature);
+    }
+
+    const nextCodes = new Set(list.map((s) => s.code.toLowerCase()));
+    for (const [code, feature] of byCode) {
+      if (!nextCodes.has(code)) source.removeFeature(feature);
+    }
+
+    const fresh = buildFeatures(list);
+    for (const feature of fresh) {
+      const station = feature.get("station") as Station;
+      const code = station.code.toLowerCase();
+      const prev = byCode.get(code);
+      if (prev) {
+        prev.set("station", station);
+        prev.setStyle(feature.getStyle());
+        const prevGeom = prev.getGeometry();
+        const nextGeom = feature.getGeometry();
+        if (prevGeom && nextGeom) prevGeom.setCoordinates(nextGeom.getCoordinates());
+      } else {
+        source.addFeature(feature);
+      }
+    }
   };
 
   const syncNetworkLayer = async () => {

@@ -49,13 +49,10 @@ def site_meta(code: str) -> dict[str, str]:
 
 def vendor_status_label(status: str, *, connected: bool = False, receiving: bool = False) -> str:
     s = (status or "").lower()
-    if s == "online" or receiving:
-        return "Connected – receive data"
+    if s == "online" or receiving or connected:
+        return "Connected – receive data" if receiving else "Connected – site up"
     if s == "unknown":
         return "Status unknown"
-    # Connected without data is still offline for operations (no MSM stream).
-    if connected and not receiving:
-        return "Offline – no data"
     return "Disconnected"
 
 

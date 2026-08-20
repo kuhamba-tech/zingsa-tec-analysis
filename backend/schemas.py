@@ -232,7 +232,7 @@ class StationOut(BaseModel):
     lat: float
     lon: float
     status: str
-    status_source: str = "unknown"  # "ntrip" | "catalog" | "unknown"
+    status_source: str = "unknown"  # "spider" | "ntrip" | "catalog" | "unknown"
     constellations: list[str] = []
     current_tec: float | None = None
     height_m: float | None = None

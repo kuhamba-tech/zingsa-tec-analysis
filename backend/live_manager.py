@@ -114,14 +114,20 @@ def _start_ephemeris_thread() -> None:
         from zgiis.live.broadcast_ephemeris import fetch_gps_nav
 
         nav_cache = get_nav_cache()
+        failures = 0
         while True:
             try:
                 nav_by_sv = fetch_gps_nav()
                 updated = nav_cache.bulk_update_gps(nav_by_sv)
+                failures = 0
                 log.info("Broadcast ephemeris refresh: %d GPS satellite(s) updated.", updated)
             except Exception as exc:
+                failures += 1
                 log.warning("Broadcast ephemeris refresh failed: %s", exc)
-            if _ephemeris_stop.wait(_ephemeris_refresh_interval_s()):
+            # Retry sooner after failures so a missing package/network blip
+            # does not leave live VTEC dark for a full hour.
+            wait_s = 60.0 if failures else _ephemeris_refresh_interval_s()
+            if _ephemeris_stop.wait(wait_s):
                 break
 
     _ephemeris_thread = threading.Thread(target=_loop, daemon=True, name="zgiis-live-ephemeris")
@@ -326,10 +332,13 @@ def start(*, priority_codes: list[str] | None = None) -> None:
     _configured = True
     _status_message = f"Live NTRIP pipeline started for {len(mountpoints)} station(s)."
     _start_flush_thread()
-    if _env_enabled("ZGIIS_EPHEMERIS_REFRESH_ENABLED"):
+    if _env_enabled("ZGIIS_EPHEMERIS_REFRESH_ENABLED", default=True):
         _start_ephemeris_thread()
     else:
-        log.info("Broadcast ephemeris refresh disabled. Set ZGIIS_EPHEMERIS_REFRESH_ENABLED=1 to compute live VTEC.")
+        log.info(
+            "Broadcast ephemeris refresh disabled "
+            "(ZGIIS_EPHEMERIS_REFRESH_ENABLED=0). Live VTEC needs ephemeris for elevation."
+        )
     log.info("Live NTRIP pipeline started for %d station(s): %s", len(mountpoints), list(mountpoints))
 
 

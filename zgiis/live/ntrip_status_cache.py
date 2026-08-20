@@ -12,8 +12,9 @@ _CACHE: dict[str, Any] | None = None
 _CACHE_TS: float = 0.0
 DEFAULT_TTL_SEC = 120.0
 
-# No MSM / no RTCM to us ⇒ offline. Operational use needs observation data;
-# a bare NTRIP TCP accept without streaming is not "up".
+# Spider-style map fallback when Site Status feed is unavailable:
+# only MSM streaming ⇒ online. Connected-without-MSM matches Spider red sites
+# that still accept caster sessions, so those stay offline on the map.
 VERDICT_TO_STATUS: dict[str, str] = {
     "msm_streaming": "online",
     "rtcm_no_msm": "offline",
@@ -56,14 +57,14 @@ def verdict_map_status(verdict: str | None) -> str:
 def verdict_site_label(verdict: str | None) -> str:
     v = (verdict or "").lower()
     if v == "msm_streaming":
-        return "NTRIP live — MSM observations"
+        return "Connected – receive data"
     if v == "rtcm_no_msm":
-        return "Offline — NTRIP linked but no MSM stream"
+        return "Connected – site up"
     if v == "connected_no_data":
-        return "Offline — NTRIP linked but no RTCM in probe window"
+        return "Connected – site up"
     if v == "offline":
-        return "NTRIP offline"
-    return "NTRIP status unknown"
+        return "Disconnected"
+    return "Status unknown"
 
 
 def cache_age_sec() -> float | None:

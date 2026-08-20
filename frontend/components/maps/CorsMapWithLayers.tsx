@@ -302,9 +302,8 @@ export default function CorsMapWithLayers({
               Station Status
             </div>
             {[
-              { color: "#00ff88", label: "Online (MSM streaming to us)" },
-              { color: "#ff4444", label: "Offline (not streaming / no data)" },
-              { color: "#666", label: "Status unavailable" },
+              { color: "#00ff88", label: "Online" },
+              { color: "#ff4444", label: "Offline" },
             ].map(({ color, label }) => (
               <div key={label} style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
                 <span className="dot" style={{ background: color }} />
@@ -312,7 +311,7 @@ export default function CorsMapWithLayers({
               </div>
             ))}
             <div style={{ fontSize: "0.62rem", fontWeight: 400, color: "var(--text-muted)", marginTop: "0.15rem", maxWidth: "210px" }}>
-              No MSM stream counts as offline — we need observation data. Click a marker for site Details.
+              Live from Spider Site Status (Status=3 online). Green = online, red = offline. Click a marker for Details.
             </div>
           </div>
           </div>

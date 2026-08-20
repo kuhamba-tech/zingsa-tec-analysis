@@ -218,7 +218,7 @@ export interface Station {
   lat: number;
   lon: number;
   status: string;
-  status_source?: "ntrip" | "catalog" | "unknown";
+  status_source?: "spider" | "ntrip" | "catalog" | "unknown";
   constellations: string[];
   current_tec: number | null;
   height_m: number | null;

@@ -208,6 +208,7 @@ class StationStream(threading.Thread):
         self._stop = threading.Event()
         self._lock = threading.Lock()
         self._connected = False
+        self._last_connected_at: Optional[datetime] = None
         self._last_seen: Optional[datetime] = None
         self._msg_count = 0
         self._latencies: deque[float] = deque(maxlen=120)
@@ -218,6 +219,20 @@ class StationStream(threading.Thread):
     def connected(self) -> bool:
         with self._lock:
             return self._connected
+
+    def link_alive(self, *, sticky_sec: float = 180.0) -> bool:
+        """True while the caster session is up, or was up within sticky_sec.
+
+        Sites like Binga can be up in Spider and accept NTRIP without MSM.
+        Brief reconnect gaps must not flash them offline on the map.
+        """
+        with self._lock:
+            if self._connected:
+                return True
+            if self._last_connected_at is None:
+                return False
+            age = (datetime.now(tz=timezone.utc) - self._last_connected_at).total_seconds()
+            return age <= sticky_sec
 
     @property
     def last_seen(self) -> Optional[datetime]:
@@ -252,6 +267,7 @@ class StationStream(threading.Thread):
                 sock = self._connect()
                 with self._lock:
                     self._connected = True
+                    self._last_connected_at = datetime.now(tz=timezone.utc)
                 self._consecutive_failures = 0
                 log.info("[%s] Connected to %s/%s", self.station, self._host, self._mp)
                 self._stream(sock)
@@ -321,6 +337,10 @@ class StationStream(threading.Thread):
                     continue
 
                 if msg_type not in _ALL_MSM:
+                    # Non-MSM RTCM (e.g. 1029 text) still proves the site/caster
+                    # session is alive — keep the link heartbeat fresh.
+                    with self._lock:
+                        self._last_connected_at = t_recv
                     continue
 
                 constellation = _constellation_for(msg_type)
@@ -403,10 +423,12 @@ class LiveNtripManager:
         return {
             sid: {
                 "mountpoint": s._mp,
-                "connected":    s.connected,
-                "last_seen":    s.last_seen,
-                "msg_count":    s.msg_count,
-                "latency_ms":   s.mean_latency_ms(),
+                # Prefer sticky link_alive so Spider-up sites without MSM do not
+                # flicker offline during brief reconnect gaps.
+                "connected": s.link_alive(),
+                "last_seen": s.last_seen,
+                "msg_count": s.msg_count,
+                "latency_ms": s.mean_latency_ms(),
             }
             for sid, s in self._streams.items()
         }

@@ -1,6 +1,6 @@
 """
 CORS station status archive — online / offline / unknown.
-Legacy "degraded" rows are normalized to offline on read/write.
+Legacy "linked" / "degraded" rows are normalized to online on read/write.
 
 Logs state transitions and periodic snapshots so uptime, outages, and
 correlation with space-weather metrics can be analysed later.
@@ -28,7 +28,7 @@ _TSDB_DSN = database_dsn()
 _SQLITE_PATH = Path(__file__).resolve().parents[2] / "static" / "data" / "station_status.sqlite"
 
 VALID_STATUSES = frozenset({"online", "offline", "unknown"})
-_LEGACY_STATUSES = frozenset({"degraded"})  # folded into offline
+_LEGACY_STATUSES = frozenset({"degraded", "linked", "connected"})  # folded into online
 
 
 def _normalize_stored_status(status: str) -> str:
@@ -36,7 +36,7 @@ def _normalize_stored_status(status: str) -> str:
     if s in VALID_STATUSES:
         return s
     if s in _LEGACY_STATUSES:
-        return "offline"
+        return "online"
     return "unknown"
 
 _PG_EVENTS_DDL = """

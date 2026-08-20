@@ -27,6 +27,7 @@ class CorsStation:
     site_server: str = "Local Site Server"
     last_update: str = ""
     site_status_label: str = ""
+    # "spider" = Leica Spider Site Status (map ground truth);
     # "ntrip" = live RTCM connection state; "catalog" = ZINGSA CORS_Program
     # archive/health API (real data, but not live telemetry); "unknown" = neither
     # source has anything for this station right now.
@@ -64,13 +65,15 @@ class CorsStation:
 
 
 def normalize_station_status(status: str) -> str:
-    """Map labels to online / offline / unknown. Legacy 'degraded' ⇒ offline."""
+    """Map labels to online / offline / unknown (Spider-style two states).
+
+    Legacy 'linked' / 'degraded' / 'connected' mean the site session is up → online.
+    """
     s = (status or "").lower()
-    if s == "online":
+    if s in {"online", "linked", "connected", "degraded"}:
         return "online"
     if s == "unknown":
         return "unknown"
-    # degraded / warning / critical / catalog leftovers ⇒ offline (no stream = down)
     return "offline"
 
 
@@ -162,27 +165,27 @@ def stations_for_map(
 def derive_status_from_stream(stream: dict | None, *, stale_after_sec: float = 90.0) -> str:
     """Map one station's live NTRIP stream state to online/offline/unknown.
 
-    "unknown" means we have no stream entry at all (pipeline not configured for
-    this station). Online means recent RTCM/MSM data. Anything else that is not
-    streaming usable data to us is offline — a caster TCP accept without data
-    does not count as up.
+    Fallback only when Spider Site Status is unavailable. Online requires a
+    recent MSM/last_seen observation — sticky TCP ``connected`` alone is not
+    enough (matches Spider red sites that still accept caster sessions).
     """
     if not stream:
         return "unknown"
-    if not stream.get("connected"):
-        return "offline"
     last_seen = stream.get("last_seen")
-    if not last_seen:
-        return "offline"
-    if isinstance(last_seen, str):
+    if last_seen:
         try:
-            last_seen = datetime.fromisoformat(last_seen.replace("Z", "+00:00"))
-        except ValueError:
-            return "offline"
-    if last_seen.tzinfo is None:
-        last_seen = last_seen.replace(tzinfo=timezone.utc)
-    age_sec = (datetime.now(timezone.utc) - last_seen).total_seconds()
-    return "online" if age_sec <= stale_after_sec else "offline"
+            if isinstance(last_seen, str):
+                ts = datetime.fromisoformat(last_seen.replace("Z", "+00:00"))
+            else:
+                ts = last_seen
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            age = (datetime.now(tz=timezone.utc) - ts).total_seconds()
+            if age <= stale_after_sec:
+                return "online"
+        except Exception:
+            pass
+    return "offline"
 
 
 def stations_for_map_live(live_status: dict | None = None) -> List[CorsStation]:

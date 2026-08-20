@@ -4,7 +4,12 @@ import { useEffect, useMemo, useState } from "react";
 import { getEkfStatus, getLivePipelineStatus, getSpaceWeather, getStations, getTecHeatmap } from "@/lib/api";
 import { mergeSpaceWeatherWithEkf } from "@/lib/homeSpaceWeather";
 import { buildMetricCards } from "@/lib/spaceWeatherMetrics";
-import { countLiveStationStatuses, connectedStreamCount, formatCorsConnectedShort } from "@/lib/liveStationStatus";
+import {
+  countLiveStationStatuses,
+  connectedStreamCount,
+  formatCorsConnectedShort,
+  mergeStationsPreferLive,
+} from "@/lib/liveStationStatus";
 import { mergeTecHeatmapWithStations } from "@/lib/tecHeatmapMerge";
 import CorsMapWithLayers from "@/components/maps/CorsMapWithLayers";
 import AiRecommendationPanel from "@/components/layout/AiRecommendationPanel";
@@ -104,6 +109,58 @@ export default function HomePage() {
 
   useEffect(() => {
     let cancelled = false;
+    let probeInFlight = false;
+    let liveProbeApplied = false;
+
+    function applyStations(next: Station[], fromLiveProbe: boolean) {
+      let mergedForMeta: Station[] | null = null;
+      setStations((prev) => {
+        const merged = mergeStationsPreferLive(prev, next, {
+          nextIsLiveProbe: fromLiveProbe,
+          lockLiveStatus: liveProbeApplied,
+        });
+        mergedForMeta = merged;
+        return merged;
+      });
+
+      if (!fromLiveProbe || !mergedForMeta || mergedForMeta.length === 0) return;
+
+      liveProbeApplied = true;
+      const liveCounts = countLiveStationStatuses(mergedForMeta);
+      const probed = mergedForMeta.find((s) => s.ntrip_probed_at)?.ntrip_probed_at ?? null;
+      if (probed) setNtripProbedAt(probed);
+      setDisplaySw((sw) =>
+        sw
+          ? {
+              ...sw,
+              stations_online: connectedStreamCount(liveCounts),
+              stations_total: liveCounts.total,
+            }
+          : sw,
+      );
+    }
+
+    async function probeNtrip(showBanner: boolean) {
+      if (probeInFlight) return;
+      probeInFlight = true;
+      // Banner only on first probe before we have a stable live map.
+      if (showBanner && !liveProbeApplied && !cancelled) setNtripRefreshing(true);
+      try {
+        const fresh = await getStations(true);
+        if (cancelled) return;
+        applyStations(fresh, true);
+        const heatmap = await getTecHeatmap(6).catch(() => null);
+        if (!cancelled && heatmap) setTecHeatmap(heatmap);
+      } catch {
+        // Keep the last stable online map — do not clear on probe failure.
+      } finally {
+        probeInFlight = false;
+        if (!cancelled) {
+          setNtripRefreshing(false);
+          setStationsLoading(false);
+        }
+      }
+    }
 
     async function load(background = false) {
       // Keep current values on screen during interval refresh — only the first
@@ -127,7 +184,7 @@ export default function HomePage() {
       const merged = mergeSpaceWeatherWithEkf(sw, ekfData);
 
       // Storm banners use observed live indices only — never EKF-filled display values.
-      setLiveSw(sw);
+      if (sw) setLiveSw(sw);
 
       if (merged) {
         setDisplaySw(merged.data);
@@ -144,15 +201,29 @@ export default function HomePage() {
         setEkfFilled(new Set());
         setSwStatus("down");
         setLoadError(
-          "Live API is not connected on this Vercel frontend deployment. Figures below show N/A until the FastAPI backend URL is configured.",
+          "Live API is not connected. Start the FastAPI backend on port 8000, then refresh.",
         );
       } else {
+        // Background failure: keep last good indices on screen; mark feed stale only.
         setSwStatus("down");
       }
 
       if (pipelineResult.status === "fulfilled") {
         const p = pipelineResult.value;
         setPipelineNote(p.message ?? null);
+      }
+
+      const localBackend =
+        window.location.hostname === "localhost" ||
+        window.location.hostname === "127.0.0.1" ||
+        window.location.port === "3000" ||
+        window.location.port === "3001";
+
+      // Background polls on local: only re-probe NTRIP. Catalog-only fetches were
+      // overwriting live online markers every 60s and making the map flicker.
+      if (background && localBackend) {
+        await probeNtrip(false);
+        return;
       }
 
       try {
@@ -162,61 +233,41 @@ export default function HomePage() {
         ]);
         if (cancelled) return;
 
-        setStations(stationsResult);
-        if (heatmapResult) setTecHeatmap(heatmapResult);
-        const liveCounts = countLiveStationStatuses(stationsResult);
-        const probed = stationsResult.find((s) => s.ntrip_probed_at)?.ntrip_probed_at;
-        if (probed) setNtripProbedAt(probed);
-        setDisplaySw((prev) =>
-          prev && stationsResult.some((s) => s.ntrip_verdict || s.status_source === "ntrip")
-            ? { ...prev, stations_online: connectedStreamCount(liveCounts), stations_total: liveCounts.total }
-            : prev,
-        );
-      } catch {
-        if (!background && !cancelled) {
-          setStations([]);
-          setTecHeatmap(null);
+        // Local: place markers in a neutral "checking" state until the live
+        // probe returns — avoids flashing every site red (0/24) then green.
+        if (!localBackend) applyStations(stationsResult, false);
+        else if (!liveProbeApplied && stationsResult.length > 0) {
+          applyStations(
+            stationsResult.map((s) => ({
+              ...s,
+              status: "offline" as const,
+              status_source: "unknown",
+              ntrip_verdict: null,
+              ntrip_probed_at: null,
+              site_status_label: "Checking live stream…",
+            })),
+            false,
+          );
         }
+        if (heatmapResult) setTecHeatmap(heatmapResult);
+      } catch {
+        // Keep prior stations/heatmap if we already have a stable view.
       } finally {
-        if (!cancelled) setStationsLoading(false);
+        if (!cancelled && !localBackend) setStationsLoading(false);
       }
 
       // A Vercel function cannot maintain the long-lived sockets required to
       // judge MSM streaming. Production reads the persistent collector's
       // archived snapshots above; only local development performs an explicit
       // one-shot caster probe.
-      const localBackend =
-        window.location.hostname === "localhost" ||
-        window.location.hostname === "127.0.0.1" ||
-        window.location.port === "3000" ||
-        window.location.port === "3001";
       if (localBackend) {
-        // Probe silently on background polls — avoid the "Probing NTRIP…" banner flash.
-        if (!background && !cancelled) setNtripRefreshing(true);
-        getStations(true)
-          .then(async (fresh) => {
-            if (cancelled) return;
-            setStations(fresh);
-            const heatmap = await getTecHeatmap(6).catch(() => null);
-            if (!cancelled && heatmap) setTecHeatmap(heatmap);
-            const liveCounts = countLiveStationStatuses(fresh);
-            const probed = fresh.find((s) => s.ntrip_probed_at)?.ntrip_probed_at;
-            if (probed) setNtripProbedAt(probed);
-            setDisplaySw((prev) =>
-              prev && fresh.some((s) => s.ntrip_verdict || s.status_source === "ntrip")
-                ? { ...prev, stations_online: connectedStreamCount(liveCounts), stations_total: liveCounts.total }
-                : prev,
-            );
-          })
-          .catch(() => {})
-          .finally(() => {
-            if (!cancelled) setNtripRefreshing(false);
-          });
+        await probeNtrip(!background);
       }
     }
 
     load(false);
-    const timer = window.setInterval(() => load(true), 60_000);
+    // Local: refresh often so MSM streaming turns markers green quickly.
+    const timer = window.setInterval(() => load(true), 15_000);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
@@ -292,13 +343,13 @@ export default function HomePage() {
               {pipelineNote}
             </div>
           )}
-          {ntripRefreshing && (
+          {ntripRefreshing && stations.length === 0 && (
             <div className="banner banner-info" style={{ fontSize: "0.78rem" }}>
-              Probing NTRIP caster for live RTCM/MSM on all 24 mountpoints…
+              Checking live CORS streams…
             </div>
           )}
           {ntripProbedAt && !stationsLoading && (
-            <div className="banner banner-info" style={{ fontSize: "0.72rem" }}>
+            <div className="banner banner-info" style={{ fontSize: "0.72rem" }} aria-live="polite">
               Live NTRIP probe at {ntripProbedAt.replace("T", " ").replace("Z", " UTC")} — Online {liveCounts.online},
               Offline {liveCounts.offline}, Unavailable {liveCounts.unavailable}.
             </div>

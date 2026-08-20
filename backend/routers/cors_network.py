@@ -25,7 +25,10 @@ router = APIRouter(prefix="/cors", tags=["cors"])
 log = logging.getLogger(__name__)
 
 _STATIONS_CACHE_TTL_SEC = 45.0
-_stations_cache: dict[str, object] = {"rows": None, "ts": 0.0}
+# Live pipeline status changes every few seconds. A long TTL kept markers
+# stale after streams went online/offline.
+_STATIONS_LIVE_CACHE_TTL_SEC = 5.0
+_stations_cache: dict[str, object] = {"rows": None, "ts": 0.0, "key": None}
 
 
 def _is_serverless_runtime() -> bool:
@@ -292,19 +295,22 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
     for station in stations:
         code = station.code.lower()
         stream = live_streams.get(code) if live_streams else None
+        if stream is None and live_streams:
+            # Mountpoint codes sometimes use a trailing underscore (e.g. gsu → GSU_).
+            stream = live_streams.get(code.rstrip("_")) or live_streams.get(f"{code.rstrip('_')}_")
         s = enrich_station(station, stream=stream)
         if pipeline_configured:
-            s = replace(s, status=derive_status_from_stream(stream), status_source="ntrip")
-        if code in probe_by:
-            s = enrich_station_from_probe(s, probe_by[code], probed_at=probed_at or None)
+            derived = derive_status_from_stream(stream)
+            s = replace(s, status=derived, status_source="ntrip")
+            # Re-apply vendor label after status derive so labels match online/offline.
+            s = enrich_station(s, stream=stream)
+        if code in probe_by or code.rstrip("_") in probe_by:
+            row = probe_by.get(code) or probe_by.get(code.rstrip("_"))
+            s = enrich_station_from_probe(s, row, probed_at=probed_at or None)
         vtec = vtec_by_station.get(code.rstrip("_"))
         if vtec is not None and vtec > 0:
-            s = replace(
-                s,
-                current_tec=round(vtec, 2),
-                status="online" if s.status != "offline" else s.status,
-                status_source="ntrip",
-            )
+            # VTEC is telemetry quality, not Spider site online/offline.
+            s = replace(s, current_tec=round(vtec, 2))
             s = enrich_station(s, stream=stream)
         st_diag = sourcetable_by_station.get(code.rstrip("_"))
         if st_diag:
@@ -315,7 +321,52 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
                 sourcetable_note=st_diag.get("note") or "",
             )
         merged.append(s)
-    return _merge_rover_clients(merged)
+    return _merge_rover_clients(_merge_spider_site_statuses(merged, refresh=refresh_ntrip))
+
+
+def _merge_spider_site_statuses(stations: list, *, refresh: bool = False) -> list:
+    """Overlay Leica Spider Site Status (Status==3 ⇒ online) as map ground truth."""
+    from dataclasses import replace
+
+    from zgiis.cors.site_details import vendor_status_label
+    from zgiis.live.spider_site_status import get_cached_spider_site_statuses, spider_status_enabled
+
+    if not spider_status_enabled():
+        return stations
+
+    try:
+        payload = get_cached_spider_site_statuses(refresh=refresh)
+    except Exception:
+        log.exception("Failed to load Spider site status")
+        return stations
+
+    by_station = payload.get("by_station") or {}
+    if not by_station:
+        if payload.get("error"):
+            log.warning("Spider site status unavailable: %s", payload.get("error"))
+        return stations
+
+    merged = []
+    for station in stations:
+        code = station.code.lower().rstrip("_")
+        row = by_station.get(code)
+        if row is None:
+            merged.append(station)
+            continue
+        status = str(row.get("status") or "offline")
+        last_update = str(row.get("last_update") or station.last_update or "")
+        label = vendor_status_label(status, connected=status == "online", receiving=False)
+        merged.append(
+            replace(
+                station,
+                status=status,
+                status_source="spider",
+                last_update=last_update[:22] if last_update else station.last_update,
+                site_status_label=label,
+                site_server="Spider Site Status",
+            )
+        )
+    return merged
 
 
 def _merge_rover_clients(stations: list) -> list:
@@ -368,9 +419,17 @@ def _stations(*, refresh_ntrip: bool = False) -> list:
     now = time.monotonic()
     cached = _stations_cache.get("rows")
     cache_key = f"ntrip:{refresh_ntrip}"
+    ttl = _STATIONS_CACHE_TTL_SEC
+    try:
+        from backend.live_manager import status as live_status
+
+        if live_status().get("configured") or live_status().get("streams"):
+            ttl = _STATIONS_LIVE_CACHE_TTL_SEC
+    except Exception:
+        pass
     if (
         cached is not None
-        and (now - float(_stations_cache["ts"])) < _STATIONS_CACHE_TTL_SEC
+        and (now - float(_stations_cache["ts"])) < ttl
         and _stations_cache.get("key") == cache_key
     ):
         return cached  # type: ignore[return-value]
@@ -379,6 +438,13 @@ def _stations(*, refresh_ntrip: bool = False) -> list:
     _stations_cache["ts"] = now
     _stations_cache["key"] = cache_key
     return rows
+
+
+def clear_stations_cache() -> None:
+    """Drop the in-process stations TTL cache (used after status-model changes)."""
+    _stations_cache["rows"] = None
+    _stations_cache["ts"] = 0.0
+    _stations_cache["key"] = None
 
 
 def _station_out(s) -> StationOut:
@@ -428,6 +494,8 @@ def stations(
     _=Depends(require_api_key),
 ):
     _schedule_station_status_poll(source="cors_stations")
+    if refresh_ntrip:
+        clear_stations_cache()
     return [_station_out(s) for s in _stations(refresh_ntrip=refresh_ntrip)]
 
 
@@ -445,6 +513,7 @@ def rover_clients(
 
 @router.get("/stations/{code}", response_model=StationOut)
 async def station_detail(code: str, _=Depends(require_api_key)):
+    clear_stations_cache()
     match = next((s for s in _stations() if s.code == code.lower()), None)
     if not match:
         raise HTTPException(status_code=404, detail=f"Station '{code}' not found")

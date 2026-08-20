@@ -13,9 +13,8 @@ export function decimalToDms(decimal: number, isLat: boolean): string {
 
 export function siteStatusColor(label: string | null | undefined): string {
   const t = (label ?? "").toLowerCase();
-  if (t.includes("receive data")) return "#168bd2";
-  if (t.includes("no data") || t.includes("connected")) return "#ef9f27";
-  if (t.includes("disconnect")) return "#ef4444";
+  if (t.includes("receive data") || t.includes("site up") || t.includes("connected")) return "#00ff88";
+  if (t.includes("disconnect") || t.includes("offline")) return "#ef4444";
   return "#94a3b8";
 }
 

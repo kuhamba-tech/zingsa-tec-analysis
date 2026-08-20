@@ -14,8 +14,8 @@ class NtripStatusCacheTests(unittest.TestCase):
         self.assertEqual(verdict_map_status("offline"), "offline")
 
     def test_verdict_site_label(self) -> None:
-        self.assertIn("MSM", verdict_site_label("msm_streaming"))
-        self.assertIn("no MSM", verdict_site_label("rtcm_no_msm"))
+        self.assertIn("Connected", verdict_site_label("msm_streaming"))
+        self.assertIn("Connected", verdict_site_label("rtcm_no_msm"))
 
 
 if __name__ == "__main__":

@@ -52,6 +52,7 @@ class StationsForMapLiveTests(unittest.TestCase):
         # No stream entry while pipeline is configured → offline, not unknown.
         self.assertEqual(by_code["karo"], "offline")
         self.assertNotIn("unknown", by_code.values())
+        self.assertNotIn("linked", by_code.values())
 
 
 if __name__ == "__main__":
