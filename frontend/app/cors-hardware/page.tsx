@@ -63,7 +63,19 @@ const EQUIPMENT = [
   },
 ];
 
-const ARCHITECTURE = [
+type ArchitectureStep = {
+  step: string;
+  kind: string;
+  title: string;
+  subtitle: string;
+  note: string;
+  accent: string;
+  link?: string;
+  image?: string;
+  imageAlt?: string;
+};
+
+const ARCHITECTURE: ArchitectureStep[] = [
   {
     step: "1",
     kind: "choke",

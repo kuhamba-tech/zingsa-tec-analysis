@@ -113,31 +113,33 @@ export default function HomePage() {
     let liveProbeApplied = false;
 
     function applyStations(next: Station[], fromLiveProbe: boolean) {
-      let mergedForMeta: Station[] | null = null;
       setStations((prev) => {
         const merged = mergeStationsPreferLive(prev, next, {
           nextIsLiveProbe: fromLiveProbe,
           lockLiveStatus: liveProbeApplied,
         });
-        mergedForMeta = merged;
+
+        if (fromLiveProbe && merged.length > 0) {
+          const liveCounts = countLiveStationStatuses(merged);
+          const probed = merged.find((s) => s.ntrip_probed_at)?.ntrip_probed_at ?? null;
+          queueMicrotask(() => {
+            if (cancelled) return;
+            liveProbeApplied = true;
+            if (probed) setNtripProbedAt(probed);
+            setDisplaySw((sw) =>
+              sw
+                ? {
+                    ...sw,
+                    stations_online: connectedStreamCount(liveCounts),
+                    stations_total: liveCounts.total,
+                  }
+                : sw,
+            );
+          });
+        }
+
         return merged;
       });
-
-      if (!fromLiveProbe || !mergedForMeta || mergedForMeta.length === 0) return;
-
-      liveProbeApplied = true;
-      const liveCounts = countLiveStationStatuses(mergedForMeta);
-      const probed = mergedForMeta.find((s) => s.ntrip_probed_at)?.ntrip_probed_at ?? null;
-      if (probed) setNtripProbedAt(probed);
-      setDisplaySw((sw) =>
-        sw
-          ? {
-              ...sw,
-              stations_online: connectedStreamCount(liveCounts),
-              stations_total: liveCounts.total,
-            }
-          : sw,
-      );
     }
 
     async function probeNtrip(showBanner: boolean) {

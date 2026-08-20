@@ -85,7 +85,7 @@ export function mergeStationsPreferLive(
     if (nowOnline) return s;
     if (!wasOnline) return s;
 
-    if (s.status === "offline" && (s.status_source === "ntrip" || s.status_source === "spider")) {
+    if (s.status === "offline" && s.status_source === "ntrip") {
       return s;
     }
     if (s.ntrip_verdict === "offline") return s;
