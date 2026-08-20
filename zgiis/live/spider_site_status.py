@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import threading
 import time
 from typing import Any
 
@@ -18,7 +19,9 @@ log = logging.getLogger(__name__)
 
 _CACHE: dict[str, Any] | None = None
 _CACHE_TS: float = 0.0
+_FETCH_LOCK = threading.Lock()
 DEFAULT_TTL_SEC = 60.0
+DEFAULT_TIMEOUT_SEC = 12.0
 
 # Spider Status codes used by SiteMap JS (getSiteStatusClass):
 #   0 = unavailable, 3 = online/connected, anything else = offline/disconnected
@@ -80,7 +83,7 @@ def _extract_antiforgery(html: str) -> str | None:
     return match.group(1) if match else None
 
 
-def fetch_spider_site_statuses(*, timeout: float = 30.0) -> dict[str, Any]:
+def fetch_spider_site_statuses(*, timeout: float = DEFAULT_TIMEOUT_SEC) -> dict[str, Any]:
     """Return {by_station: {code: {status, spider_status, site_code}}, error}."""
     base = _spider_base_url()
     user, password = _spider_credentials()
@@ -160,15 +163,62 @@ def get_cached_spider_site_statuses(
     refresh: bool = False,
     ttl_sec: float = DEFAULT_TTL_SEC,
 ) -> dict[str, Any]:
+    """Return cached Spider statuses; refresh in-process with a single-flight lock.
+
+    Stale cache is preferred over blocking the API when Spider is slow/unreachable.
+    """
     global _CACHE, _CACHE_TS
+    del refresh  # callers may pass refresh; TTL + single-flight decide when to hit Spider
     if not spider_status_enabled():
         return {
             "fetched_at": None,
             "by_station": {},
             "error": "Spider site status is disabled",
         }
+
     age = None if _CACHE is None else (time.monotonic() - _CACHE_TS)
-    if refresh or _CACHE is None or age is None or age > ttl_sec:
-        _CACHE = fetch_spider_site_statuses()
+    have_rows = bool(_CACHE and (_CACHE.get("by_station") or {}))
+    if have_rows and age is not None and age <= ttl_sec:
+        return _CACHE  # type: ignore[return-value]
+
+    if not _FETCH_LOCK.acquire(blocking=False):
+        if have_rows:
+            return _CACHE  # type: ignore[return-value]
+        acquired = _FETCH_LOCK.acquire(timeout=DEFAULT_TIMEOUT_SEC + 2.0)
+        if not acquired:
+            return _CACHE or {
+                "fetched_at": None,
+                "by_station": {},
+                "error": "Spider site status fetch busy",
+            }
+        try:
+            return _CACHE or {
+                "fetched_at": None,
+                "by_station": {},
+                "error": "Spider site status fetch busy",
+            }
+        finally:
+            _FETCH_LOCK.release()
+
+    try:
+        age = None if _CACHE is None else (time.monotonic() - _CACHE_TS)
+        have_rows = bool(_CACHE and (_CACHE.get("by_station") or {}))
+        if have_rows and age is not None and age <= ttl_sec:
+            return _CACHE  # type: ignore[return-value]
+
+        payload = fetch_spider_site_statuses()
+        if payload.get("by_station"):
+            _CACHE = payload
+            _CACHE_TS = time.monotonic()
+            return _CACHE
+        if have_rows:
+            log.warning(
+                "Keeping stale Spider site status (%s)",
+                payload.get("error") or "empty result",
+            )
+            return _CACHE  # type: ignore[return-value]
+        _CACHE = payload
         _CACHE_TS = time.monotonic()
-    return _CACHE
+        return _CACHE
+    finally:
+        _FETCH_LOCK.release()

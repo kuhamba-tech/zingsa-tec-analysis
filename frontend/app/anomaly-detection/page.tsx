@@ -59,6 +59,7 @@ const FALLBACK_CORS_CODES = [
   "mata",
   "muta",
   "muto",
+  "nkay",
   "tsho",
   "vicf",
   "zinh",
@@ -296,7 +297,7 @@ export default function AnomalyDetectionPage() {
     getForecastStatus().then(setFcStatus).catch(() => setFcStatus(null));
     getCnnGruTrainStatus().then(setTrainStatus).catch(() => setTrainStatus(null));
     getStations()
-      .then((items) => setStationCatalog(items.slice(0, 24)))
+      .then((items) => setStationCatalog(items.slice(0, 25)))
       .catch(() => setStationCatalog([]));
   }, []);
 
@@ -360,9 +361,9 @@ export default function AnomalyDetectionPage() {
     null,
   );
   const scintillationStations = useMemo<Station[]>(() => {
-    if (stationCatalog.length > 0) return stationCatalog.slice(0, 24);
+    if (stationCatalog.length > 0) return stationCatalog.slice(0, 25);
     const codes = stations.length > 0 ? stations : FALLBACK_CORS_CODES;
-    return codes.slice(0, 24).map((code, index) => ({
+    return codes.slice(0, 25).map((code, index) => ({
       code,
       name: code.toUpperCase(),
       lat: -17.6 - (index % 6) * 0.72,
@@ -940,7 +941,7 @@ export default function AnomalyDetectionPage() {
               <div className="metric-label">Ionospheric Scintillation</div>
               <h2>Zimbabwe CORS S4 and phase scintillation monitor</h2>
               <p>
-                Station-by-station plots for the 24 Zimbabwe CORS sites, following the paired amplitude S4 and
+                Station-by-station plots for the 25 Zimbabwe CORS sites, following the paired amplitude S4 and
                 phase scintillation format used by the Australian SWS scintillation products.
               </p>
             </div>

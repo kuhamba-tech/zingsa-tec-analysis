@@ -21,11 +21,12 @@ from zgiis.live.stec_vtec import (
 from tec_core import _C_LIGHT, _F1, _F2, _K, _mapping_function
 
 
-def test_default_station_mountpoints_has_24_sites():
+def test_default_station_mountpoints_has_25_sites():
     mapping = default_station_mountpoints()
-    assert len(mapping) == 24
+    assert len(mapping) == 25
     assert "hara" in mapping
     assert mapping["hara"] == "HARA"
+    assert mapping["nkay"] == "NKAY"
 
 
 def test_parse_mountpoints_expands_zingsa_hq(monkeypatch):
@@ -35,7 +36,7 @@ def test_parse_mountpoints_expands_zingsa_hq(monkeypatch):
     monkeypatch.setenv("NTRIP_MOUNTPOINT", "ZINGSA_HQ")
     monkeypatch.delenv("NTRIP_MOUNTPOINTS", raising=False)
     mapping = parse_mountpoints()
-    assert len(mapping) == 24
+    assert len(mapping) == 25
 
 
 def test_order_mountpoints_prioritizes_online_codes():

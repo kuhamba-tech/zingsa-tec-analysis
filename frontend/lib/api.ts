@@ -397,11 +397,11 @@ export const testNavigationFacebookPost = async (live = false): Promise<Navigati
 };
 
 // ── CORS Network ──────────────────────────────────────────────────────────────
-// A live refresh_ntrip=true probe of all 24 mountpoints from a Vercel
+// A live refresh_ntrip=true probe of all 25 mountpoints from a Vercel
 // serverless function genuinely takes ~45s (measured) -- well over the
 // default 28s fetch timeout, so it was aborting (then retrying and
 // aborting again) before ever completing, leaving the dashboard stuck on
-// "Probing..." with a stale 0/24 reading. Give the live-probe call enough
+// "Probing..." with a stale 0/25 reading. Give the live-probe call enough
 // room; the default (archived-status) call keeps the normal fast timeout.
 const NTRIP_LIVE_PROBE_TIMEOUT_MS = 90_000;
 

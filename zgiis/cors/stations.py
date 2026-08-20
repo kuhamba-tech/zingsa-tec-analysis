@@ -249,6 +249,9 @@ ZIMBABWE_CORS_STATIONS: List[CorsStation] = [
     CorsStation("gutu", "Gutu",         -19.64609500, 31.14708901, "online",     ["GPS", "GLONASS", "Galileo", "BeiDou"], height_m=1396.6381),
     CorsStation("beit", "Beitbridge",   -22.21018295, 29.99524904, "online",     ["GPS", "GLONASS", "Galileo", "BeiDou"], height_m=486.8955),
     CorsStation("bing", "Binga",        -17.62509280, 27.33817181, "online",     ["GPS", "GLONASS", "Galileo", "BeiDou"], height_m=632.9443),
+    # Spider Site Status lists NKAY as the network's 25th site. Coordinates
+    # are taken from the live Spider map supplied by ZINGSA.
+    CorsStation("nkay", "Nkayi",        -18.98635139, 28.83723889, "online",     ["GPS", "GLONASS", "Galileo", "BeiDou"]),
 ]
 
 

@@ -198,7 +198,7 @@ class StationStream(threading.Thread):
         self._max_reconnect_delay = max_reconnect_delay
         # Caps how many StationStreams hold an open caster connection at once —
         # the caster enforces a per-account concurrent-connection limit, and
-        # connecting all 24 mountpoints at once under one account exceeds it,
+        # connecting all 25 mountpoints at once under one account exceeds it,
         # so most get rejected with "too many concurrent connections".
         self._slots = connection_slots
         self._start_delay = start_delay
@@ -377,7 +377,7 @@ class LiveNtripManager:
         self._on_obs = on_observation or (lambda _: None)
         self._nav_cache = nav_cache
         self._streams: dict[str, StationStream] = {}
-        # One shared account opening 24 mountpoints at once exceeds the
+        # One shared account opening 25 mountpoints at once exceeds the
         # caster's per-account concurrent-connection limit (see
         # NTRIP_LIVE_MAX_CONCURRENT) — cap how many stations hold an open
         # session simultaneously; the rest queue and rotate in.

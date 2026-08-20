@@ -42,7 +42,7 @@ export function mergeSpaceWeatherWithEkf(
     gnss_risk: null,
     gnss_risk_color: null,
     stations_online: null,
-    stations_total: 24,
+    stations_total: 25,
     plasma_speed: null,
     mean_vtec: null,
     updated_utc: null,

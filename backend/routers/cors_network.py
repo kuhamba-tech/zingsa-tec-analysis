@@ -321,11 +321,15 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
                 sourcetable_note=st_diag.get("note") or "",
             )
         merged.append(s)
-    return _merge_rover_clients(_merge_spider_site_statuses(merged, refresh=refresh_ntrip))
+    return _merge_rover_clients(_merge_spider_site_statuses(merged, refresh=False))
 
 
 def _merge_spider_site_statuses(stations: list, *, refresh: bool = False) -> list:
-    """Overlay Leica Spider Site Status (Status==3 ⇒ online) as map ground truth."""
+    """Overlay Leica Spider Site Status (Status==3 ⇒ online) as map ground truth.
+
+    Uses the TTL cache only — never force a Spider login on every NTRIP refresh,
+    which previously hung the API and made the UI show 0/25.
+    """
     from dataclasses import replace
 
     from zgiis.cors.site_details import vendor_status_label

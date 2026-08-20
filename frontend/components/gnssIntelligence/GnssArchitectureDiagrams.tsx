@@ -150,7 +150,7 @@ export function NationalPlatformDiagram({ modules }: { modules: string[] }) {
           <NodeCard
             icon="📡"
             title="Zimbabwe CORS Network"
-            subtitle="24 reference stations · NTRIP · RINEX"
+            subtitle="25 reference stations · NTRIP · RINEX"
             accent="#00ff88"
             glow="rgba(0,255,136,0.15)"
           />

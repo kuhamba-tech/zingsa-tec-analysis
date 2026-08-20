@@ -32,6 +32,7 @@ _SITE_META: dict[str, dict[str, str]] = {
     "gutu": {"mountpoint": "GUTU", "marker_number": "GUTU", "marker_name": "GUTU"},
     "beit": {"mountpoint": "BEIT", "marker_number": "BEIT", "marker_name": "BEIT"},
     "bing": {"mountpoint": "BING", "marker_number": "BING", "marker_name": "BING"},
+    "nkay": {"mountpoint": "NKAY", "marker_number": "NKAY", "marker_name": "NKAY"},
 }
 
 

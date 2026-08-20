@@ -36,7 +36,7 @@ const GETTING_STARTED = [
     step: 1,
     icon: "📡",
     title: "View live CORS status",
-    desc: "See which of the 24 Zimbabwe CORS stations are streaming RTCM on NTRIP.",
+    desc: "See which of the 25 Zimbabwe CORS stations are streaming RTCM on NTRIP.",
     href: "/live-pipeline",
     cta: "Open Live Pipeline",
   },
@@ -109,7 +109,6 @@ export default function HomePage() {
 
   useEffect(() => {
     let cancelled = false;
-    let probeInFlight = false;
     let liveProbeApplied = false;
 
     function applyStations(next: Station[], fromLiveProbe: boolean) {
@@ -142,28 +141,6 @@ export default function HomePage() {
       });
     }
 
-    async function probeNtrip(showBanner: boolean) {
-      if (probeInFlight) return;
-      probeInFlight = true;
-      // Banner only on first probe before we have a stable live map.
-      if (showBanner && !liveProbeApplied && !cancelled) setNtripRefreshing(true);
-      try {
-        const fresh = await getStations(true);
-        if (cancelled) return;
-        applyStations(fresh, true);
-        const heatmap = await getTecHeatmap(6).catch(() => null);
-        if (!cancelled && heatmap) setTecHeatmap(heatmap);
-      } catch {
-        // Keep the last stable online map — do not clear on probe failure.
-      } finally {
-        probeInFlight = false;
-        if (!cancelled) {
-          setNtripRefreshing(false);
-          setStationsLoading(false);
-        }
-      }
-    }
-
     async function load(background = false) {
       // Keep current values on screen during interval refresh — only the first
       // load (or a cold retry with no data) may show pending/loading UI.
@@ -171,6 +148,7 @@ export default function HomePage() {
         setSwStatus("pending");
         setLoadError(null);
         setStationsLoading(true);
+        setNtripRefreshing(true);
       }
 
       const [swResult, ekfResult, pipelineResult] = await Promise.allSettled([
@@ -215,19 +193,6 @@ export default function HomePage() {
         setPipelineNote(p.message ?? null);
       }
 
-      const localBackend =
-        window.location.hostname === "localhost" ||
-        window.location.hostname === "127.0.0.1" ||
-        window.location.port === "3000" ||
-        window.location.port === "3001";
-
-      // Background polls on local: only re-probe NTRIP. Catalog-only fetches were
-      // overwriting live online markers every 60s and making the map flicker.
-      if (background && localBackend) {
-        await probeNtrip(false);
-        return;
-      }
-
       try {
         const [stationsResult, heatmapResult] = await Promise.all([
           getStations(false),
@@ -235,41 +200,25 @@ export default function HomePage() {
         ]);
         if (cancelled) return;
 
-        // Local: place markers in a neutral "checking" state until the live
-        // probe returns — avoids flashing every site red (0/24) then green.
-        if (!localBackend) applyStations(stationsResult, false);
-        else if (!liveProbeApplied && stationsResult.length > 0) {
-          applyStations(
-            stationsResult.map((s) => ({
-              ...s,
-              status: "offline" as const,
-              status_source: "unknown",
-              ntrip_verdict: null,
-              ntrip_probed_at: null,
-              site_status_label: "Checking live stream…",
-            })),
-            false,
-          );
+        // Apply Spider/API statuses immediately — do not wipe to offline first
+        // (that briefly painted 0/25 and often stuck there when the probe hung).
+        if (stationsResult.length > 0) {
+          applyStations(stationsResult, true);
         }
         if (heatmapResult) setTecHeatmap(heatmapResult);
       } catch {
         // Keep prior stations/heatmap if we already have a stable view.
       } finally {
-        if (!cancelled && !localBackend) setStationsLoading(false);
-      }
-
-      // A Vercel function cannot maintain the long-lived sockets required to
-      // judge MSM streaming. Production reads the persistent collector's
-      // archived snapshots above; only local development performs an explicit
-      // one-shot caster probe.
-      if (localBackend) {
-        await probeNtrip(!background);
+        if (!cancelled) {
+          setStationsLoading(false);
+          setNtripRefreshing(false);
+        }
       }
     }
 
     load(false);
-    // Local: refresh often so MSM streaming turns markers green quickly.
-    const timer = window.setInterval(() => load(true), 15_000);
+    // Refresh often so Spider/online markers stay current without forcing NTRIP.
+    const timer = window.setInterval(() => load(true), 20_000);
     return () => {
       cancelled = true;
       window.clearInterval(timer);

@@ -171,7 +171,7 @@ export default function LivePipelinePage() {
   const chartLabels = obs.slice(-200).map((o) => o.time.slice(11, 19));
   const chartData = obs.slice(-200).map((o) => o.vtec_tecu ?? 0);
   const vtecOnline = stationStatus.filter((s) => !s.stale && s.last_vtec != null && s.last_vtec > 0).length;
-  const total = corsStations.length || stationStatus.length || 24;
+  const total = corsStations.length || stationStatus.length || 25;
   const corsCounts = countLiveStationStatuses(corsStations, total);
   const corsConnected = formatCorsConnectedDisplay(corsCounts);
   const configuredStreams = pipelineStatus ? Object.keys(pipelineStatus.streams ?? {}).length : 0;
@@ -309,7 +309,7 @@ export default function LivePipelinePage() {
             </p>
           </div>
           <button className="btn btn-primary" onClick={handleProbe} disabled={probeLoading}>
-            {probeLoading ? "Probing 24 mountpoints…" : "Verify all NTRIP connections"}
+            {probeLoading ? "Probing 25 mountpoints…" : "Verify all NTRIP connections"}
           </button>
         </div>
 
@@ -419,7 +419,7 @@ export default function LivePipelinePage() {
             </div>
           ))}
           {stationStatus.length === 0 &&
-            [...Array(24)].map((_, i) => (
+            [...Array(25)].map((_, i) => (
               <div key={i} className="card" style={{ padding: "0.5rem 0.7rem", minHeight: "70px", opacity: 0.4 }}>
                 <div className="metric-label" style={{ fontSize: "0.62rem" }}>—</div>
                 <div style={{ fontWeight: 800, fontSize: "1.1rem", color: "#444466" }}>N/A</div>

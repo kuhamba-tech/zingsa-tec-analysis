@@ -51,7 +51,8 @@ def _parse_mountpoints(*, priority_codes: list[str] | None = None) -> dict[str, 
 
 
 def _db_flush_n() -> int:
-    raw = os.getenv("ZGIIS_DB_FLUSH_N", "1").strip()
+    # Batch writes so multi-stream ingest does not lock SQLite on every observation.
+    raw = os.getenv("ZGIIS_DB_FLUSH_N", "25").strip()
     try:
         return max(1, int(raw))
     except ValueError:

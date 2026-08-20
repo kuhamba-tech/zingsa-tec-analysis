@@ -69,7 +69,7 @@ async def lifespan(app: FastAPI):
         yield
         return
 
-    # NTRIP ingest can take time to connect 24 mountpoints — do not block API startup.
+    # NTRIP ingest can take time to connect 25 mountpoints — do not block API startup.
     threading.Thread(
         target=live_manager.start,
         daemon=True,

@@ -400,7 +400,7 @@ export default function GnssIntelligencePage() {
         <div className="gnwi-input-grid">
           <InputList
             title="1. CORS Network Data"
-            subtitle="From 24 Zimbabwe CORS stations — observations processed to:"
+            subtitle="From 25 Zimbabwe CORS stations — observations processed to:"
             items={CORS_INPUTS}
             accent="#00ff88"
           />

@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 import tempfile
+import threading
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
@@ -23,6 +24,7 @@ log = logging.getLogger(__name__)
 
 _TSDB_DSN = database_dsn()
 _SQLITE_PATH = Path(__file__).resolve().parents[2] / "static" / "data" / "vtec_live.db"
+_SQLITE_WRITE_LOCK = threading.Lock()
 
 # Set once the first TecDB() in this process has confirmed the Postgres
 # schema (DDL/audit-columns/hypertable/index) exists, so later instances
@@ -147,12 +149,26 @@ class TecDB:
     def _init_sqlite(self) -> None:
         try:
             _SQLITE_PATH.parent.mkdir(parents=True, exist_ok=True)
-            self._conn = sqlite3.connect(str(_SQLITE_PATH), check_same_thread=False)
+            self._conn = sqlite3.connect(
+                str(_SQLITE_PATH),
+                check_same_thread=False,
+                timeout=30.0,
+            )
         except (OSError, sqlite3.OperationalError):
             # Read-only filesystem (e.g. Vercel) — fall back to an ephemeral
             # temp-dir database rather than crashing the request.
             fallback = Path(tempfile.gettempdir()) / _SQLITE_PATH.name
-            self._conn = sqlite3.connect(str(fallback), check_same_thread=False)
+            self._conn = sqlite3.connect(
+                str(fallback),
+                check_same_thread=False,
+                timeout=30.0,
+            )
+        try:
+            self._conn.execute("PRAGMA journal_mode=WAL")
+            self._conn.execute("PRAGMA busy_timeout=30000")
+            self._conn.execute("PRAGMA synchronous=NORMAL")
+        except sqlite3.Error as exc:
+            log.debug("SQLite PRAGMA setup skipped: %s", exc)
         self._conn.executescript(_SQLITE_DDL)
         self._conn.commit()
         self._ensure_vtec_obs_audit_columns()
@@ -233,8 +249,9 @@ class TecDB:
                     cur.executemany(sql, rows)
                 self._conn.commit()
             else:
-                self._conn.executemany(sql, rows)
-                self._conn.commit()
+                with _SQLITE_WRITE_LOCK:
+                    self._conn.executemany(sql, rows)
+                    self._conn.commit()
         except Exception as exc:
             log.warning("insert_vtec failed (%s)", exc)
             if self._is_pg:
@@ -245,7 +262,19 @@ class TecDB:
                 self._is_pg = False
                 self._init_sqlite()
                 return self.insert_vtec(records)
-            raise
+            try:
+                self._conn.rollback()
+            except Exception:
+                pass
+            # Recover a corrupted/busy SQLite handle instead of poisoning the API.
+            try:
+                with _SQLITE_WRITE_LOCK:
+                    self._init_sqlite()
+                    self._conn.executemany(sql, rows)
+                    self._conn.commit()
+            except Exception as retry_exc:
+                log.warning("insert_vtec retry failed (%s)", retry_exc)
+                return 0
         return len(rows)
 
     # ── Read ──────────────────────────────────────────────────────────────────
