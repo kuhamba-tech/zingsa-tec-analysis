@@ -9,6 +9,7 @@ If TimescaleDB is available the time-series tables are promoted to hypertables.
 from __future__ import annotations
 
 import logging
+import os
 import sqlite3
 import tempfile
 import threading
@@ -110,6 +111,13 @@ class TecDB:
         try:
             import psycopg2
             self._conn = psycopg2.connect(self._dsn)
+            if os.getenv("VERCEL"):
+                # Production schema is provisioned by migrations. Running DDL
+                # through the serverless pooler delays requests and can also
+                # block the external live collector when it loads Vercel's
+                # production environment.
+                _PG_SCHEMA_READY = True
+                return
             if _PG_SCHEMA_READY:
                 # Schema (DDL/audit-columns/hypertable/index) was already
                 # ensured once by an earlier TecDB() instance in this
