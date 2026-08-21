@@ -215,9 +215,6 @@ def main() -> int:
     signal.signal(signal.SIGTERM, _stop)
 
     db = TecDB()
-    # Use the indexed time window; a full-table COUNT can delay ingestion as
-    # the historical VTEC archive grows.
-    before = db.record_count(hours=24)
     nav_cache = LiveNavCache()
     pipeline = LiveVtecPipeline(db=db, nav_cache=nav_cache, db_flush_n=int(os.getenv("ZGIIS_DB_FLUSH_N", "1")))
     max_concurrent_raw = os.getenv("NTRIP_LIVE_MAX_CONCURRENT", "").strip()
@@ -244,10 +241,9 @@ def main() -> int:
         interval_s=max(300.0, float(os.getenv("ZGIIS_EPHEMERIS_REFRESH_S", "3600"))),
     )
     log.info(
-        "Collector started for %d station(s), db=%s, initial_records=%s",
+        "Collector started for %d station(s), db=%s",
         len(mountpoints),
         db.backend,
-        before,
     )
 
     try:
@@ -256,12 +252,12 @@ def main() -> int:
             pipeline.flush_db()
             status = manager.status()
             fresh = [code for code, row in status.items() if row.get("last_seen")]
-            try:
-                records = db.record_count()
-            except Exception:
-                records = -1
+            records = sum(
+                int(row.get("vtec_emitted", 0))
+                for row in pipeline.diagnostics_by_station().values()
+            )
             log.info(
-                "Collector heartbeat: connected=%d fresh=%s records=%s",
+                "Collector heartbeat: connected=%d fresh=%s session_records=%s",
                 manager.active_count,
                 ",".join(fresh) if fresh else "none",
                 records,
