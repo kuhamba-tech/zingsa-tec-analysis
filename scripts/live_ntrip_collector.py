@@ -215,7 +215,9 @@ def main() -> int:
     signal.signal(signal.SIGTERM, _stop)
 
     db = TecDB()
-    before = db.record_count()
+    # Use the indexed time window; a full-table COUNT can delay ingestion as
+    # the historical VTEC archive grows.
+    before = db.record_count(hours=24)
     nav_cache = LiveNavCache()
     pipeline = LiveVtecPipeline(db=db, nav_cache=nav_cache, db_flush_n=int(os.getenv("ZGIIS_DB_FLUSH_N", "1")))
     max_concurrent_raw = os.getenv("NTRIP_LIVE_MAX_CONCURRENT", "").strip()
