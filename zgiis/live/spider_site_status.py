@@ -32,10 +32,17 @@ def _spider_base_url() -> str:
     configured = os.getenv("SPIDER_BASE_URL", "").strip().rstrip("/")
     if configured:
         return configured
-    host = os.environ.get("NTRIP_HOST", "").strip()
+    host = os.environ.get("NTRIP_HOST", "").strip().strip('"').strip("'").rstrip("/")
     if not host:
         return ""
-    return f"http://{host}/sbc"
+    # NTRIP_HOST is accepted elsewhere as either a bare hostname/IP or a URL.
+    # Preserve an existing scheme; prepending ``http://`` to a URL produces
+    # ``http://http://...`` and makes requests resolve a host literally named
+    # "http" in production.
+    base = host if "://" in host else f"http://{host}"
+    if base.lower().endswith("/sbc"):
+        return base
+    return f"{base}/sbc"
 
 
 def _spider_credentials() -> tuple[str, str]:
