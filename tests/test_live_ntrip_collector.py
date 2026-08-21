@@ -32,7 +32,7 @@ class LiveNtripCollectorTests(unittest.TestCase):
 
     @patch("scripts.live_ntrip_collector.load_dotenv")
     @patch("scripts.live_ntrip_collector.dotenv_values")
-    def test_load_env_prefers_pooled_neon_url(self, env_values, load_dotenv) -> None:
+    def test_load_env_prefers_direct_neon_url_for_collector(self, env_values, load_dotenv) -> None:
         env_values.return_value = {
             "ALLOW_LEGACY_NEON_DATABASE_URL": "1",
             "POSTGRES_URL": "postgresql://pooled.example/neondb",
@@ -42,7 +42,7 @@ class LiveNtripCollectorTests(unittest.TestCase):
 
         with patch.dict(os.environ, {}, clear=True):
             _load_env()
-            self.assertEqual(os.environ["TSDB_DSN"], "postgresql://pooled.example/neondb")
+            self.assertEqual(os.environ["TSDB_DSN"], "postgresql://direct.example/neondb")
 
     def test_default_status_push_uses_named_vercel_dispatcher(self) -> None:
         with patch.dict(os.environ, {}, clear=False):

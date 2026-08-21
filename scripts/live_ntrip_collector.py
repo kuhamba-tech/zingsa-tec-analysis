@@ -63,10 +63,10 @@ def _load_env() -> None:
     tsdb = (os.getenv("TSDB_DSN") or "").strip().strip('"').strip("'")
     if not tsdb:
         for key in (
-            "POSTGRES_URL",
-            "DATABASE_URL",
             "POSTGRES_URL_NON_POOLING",
             "DATABASE_URL_UNPOOLED",
+            "POSTGRES_URL",
+            "DATABASE_URL",
         ):
             value = (os.getenv(key) or "").strip().strip('"').strip("'")
             if value:
