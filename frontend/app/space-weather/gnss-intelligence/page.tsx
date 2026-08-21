@@ -33,6 +33,35 @@ import {
   ZINGSA_WEBSITE,
 } from "@/lib/zingsaContact";
 
+function formatNewsTimestamp(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const zimbabwe = new Intl.DateTimeFormat("en-ZW", {
+    timeZone: "Africa/Harare",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+  const utc = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "UTC",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+  return `${zimbabwe} CAT · ${utc} UTC`;
+}
+
+function timestampAgeMinutes(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const time = Date.parse(value);
+  if (!Number.isFinite(time)) return null;
+  return Math.max(0, Math.floor((Date.now() - time) / 60_000));
+}
+
 function InputList({ title, subtitle, items, accent }: { title: string; subtitle: string; items: string[]; accent: string }) {
   return (
     <div className="card gnwi-input-card" style={{ borderTopColor: accent }}>
@@ -166,11 +195,17 @@ function AudienceNewsCard({
   brief,
   sw,
   forecasts,
+  sourceTimestamp,
+  generatedTimestamp,
 }: {
   brief: NavigationNewsBrief;
   sw: SpaceWeatherCurrent | null;
   forecasts: GnssForecastCity[];
+  sourceTimestamp: string | null;
+  generatedTimestamp: string | null;
 }) {
+  const observedLabel = formatNewsTimestamp(sourceTimestamp);
+  const generatedLabel = formatNewsTimestamp(generatedTimestamp);
   return (
     <article className="card gnwi-news-card" style={{ borderColor: STATUS_COLORS[brief.statusTone] }}>
       <div className="gnwi-news-meta">
@@ -181,6 +216,17 @@ function AudienceNewsCard({
           <h3 className="gnwi-news-title">{brief.title}</h3>
           <p className="gnwi-news-audience">{brief.audience}</p>
         </div>
+      </div>
+      <div className="gnwi-news-timestamps" aria-label="Information date and time">
+        <span>
+          <strong>Data observed:</strong>{" "}
+          {observedLabel && sourceTimestamp ? <time dateTime={sourceTimestamp}>{observedLabel}</time> : "Time unavailable"}
+        </span>
+        {generatedLabel && generatedTimestamp && (
+          <span>
+            <strong>Brief generated:</strong> <time dateTime={generatedTimestamp}>{generatedLabel}</time>
+          </span>
+        )}
       </div>
       <div className="gnwi-sw-box">
         <p className="gnwi-sw-box-label">Space weather today</p>
@@ -290,6 +336,11 @@ export default function GnssIntelligencePage() {
 
   const forecasts = bundle?.forecasts ?? [];
   const nationalTone = bundle ? effectiveNavigationTone(forecasts, sw) : "excellent";
+  const sourceTimestamp = sw?.updated_utc ?? null;
+  const sourceAgeMinutes = timestampAgeMinutes(sourceTimestamp);
+  const sourceTimestampLabel = formatNewsTimestamp(sourceTimestamp);
+  const generatedTimestampLabel = formatNewsTimestamp(bundle?.computedAt);
+  const sourceIsStale = sourceAgeMinutes != null && sourceAgeMinutes > 30;
   const updatedLabel = bundle?.computedAt
     ? bundle.computedAt.replace("T", " ").replace("Z", " UTC").slice(0, 19)
     : null;
@@ -346,6 +397,22 @@ export default function GnssIntelligencePage() {
           in space today, what it means for your group, and what to do — in language anyone can
           understand.
         </p>
+        {bundle && (
+          <div className={`banner ${sourceIsStale ? "banner-alert" : "banner-info"} gnwi-news-freshness`}>
+            <strong>{sourceIsStale ? "⚠ Information may be stale." : "Information time:"}</strong>{" "}
+            {sourceTimestampLabel ? (
+              <>
+                Source data observed <time dateTime={sourceTimestamp ?? undefined}>{sourceTimestampLabel}</time>
+                {sourceAgeMinutes != null && ` · ${sourceAgeMinutes} minute${sourceAgeMinutes === 1 ? "" : "s"} old`}.
+              </>
+            ) : (
+              <>The source observation time is unavailable.</>
+            )}
+            {generatedTimestampLabel && (
+              <> Brief generated <time dateTime={bundle.computedAt}>{generatedTimestampLabel}</time>.</>
+            )}
+          </div>
+        )}
         <div className="gnwi-news-grid">
           {(bundle?.audienceNews ?? []).map((brief) => (
             <AudienceNewsCard
@@ -353,6 +420,8 @@ export default function GnssIntelligencePage() {
               brief={brief}
               sw={sw}
               forecasts={bundle?.forecasts ?? []}
+              sourceTimestamp={sourceTimestamp}
+              generatedTimestamp={bundle?.computedAt ?? null}
             />
           ))}
         </div>

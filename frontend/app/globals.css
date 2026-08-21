@@ -5312,6 +5312,24 @@ a.home-map-layer-btn {
   font-size: 0.78rem;
   color: var(--text-muted);
 }
+.gnwi-news-timestamps {
+  display: grid;
+  gap: 0.18rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid rgba(56, 189, 248, 0.28);
+  border-radius: 6px;
+  background: rgba(14, 165, 233, 0.07);
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  line-height: 1.4;
+}
+.gnwi-news-timestamps strong {
+  color: #38bdf8;
+}
+.gnwi-news-freshness {
+  margin-bottom: 1rem;
+  font-size: 0.78rem;
+}
 .gnwi-sw-box {
   padding: 0.65rem 0.75rem;
   background: rgba(168, 85, 247, 0.07);
