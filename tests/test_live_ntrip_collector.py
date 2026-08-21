@@ -10,6 +10,26 @@ from scripts.live_ntrip_collector import (
 
 
 class LiveNtripCollectorTests(unittest.TestCase):
+    @patch("scripts.live_ntrip_collector.load_dotenv")
+    @patch("scripts.live_ntrip_collector.dotenv_values")
+    def test_load_env_prefers_explicitly_enabled_neon(self, env_values, load_dotenv) -> None:
+        env_values.return_value = {
+            "ALLOW_LEGACY_NEON_DATABASE_URL": "1",
+            "SUPABASE_DATABASE_URL": "postgresql://stale.example/supabase",
+            "POSTGRES_URL_NON_POOLING": "postgresql://active.example/neondb",
+        }
+        from scripts.live_ntrip_collector import _load_env
+
+        with patch.dict(
+            os.environ,
+            {"SUPABASE_DATABASE_URL": "postgresql://stale.example/supabase"},
+            clear=True,
+        ):
+            _load_env()
+            self.assertNotIn("SUPABASE_DATABASE_URL", os.environ)
+            self.assertEqual(os.environ["TSDB_DSN"], "postgresql://active.example/neondb")
+            self.assertEqual(os.environ["ALLOW_LEGACY_NEON_DATABASE_URL"], "1")
+
     def test_default_status_push_uses_named_vercel_dispatcher(self) -> None:
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("STATUS_SNAPSHOT_PUSH_URL", None)

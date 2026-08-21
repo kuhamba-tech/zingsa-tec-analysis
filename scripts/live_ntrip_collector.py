@@ -33,6 +33,19 @@ DEFAULT_STATUS_PUSH_URL = (
 def _load_env() -> None:
     load_dotenv(ROOT / "backend" / ".env", override=True)
     vercel_env = dotenv_values(ROOT / ".env.vercel.production")
+    allow_neon = str(vercel_env.get("ALLOW_LEGACY_NEON_DATABASE_URL") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    if allow_neon:
+        # `vercel env pull` deliberately preserves local-only keys. A removed,
+        # stale SUPABASE_DATABASE_URL can therefore survive in the file and win
+        # database_dsn()'s precedence order. Once the managed Neon connection is
+        # explicitly enabled, discard those obsolete overrides in this process.
+        os.environ.pop("SUPABASE_DATABASE_URL", None)
+        os.environ.pop("TSDB_DSN", None)
     for key in (
         "SUPABASE_DATABASE_URL",
         "TSDB_DSN",
@@ -40,8 +53,11 @@ def _load_env() -> None:
         "DATABASE_URL_UNPOOLED",
         "POSTGRES_URL",
         "POSTGRES_URL_NON_POOLING",
+        "ALLOW_LEGACY_NEON_DATABASE_URL",
     ):
         value = vercel_env.get(key)
+        if allow_neon and key in {"SUPABASE_DATABASE_URL", "TSDB_DSN"}:
+            continue
         if value:
             os.environ[key] = value
     tsdb = (os.getenv("TSDB_DSN") or "").strip().strip('"').strip("'")
