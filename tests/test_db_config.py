@@ -42,3 +42,17 @@ def test_malformed_database_url_is_ignored(monkeypatch):
 
     assert database_dsn() == ""
     assert configured_database_env_key() is None
+
+
+def test_pooled_postgres_url_wins_over_unpooled(monkeypatch):
+    monkeypatch.delenv("SUPABASE_DATABASE_URL", raising=False)
+    monkeypatch.delenv("TSDB_DSN", raising=False)
+    monkeypatch.setenv("ALLOW_LEGACY_NEON_DATABASE_URL", "true")
+    monkeypatch.setenv("POSTGRES_URL", "postgresql://user:pw@pooled.neon.tech/db")
+    monkeypatch.setenv(
+        "POSTGRES_URL_NON_POOLING",
+        "postgresql://user:pw@direct.neon.tech/db",
+    )
+
+    assert configured_database_env_key() == "POSTGRES_URL"
+    assert urlsplit(database_dsn()).hostname == "pooled.neon.tech"

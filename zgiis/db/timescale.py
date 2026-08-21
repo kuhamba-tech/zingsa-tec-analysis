@@ -53,6 +53,7 @@ SELECT create_hypertable('vtec_obs','time',if_not_exists=>TRUE);
 """
 _PG_IDX = """
 CREATE INDEX IF NOT EXISTS vtec_obs_station_time ON vtec_obs (station, time DESC);
+CREATE INDEX IF NOT EXISTS vtec_obs_time_idx ON vtec_obs (time DESC);
 """
 
 # ── SQLite schema ─────────────────────────────────────────────────────────────
@@ -73,6 +74,8 @@ CREATE TABLE IF NOT EXISTS vtec_obs (
 );
 CREATE INDEX IF NOT EXISTS vtec_obs_station_time
     ON vtec_obs (station, time);
+CREATE INDEX IF NOT EXISTS vtec_obs_time_idx
+    ON vtec_obs (time);
 """
 
 

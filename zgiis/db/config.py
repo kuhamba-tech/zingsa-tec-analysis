@@ -8,10 +8,12 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 _DSN_ENV_KEYS = (
     "SUPABASE_DATABASE_URL",
     "TSDB_DSN",
-    "POSTGRES_URL_NON_POOLING",
-    "DATABASE_URL_UNPOOLED",
+    # Prefer pooled URLs for Vercel functions and the long-running collector.
+    # Direct/unpooled Neon connections can stall under concurrent requests.
     "POSTGRES_URL",
     "DATABASE_URL",
+    "POSTGRES_URL_NON_POOLING",
+    "DATABASE_URL_UNPOOLED",
 )
 
 
