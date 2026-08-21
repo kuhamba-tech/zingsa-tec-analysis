@@ -806,7 +806,7 @@ def _read_rinex_files_impl(
         import georinex as gr
     except Exception as exc:
         raise RuntimeError(
-            "Reading RINEX requires georinex. Install dependencies from requirements-streamlit.txt."
+            "Reading RINEX requires georinex. Install the backend dependencies."
         ) from exc
 
     frames: list[pd.DataFrame] = []
@@ -1389,4 +1389,3 @@ def read_kp_csv(path: Path) -> pd.DataFrame:
         raise ValueError("KP CSV must have date and KP columns (date, kp_index).")
     out = pd.DataFrame({"date": pd.to_datetime(df[date_col], errors="coerce"), "kp_index": df[kp_col]})
     return out.dropna(subset=["date", "kp_index"])
-

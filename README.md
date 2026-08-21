@@ -1,4 +1,7 @@
-# GNSS TEC Analyzer (Zimbabwe CORS / GOP workflow)
+# Zimbabwe GNSS Ionospheric Information System (ZGIIS)
+
+ZGIIS consists of a Next.js frontend and a FastAPI backend. The legacy
+Streamlit interface has been removed.
 
 This Python app replaces MATLAB post-processing and follows the same operational flow used with GOP:
 
@@ -21,12 +24,27 @@ From *Atmospheric Remote Sensing - Chapter 4* (Gopi K. Seemala):
 
 Depending on notation, this is equivalent to `VTEC = STEC * S(E)` when `S(E)=1/M(E)`.
 
-## Run
+## Run locally
 
 ```bash
-pip install -r requirements-streamlit.txt
-streamlit run app.py
+python3.12 -m venv .venv
+.venv/bin/python -m pip install -r backend/requirements.txt
+.venv/bin/uvicorn backend.main:app --host 127.0.0.1 --port 8000
 ```
+
+In a second terminal:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open `http://localhost:3000`. The API is available at
+`http://localhost:8000`, with interactive documentation at
+`http://localhost:8000/docs`.
+
+On Windows, `run.ps1`/`dev.ps1` starts both services.
 
 ## Supabase database
 
@@ -92,4 +110,3 @@ Provide a CSV with at least:
 
 - `date` (or `day` / `timestamp`)
 - `kp_index` (or `kp` / `kpindex`)
-

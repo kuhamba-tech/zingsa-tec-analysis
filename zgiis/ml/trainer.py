@@ -1,7 +1,7 @@
 """
 Daily CNN-GRU training pipeline.
 
-Called once per day (e.g. via cron or Streamlit's st.cache_data with TTL)
+Called once per day (for example via cron or the backend scheduler)
 once the TimescaleDB accumulates ≥30 days of live VTEC observations.
 """
 from __future__ import annotations

@@ -3,7 +3,7 @@ Owns the live NTRIP -> STEC/VTEC -> TimescaleDB pipeline as a process-wide
 singleton, started/stopped from FastAPI's lifespan.
 
 Config comes from env vars (see backend/.env.example) rather than
-st.secrets, since this runs inside the FastAPI process, not Streamlit.
+UI-specific secrets, since this runs inside the FastAPI process.
 """
 from __future__ import annotations
 

@@ -13,16 +13,8 @@ except ImportError:
     _REQUESTS_AVAILABLE = False
 
 # Production deployment from ZINGSA CORS_Program.
-# Base URL preference order: secrets.toml → env var → hard-coded default.
-def _secrets_api_base() -> str:
-    try:
-        import streamlit as st
-        return (st.secrets.get("cors_api", {}).get("base_url") or "").rstrip("/")
-    except Exception:
-        return ""
-
+# Base URL preference order: environment variable → hard-coded default.
 _DEFAULT_API_BASES = (
-    _secrets_api_base(),
     os.environ.get("ZGIIS_CORS_API_BASE", "").rstrip("/"),
     "https://zingsa-national-cors.vercel.app/api",
 )

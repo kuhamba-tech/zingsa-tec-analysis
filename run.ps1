@@ -1,5 +1,6 @@
 param(
-    [int]$Port = 8501
+    [int]$BackendPort = 8000,
+    [int]$FrontendPort = 3000
 )
 
-& (Join-Path $PSScriptRoot "run_app.ps1") -Port $Port
+& (Join-Path $PSScriptRoot "dev.ps1") -BackendPort $BackendPort -FrontendPort $FrontendPort

@@ -4,8 +4,6 @@ from __future__ import annotations
 from typing import Any, Dict
 
 import pandas as pd
-import streamlit as st
-
 from zgiis.processing.pipeline_explanations import BOOK_CITATION
 
 # Match Home.py hero metric cards (image 1 reference)

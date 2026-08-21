@@ -5,11 +5,9 @@
   "pythonPlatform": "Windows",
   "typeCheckingMode": "basic",
   "include": [
-    "app.py",
     "tec_core.py",
     "backend",
     "zgiis",
-    "pages",
     "scripts",
     "tests"
   ],

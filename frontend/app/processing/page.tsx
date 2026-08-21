@@ -624,7 +624,7 @@ export default function ProcessingPage() {
   const cmnRef = useRef<HTMLInputElement>(null);
   const navFollowUpRef = useRef<HTMLInputElement>(null);
 
-  // Sidebar settings — parity with pages/2_Processing.py
+  // Processing settings.
   const [stationsList, setStationsList] = useState<Station[]>([]);
   const [allStations, setAllStations] = useState(true);
   const [selectedStations, setSelectedStations] = useState<string[]>([]);
@@ -715,7 +715,7 @@ export default function ProcessingPage() {
     return null;
   }
 
-  // Mirrors pages/2_Processing.py::parse_rinex_obs_date — station code + day-of-year + 2-digit year.
+  // Parse station code + day-of-year + two-digit year from RINEX names.
   function parseRinexObsDate(name: string): Date | null {
     const m = /[a-z0-9_]{4}(\d{3})0\.(\d{2})o$/i.exec(name);
     if (!m) return null;
@@ -1223,7 +1223,7 @@ export default function ProcessingPage() {
 
       {tab !== "converter" && tab !== "download" && (
       <>
-      {/* Settings panel — parity with pages/2_Processing.py sidebar */}
+      {/* Processing settings panel */}
       <div className="card" style={{ display: "flex", flexDirection: "column", gap: "0.8rem" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", borderBottom: "1px solid var(--border)", paddingBottom: "0.8rem" }}>
           <label className="metric-label">Processing mode</label>

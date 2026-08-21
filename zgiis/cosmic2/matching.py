@@ -1,7 +1,7 @@
 """Haversine distance and COSMIC-2 profile <-> Zimbabwe CORS matching.
 
 No true great-circle distance helper exists anywhere else in this repo (the
-only "distance" code, zgiis/maps/station_map.py's IDW interpolation, uses a
+only "distance" code; the TEC map interpolation uses a
 rough equirectangular approximation for map-grid weighting, not exposed as
 a reusable function and not km-accurate) — this is a new, standalone
 Haversine implementation, kept local to this module since nothing else in
