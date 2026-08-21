@@ -2,7 +2,11 @@ import os
 import unittest
 from unittest.mock import patch
 
-from scripts.live_ntrip_collector import DEFAULT_STATUS_PUSH_URL, _status_push_url
+from scripts.live_ntrip_collector import (
+    DEFAULT_STATUS_PUSH_URL,
+    _status_push_url,
+    _status_snapshot_rows,
+)
 
 
 class LiveNtripCollectorTests(unittest.TestCase):
@@ -22,7 +26,7 @@ class LiveNtripCollectorTests(unittest.TestCase):
 
         self.assertEqual(
             url,
-            "https://zingsa-gnss-tec.vercel.app/api/cors-router"
+            "https://zingsa-gnss-tec.vercel.app/api/cors-router/"
             "?__zr=%2Fcors%2Fstatus%2Fsnapshots",
         )
 
@@ -30,6 +34,26 @@ class LiveNtripCollectorTests(unittest.TestCase):
         custom = "https://collector.example/api/status"
         with patch.dict(os.environ, {"STATUS_SNAPSHOT_PUSH_URL": custom}):
             self.assertEqual(_status_push_url(), custom)
+
+    @patch("zgiis.live.spider_site_status.get_cached_spider_site_statuses")
+    def test_snapshot_rows_prefer_spider_status(self, spider_statuses) -> None:
+        spider_statuses.return_value = {
+            "by_station": {"nkay": {"status": "offline"}},
+            "error": None,
+        }
+        rows = _status_snapshot_rows({"nkay": {"connected": True}})
+        nkayi = next(row for row in rows if row["station_code"] == "nkay")
+
+        self.assertEqual(nkayi["status"], "offline")
+        self.assertEqual(nkayi["source"], "spider_site_status")
+
+    @patch("zgiis.live.spider_site_status.get_cached_spider_site_statuses")
+    def test_snapshot_rows_fall_back_to_ntrip(self, spider_statuses) -> None:
+        spider_statuses.return_value = {"by_station": {}, "error": "unreachable"}
+        rows = _status_snapshot_rows({})
+        nkayi = next(row for row in rows if row["station_code"] == "nkay")
+
+        self.assertEqual(nkayi["source"], "collector_ntrip_fallback")
 
 
 if __name__ == "__main__":

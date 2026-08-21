@@ -25,7 +25,7 @@ sys.path.insert(0, str(ROOT))
 
 log = logging.getLogger("zgiis.collector")
 DEFAULT_STATUS_PUSH_URL = (
-    "https://zingsa-gnss-tec.vercel.app/api/cors-router"
+    "https://zingsa-gnss-tec.vercel.app/api/cors-router/"
     "?__zr=%2Fcors%2Fstatus%2Fsnapshots"
 )
 
@@ -89,9 +89,44 @@ def _status_push_url() -> str:
     }:
         query = urllib.parse.urlencode({"__zr": "/cors/status/snapshots"})
         return urllib.parse.urlunsplit(
-            (parsed.scheme, parsed.netloc, "/api/cors-router", query, parsed.fragment)
+            (parsed.scheme, parsed.netloc, "/api/cors-router/", query, parsed.fragment)
         )
     return raw
+
+
+def _status_snapshot_rows(streams: dict[str, dict]) -> list[dict]:
+    """Build snapshots using Spider as the map's authoritative status source.
+
+    The public dashboard intentionally matches Leica Spider Site Status.  NTRIP
+    stream health remains a useful fallback when Spider cannot be reached, but
+    it must not overwrite a successful Spider result in the production archive.
+    """
+    from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS, derive_status_from_stream
+    from zgiis.live.spider_site_status import get_cached_spider_site_statuses
+
+    spider_payload = get_cached_spider_site_statuses(refresh=True)
+    spider_by_station = spider_payload.get("by_station") or {}
+    when = datetime.now(tz=timezone.utc).replace(microsecond=0).isoformat()
+    rows = []
+    for station in ZIMBABWE_CORS_STATIONS:
+        code = station.code.lower().rstrip("_")
+        spider = spider_by_station.get(code)
+        if spider:
+            status = str(spider.get("status") or "offline").lower()
+            source = "spider_site_status"
+        else:
+            status = derive_status_from_stream(streams.get(code))
+            source = "collector_ntrip_fallback"
+        rows.append(
+            {
+                "time": when,
+                "station_code": code,
+                "status": status,
+                "api_reachable": True,
+                "source": source,
+            }
+        )
+    return rows
 
 
 def _push_status_snapshots(streams: dict[str, dict]) -> None:
@@ -100,21 +135,7 @@ def _push_status_snapshots(streams: dict[str, dict]) -> None:
     if not url:
         return
 
-    from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS, derive_status_from_stream
-
-    when = datetime.now(tz=timezone.utc).replace(microsecond=0).isoformat()
-    rows = []
-    for station in ZIMBABWE_CORS_STATIONS:
-        code = station.code.lower().rstrip("_")
-        rows.append(
-            {
-                "time": when,
-                "station_code": code,
-                "status": derive_status_from_stream(streams.get(code)),
-                "api_reachable": True,
-                "source": "collector_api_push",
-            }
-        )
+    rows = _status_snapshot_rows(streams)
 
     headers = {"Content-Type": "application/json"}
     api_key = (os.getenv("STATUS_SNAPSHOT_PUSH_API_KEY") or os.getenv("NEXT_PUBLIC_API_KEY") or "").strip()
