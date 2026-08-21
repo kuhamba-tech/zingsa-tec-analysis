@@ -72,6 +72,9 @@ def _load_env() -> None:
             if value:
                 os.environ["TSDB_DSN"] = value
                 break
+    # The production schema is migration-managed. The collector should only
+    # ingest observations, not run DDL each time its supervisor restarts it.
+    os.environ["ZGIIS_SKIP_DB_SCHEMA_INIT"] = "1"
 
 
 def _parse_mountpoints() -> dict[str, str]:

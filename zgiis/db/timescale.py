@@ -111,7 +111,7 @@ class TecDB:
         try:
             import psycopg2
             self._conn = psycopg2.connect(self._dsn)
-            if os.getenv("VERCEL"):
+            if os.getenv("VERCEL") or os.getenv("ZGIIS_SKIP_DB_SCHEMA_INIT") == "1":
                 # Production schema is provisioned by migrations. Running DDL
                 # through the serverless pooler delays requests and can also
                 # block the external live collector when it loads Vercel's

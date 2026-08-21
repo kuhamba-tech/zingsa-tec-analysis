@@ -29,6 +29,7 @@ class LiveNtripCollectorTests(unittest.TestCase):
             self.assertNotIn("SUPABASE_DATABASE_URL", os.environ)
             self.assertEqual(os.environ["TSDB_DSN"], "postgresql://active.example/neondb")
             self.assertEqual(os.environ["ALLOW_LEGACY_NEON_DATABASE_URL"], "1")
+            self.assertEqual(os.environ["ZGIIS_SKIP_DB_SCHEMA_INIT"], "1")
 
     @patch("scripts.live_ntrip_collector.load_dotenv")
     @patch("scripts.live_ntrip_collector.dotenv_values")
