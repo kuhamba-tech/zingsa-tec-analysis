@@ -126,7 +126,6 @@ async def statistical_forecast(
     horizon_days: int = 30,
     _=Depends(require_api_key),
 ):
-    from scipy.optimize import curve_fit
     try:
         from zgiis.data.tec_archive import load_historical_tec
         df, _ = load_historical_tec()
@@ -142,22 +141,30 @@ async def statistical_forecast(
     t_num = (daily["date"] - t0).dt.days.values.astype(float)
     y = daily["vtec"].values
 
-    def _model(t, a, b, c1, d1, c2, d2):
-        return (a + b * t
-                + c1 * np.sin(2 * np.pi * t / 365.25)
-                + d1 * np.cos(2 * np.pi * t / 365.25)
-                + c2 * np.sin(4 * np.pi * t / 365.25)
-                + d2 * np.cos(4 * np.pi * t / 365.25))
+    def _design_matrix(t: np.ndarray) -> np.ndarray:
+        return np.column_stack(
+            (
+                np.ones_like(t),
+                t,
+                np.sin(2 * np.pi * t / 365.25),
+                np.cos(2 * np.pi * t / 365.25),
+                np.sin(4 * np.pi * t / 365.25),
+                np.cos(4 * np.pi * t / 365.25),
+            )
+        )
 
-    try:
-        popt, _ = curve_fit(_model, t_num, y, maxfev=10000)
-    except Exception:
-        popt = list(np.polyfit(t_num, y, 1)[::-1]) + [0, 0, 0, 0]
+    # The trend + fixed-frequency Fourier model is linear in its six
+    # coefficients. NumPy least squares is exact for this formulation and
+    # avoids requiring SciPy in the Vercel serverless function bundle.
+    popt, *_ = np.linalg.lstsq(_design_matrix(t_num), y, rcond=None)
 
-    y_fit = _model(t_num, *popt)
+    def _model(t: np.ndarray) -> np.ndarray:
+        return _design_matrix(t) @ popt
+
+    y_fit = _model(t_num)
     sigma = float((y - y_fit).std())
     t_future = np.arange(t_num[-1] + 1, t_num[-1] + horizon_days + 1)
-    y_pred = _model(t_future, *popt)
+    y_pred = _model(t_future)
     base_date = daily["date"].max()
 
     return [
