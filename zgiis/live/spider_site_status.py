@@ -27,6 +27,8 @@ DEFAULT_TTL_SEC = 60.0
 DEFAULT_TIMEOUT_SEC = 12.0
 # Keep last-good Spider rows across Vercel cold starts (catalog is not live).
 DISK_MAX_AGE_SEC = float(os.getenv("SPIDER_STATUS_DISK_MAX_AGE_SEC", str(30 * 60)))
+# Postgres/SQLite last-good may be served when a live Spider login fails.
+DURABLE_MAX_AGE_SEC = float(os.getenv("SPIDER_STATUS_DURABLE_MAX_AGE_SEC", str(15 * 60)))
 
 # Spider Status codes used by SiteMap JS (getSiteStatusClass):
 #   0 = unavailable, 3 = online/connected, anything else = offline/disconnected
@@ -122,11 +124,56 @@ def _read_disk_cache() -> dict[str, Any] | None:
                 "fetched_at": raw.get("fetched_at"),
                 "by_station": by_station,
                 "error": None,
+                "disk_saved_at": saved_at,
                 "from_disk": True,
             }
         except Exception as exc:
             log.debug("Spider disk cache read failed (%s): %s", path, exc)
     return None
+
+
+def _read_durable_cache() -> dict[str, Any] | None:
+    try:
+        from zgiis.live.spider_status_store import load_spider_status_payload
+
+        payload = load_spider_status_payload(max_age_sec=DURABLE_MAX_AGE_SEC)
+        if payload:
+            return payload
+    except Exception as exc:
+        log.debug("Spider durable cache read failed: %s", exc)
+
+    # Bootstrap from collector archive rows (source=spider_site_status).
+    try:
+        from zgiis.db.station_status_db import StationStatusDB
+
+        latest = StationStatusDB().latest_snapshots(hours=max(0.25, DURABLE_MAX_AGE_SEC / 3600.0))
+        spider_rows = {
+            code: row
+            for code, row in (latest or {}).items()
+            if str(row.get("source") or "") == "spider_site_status"
+            and str(row.get("status") or "") in {"online", "offline"}
+        }
+        if len(spider_rows) < 12:
+            return None
+        by_station = {
+            code: {
+                "status": row["status"],
+                "last_update": row.get("time"),
+                "site_code": code.upper(),
+            }
+            for code, row in spider_rows.items()
+        }
+        return {
+            "fetched_at": next(iter(spider_rows.values())).get("time"),
+            "by_station": by_station,
+            "error": None,
+            "disk_saved_at": time.time(),
+            "from_durable_store": True,
+            "from_status_archive": True,
+        }
+    except Exception as exc:
+        log.debug("Spider archive seed failed: %s", exc)
+        return None
 
 
 def _write_disk_cache(payload: dict[str, Any]) -> None:
@@ -142,23 +189,29 @@ def _write_disk_cache(payload: dict[str, Any]) -> None:
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text, encoding="utf-8")
-            return
+            break
         except Exception as exc:
             log.debug("Spider disk cache write failed (%s): %s", path, exc)
+    try:
+        from zgiis.live.spider_status_store import save_spider_status_payload
+
+        save_spider_status_payload({**body, "error": payload.get("error")})
+    except Exception as exc:
+        log.debug("Spider durable cache write failed: %s", exc)
 
 
 def _ensure_memory_seeded_from_disk() -> None:
-    """Load last-good Spider rows before catalog can paint a cold Vercel response."""
+    """Load last-good Spider rows (Postgres first, then local disk)."""
     global _CACHE, _CACHE_TS, _DISK_LOADED
     if _DISK_LOADED:
         return
     _DISK_LOADED = True
     if _payload_has_rows(_CACHE):
         return
-    disk = _read_disk_cache()
-    if disk:
-        _CACHE = disk
-        # Treat disk seed as immediately stale so a background refresh still runs.
+    seed = _read_durable_cache() or _read_disk_cache()
+    if seed:
+        _CACHE = seed
+        # Treat durable/disk seed as immediately stale so a live refresh still runs.
         _CACHE_TS = time.monotonic() - DEFAULT_TTL_SEC - 1.0
 
 
@@ -356,15 +409,49 @@ def get_cached_spider_site_statuses(
     }
 
 
+def _durable_spider_fallback(error: str | None = None) -> dict[str, Any]:
+    """Last-good Spider from Postgres/disk — never catalog — when live login fails."""
+    durable = _read_durable_cache() or _read_disk_cache()
+    if _payload_has_rows(durable):
+        assert durable is not None
+        return {
+            "fetched_at": durable.get("fetched_at"),
+            "by_station": durable.get("by_station") or {},
+            "error": error,
+            "disk_saved_at": durable.get("disk_saved_at"),
+            "from_durable_store": True,
+            "served_from_durable": True,
+        }
+    if _payload_has_rows(_CACHE):
+        assert _CACHE is not None
+        if _CACHE.get("from_durable_store") or _CACHE.get("from_disk") or _CACHE.get("served_from_durable"):
+            saved = float(_CACHE.get("disk_saved_at") or 0)
+            if not saved or (time.time() - saved) <= DURABLE_MAX_AGE_SEC:
+                return {
+                    "fetched_at": _CACHE.get("fetched_at"),
+                    "by_station": _CACHE.get("by_station") or {},
+                    "error": error,
+                    "disk_saved_at": saved or None,
+                    "from_durable_store": True,
+                    "served_from_durable": True,
+                }
+    return {
+        "fetched_at": None,
+        "by_station": {},
+        "error": error or "Fresh Spider site status unavailable",
+    }
+
+
 def ensure_spider_site_statuses(
     *,
     wait_sec: float = 12.0,
     max_age_sec: float = 15.0,
 ) -> dict[str, Any]:
-    """Return Spider rows that are fresh enough to show as live status.
+    """Return Spider rows fresh enough for the map.
 
-    Always blocks for a live Spider login when memory/disk rows are missing or
-    older than ``max_age_sec``. Catalog must never be used as a substitute.
+    1. Seed from Postgres/disk (survives Vercel cold starts).
+    2. Block for a live Spider login when older than ``max_age_sec``.
+    3. If live login fails, serve durable last-good Spider — never catalog.
     """
     if not spider_status_enabled():
         return {
@@ -392,11 +479,7 @@ def ensure_spider_site_statuses(
             time.sleep(0.2)
         acquired = _FETCH_LOCK.acquire(timeout=max(1.0, wait_sec))
         if not acquired:
-            return {
-                "fetched_at": None,
-                "by_station": {},
-                "error": "Fresh Spider site status fetch timed out",
-            }
+            return _durable_spider_fallback("Fresh Spider site status fetch timed out")
     else:
         acquired = True
 
@@ -413,13 +496,10 @@ def ensure_spider_site_statuses(
             _store_cache(payload, keep_existing_on_empty=False)
             return payload
 
-        # Live callers must never receive stale last-good rows after a failed
-        # refresh. Retain the cache only for explicitly non-live diagnostics.
-        return {
-            "fetched_at": payload.get("fetched_at"),
-            "by_station": {},
-            "error": payload.get("error") or "Fresh Spider site status unavailable",
-        }
+        # Live login failed — serve durable Spider last-good, never catalog.
+        return _durable_spider_fallback(
+            payload.get("error") or "Fresh Spider site status unavailable"
+        )
     finally:
         if acquired:
             _FETCH_LOCK.release()

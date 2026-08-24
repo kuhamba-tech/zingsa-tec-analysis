@@ -207,9 +207,35 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
     except Exception:
         health = None
 
-    stations = stations_for_map(health, require_live_telemetry=False)
-    # Catalog archive is useful for details, not for live greens/reds.
-    stations = _hold_non_spider_as_unknown(stations)
+    # Registry coords only — never start from CORS catalog online/offline (false 9/25).
+    from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
+
+    stations = [
+        replace(
+            s,
+            status="unknown",
+            status_source="unknown",
+            current_tec=0.0,
+            catalog_status="",
+            site_status_label="Awaiting Spider Site Status",
+        )
+        for s in ZIMBABWE_CORS_STATIONS
+    ]
+    if health is not None:
+        try:
+            catalog_rows = stations_for_map(health, require_live_telemetry=False)
+            catalog_by = {s.code.lower().rstrip("_"): s for s in catalog_rows}
+            stations = [
+                replace(
+                    s,
+                    catalog_status=getattr(catalog_by.get(s.code.lower().rstrip("_")), "catalog_status", "")
+                    or getattr(catalog_by.get(s.code.lower().rstrip("_")), "status", "")
+                    or "",
+                )
+                for s in stations
+            ]
+        except Exception:
+            log.exception("Failed to attach catalog_status metadata")
 
     live_streams: dict = {}
     pipeline_configured = False
@@ -229,7 +255,7 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
         stations, archive_applied = _merge_archived_live_statuses(stations)
         stations = _hold_non_spider_as_unknown(stations)
         if archive_applied and _is_serverless_runtime():
-            # Always overlay a fresh Spider pull — never return archive as map truth.
+            # Always overlay Spider (live or durable Postgres last-good).
             return _merge_rover_clients(_merge_spider_site_statuses(stations, refresh=True))
 
     probe_payload = None

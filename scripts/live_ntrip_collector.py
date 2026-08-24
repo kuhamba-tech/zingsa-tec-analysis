@@ -124,6 +124,20 @@ def _status_snapshot_rows(streams: dict[str, dict]) -> list[dict]:
 
     spider_payload = get_cached_spider_site_statuses(refresh=True)
     spider_by_station = spider_payload.get("by_station") or {}
+    if spider_by_station:
+        try:
+            from zgiis.live.spider_status_store import save_spider_status_payload
+
+            save_spider_status_payload(
+                {
+                    "fetched_at": spider_payload.get("fetched_at"),
+                    "by_station": spider_by_station,
+                    "disk_saved_at": time.time(),
+                    "error": spider_payload.get("error"),
+                }
+            )
+        except Exception:
+            pass
     when = datetime.now(tz=timezone.utc).replace(microsecond=0).isoformat()
     rows = []
     for station in ZIMBABWE_CORS_STATIONS:

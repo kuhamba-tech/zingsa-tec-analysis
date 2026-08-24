@@ -1,8 +1,8 @@
 """Unit tests for Spider Site Status mapping helpers."""
 from __future__ import annotations
 
-import unittest
 import time
+import unittest
 from unittest.mock import patch
 
 import zgiis.live.spider_site_status as spider_module
@@ -52,7 +52,8 @@ class SpiderSiteStatusTests(unittest.TestCase):
         self.assertEqual(rows[0]["SiteCode"], "BULA")
         self.assertEqual(rows[1]["Status"], 3)
 
-    def test_live_ensure_does_not_return_stale_cache_after_refresh_failure(self) -> None:
+    def test_live_ensure_does_not_return_plain_memory_after_refresh_failure(self) -> None:
+        """In-memory rows without durable markers must not be re-served after a failed live pull."""
         stale = {
             "fetched_at": "2026-07-02T10:14:15Z",
             "by_station": {"nkay": {"status": "online"}},
@@ -69,11 +70,45 @@ class SpiderSiteStatusTests(unittest.TestCase):
             patch.object(spider_module, "_DISK_LOADED", True),
             patch.object(spider_module, "spider_status_enabled", return_value=True),
             patch.object(spider_module, "fetch_spider_site_statuses", return_value=failed),
+            patch.object(spider_module, "_read_durable_cache", return_value=None),
+            patch.object(spider_module, "_read_disk_cache", return_value=None),
         ):
             result = ensure_spider_site_statuses(max_age_sec=15.0)
 
         self.assertEqual(result["by_station"], {})
         self.assertEqual(result["error"], "Spider unreachable")
+
+    def test_live_ensure_serves_durable_spider_when_live_login_fails(self) -> None:
+        """Postgres/disk last-good Spider must win over empty/catalog when live login fails."""
+        durable = {
+            "fetched_at": "2026-08-24T18:00:00Z",
+            "by_station": {
+                "hara": {"status": "online"},
+                "bing": {"status": "offline"},
+            },
+            "disk_saved_at": time.time() - 30,
+            "from_durable_store": True,
+            "error": None,
+        }
+        failed = {
+            "fetched_at": "2026-08-24T18:05:00Z",
+            "by_station": {},
+            "error": "Spider unreachable",
+        }
+        with (
+            patch.object(spider_module, "_CACHE", None),
+            patch.object(spider_module, "_CACHE_TS", 0.0),
+            patch.object(spider_module, "_DISK_LOADED", True),
+            patch.object(spider_module, "spider_status_enabled", return_value=True),
+            patch.object(spider_module, "fetch_spider_site_statuses", return_value=failed),
+            patch.object(spider_module, "_read_durable_cache", return_value=durable),
+            patch.object(spider_module, "_read_disk_cache", return_value=None),
+        ):
+            result = ensure_spider_site_statuses(max_age_sec=0.0)
+
+        self.assertEqual(result["by_station"]["hara"]["status"], "online")
+        self.assertTrue(result.get("served_from_durable"))
+        self.assertEqual(result.get("error"), "Spider unreachable")
 
 
 if __name__ == "__main__":
