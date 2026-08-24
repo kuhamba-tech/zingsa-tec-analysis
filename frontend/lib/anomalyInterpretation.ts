@@ -94,7 +94,7 @@ export const SEVERITY_LABELS: Record<AnomalySeverity, string> = {
 };
 
 export const SEVERITY_COLORS: Record<AnomalySeverity, string> = {
-  quiet: "#64748b",
+  quiet: "#ffffff",
   low: "#34d399",
   moderate: "#fbbf24",
   high: "#f97316",

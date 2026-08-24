@@ -767,7 +767,7 @@ export default function CorsMap({
               : "";
           const distLine =
             tecValue != null && icaoTecDistanceLabel(tecValue)
-              ? `<div style="color:#94a3b8;font-size:0.68rem">${icaoTecDistanceLabel(tecValue)}</div>`
+              ? `<div style="color:#ffffff;font-size:0.68rem">${icaoTecDistanceLabel(tecValue)}</div>`
               : "";
           const tecLine =
             tecValue != null
@@ -775,7 +775,7 @@ export default function CorsMap({
               : "";
           const tecSourceLine =
             heatmapStation && isInterpolatedSource(heatmapStation.source)
-              ? `<div style="color:#94a3b8;font-size:0.68rem">Interpolated TEC estimate</div>`
+              ? `<div style="color:#ffffff;font-size:0.68rem">Interpolated TEC estimate</div>`
               : "";
           const sourcetableLine = s.sourcetable_mismatch
             ? `<div style="margin-top:0.2rem;color:#ef9f27;font-weight:700">Warning: Shares caster identity with "${s.sourcetable_identifier}"</div>`
@@ -784,7 +784,7 @@ export default function CorsMap({
             typeof s.connected_rovers === "number"
               ? `<div style="margin-top:0.2rem;color:#c4b5fd;font-weight:700">${s.connected_rovers} connected rover${s.connected_rovers === 1 ? "" : "s"}</div>`
               : "";
-          popupEl.innerHTML = `<b>${s.code.toUpperCase()}</b>${tecLine}${tecSourceLine}${icaoLine}${distLine}${sourcetableLine}${roverLine}<div style="margin-top:0.2rem;color:#94a3b8">Click Details →</div>`;
+          popupEl.innerHTML = `<b>${s.code.toUpperCase()}</b>${tecLine}${tecSourceLine}${icaoLine}${distLine}${sourcetableLine}${roverLine}<div style="margin-top:0.2rem;color:#ffffff">Click Details →</div>`;
           popup.setPosition(evt.coordinate);
           popupEl.style.display = "block";
         } else {
@@ -921,7 +921,7 @@ export default function CorsMap({
               <div style={{ fontSize: "0.84rem", fontWeight: 800, marginTop: "0.2rem" }}>
                 {scienceMeta.subtitle}
               </div>
-              <div style={{ fontSize: "0.66rem", color: "#cbd5e1", marginTop: "0.35rem", lineHeight: 1.45 }}>
+              <div style={{ fontSize: "0.66rem", color: "#ffffff", marginTop: "0.35rem", lineHeight: 1.45 }}>
                 {scienceMeta.note}
               </div>
             </div>
@@ -943,7 +943,7 @@ export default function CorsMap({
             >
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.75rem" }}>
                 <strong style={{ fontSize: "0.75rem" }}>{scienceMeta.unit}</strong>
-                <span style={{ fontSize: "0.65rem", color: "#334155" }}>Zimbabwe CORS product</span>
+                <span style={{ fontSize: "0.65rem", color: "#0b1220" }}>Zimbabwe CORS product</span>
               </div>
               <div
                 style={{

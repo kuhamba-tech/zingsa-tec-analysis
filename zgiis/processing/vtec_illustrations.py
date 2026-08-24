@@ -7,6 +7,19 @@ import math
 import re
 from typing import Any
 
+from zgiis.processing.tec_diagram_common import (
+    canvas as _canvas,
+    cors_receiver,
+    earth_disk as _earth_disk,
+    earth_scene as _earth_scene,
+    gps_satellite,
+    ionosphere_shell as _iono_shell,
+    signal_ray,
+    standard_defs,
+    star_field,
+    troposphere_ring,
+)
+
 _FONT = "Arial,Helvetica,sans-serif"
 _BG = "#000000"
 _WHITE = "#ffffff"
@@ -204,20 +217,17 @@ def render_vtec_steps_journey() -> str:
     )
 
 
-def _canvas(
-    inner: str,
-    *,
-    width: int = _W,
-    height: int = _H,
-    css_class: str = "vtec-illus-svg",
-) -> str:
-    return (
-        f'<svg class="{css_class}" viewBox="0 0 {width} {height}" '
-        f'xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">'
-        f'<rect width="{width}" height="{height}" fill="{_BG}"/>'
-        f"{inner}"
-        f"</svg>"
-    )
+def _iono_arc(g: dict[str, float]) -> str:
+    """Legacy thin arc — prefer _iono_shell for full shell."""
+    return _iono_shell(g)
+
+
+def _station_marker(g: dict[str, float], label: str = "Receiver") -> str:
+    return cors_receiver(g, label=label)
+
+
+def _satellite_marker(g: dict[str, float], label: str = "Satellite") -> str:
+    return gps_satellite(g, label=label, prefix="vt")
 
 
 def _arrow_defs(marker_id: str, color: str = "#e2e8f0") -> str:
@@ -227,65 +237,6 @@ def _arrow_defs(marker_id: str, color: str = "#e2e8f0") -> str:
       <path d="M0,0 L8,4 L0,8 Z" fill="{color}"/>
     </marker>
   </defs>"""
-
-
-def _earth_scene(
-    *,
-    ox: float = 118,
-    oy: float = 188,
-    re: float = 56,
-    shell_r: float = 86,
-    station_angle: float = 218,
-    sat_angle: float = 322,
-    sat_dist: float = 1.48,
-) -> dict[str, float]:
-    sa = math.radians(station_angle)
-    ta = math.radians(sat_angle)
-    sx = ox + re * math.cos(sa)
-    sy = oy + re * math.sin(sa)
-    shell_x = ox + shell_r * math.cos(ta)
-    shell_y = oy + shell_r * math.sin(ta)
-    sat_r = re * sat_dist
-    sat_x = ox + sat_r * math.cos(ta)
-    sat_y = oy + sat_r * math.sin(ta)
-    return {
-        "ox": ox, "oy": oy, "re": re, "shell_r": shell_r,
-        "sx": sx, "sy": sy, "shell_x": shell_x, "shell_y": shell_y,
-        "sat_x": sat_x, "sat_y": sat_y,
-    }
-
-
-def _earth_disk(g: dict[str, float], *, label: str = "Earth") -> str:
-    ox, oy, re = g["ox"], g["oy"], g["re"]
-    return f"""
-  <circle cx="{ox}" cy="{oy}" r="{re}" fill="#0a1e38" stroke="#e2e8f0" stroke-width="1.8"/>
-  <text x="{ox}" y="{oy + 5}" text-anchor="middle" fill="{_WHITE}" font-size="10"
-        font-family="{_FONT}">{label}</text>"""
-
-
-def _iono_arc(g: dict[str, float]) -> str:
-    ox, oy, rs = g["ox"], g["oy"], g["shell_r"]
-    return f"""
-  <path d="M {ox - rs:.1f} {oy - rs * 0.86:.1f} A {rs} {rs} 0 0 1 {ox + rs * 0.52:.1f} {oy - rs * 0.9:.1f}"
-        fill="none" stroke="#168bd2" stroke-width="1.4" stroke-dasharray="6,4"/>"""
-
-
-def _station_marker(g: dict[str, float], label: str = "Receiver") -> str:
-    sx, sy = g["sx"], g["sy"]
-    return f"""
-  <polygon points="{sx:.1f},{sy:.1f} {sx + 7:.1f},{sy + 11:.1f} {sx - 7:.1f},{sy + 11:.1f}"
-           fill="#00ff88"/>
-  <text x="{sx - 48}" y="{sy - 6}" fill="#00ff88" font-size="10" font-weight="700"
-        font-family="{_FONT}">{label}</text>"""
-
-
-def _satellite_marker(g: dict[str, float], label: str = "Satellite") -> str:
-    sx, sy = g["sat_x"], g["sat_y"]
-    return f"""
-  <circle cx="{sx}" cy="{sy}" r="7" fill="#244d73" stroke="#168bd2" stroke-width="1.4"/>
-  <line x1="{sx - 16}" y1="{sy}" x2="{sx - 26}" y2="{sy}" stroke="#168bd2" stroke-width="1.6"/>
-  <line x1="{sx + 16}" y1="{sy}" x2="{sx + 26}" y2="{sy}" stroke="#168bd2" stroke-width="1.6"/>
-  <text x="{sx + 32}" y="{sy + 4}" fill="{_WHITE}" font-size="10" font-family="{_FONT}">{label}</text>"""
 
 
 def _chart_grid(x0: float = 54, y0: float = 34, w: float = 268, h: float = 128) -> str:
@@ -345,30 +296,27 @@ def _flow_arrow(
 # ── Step 1 ────────────────────────────────────────────────────────────────────
 def _step1_svg() -> str:
     g = _earth_scene(ox=112, oy=192, re=54, shell_r=84)
+    defs = standard_defs("vt1")
     return _canvas(
-        f"""
-  {_iono_arc(g)}
-  <text x="248" y="36" fill="#168bd2" font-size="11" font-weight="700"
-        font-family="{_FONT}">Ionosphere</text>
-  {_earth_disk(g)}
-  {_station_marker(g, "Receiver")}
-  {_satellite_marker(g, "Satellite")}
-  <line x1="{g['sat_x']:.1f}" y1="{g['sat_y']:.1f}" x2="{g['sx']:.1f}" y2="{g['sy']:.1f}"
-        stroke="#e2e8f0" stroke-width="2.2"/>
-  <polygon points="{g['sx'] + 6:.1f},{g['sy'] - 2:.1f} {g['sx']:.1f},{g['sy'] - 10:.1f} {g['sx'] - 4:.1f},{g['sy'] - 2:.1f}"
-           fill="#e2e8f0"/>
-  <text x="228" y="108" fill="{_WHITE}" font-size="10" font-weight="700"
-        font-family="{_FONT}">Signal path</text>
+        star_field(seed=5)
+        + troposphere_ring(g)
+        + _iono_arc(g)
+        + _earth_disk(g, grad_id="vt1-earth")
+        + _station_marker(g, "Receiver")
+        + _satellite_marker(g, "Satellite")
+        + signal_ray(g, color="url(#vt1-ray)", marker="vt1-arr")
+        + f"""
   <line x1="{g['ox']:.1f}" y1="{g['oy']:.1f}" x2="{g['sx']:.1f}" y2="{g['sy']:.1f}"
         stroke="#64748b" stroke-width="1.2" stroke-dasharray="4,3"/>
   <text x="{g['ox'] + 12:.1f}" y="{g['oy'] - 10:.1f}" fill="{_WHITE}" font-size="9"
-        font-family="{_FONT}">True range</text>
+        font-family="{_FONT}">Geometric range</text>
   <rect x="228" y="132" width="96" height="26" rx="6" fill="rgba(251,191,36,0.2)"
         stroke="#fbbf24" stroke-width="1"/>
   <text x="276" y="149" text-anchor="middle" fill="#fbbf24" font-size="10" font-weight="700"
         font-family="{_FONT}">Extra delay</text>
-  {_footer("Ionospheric delay = extra path length along the ray")}
-"""
+  {_footer("Ionospheric delay = dispersive path lengthening along the ray")}
+""",
+        defs=defs,
     )
 
 
@@ -412,19 +360,20 @@ _register(
 # ── Step 3 ────────────────────────────────────────────────────────────────────
 def _step3_svg() -> str:
     g = _earth_scene(ox=112, oy=192, re=54, shell_r=84)
+    defs = standard_defs("vt3")
     return _canvas(
         f"""
   <text x="16" y="24" fill="{_WHITE}" font-size="10" font-family="{_FONT}">
     Higher f -&gt; smaller delay (dispersive medium)
   </text>
-  {_earth_disk(g, label="")}
-  {_iono_arc(g)}
-  {_station_marker(g, "Rx")}
-  {_satellite_marker(g, "Sat")}
-  <line x1="{g['sat_x']:.1f}" y1="{g['sat_y']:.1f}" x2="{g['sx']:.1f}" y2="{g['sy']:.1f}"
-        stroke="#e2e8f0" stroke-width="2.2"/>
-  <line x1="{g['sat_x'] - 10:.1f}" y1="{g['sat_y'] + 8:.1f}" x2="{g['sx'] - 10:.1f}" y2="{g['sy'] + 8:.1f}"
-        stroke="#a78bfa" stroke-width="10" stroke-linecap="round" opacity="0.35"/>
+  """
+        + troposphere_ring(g)
+        + _iono_arc(g)
+        + _earth_disk(g, label="", grad_id="vt3-earth")
+        + _station_marker(g, "Rx")
+        + _satellite_marker(g, "Sat")
+        + signal_ray(g, color="#a78bfa", marker="vt3-arr", highlight_iono=True)
+        + f"""
   <rect x="138" y="48" width="162" height="24" rx="5" fill="rgba(0,0,0,0.95)" stroke="#244d73"/>
   <text x="219" y="64" text-anchor="middle" fill="{_WHITE}" font-size="11" font-weight="700"
         font-family="{_FONT}">STEC = integral Ne dl</text>
@@ -433,7 +382,8 @@ def _step3_svg() -> str:
   <text x="272" y="166" text-anchor="middle" fill="{_WHITE}" font-size="11"
         font-family="{_FONT}">1 m2</text>
   {_footer("delay = 40.3 * STEC / f^2")}
-"""
+""",
+        defs=defs,
     )
 
 
@@ -893,16 +843,19 @@ def _step10_svg() -> str:
     g = _earth_scene(ox=118, oy=200, re=58, shell_r=88, station_angle=200, sat_angle=315, sat_dist=1.5)
     ix = g["shell_x"]
     iy = g["shell_y"]
+    defs = standard_defs("vt10")
     return _canvas(
         _arrow_defs("s10-arr", "#00ff88")
-        + _earth_disk(g, label="Earth")
+        + star_field(count=10, seed=9)
+        + troposphere_ring(g)
         + _iono_arc(g)
+        + _earth_disk(g, label="Earth", grad_id="vt10-earth")
         + _station_marker(g, "CORS Rx")
         + _satellite_marker(g, "SV")
         + f"""
   <line x1="{g['sat_x']:.1f}" y1="{g['sat_y']:.1f}" x2="{g['sx']:.1f}" y2="{g['sy']:.1f}"
         stroke="#e2e8f0" stroke-width="2.4" marker-end="url(#s10-arr)"/>
-  <circle cx="{ix:.1f}" cy="{iy:.1f}" r="7" fill="#ff8c00" stroke="#ffffff" stroke-width="1.2"/>
+  <circle cx="{ix:.1f}" cy="{iy:.1f}" r="8" fill="#ff8c00" stroke="#ffffff" stroke-width="1.4"/>
   <line x1="{g['ox']:.1f}" y1="{g['oy']:.1f}" x2="{ix:.1f}" y2="{iy:.1f}"
         stroke="#64748b" stroke-width="1.2" stroke-dasharray="4,3"/>
   <rect x="198" y="28" width="128" height="52" rx="8" fill="#000000" stroke="#00ff88" stroke-width="1.4"/>
@@ -915,9 +868,10 @@ def _step10_svg() -> str:
     from E, A, φ_u, λ_u
   </text>
   <text x="{ix + 14:.1f}" y="{iy - 6:.1f}" fill="#ff8c00" font-size="10" font-weight="700"
-        font-family="{_FONT}">IPP</text>
-  {_footer("Each VTEC value is tagged to this pierce point")}
-"""
+        font-family="{_FONT}">IPP @ 350 km</text>
+  {_footer("Each VTEC value is geo-located at the ionospheric pierce point")}
+""",
+        defs=defs,
     )
 
 

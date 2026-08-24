@@ -15,7 +15,13 @@ const SUGGESTIONS = [
 ];
 
 function formatAssistantText(text: string): string {
-  return text
+  const escaped = text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+  return escaped
     .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
     .replace(/`([^`]+)`/g, "<code>$1</code>")
     .replace(/\n/g, "<br />");
@@ -31,7 +37,7 @@ function ContextPanel({ context }: { context: ChatContextSummary | null | undefi
   }
   return (
     <div className="card" style={{ fontSize: "0.82rem" }}>
-      <div className="metric-label" style={{ marginBottom: "0.5rem" }}>Live context injected into Claude</div>
+      <div className="metric-label" style={{ marginBottom: "0.5rem" }}>Live context supplied to OpenAI</div>
       <ul style={{ margin: 0, paddingLeft: "1.1rem", lineHeight: 1.6 }}>
         {context.lines.map((line, i) => (
           <li key={i} style={{ color: "var(--text-muted)" }}>{line}</li>
@@ -120,7 +126,7 @@ export default function AiAssistantPage() {
             </div>
           </div>
         ))}
-        {loading && <div style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>Claude is thinking…</div>}
+        {loading && <div style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>AI is thinking…</div>}
       </div>
 
       <div style={{ display: "flex", gap: "0.6rem" }}>

@@ -496,7 +496,7 @@ video {
 }
 
 .site-translator-native {
-  color: #475569;
+  color: #334155;
   font-size: 0.68rem;
   line-height: 1.2;
 }
@@ -1261,14 +1261,14 @@ select option {
   border-radius: 6px;
   border: 1px solid var(--border);
   background: transparent;
-  color: #cbd5e1;
+  color: #ffffff;
   font-size: 0.68rem;
   padding: 0 0.5rem;
   cursor: pointer;
 }
 .rinex-pp-selected {
   font-size: 0.75rem;
-  color: #cbd5e1;
+  color: #ffffff;
   margin-left: auto;
 }
 .rinex-pp-submit {
@@ -1291,7 +1291,7 @@ select option {
   flex-wrap: wrap;
   gap: 0.85rem 1.25rem;
   font-size: 0.75rem;
-  color: #e2e8f0;
+  color: #ffffff;
 }
 .rinex-pp-options label {
   display: inline-flex;
@@ -1384,7 +1384,7 @@ select option {
   color: #fff;
 }
 .rinex-pp-station-meta strong span {
-  color: #94a3b8;
+  color: #ffffff;
   font-weight: 500;
 }
 .rinex-pp-station-meta em {
@@ -1399,13 +1399,13 @@ select option {
   font-size: 0.68rem;
   font-weight: 700;
   white-space: nowrap;
-  color: #94a3b8;
+  color: #ffffff;
 }
 .rinex-pp-avail.is-ok {
   color: #4ade80;
 }
 .rinex-pp-avail.is-empty {
-  color: #64748b;
+  color: #ffffff;
 }
 .rinex-pp-map-pane {
   position: relative;
@@ -1430,7 +1430,7 @@ select option {
   border-radius: 50%;
   border: 2px solid #ef4444;
   background: rgba(15, 23, 42, 0.9);
-  color: #e2e8f0;
+  color: #ffffff;
   font-size: 0.52rem;
   font-weight: 800;
   cursor: pointer;
@@ -2142,7 +2142,7 @@ a.home-map-layer-btn {
 }
 
 .network-distances-search input::placeholder {
-  color: #64748b;
+  color: #ffffff;
 }
 
 .network-distances-table-wrap {
@@ -2174,7 +2174,7 @@ a.home-map-layer-btn {
 .network-distances-table td {
   padding: 0.45rem 0.35rem;
   border-bottom: 1px solid rgba(36, 77, 115, 0.35);
-  color: #e2e8f0;
+  color: #ffffff;
   vertical-align: top;
 }
 
@@ -2229,7 +2229,7 @@ a.home-map-layer-btn {
   margin: 0.25rem 0 0;
   font-size: 0.68rem;
   line-height: 1.4;
-  color: #cbd5e1;
+  color: #ffffff;
 }
 
 .network-ga-controls {
@@ -2343,7 +2343,7 @@ a.home-map-layer-btn {
 }
 
 .network-ga-site-hint {
-  color: #e2e8f0;
+  color: #ffffff;
 }
 
 .network-ga-site-meta {
@@ -2381,7 +2381,7 @@ a.home-map-layer-btn {
   margin: 0.25rem 0 0;
   font-size: 0.68rem;
   line-height: 1.4;
-  color: #cbd5e1;
+  color: #ffffff;
 }
 
 .network-rover-empty {
@@ -3271,7 +3271,7 @@ a.home-map-layer-btn {
 }
 .tec-map-diagnostic-panel p {
   margin: 0;
-  color: #e2e8f0;
+  color: #ffffff;
   font-size: 0.82rem;
   line-height: 1.55;
 }
@@ -3290,7 +3290,7 @@ a.home-map-layer-btn {
 .tec-map-diagnostic-grid span {
   display: block;
   margin-bottom: 0.2rem;
-  color: #94a3b8;
+  color: #ffffff;
   font-size: 0.62rem;
   font-weight: 900;
   letter-spacing: 0.05em;
@@ -3305,7 +3305,7 @@ a.home-map-layer-btn {
 }
 .tec-map-diagnostic-grid small {
   display: block;
-  color: #94a3b8;
+  color: #ffffff;
   font-size: 0.72rem;
   line-height: 1.35;
   margin-top: 0.35rem;
@@ -3325,7 +3325,7 @@ a.home-map-layer-btn {
   border-radius: 6px;
   padding: 0.6rem 0.7rem;
   background: rgba(12, 22, 40, 0.78);
-  color: #e2e8f0;
+  color: #ffffff;
   font-size: 0.78rem;
   line-height: 1.45;
 }
@@ -4978,7 +4978,7 @@ a.home-map-layer-btn {
   font-weight: 700;
   background: rgba(0, 0, 0, 0.35);
   border: 1px solid rgba(36, 77, 115, 0.6);
-  color: #e2e8f0;
+  color: #ffffff;
 }
 .gnwi-hub-module-check {
   color: #00ff88;
@@ -5003,7 +5003,7 @@ a.home-map-layer-btn {
   font-weight: 800;
   border: 1px solid var(--border);
   background: linear-gradient(180deg, #0c1628, #06111f);
-  color: #e2e8f0;
+  color: #ffffff;
 }
 .gnwi-industry-chip span:first-child {
   font-size: 1rem;

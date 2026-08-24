@@ -494,7 +494,7 @@ export default function LivePipelinePage() {
             [...Array(25)].map((_, i) => (
               <div key={i} className="card" style={{ padding: "0.5rem 0.7rem", minHeight: "70px", opacity: 0.4 }}>
                 <div className="metric-label" style={{ fontSize: "0.62rem" }}>—</div>
-                <div style={{ fontWeight: 800, fontSize: "1.1rem", color: "#444466" }}>N/A</div>
+                <div style={{ fontWeight: 800, fontSize: "1.1rem", color: "#ffffff" }}>N/A</div>
               </div>
             ))}
         </div>

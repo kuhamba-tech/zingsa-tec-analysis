@@ -1281,7 +1281,6 @@ class ChatContextSummary(BaseModel):
 
 class ChatRequest(BaseModel):
     messages: list[ChatMessage]
-    api_key: str | None = None
     station: str | None = None
 
 

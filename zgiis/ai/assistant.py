@@ -1,8 +1,11 @@
-"""ZGIIS AI Ionosphere Assistant powered by Anthropic Claude."""
+"""ZGIIS AI Ionosphere Assistant powered by the OpenAI API."""
 from __future__ import annotations
 
+import json
 import os
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
 
 from zgiis.ai.context import build_context_block, trim_messages
 
@@ -35,22 +38,14 @@ def chat(
     sw: Optional[dict] = None,
     ekf_summary: Optional[dict] = None,
     live_summary: Optional[dict] = None,
-    api_key: Optional[str] = None,
 ) -> str:
-    """Send chat messages to Claude and return the assistant reply."""
-    try:
-        import anthropic
-    except ImportError:
-        return "anthropic package not installed. Run: pip install anthropic"
-
-    key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
+    """Send chat messages to OpenAI and return the assistant reply."""
+    key = os.environ.get("OPENAI_API_KEY", "").strip()
     if not key:
         return (
-            "No ANTHROPIC_API_KEY found. Set it as an environment variable or paste it in the "
-            "sidebar to activate the AI assistant."
+            "The AI assistant is not configured yet. An administrator must set the "
+            "server-only OPENAI_API_KEY environment variable."
         )
-
-    client = anthropic.Anthropic(api_key=key)
 
     context_text, _, _ = build_context_block(tec_summary, sw, ekf_summary, live_summary)
     system = SYSTEM_PROMPT
@@ -63,13 +58,42 @@ def chat(
         if m.get("role") in {"user", "assistant"} and m.get("content")
     ]
 
-    model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
-    max_tokens = int(os.environ.get("ANTHROPIC_MAX_TOKENS", "1024"))
-
-    response = client.messages.create(
-        model=model,
-        max_tokens=max_tokens,
-        system=system,
-        messages=api_messages,
+    model = os.environ.get("OPENAI_MODEL", "gpt-5.4")
+    max_tokens = int(os.environ.get("OPENAI_MAX_OUTPUT_TOKENS", "1024"))
+    body = json.dumps(
+        {
+            "model": model,
+            "instructions": system,
+            "input": api_messages,
+            "max_output_tokens": max_tokens,
+            "store": False,
+        }
+    ).encode("utf-8")
+    request = Request(
+        "https://api.openai.com/v1/responses",
+        data=body,
+        headers={
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
     )
-    return response.content[0].text
+    try:
+        with urlopen(request, timeout=60) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        request_id = exc.headers.get("x-request-id", "unavailable")
+        raise RuntimeError(
+            f"OpenAI request failed ({exc.code}; request ID: {request_id})."
+        ) from exc
+    text_parts = [
+        part.get("text", "")
+        for item in payload.get("output", [])
+        if item.get("type") == "message"
+        for part in item.get("content", [])
+        if part.get("type") == "output_text"
+    ]
+    reply = "".join(text_parts).strip()
+    if not reply:
+        raise RuntimeError("OpenAI returned no assistant text.")
+    return reply

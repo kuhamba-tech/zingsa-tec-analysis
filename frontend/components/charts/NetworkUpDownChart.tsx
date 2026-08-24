@@ -67,7 +67,7 @@ export default function NetworkUpDownChart({ points, height = 280, singleStation
           plugins: {
             legend: {
               position: "top" as const,
-              labels: { color: "#cbd5e1", boxWidth: 12, font: { size: 11 } },
+              labels: { color: "#ffffff", boxWidth: 12, font: { size: 11 } },
             },
             tooltip: {
               callbacks: {
@@ -83,7 +83,7 @@ export default function NetworkUpDownChart({ points, height = 280, singleStation
           scales: {
             x: {
               stacked: true,
-              ticks: { color: "#94a3b8", maxRotation: 45, minRotation: 0, font: { size: 10 } },
+              ticks: { color: "#ffffff", maxRotation: 45, minRotation: 0, font: { size: 10 } },
               grid: { color: "rgba(36, 77, 115, 0.35)" },
             },
             y: {
@@ -92,10 +92,10 @@ export default function NetworkUpDownChart({ points, height = 280, singleStation
               title: {
                 display: true,
                 text: singleStation ? "Status samples per bucket" : "Station count per bucket",
-                color: "#94a3b8",
+                color: "#ffffff",
                 font: { size: 11 },
               },
-              ticks: { color: "#94a3b8", precision: 0 },
+              ticks: { color: "#ffffff", precision: 0 },
               grid: { color: "rgba(36, 77, 115, 0.35)" },
             },
           },

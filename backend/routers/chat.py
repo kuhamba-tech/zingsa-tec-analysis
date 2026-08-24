@@ -63,7 +63,6 @@ async def chat(body: ChatRequest, _=Depends(require_api_key)):
             sw=sw,
             ekf_summary=ekf_summary,
             live_summary=live_summary,
-            api_key=body.api_key,
         )
 
         return ChatResponse(

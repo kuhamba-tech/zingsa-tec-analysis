@@ -59,7 +59,7 @@ export default function SiteDetailsPanel({ station, heatmap = null, onClose }: P
         display: "flex",
         flexDirection: "column",
         fontSize: "0.78rem",
-        color: "#e2e8f0",
+        color: "#ffffff",
         maxHeight: "100%",
         overflow: "hidden",
       }}
@@ -82,7 +82,7 @@ export default function SiteDetailsPanel({ station, heatmap = null, onClose }: P
           style={{
             background: "transparent",
             border: "none",
-            color: "#94a3b8",
+            color: "#ffffff",
             cursor: "pointer",
             fontSize: "1.1rem",
             lineHeight: 1,
@@ -97,7 +97,7 @@ export default function SiteDetailsPanel({ station, heatmap = null, onClose }: P
         <div style={{ fontWeight: 700, marginBottom: "0.15rem", fontSize: "0.9rem" }}>
           {station.name}
         </div>
-        <div style={{ color: "#64748b", fontSize: "0.68rem", marginBottom: "0.65rem" }}>
+        <div style={{ color: "#ffffff", fontSize: "0.68rem", marginBottom: "0.65rem" }}>
           {station.code.toUpperCase()} · {station.mountpoint ?? station.marker_name ?? "CORS"}
         </div>
 
@@ -108,7 +108,7 @@ export default function SiteDetailsPanel({ station, heatmap = null, onClose }: P
                 <td
                   style={{
                     padding: "0.35rem 0.4rem 0.35rem 0",
-                    color: "#64748b",
+                    color: "#ffffff",
                     verticalAlign: "top",
                     whiteSpace: "nowrap",
                     width: "42%",
@@ -132,22 +132,22 @@ export default function SiteDetailsPanel({ station, heatmap = null, onClose }: P
               <>
                 {tecSource && (
                   <tr style={{ borderBottom: "1px solid rgba(36, 77, 115, 0.35)" }}>
-                    <td style={{ padding: "0.35rem 0.4rem 0.35rem 0", color: "#64748b" }}>TEC Source</td>
-                    <td style={{ padding: "0.35rem 0", color: "#94a3b8", fontWeight: 600 }}>
+                    <td style={{ padding: "0.35rem 0.4rem 0.35rem 0", color: "#ffffff" }}>TEC Source</td>
+                    <td style={{ padding: "0.35rem 0", color: "#ffffff", fontWeight: 600 }}>
                       {tecSource}
                     </td>
                   </tr>
                 )}
                 <tr style={{ borderBottom: "1px solid rgba(36, 77, 115, 0.35)" }}>
-                  <td style={{ padding: "0.35rem 0.4rem 0.35rem 0", color: "#64748b" }}>ICAO GNSS</td>
+                  <td style={{ padding: "0.35rem 0.4rem 0.35rem 0", color: "#ffffff" }}>ICAO GNSS</td>
                   <td style={{ padding: "0.35rem 0", color: icaoTecColor(vtec), fontWeight: 700 }}>
                     {icaoTecLabel(vtec)}
                   </td>
                 </tr>
                 {icaoTecDistanceLabel(vtec) && (
                   <tr>
-                    <td style={{ padding: "0.35rem 0.4rem 0.35rem 0", color: "#64748b" }}>Threshold</td>
-                    <td style={{ padding: "0.35rem 0", color: "#94a3b8" }}>{icaoTecDistanceLabel(vtec)}</td>
+                    <td style={{ padding: "0.35rem 0.4rem 0.35rem 0", color: "#ffffff" }}>Threshold</td>
+                    <td style={{ padding: "0.35rem 0", color: "#ffffff" }}>{icaoTecDistanceLabel(vtec)}</td>
                   </tr>
                 )}
               </>
@@ -156,7 +156,7 @@ export default function SiteDetailsPanel({ station, heatmap = null, onClose }: P
         </table>
 
         {station.constellations?.length > 0 && (
-          <div style={{ marginTop: "0.65rem", fontSize: "0.72rem", color: "#64748b" }}>
+          <div style={{ marginTop: "0.65rem", fontSize: "0.72rem", color: "#ffffff" }}>
             Constellations: {station.constellations.join(", ")}
           </div>
         )}

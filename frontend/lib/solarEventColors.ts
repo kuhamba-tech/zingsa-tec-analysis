@@ -12,7 +12,7 @@ const MINOR = "#eab308";
 const MODERATE = "#f97316";
 const MAJOR = "#ef4444";
 const EXTREME = "#a855f7";
-const MUTED = "#94a3b8";
+const MUTED = "#ffffff";
 
 const FLARE_RANK: Record<string, number> = { A: 1, B: 2, C: 3, M: 4, X: 5 };
 

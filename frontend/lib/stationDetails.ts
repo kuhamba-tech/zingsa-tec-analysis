@@ -15,7 +15,7 @@ export function siteStatusColor(label: string | null | undefined): string {
   const t = (label ?? "").toLowerCase();
   if (t.includes("receive data") || t.includes("site up") || t.includes("connected")) return "#00ff88";
   if (t.includes("disconnect") || t.includes("offline")) return "#ef4444";
-  return "#94a3b8";
+  return "#ffffff";
 }
 
 export function stationDetailRows(s: Station): { label: string; value: string; highlight?: boolean }[] {

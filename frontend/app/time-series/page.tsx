@@ -184,7 +184,7 @@ function GuviOn2MapPreview({
           </div>
         </div>
       </div>
-      <div style={{ marginTop: "0.65rem", fontSize: "0.72rem", color: "#334155", fontWeight: 700 }}>
+      <div style={{ marginTop: "0.65rem", fontSize: "0.72rem", color: "#111827", fontWeight: 700 }}>
         Date: {date} {overpass ? `- Africa overpass ${overpass.overpass_ut} UT - ${overpass.status.replaceAll("_", " ")}` : "- no reference overpass in selected range"}
       </div>
     </div>

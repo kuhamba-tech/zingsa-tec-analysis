@@ -76,7 +76,7 @@ import type {
   UnderstandingTecPayload,
 } from "./types";
 import { peekSpaceWeather, publishSpaceWeather } from "./spaceWeatherStore";
-import { peekStations, publishStations } from "./stationsStore";
+import { peekStations, publishStations, stationsCacheIsStale } from "./stationsStore";
 
 function apiBase(): string {
   const configured = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "");
@@ -497,12 +497,16 @@ function refreshStationsNetwork(refreshNtrip: boolean): Promise<Station[]> {
 /** Fast catalog read. Live NTRIP probes (`refreshNtrip=true`) still wait on the caster. */
 export const getStations = (refreshNtrip = false) => {
   const cached = peekStations();
+  // Spider online/offline changes often — never paint a multi-minute localStorage
+  // snapshot as current without awaiting a network refresh (Vercel was showing 9/25
+  // greens while Spider Site Status already had ~17 online).
+  const cacheStale = stationsCacheIsStale();
   const recentlyFetched = Date.now() - lastStationsNetworkAt < LIVE_REFRESH_MIN_MS;
-  if (!refreshNtrip && cached.length > 0 && recentlyFetched) {
+  if (!refreshNtrip && cached.length > 0 && recentlyFetched && !cacheStale) {
     return Promise.resolve(cached);
   }
   const pending = refreshStationsNetwork(refreshNtrip);
-  if (!refreshNtrip && cached.length > 0) {
+  if (!refreshNtrip && cached.length > 0 && !cacheStale) {
     void pending;
     return Promise.resolve(cached);
   }
@@ -827,8 +831,8 @@ export const getUnderstandingTec = async (): Promise<UnderstandingTecPayload> =>
 };
 
 // ── Chat ──────────────────────────────────────────────────────────────────────
-export const sendChat = (messages: ChatMessage[], api_key?: string, station?: string) =>
-  post<ChatResponse>("/chat", { messages, api_key, station });
+export const sendChat = (messages: ChatMessage[], station?: string) =>
+  post<ChatResponse>("/chat", { messages, station });
 
 // ── GIC Monitor ───────────────────────────────────────────────────────────────
 export const getGicNetwork = () => getWithRetry<GicNetwork>("/gic/network", { _ts: Date.now() });
