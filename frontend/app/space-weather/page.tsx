@@ -342,7 +342,14 @@ export default function SpaceWeatherPage() {
     currentPoint(streamCount, currentTimestamp),
   );
 
-  const flareClass   = sa?.flare_class ?? "N/A";
+  const solarFeedLive = sa?.mode === "live";
+  const solarFeedLabel = !sa ? "Loading solar data…" : solarFeedLive ? "Live Data" : "Feed unavailable";
+  const flareClassRaw = sa?.flare_class?.trim();
+  const flareClass = !sa
+    ? "Loading…"
+    : !flareClassRaw || flareClassRaw.toUpperCase() === "N/A"
+      ? "Unavailable"
+      : flareClassRaw;
   const actLabel     = sa?.activity_label ?? "Low";
   const actColor     = sa?.activity_color ?? "#22c55e";
   const alerts       = Array.isArray(sa?.alerts) ? sa.alerts : [];
@@ -350,6 +357,7 @@ export default function SpaceWeatherPage() {
   const donkiCmes    = Array.isArray(sa?.donki_cmes) ? sa.donki_cmes : [];
   const donkiStorms  = Array.isArray(sa?.donki_storms) ? sa.donki_storms : [];
   const alertCount   = alerts.length;
+  const donkiLive = sa?.donki_status === "live";
 
   const flareCountColor = donkiFlareCountColor(donkiFlares.length, donkiFlares);
   const cmeCountColor = donkiCmeCountColor(donkiCmes.length, donkiCmes);
@@ -424,7 +432,7 @@ export default function SpaceWeatherPage() {
     },
     wind: {
       title: "Solar Wind",
-      summary: `Speed: ${sa?.solar_wind?.speed ? `${sa.solar_wind.speed.toFixed(0)} km/s` : "N/A"}; IMF Bz: ${sa?.solar_wind?.bz != null ? `${sa.solar_wind.bz.toFixed(1)} nT` : "N/A"}.`,
+      summary: `Speed: ${sa?.solar_wind?.speed != null ? `${sa.solar_wind.speed.toFixed(0)} km/s` : "feed unavailable"}; IMF Bz: ${sa?.solar_wind?.bz != null ? `${sa.solar_wind.bz.toFixed(1)} nT` : "feed unavailable"}.`,
       detail: [
         "Solar wind carries charged particles from the Sun to Earth. Typical quiet-time speed is 300-500 km/s; above ~500 km/s is considered fast (often from a coronal hole or CME). IMF Bz is the north-south component of the interplanetary magnetic field: negative (southward) Bz links up with Earth's own field and drives geomagnetic activity, raising Kp and disturbing GNSS positioning, while positive (northward) Bz is generally quiet.",
         sa?.solar_wind?.speed != null && sa?.solar_wind?.bz != null
@@ -534,8 +542,8 @@ export default function SpaceWeatherPage() {
             <span style={{ fontWeight: 800, fontSize: "0.85rem", letterSpacing: "0.1em", textTransform: "uppercase" }}>Solar Activity Monitor</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.72rem", color: "var(--text-muted)" }}>
-            <span className="dot dot-ok" style={{ width: "7px", height: "7px" }} />
-            <span>Live Data · NOAA SWPC · {nowCat}</span>
+            <span className={`dot ${solarFeedLive ? "dot-ok" : "dot-warn"}`} style={{ width: "7px", height: "7px" }} />
+            <span>{solarFeedLabel} · NOAA SWPC · {nowCat}</span>
           </div>
         </div>
 
@@ -639,12 +647,13 @@ export default function SpaceWeatherPage() {
               { icon: "↕️", label: "IMF Bz",      val: sa?.solar_wind?.bz,          unit: "nT",     fmt: (v: number) => v.toFixed(1) },
               { icon: "🔵", label: "IMF Bt",      val: sa?.solar_wind?.bt,          unit: "nT",     fmt: (v: number) => v.toFixed(1) },
             ].map(({ icon, label, val, unit, fmt }) => {
-              const display = val !== null && val !== undefined && val !== 0 ? fmt(val as number) : null;
+              const display = typeof val === "number" && Number.isFinite(val) ? fmt(val) : null;
+              const missingLabel = sa ? "Feed unavailable" : "Loading…";
               return (
                 <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.3rem 0", borderBottom: "1px solid #1a2a3a", fontSize: "0.8rem" }}>
                   <span style={{ color: "var(--text-muted)" }}>{icon} {label}</span>
                   <span style={{ fontWeight: 700 }}>
-                    {display ? `${display} ${unit}` : "N/A"}
+                    {display !== null ? `${display} ${unit}` : missingLabel}
                   </span>
                 </div>
               );
@@ -682,9 +691,13 @@ export default function SpaceWeatherPage() {
           {/* Solar Flares count */}
           <div className="card" {...solarCardClickProps("flareEvents", { textAlign: "center" })}>
             <div style={{ fontSize: "0.62rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "0.6rem" }}>Solar Flares</div>
-            <div style={{ fontSize: "3rem", fontWeight: 900, lineHeight: 1, marginBottom: "0.4rem", color: sa ? flareCountColor : "var(--text-muted)" }}>{sa ? donkiFlares.length : "N/A"}</div>
+            <div style={{ fontSize: donkiLive ? "3rem" : "1.1rem", fontWeight: 900, lineHeight: 1, marginBottom: "0.4rem", color: donkiLive ? flareCountColor : "var(--text-muted)" }}>
+              {!sa ? "Loading…" : donkiLive ? donkiFlares.length : "Feed unavailable"}
+            </div>
             <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
-              {donkiFlares.length === 0
+              {!donkiLive
+                ? sa?.donki_note || "NASA DONKI flare feed is unavailable."
+                : donkiFlares.length === 0
                 ? `No flare events in the selected 7-day window.`
                 : `Flare event(s) detected.`}
             </div>
@@ -698,9 +711,13 @@ export default function SpaceWeatherPage() {
           {/* CME count */}
           <div className="card" {...solarCardClickProps("cme", { textAlign: "center" })}>
             <div style={{ fontSize: "0.62rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "0.6rem" }}>Coronal Mass Ejections</div>
-            <div style={{ fontSize: "3rem", fontWeight: 900, lineHeight: 1, marginBottom: "0.4rem", color: sa ? cmeCountColor : "var(--text-muted)" }}>{sa ? donkiCmes.length : "N/A"}</div>
+            <div style={{ fontSize: donkiLive ? "3rem" : "1.1rem", fontWeight: 900, lineHeight: 1, marginBottom: "0.4rem", color: donkiLive ? cmeCountColor : "var(--text-muted)" }}>
+              {!sa ? "Loading…" : donkiLive ? donkiCmes.length : "Feed unavailable"}
+            </div>
             <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
-              {donkiCmes.length === 0 ? "No CME events in the selected 7-day window." : "CME event(s) detected."}
+              {!donkiLive
+                ? sa?.donki_note || "NASA DONKI CME feed is unavailable."
+                : donkiCmes.length === 0 ? "No CME events in the selected 7-day window." : "CME event(s) detected."}
             </div>
             {dateRange && <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>CME event history · {dateRange}</div>}
           </div>
@@ -708,9 +725,13 @@ export default function SpaceWeatherPage() {
           {/* Geomagnetic Storms count */}
           <div className="card" {...solarCardClickProps("storms", { textAlign: "center" })}>
             <div style={{ fontSize: "0.62rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "0.6rem" }}>Geomagnetic Storms</div>
-            <div style={{ fontSize: "3rem", fontWeight: 900, lineHeight: 1, marginBottom: "0.4rem", color: sa ? stormCountColor : "var(--text-muted)" }}>{sa ? donkiStorms.length : "N/A"}</div>
+            <div style={{ fontSize: donkiLive ? "3rem" : "1.1rem", fontWeight: 900, lineHeight: 1, marginBottom: "0.4rem", color: donkiLive ? stormCountColor : "var(--text-muted)" }}>
+              {!sa ? "Loading…" : donkiLive ? donkiStorms.length : "Feed unavailable"}
+            </div>
             <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
-              {donkiStorms.length === 0 ? "No geomagnetic storm events in the selected 7-day window." : "Storm event(s) detected."}
+              {!donkiLive
+                ? sa?.donki_note || "NASA DONKI storm feed is unavailable."
+                : donkiStorms.length === 0 ? "No geomagnetic storm events in the selected 7-day window." : "Storm event(s) detected."}
             </div>
             {dateRange && <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>GST event history · {dateRange}</div>}
           </div>
@@ -824,8 +845,8 @@ export default function SpaceWeatherPage() {
 
           {/* NOAA SWPC status bar */}
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.5rem 0.8rem", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "0.72rem", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase" }}>
-            <span className="dot dot-ok" style={{ width: "7px", height: "7px" }} />
-            <span>NOAA SWPC Live</span>
+            <span className={`dot ${solarFeedLive ? "dot-ok" : "dot-warn"}`} style={{ width: "7px", height: "7px" }} />
+            <span>NOAA SWPC · {solarFeedLabel}</span>
           </div>
 
           {/* GOES X-Ray Flux chart */}

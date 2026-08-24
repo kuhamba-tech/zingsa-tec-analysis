@@ -211,56 +211,6 @@ export default function CorsMapWithLayers({
             )}
           </div>
         )}
-        {tecLayerActive && (
-          <div
-            style={{
-              position: "absolute",
-              top: "12px",
-              left: "12px",
-              zIndex: 10,
-              background: "rgba(0,0,0,0.82)",
-              border: "1px solid var(--border)",
-              borderRadius: "8px",
-              padding: "0.65rem 0.85rem",
-              minWidth: "150px",
-              pointerEvents: "none",
-            }}
-          >
-            <div style={{ color: "var(--text-muted)", fontSize: "0.68rem", fontWeight: 800, textTransform: "uppercase" }}>
-              Live TEC
-            </div>
-            {heatmap?.available ? (
-              <>
-                <div style={{ color: "#57ff65", fontSize: "1.45rem", fontWeight: 900, lineHeight: 1.1 }}>
-                  {heatmap.tec_min != null && heatmap.tec_max != null
-                    ? `${heatmap.tec_min.toFixed(1)}-${heatmap.tec_max.toFixed(1)}`
-                    : `${heatmap.station_count}`}
-                </div>
-                <div style={{ fontSize: "0.72rem", fontWeight: 700 }}>
-                  {heatmap.stations.length > 0
-                    ? heatmap.stations
-                        .map((s) => `${s.code.toUpperCase()} ${s.vtec.toFixed(1)}`)
-                        .join(" · ")
-                    : `TECU from ${heatmap.station_count} live station${heatmap.station_count === 1 ? "" : "s"}`}
-                </div>
-                {heatmap.updated_at && (
-                  <div style={{ color: "var(--text-muted)", fontSize: "0.65rem", marginTop: "0.2rem" }}>
-                    {heatmap.updated_at}
-                  </div>
-                )}
-              </>
-            ) : (
-              <>
-                <div style={{ color: "#ffb347", fontSize: "0.82rem", fontWeight: 800, marginTop: "0.25rem" }}>
-                  Waiting for live VTEC
-                </div>
-                <div style={{ color: "var(--text-muted)", fontSize: "0.65rem", marginTop: "0.2rem", maxWidth: "210px" }}>
-                  {heatmap?.message ?? "No recent live TEC observations available yet."}
-                </div>
-              </>
-            )}
-          </div>
-        )}
 
         {!globalTecLayerActive && !scienceMapLayerActive && !networkDistancesActive && (
           <div
@@ -321,6 +271,38 @@ export default function CorsMapWithLayers({
           <NetworkDistancesPanel stations={stations} />
         )}
       </div>
+
+      {tecLayerActive && (
+        <div className="home-live-tec-below" aria-live="polite">
+          <div className="home-live-tec-below-label">Live TEC</div>
+          {heatmap?.available ? (
+            <>
+              <div className="home-live-tec-below-range">
+                {heatmap.tec_min != null && heatmap.tec_max != null
+                  ? `${heatmap.tec_min.toFixed(1)}-${heatmap.tec_max.toFixed(1)}`
+                  : `${heatmap.station_count}`}
+              </div>
+              <div className="home-live-tec-below-stations">
+                {heatmap.stations.length > 0
+                  ? heatmap.stations
+                      .map((s) => `${s.code.toUpperCase()} ${s.vtec.toFixed(1)}`)
+                      .join(" · ")
+                  : `TECU from ${heatmap.station_count} live station${heatmap.station_count === 1 ? "" : "s"}`}
+              </div>
+              {heatmap.updated_at && (
+                <div className="home-live-tec-below-updated">{heatmap.updated_at}</div>
+              )}
+            </>
+          ) : (
+            <>
+              <div className="home-live-tec-below-waiting">Waiting for live VTEC</div>
+              <div className="home-live-tec-below-updated">
+                {heatmap?.message ?? "No recent live TEC observations available yet."}
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {(tecLayerActive || zimbabweTecLayerActive) && (
         <TecHeatMapLegend className="tec-heatmap-legend-below" maxVtec={maxVtec} />

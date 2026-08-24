@@ -3114,6 +3114,52 @@ a.home-map-layer-btn {
   max-width: min(520px, 100%);
 }
 
+.home-live-tec-below {
+  margin-top: 0.75rem;
+  width: 100%;
+  background: rgba(0, 0, 0, 0.82);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem 0.95rem;
+}
+
+.home-live-tec-below-label {
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.home-live-tec-below-range {
+  color: #57ff65;
+  font-size: 1.45rem;
+  font-weight: 900;
+  line-height: 1.15;
+  margin-top: 0.15rem;
+}
+
+.home-live-tec-below-stations {
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.45;
+  margin-top: 0.25rem;
+  color: #ffffff;
+}
+
+.home-live-tec-below-waiting {
+  color: #ffb347;
+  font-size: 0.9rem;
+  font-weight: 800;
+  margin-top: 0.25rem;
+}
+
+.home-live-tec-below-updated {
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  margin-top: 0.3rem;
+}
+
 .tec-heatmap-legend-below {
   position: static;
   width: 100%;

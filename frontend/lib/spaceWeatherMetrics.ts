@@ -84,12 +84,12 @@ export function formatDstDisplay(dst: number | null | undefined): string {
 }
 
 export function formatF107Display(f107: number | null | undefined): string {
-  if (f107 == null || !Number.isFinite(f107)) return "N/A";
+  if (f107 == null || !Number.isFinite(f107)) return "Feed unavailable";
   return String(Math.round(f107 * 10) / 10);
 }
 
 export function formatSolarWindDisplay(speed: number | null | undefined): string {
-  if (speed == null || !Number.isFinite(speed)) return "N/A";
+  if (speed == null || !Number.isFinite(speed)) return "Feed unavailable";
   return `${Math.round(speed)} km/s`;
 }
 

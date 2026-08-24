@@ -45,7 +45,7 @@ class SolarWindDetail(BaseModel):
 class SolarActivityFull(BaseModel):
     mode: str = "unavailable"
     updated: str = ""
-    flare_class: str = "N/A"
+    flare_class: str = "Unavailable"
     flux: float | None = None
     xray_series: list[float] = []
     solar_wind: SolarWindDetail = SolarWindDetail()

@@ -234,7 +234,7 @@ def get_unavailable_solar_activity(error: str) -> Dict[str, Any]:
     return {
         "mode": "unavailable",
         "updated": datetime.datetime.utcnow().isoformat() + "Z",
-        "flareClass": "N/A",
+        "flareClass": "Unavailable",
         "flux": None,
         "xraySeries": [],
         "solarWind": {

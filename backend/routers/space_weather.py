@@ -186,7 +186,7 @@ async def solar_activity(_=Depends(require_api_key)):
     return SolarActivityFull(
         mode=sa.get("mode") or "unavailable",
         updated=sa.get("updated") or "",
-        flare_class=sa.get("flareClass") or "N/A",
+        flare_class=sa.get("flareClass") or "Unavailable",
         flux=sa.get("flux"),
         xray_series=[float(v) for v in (sa.get("xraySeries") or []) if v is not None],
         solar_wind=SolarWindDetail(
