@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import LineChart from "@/components/charts/LineChart";
 import { getSpaceWeatherReport } from "@/lib/api";
+import { downloadSpaceWeatherReportPdf } from "@/lib/reportPdf";
 import { alignEkfToReportLabels } from "@/lib/ekfAlign";
 import { conditionsForSeries } from "@/lib/spaceWeatherMetrics";
 import type { EkfStatus, SpaceWeatherReport, SpaceWeatherReportPeriod } from "@/lib/types";
@@ -126,6 +127,8 @@ export default function SpaceWeatherReportsPanel({
     );
   }, [report, ekf]);
 
+  const [exportBusy, setExportBusy] = useState(false);
+
   const handleExportJson = () => {
     if (!report) return;
     const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" });
@@ -135,6 +138,16 @@ export default function SpaceWeatherReportsPanel({
     a.download = `space_weather_${report.period}_report.json`;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const handleExportPdf = async () => {
+    if (!report) return;
+    setExportBusy(true);
+    try {
+      await downloadSpaceWeatherReportPdf(report);
+    } finally {
+      setExportBusy(false);
+    }
   };
 
   const scrollToCharts = () => {
@@ -166,7 +179,15 @@ export default function SpaceWeatherReportsPanel({
             Share
           </button>
           <button type="button" className="btn sw-report-export-btn" onClick={handleExportJson} disabled={!report}>
-            Export ▾
+            Export JSON
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary sw-report-export-btn"
+            onClick={() => void handleExportPdf()}
+            disabled={!report || exportBusy}
+          >
+            {exportBusy ? "Saving PDF…" : "Save PDF"}
           </button>
         </div>
       </div>

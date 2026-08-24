@@ -15,6 +15,7 @@ import StationStatusBarChart from "@/components/charts/StationStatusBarChart";
 import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
 import CorsMapWithLayers, { BASE_MAP_LAYERS } from "@/components/maps/CorsMapWithLayers";
 import { analyzeStationUptime } from "@/lib/dashboardChartAnalysis";
+import { downloadUptimeReportPdf } from "@/lib/reportPdf";
 import { countLiveStationStatuses } from "@/lib/liveStationStatus";
 import { peekStations } from "@/lib/stationsStore";
 import { mergeTecHeatmapWithStations } from "@/lib/tecHeatmapMerge";
@@ -268,6 +269,11 @@ export default function NetworkUptimePanel({
     );
   };
 
+  const handleExportPdf = async () => {
+    if (!analysis) return;
+    await downloadUptimeReportPdf(analysis, scopeLabel);
+  };
+
   const hasAnyData =
     (analysis?.samples ?? 0) > 0 ||
     (analysis?.timeline.length ?? 0) > 0 ||
@@ -336,6 +342,14 @@ export default function NetworkUptimePanel({
           disabled={!analysis?.stations.length}
         >
           Export stations CSV
+        </button>
+        <button
+          type="button"
+          className="home-map-layer-btn"
+          onClick={() => void handleExportPdf()}
+          disabled={!analysis || !hasAnyData}
+        >
+          Save PDF
         </button>
       </div>
 

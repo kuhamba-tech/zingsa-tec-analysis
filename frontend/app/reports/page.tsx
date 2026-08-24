@@ -88,8 +88,8 @@ function ReportsContent() {
         </h1>
         <p className="page-subtitle">
           {reportType === "uptime"
-            ? `${rangeTitle} CORS station uptime analysis — filter by 1 day, 1 week, 1 month, or 1 year. Pick a station or review the whole network.`
-            : `${periodTitle} operational reports — Kp, Dst, TEC, GNSS risk, and CORS network impact from archived live observations.`}
+            ? `${rangeTitle} CORS station uptime analysis — filter by 1 day, 1 week, 1 month, or 1 year. Export CSV or save a PDF report.`
+            : `${periodTitle} operational reports — Kp, Dst, TEC, GNSS risk, and CORS network impact. Save as JSON or PDF.`}
         </p>
       </div>
 

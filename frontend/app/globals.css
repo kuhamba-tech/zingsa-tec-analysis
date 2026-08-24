@@ -20,6 +20,15 @@ html, body {
   color: var(--text);
   font-family: "Inter", system-ui, sans-serif;
   height: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+img,
+svg,
+canvas,
+video {
+  max-width: 100%;
 }
 
 /* ── Scrollbar ── */
@@ -2711,6 +2720,33 @@ a.home-map-layer-btn {
 
 /* ── Map container ── */
 .map-container { border-radius: 10px; overflow: hidden; border: 1px solid var(--border); }
+
+.home-map-loading {
+  min-height: 480px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: linear-gradient(145deg, #06111f, #0a1a2e);
+  color: var(--text-muted);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.home-map-loading-spinner {
+  width: 1.15rem;
+  height: 1.15rem;
+  border: 2px solid rgba(126, 200, 242, 0.28);
+  border-top-color: #7ec8f2;
+  border-radius: 50%;
+  animation: home-map-loading-spin 0.75s linear infinite;
+}
+
+@keyframes home-map-loading-spin {
+  to { transform: rotate(360deg); }
+}
 
 /* Sidebar department badge */
 .sidebar-department {
@@ -6126,6 +6162,15 @@ a.home-map-layer-btn {
     padding-left: max(1rem, env(safe-area-inset-left));
     padding-right: max(1rem, env(safe-area-inset-right));
     padding-bottom: max(1rem, env(safe-area-inset-bottom));
+    width: 100%;
+    overflow-x: hidden;
+  }
+
+  .app-main > *,
+  .page-stack > *,
+  .gnwi-page > * {
+    min-width: 0;
+    max-width: 100%;
   }
 
   .page-title {
@@ -6169,6 +6214,7 @@ a.home-map-layer-btn {
 
   .card {
     padding: 0.9rem 1rem;
+    min-width: 0;
   }
 
   .btn {
@@ -6215,6 +6261,71 @@ a.home-map-layer-btn {
 
   .table-scroll {
     -webkit-overflow-scrolling: touch;
+    max-width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+  }
+
+  .gnwi-input-grid,
+  .gnwi-forecast-grid,
+  .gnwi-twin-grid,
+  .gnwi-alerts-grid,
+  .gnwi-news-grid,
+  .gnwi-performance-chain,
+  .gnwi-broadcast-form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .gnwi-arch-pre,
+  .gnwi-news-script,
+  .gnwi-agent-api-list code {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+
+  .gnwi-diagram-body {
+    padding: 1rem 0.75rem 1.15rem;
+  }
+
+  .gnss-status-card {
+    padding: 1rem;
+  }
+
+  .gnss-status-header {
+    align-items: flex-start;
+  }
+
+  .gnss-status-title {
+    font-size: 0.95rem;
+    line-height: 1.35;
+  }
+
+  .gnss-status-updated {
+    line-height: 1.4;
+  }
+
+  .gnss-status-cities,
+  .gnss-status-services {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .gnss-status-city,
+  .gnss-status-service {
+    min-width: 0;
+  }
+
+  .gnss-status-city-head,
+  .gnss-status-service span {
+    overflow-wrap: anywhere;
+  }
+
+  .gnss-status-city-value {
+    padding-left: 0;
+  }
+
+  .gnss-status-actions .gnwi-copy-btn {
+    width: 100%;
+    min-height: 44px;
   }
 
   .dashboard-metric-grid {
@@ -6266,6 +6377,21 @@ a.home-map-layer-btn {
 }
 
 @media (max-width: 560px) {
+  .app-main {
+    padding-left: max(0.75rem, env(safe-area-inset-left));
+    padding-right: max(0.75rem, env(safe-area-inset-right));
+  }
+
+  .app-topbar {
+    gap: 0.6rem;
+    padding-left: max(0.75rem, env(safe-area-inset-left));
+    padding-right: max(0.75rem, env(safe-area-inset-right));
+  }
+
+  .app-topbar-title {
+    font-size: 0.78rem;
+  }
+
   .metrics-auto-grid,
   .constellation-grid,
   .dashboard-metric-grid,
@@ -6285,5 +6411,44 @@ a.home-map-layer-btn {
     overflow-x: auto;
     flex-wrap: nowrap;
     -webkit-overflow-scrolling: touch;
+  }
+
+  .gnwi-performance-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .gnwi-performance-metric strong {
+    font-size: 0.95rem;
+    overflow-wrap: anywhere;
+  }
+
+  .gnwi-forecast-row {
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  }
+
+  .gnwi-forecast-row dd {
+    overflow-wrap: anywhere;
+  }
+
+  .site-translator {
+    right: max(0.65rem, env(safe-area-inset-right));
+    bottom: max(0.65rem, env(safe-area-inset-bottom));
+  }
+}
+
+@media (max-width: 360px) {
+  .app-hamburger-label {
+    display: none;
+  }
+
+  .gnss-status-cities,
+  .gnss-status-services,
+  .gnwi-performance-summary {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .gnss-status-sw {
+    flex-direction: column;
+    gap: 0.35rem;
   }
 }

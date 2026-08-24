@@ -21,6 +21,7 @@ import {
   uploadGicFile,
 } from "@/lib/api";
 import { STATIC_GIC_NETWORK, staticGicStatus, DEFAULT_GIC_STATION_ID } from "@/lib/gicNetworkStatic";
+import { downloadGicReportPdf } from "@/lib/reportPdf";
 import type {
   EkfAlert,
   GicNetwork,
@@ -233,6 +234,11 @@ export default function GicMonitorPanel() {
     URL.revokeObjectURL(url);
   };
 
+  const handleReportPdf = async () => {
+    if (!report) return;
+    await downloadGicReportPdf(report);
+  };
+
   const reportPanel = (
     <div className="card card-accent" id="gic-reports">
       <div className="operations-chart-title">GIC Report Generator</div>
@@ -284,6 +290,9 @@ export default function GicMonitorPanel() {
         </button>
         <button type="button" className="btn" onClick={() => handleReportCsv()} disabled={!stationId}>
           Download CSV
+        </button>
+        <button type="button" className="btn btn-primary" onClick={() => void handleReportPdf()} disabled={!report}>
+          Save PDF
         </button>
       </div>
 

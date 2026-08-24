@@ -1,10 +1,10 @@
 "use client";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import SiteTranslator from "./SiteTranslator";
 import PageErrorBoundary from "./PageErrorBoundary";
-import { getSpaceWeather, getStations } from "@/lib/api";
 
 type NavItem = {
   href: string;
@@ -140,11 +140,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   }, [pathname]);
 
   useEffect(() => {
-    void getSpaceWeather().catch(() => null);
-    void getStations(false).catch(() => null);
-  }, [pathname]);
-
-  useEffect(() => {
     document.body.classList.toggle("mobile-nav-open", mobileOpen);
     return () => document.body.classList.remove("mobile-nav-open");
   }, [mobileOpen]);
@@ -222,7 +217,13 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
         <div className="sidebar-bottom">
           <div className="sidebar-department">
-            <img src="/zingsa_logo.webp" alt="ZINGSA Space Science Department" />
+            <Image
+              src="/zingsa_logo.webp"
+              alt="ZINGSA Space Science Department"
+              width={48}
+              height={48}
+              sizes="48px"
+            />
             <div>ZINGSA Space Science Department</div>
           </div>
 

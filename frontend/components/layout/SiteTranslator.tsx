@@ -82,6 +82,7 @@ export default function SiteTranslator() {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState("en");
   const panelRef = useRef<HTMLDivElement | null>(null);
+  const translatorInitializedRef = useRef(false);
   const includedLanguages = useMemo(() => SUPPORTED_TRANSLATE_CODES.join(","), []);
   const activeLanguage =
     LANGUAGES.find((language) => language.id === active || language.translateCode === active) ??
@@ -92,26 +93,30 @@ export default function SiteTranslator() {
   }, []);
 
   useEffect(() => {
+    if (!open && active === "en") return;
+
     const w = window as TranslateWindow;
     w.googleTranslateElementInit = () => {
+      if (translatorInitializedRef.current) return;
       const TranslateElement = w.google?.translate?.TranslateElement;
       if (TranslateElement) {
         new TranslateElement(
           { pageLanguage: "en", includedLanguages, autoDisplay: false },
           "google_translate_element",
         );
+        translatorInitializedRef.current = true;
       }
     };
 
-    if (!document.querySelector('script[src*="translate.google.com/translate_a/element.js"]')) {
+    if (w.google?.translate?.TranslateElement) {
+      w.googleTranslateElementInit();
+    } else if (!document.querySelector('script[src*="translate.google.com/translate_a/element.js"]')) {
       const script = document.createElement("script");
       script.src = "//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit";
       script.async = true;
       document.body.appendChild(script);
-    } else {
-      w.googleTranslateElementInit?.();
     }
-  }, [includedLanguages]);
+  }, [active, includedLanguages, open]);
 
   useEffect(() => {
     const onPointerDown = (event: PointerEvent) => {

@@ -12,7 +12,6 @@ import {
   mergeStationsPreferLive,
 } from "@/lib/liveStationStatus";
 import { mergeTecHeatmapWithStations } from "@/lib/tecHeatmapMerge";
-import CorsMapWithLayers from "@/components/maps/CorsMapWithLayers";
 import AiRecommendationPanel from "@/components/layout/AiRecommendationPanel";
 import HomeStormAlertBanner from "@/components/layout/HomeStormAlertBanner";
 import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
@@ -20,8 +19,19 @@ import type { Station, SpaceWeatherCurrent, TecHeatmapResponse } from "@/lib/typ
 import type { MetricKey } from "@/lib/spaceWeatherMetrics";
 import Link from "next/link";
 import Image from "next/image";
+import dynamic from "next/dynamic";
 import { DashboardHeaderClocks } from "@/components/dashboard/DashboardClocks";
 import { PRODUCT_SHORT_NAME, PRODUCT_TAGLINE } from "@/lib/navigationNewsBranding";
+
+const CorsMapWithLayers = dynamic(() => import("@/components/maps/CorsMapWithLayers"), {
+  ssr: false,
+  loading: () => (
+    <div className="home-map-loading" role="status" aria-live="polite">
+      <span className="home-map-loading-spinner" aria-hidden="true" />
+      <span>Loading interactive CORS map…</span>
+    </div>
+  ),
+});
 
 const MODULES = [
   { href: "/processing",       icon: "⚙️",  title: "Processing",        desc: "Upload RINEX/CMN, download CORS RINEX for post-processing, or convert files" },

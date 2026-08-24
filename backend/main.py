@@ -36,7 +36,8 @@ if os.getenv("ZGIIS_LOAD_VERCEL_ENV", "").strip().lower() in {"1", "true", "yes"
     ):
         load_dotenv(env_file, override=False)
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -96,13 +97,51 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+
+def _cors_origins() -> list[str]:
+    configured = os.getenv("CORS_ORIGINS", "").strip()
+    if configured:
+        return [origin.strip().rstrip("/") for origin in configured.split(",") if origin.strip()]
+    if os.getenv("VERCEL") or (os.getenv("ZGIIS_ENV") or "").strip().lower() in {"production", "prod"}:
+        return []  # Production frontend uses same-origin /api routes.
+    return [
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
+    ]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Restrict to Vercel domain in production
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=_cors_origins(),
+    allow_credentials=False,
+    allow_methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Accept", "Content-Type", "X-API-Key", "X-Broadcast-Admin-Key"],
 )
+
+
+@app.middleware("http")
+async def security_middleware(request: Request, call_next):
+    max_body_bytes = int(os.getenv("MAX_REQUEST_BODY_BYTES", str(64 * 1024 * 1024)))
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > max_body_bytes:
+                return JSONResponse(status_code=413, content={"detail": "Request body is too large"})
+        except ValueError:
+            return JSONResponse(status_code=400, content={"detail": "Invalid Content-Length header"})
+
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()")
+    response.headers.setdefault("X-Permitted-Cross-Domain-Policies", "none")
+    response.headers.setdefault("X-DNS-Prefetch-Control", "off")
+    forwarded_proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+    if forwarded_proto == "https":
+        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    return response
 
 app.include_router(space_weather.router)
 app.include_router(navigation_news.router)

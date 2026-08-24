@@ -21,6 +21,7 @@ import {
   SEVERITY_COLORS,
   SEVERITY_LABELS,
 } from "@/lib/anomalyInterpretation";
+import { downloadAnomalyReportPdf } from "@/lib/reportPdf";
 import type {
   AnomalyDay,
   DiurnalPoint,
@@ -556,6 +557,13 @@ export default function AnomalyDetectionPage() {
               }
             >
               Export anomalies CSV
+            </button>
+            <button
+              className="btn btn-primary"
+              disabled={!anomalyDays.length}
+              onClick={() => void downloadAnomalyReportPdf(anomalies, pct)}
+            >
+              Save PDF
             </button>
           </div>
 
