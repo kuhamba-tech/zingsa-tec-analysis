@@ -1490,10 +1490,10 @@ select option {
 }
 .home-hero-header {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(0, 56rem) minmax(220px, 1fr);
+  grid-template-columns: minmax(180px, 1fr) minmax(0, 52rem) minmax(180px, 1fr);
   align-items: start;
-  gap: 0.75rem 1rem;
-  margin-bottom: 0.35rem;
+  gap: 0.45rem 0.85rem;
+  margin-bottom: 0.2rem;
   padding: 0 0.75rem;
 }
 .home-hero-header .home-top-intro {
@@ -1529,11 +1529,12 @@ select option {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 0.35rem;
+  gap: 0.2rem;
   text-align: center;
   text-wrap: balance;
-  line-height: 1.18;
+  line-height: 1.15;
   letter-spacing: -0.015em;
+  font-size: clamp(1.35rem, 2.6vw, 1.85rem);
 }
 .home-page-title-icon {
   font-size: clamp(1.75rem, 3.5vw, 2.35rem);
@@ -1543,9 +1544,9 @@ select option {
   display: flex;
   justify-content: center;
   align-items: center;
-  width: clamp(88px, 12vw, 120px);
-  height: clamp(88px, 12vw, 120px);
-  margin: 0 auto 0.4rem;
+  width: clamp(56px, 8vw, 80px);
+  height: clamp(56px, 8vw, 80px);
+  margin: 0 auto 0.15rem;
   padding: 0;
   border: none;
   border-radius: 0;
@@ -1579,13 +1580,14 @@ select option {
   font-weight: 800;
 }
 .home-page-subtitle {
-  max-width: 46rem;
+  max-width: 42rem;
   margin-left: auto;
   margin-right: auto;
-  margin-top: 0.65rem;
+  margin-top: 0.35rem;
   text-align: center;
   text-wrap: balance;
-  line-height: 1.55;
+  line-height: 1.45;
+  font-size: 0.88rem;
   color: var(--text-muted);
 }
 .home-storm-alerts {
@@ -1658,12 +1660,13 @@ select option {
 }
 .home-metric-card {
   cursor: default;
-  min-height: 9.5rem;
-  padding: 0.85rem 0.4rem 0.75rem;
+  min-height: 9.75rem;
+  padding: 0.75rem 0.4rem 0.65rem;
+  gap: 0.15rem;
 }
 .home-metric-card .sw-metric-label {
   font-size: 0.58rem;
-  min-height: 1.35rem;
+  min-height: 1.2rem;
   white-space: nowrap;
 }
 .home-metric-card .sw-metric-value {
@@ -1677,6 +1680,27 @@ select option {
   text-overflow: ellipsis;
   max-width: 100%;
 }
+.home-metric-sparkline {
+  display: block;
+  width: 100%;
+  max-width: 7.5rem;
+  margin: 0.2rem auto 0.05rem;
+  opacity: 0.95;
+}
+.home-metric-progress {
+  width: 100%;
+  max-width: 7.5rem;
+  margin: 0.35rem auto 0.1rem;
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+.home-metric-progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  transition: width 0.35s ease;
+}
 .home-metric-card:hover {
   border-color: #244d73;
   box-shadow: none;
@@ -1685,8 +1709,8 @@ select option {
   display: block;
   width: 100%;
   height: auto;
-  max-width: 96px;
-  max-height: 96px;
+  max-width: 80px;
+  max-height: 80px;
   object-fit: contain;
   border-radius: 8px;
 }

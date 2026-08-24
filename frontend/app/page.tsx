@@ -1,12 +1,20 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { getEkfStatus, getLivePipelineStatus, getSpaceWeather, getStations, getTecHeatmap } from "@/lib/api";
+import {
+  getEkfStatus,
+  getLivePipelineStatus,
+  getSpaceWeather,
+  getSpaceWeatherHistory,
+  getStations,
+  getTecHeatmap,
+} from "@/lib/api";
 import { peekSpaceWeather, subscribeSpaceWeather } from "@/lib/spaceWeatherStore";
 import { peekStations, subscribeStations, stationsAreSpiderAuthoritative } from "@/lib/stationsStore";
 import { mergeSpaceWeatherWithEkf } from "@/lib/homeSpaceWeather";
 import { buildMetricCards } from "@/lib/spaceWeatherMetrics";
 import {
+  connectedStreamCount,
   countLiveStationStatuses,
   formatCorsConnectedShort,
   mergeStationsPreferLive,
@@ -14,8 +22,14 @@ import {
 import { mergeTecHeatmapWithStations } from "@/lib/tecHeatmapMerge";
 import AiRecommendationPanel from "@/components/layout/AiRecommendationPanel";
 import HomeStormAlertBanner from "@/components/layout/HomeStormAlertBanner";
+import MetricSparkline from "@/components/dashboard/MetricSparkline";
 import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
-import type { Station, SpaceWeatherCurrent, TecHeatmapResponse } from "@/lib/types";
+import type {
+  Station,
+  SpaceWeatherCurrent,
+  SpaceWeatherHistoryRow,
+  TecHeatmapResponse,
+} from "@/lib/types";
 import type { MetricKey } from "@/lib/spaceWeatherMetrics";
 import Link from "next/link";
 import Image from "next/image";
@@ -78,6 +92,19 @@ const HOME_LABELS: Partial<Record<MetricKey, string>> = {
   stations: "CORS Connected",
 };
 
+/** Pull finite samples from history for home-card sparklines (omit when thin). */
+function sparklineSeries(
+  rows: SpaceWeatherHistoryRow[],
+  pick: (row: SpaceWeatherHistoryRow) => number | null | undefined,
+): number[] {
+  const out: number[] = [];
+  for (const row of rows) {
+    const v = pick(row);
+    if (v != null && Number.isFinite(v)) out.push(v);
+  }
+  return out;
+}
+
 function HomeMetricCard({
   icon,
   label,
@@ -85,6 +112,8 @@ function HomeMetricCard({
   note,
   valueColor,
   loading,
+  sparkline,
+  progress,
 }: {
   icon: string;
   label: string;
@@ -92,7 +121,16 @@ function HomeMetricCard({
   note: string;
   valueColor: string;
   loading?: boolean;
+  sparkline?: number[];
+  progress?: { value: number; max: number } | null;
 }) {
+  const ratio =
+    progress && progress.max > 0
+      ? Math.max(0, Math.min(1, progress.value / progress.max))
+      : null;
+  const progressColor =
+    ratio == null ? valueColor : ratio >= 0.9 ? "#00ff88" : ratio >= 0.7 ? "#eab308" : "#f97316";
+
   return (
     <div className="sw-metric-card home-metric-card">
       <span className="sw-metric-icon">{icon}</span>
@@ -100,6 +138,24 @@ function HomeMetricCard({
       <div className="sw-metric-value" style={{ color: loading ? "var(--text-muted)" : valueColor }}>
         {loading ? "…" : value}
       </div>
+      {ratio != null && !loading && (
+        <div
+          className="home-metric-progress"
+          role="progressbar"
+          aria-valuenow={progress!.value}
+          aria-valuemin={0}
+          aria-valuemax={progress!.max}
+          aria-label={`${label}: ${progress!.value} of ${progress!.max}`}
+        >
+          <div
+            className="home-metric-progress-fill"
+            style={{ width: `${ratio * 100}%`, background: progressColor }}
+          />
+        </div>
+      )}
+      {sparkline && sparkline.length >= 2 && !loading && (
+        <MetricSparkline values={sparkline} color={valueColor} label={`${label} 24-hour trend`} />
+      )}
       <div className="sw-metric-note">{loading ? "Loading live feed…" : note}</div>
     </div>
   );
@@ -115,6 +171,7 @@ export default function HomePage() {
   const [ntripProbedAt, setNtripProbedAt] = useState<string | null>(null);
   const [pipelineNote, setPipelineNote] = useState<string | null>(null);
   const [tecHeatmap, setTecHeatmap] = useState<TecHeatmapResponse | null>(null);
+  const [swHistoryRows, setSwHistoryRows] = useState<SpaceWeatherHistoryRow[]>([]);
   const [stationsLoading, setStationsLoading] = useState(true);
   const [ntripRefreshing, setNtripRefreshing] = useState(false);
 
@@ -220,6 +277,11 @@ export default function HomePage() {
           if (!cancelled && heatmap) setTecHeatmap(heatmap);
         })
         .catch(() => null);
+      void getSpaceWeatherHistory(24, "1h")
+        .then((history) => {
+          if (!cancelled && history?.rows?.length) setSwHistoryRows(history.rows);
+        })
+        .catch(() => null);
     }
 
     load(false);
@@ -241,6 +303,24 @@ export default function HomePage() {
     [tecHeatmap, stations],
   );
 
+  const homeSparklines = useMemo(() => {
+    const kp = sparklineSeries(swHistoryRows, (r) => r.kp);
+    const dst = sparklineSeries(swHistoryRows, (r) => r.dst);
+    const risk = sparklineSeries(swHistoryRows, (r) => r.gnss_risk_score);
+    return {
+      kp,
+      dst,
+      gnss_risk: risk,
+    } satisfies Partial<Record<MetricKey, number[]>>;
+  }, [swHistoryRows]);
+
+  const corsProgress =
+    spiderLive && liveCounts.total > 0
+      ? { value: connectedStreamCount(liveCounts), max: liveCounts.total }
+      : displaySw?.stations_online != null && displaySw?.stations_total
+        ? { value: displaySw.stations_online, max: displaySw.stations_total }
+        : null;
+
   const homeCards = buildMetricCards(displaySw, {
     // Catalog-only snapshots (cold Vercel) must not override Spider/SW counts.
     liveStationCounts: spiderLive ? liveCounts : undefined,
@@ -255,6 +335,9 @@ export default function HomePage() {
         card.key === "stations" && spiderLive && liveCounts.total > 0
           ? formatCorsConnectedShort(liveCounts)
           : card.note,
+      // CORS uses a progress bar; categorical geomagnetic has no numeric series.
+      sparkline: card.key === "stations" || card.key === "geomagnetic" ? undefined : homeSparklines[card.key],
+      progress: card.key === "stations" ? corsProgress : null,
     }));
 
   return (
@@ -266,8 +349,8 @@ export default function HomePage() {
               <Image
                 src="/zingsa_logo.webp"
                 alt=""
-                width={120}
-                height={120}
+                width={80}
+                height={80}
                 className="home-hero-logo"
                 priority
               />
@@ -321,6 +404,8 @@ export default function HomePage() {
                 value={card.value}
                 note={card.note}
                 valueColor={card.valueColor}
+                sparkline={card.sparkline}
+                progress={card.progress}
                 loading={card.key === "stations" ? stationsLoading : loading && card.value === "N/A"}
               />
             ))}

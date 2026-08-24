@@ -499,8 +499,15 @@ class StationStatusDB:
             event_type = str(row.get("event_type") or "")
             when = str(row.get("time") or "")
 
-            went_down = event_type == "site_down" or (
-                event_type == "status_change" and status == "offline" and prev != "offline"
+            # initial_state offline still opens an outage so Details can show "Went down".
+            went_down = (
+                event_type == "site_down"
+                or (event_type == "initial_state" and status == "offline")
+                or (
+                    event_type == "status_change"
+                    and status == "offline"
+                    and prev != "offline"
+                )
             )
             came_up = event_type == "site_up" or (
                 event_type == "status_change" and status == "online" and prev == "offline"

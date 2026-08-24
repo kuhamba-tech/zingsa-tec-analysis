@@ -85,8 +85,58 @@ export default function SiteDetailsPanel({ station, heatmap = null, onClose }: P
     const ongoing = intervals.find((item) => item.ongoing) ?? null;
     const lastCompleted = intervals.find((item) => !item.ongoing && item.ended_at) ?? null;
     const totalDowntime = intervals.reduce((sum, item) => sum + item.duration_min, 0);
-    return { ongoing, lastCompleted, totalDowntime };
+    const wentDownAt = ongoing?.started_at ?? lastCompleted?.started_at ?? null;
+    return { ongoing, lastCompleted, totalDowntime, wentDownAt };
   }, [uptime]);
+
+  const downtimeRows = useMemo(() => {
+    if (uptimeLoading) {
+      return [{ label: "Went down", value: "Loading…" }];
+    }
+    if (uptimeError) {
+      return [{ label: "Went down", value: "Archive unavailable" }];
+    }
+    if (!uptime) return [];
+
+    const rows: { label: string; value: string; highlight?: boolean }[] = [];
+    if (outageSummary.ongoing) {
+      rows.push({
+        label: "Went down",
+        value: formatArchiveTime(outageSummary.ongoing.started_at),
+        highlight: true,
+      });
+      rows.push({
+        label: "Down for",
+        value: formatDuration(outageSummary.ongoing.duration_min),
+        highlight: true,
+      });
+    } else if (liveStatus === "offline") {
+      rows.push({
+        label: "Went down",
+        value: outageSummary.wentDownAt
+          ? formatArchiveTime(outageSummary.wentDownAt)
+          : "Offline · awaiting a recorded transition time",
+        highlight: true,
+      });
+    } else {
+      rows.push({
+        label: "Last went down",
+        value: formatArchiveTime(outageSummary.lastCompleted?.started_at ?? outageSummary.wentDownAt),
+      });
+      rows.push({
+        label: "Last restored",
+        value: formatArchiveTime(outageSummary.lastCompleted?.ended_at),
+      });
+    }
+    return rows;
+  }, [uptime, uptimeLoading, uptimeError, outageSummary, liveStatus]);
+
+  const detailRows = useMemo(() => {
+    const base = stationDetailRows(station);
+    const statusIdx = base.findIndex((r) => r.label === "Site Status");
+    if (statusIdx < 0 || downtimeRows.length === 0) return base;
+    return [...base.slice(0, statusIdx + 1), ...downtimeRows, ...base.slice(statusIdx + 1)];
+  }, [station, downtimeRows]);
 
   useEffect(() => {
     let cancelled = false;
@@ -165,7 +215,7 @@ export default function SiteDetailsPanel({ station, heatmap = null, onClose }: P
 
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <tbody>
-            {rows.map(({ label, value, highlight }) => (
+            {detailRows.map(({ label, value, highlight }) => (
               <tr key={label} style={{ borderBottom: "1px solid rgba(36, 77, 115, 0.35)" }}>
                 <td
                   style={{
@@ -182,7 +232,12 @@ export default function SiteDetailsPanel({ station, heatmap = null, onClose }: P
                   style={{
                     padding: "0.35rem 0",
                     fontWeight: highlight ? 700 : 500,
-                    color: highlight ? statusColor : "#f1f5f9",
+                    color:
+                      label === "Site Status"
+                        ? statusColor
+                        : label === "Went down" || label === "Down for"
+                          ? "#ff6b6b"
+                          : "#f1f5f9",
                     wordBreak: "break-word",
                   }}
                 >
@@ -260,7 +315,7 @@ export default function SiteDetailsPanel({ station, heatmap = null, onClose }: P
                 <tr style={{ borderBottom: "1px solid rgba(36, 77, 115, 0.35)" }}>
                   <td style={{ padding: "0.35rem 0.4rem 0.35rem 0", verticalAlign: "top" }}>Went down</td>
                   <td style={{ padding: "0.35rem 0", color: "#ffffff", wordBreak: "break-word" }}>
-                    {formatArchiveTime(outageSummary.ongoing?.started_at)}
+                    {formatArchiveTime(outageSummary.wentDownAt)}
                   </td>
                 </tr>
                 <tr style={{ borderBottom: "1px solid rgba(36, 77, 115, 0.35)" }}>

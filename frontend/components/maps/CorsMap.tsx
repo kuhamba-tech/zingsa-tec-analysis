@@ -869,27 +869,35 @@ export default function CorsMap({
 
   useEffect(() => {
     if (!baseTileRef.current || !labelTileRef.current || !transportTileRef.current) return;
+    let cancelled = false;
     (async () => {
       const XYZ = (await import("ol/source/XYZ")).default;
       const { fromLonLat } = await import("ol/proj");
-      baseTileRef.current.setSource(new XYZ({ url: baseTileUrl(layer), attributions: "Esri" }));
+      // Refs can be cleared while imports resolve (Strict Mode remount / unmount).
+      const baseTile = baseTileRef.current;
+      const labelTile = labelTileRef.current;
+      const transportTile = transportTileRef.current;
+      if (cancelled || !baseTile || !labelTile || !transportTile) return;
+
+      baseTile.setSource(new XYZ({ url: baseTileUrl(layer), attributions: "Esri" }));
       const hybrid = usesHybridOverlays(layer);
-      labelTileRef.current.setVisible(hybrid);
-      transportTileRef.current.setVisible(hybrid);
+      labelTile.setVisible(hybrid);
+      transportTile.setVisible(hybrid);
 
       // Zimbabwe is the focus for every national layer. Global TEC may zoom out;
       // leaving it (or switching Hybrid/Satellite/TEC/…) must return to Zimbabwe.
       // Heatmap data refreshes must not yank the camera.
       const layerChanged = viewLayerRef.current !== layer;
-      if (layerChanged && olMapRef.current) {
+      const map = olMapRef.current;
+      if (layerChanged && map) {
         if (layer === "Global TEC") {
-          olMapRef.current.getView().animate({
+          map.getView().animate({
             center: fromLonLat(GLOBAL_TEC_CENTER),
             zoom: GLOBAL_TEC_ZOOM,
             duration: 280,
           });
         } else {
-          olMapRef.current.getView().animate({
+          map.getView().animate({
             center: fromLonLat(ZIMBABWE_CENTER),
             zoom: ZIMBABWE_ZOOM,
             duration: 280,
@@ -898,12 +906,19 @@ export default function CorsMap({
         viewLayerRef.current = layer;
       }
 
+      if (cancelled) return;
       syncStationFeatures(stationsRef.current);
       await syncHeatLayer();
+      if (cancelled) return;
       await syncScienceLayer();
+      if (cancelled) return;
       await syncNetworkLayer();
+      if (cancelled) return;
       await syncProposedSitesLayer();
     })();
+    return () => {
+      cancelled = true;
+    };
   }, [layer, heatmap]);
 
   return (

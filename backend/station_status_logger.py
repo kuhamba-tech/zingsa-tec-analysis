@@ -119,18 +119,27 @@ def _log_status_changes(
             )
             changes += 1
         elif prev is None:
+            # First observation of an already-offline site is a downtime start
+            # so Details can show when the station went down.
+            if status == "offline":
+                event_type = "site_down"
+                message = "Site observed offline (first poll)"
+            else:
+                event_type = "initial_state"
+                message = None
             db.insert_event(
                 {
                     "time": when,
                     "station_code": code,
                     "status": status,
                     "previous_status": None,
-                    "event_type": "initial_state",
+                    "event_type": event_type,
                     "online_count": counts["online"],
                     "degraded_count": counts["degraded"],
                     "offline_count": counts["offline"],
                     "unknown_count": counts["unknown"],
                     "api_reachable": api_reachable,
+                    "message": message,
                     "source": source,
                 }
             )

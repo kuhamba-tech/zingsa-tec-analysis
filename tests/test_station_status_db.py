@@ -167,6 +167,53 @@ class StationStatusDBTests(unittest.TestCase):
         self.assertEqual(filtered[0]["station_code"], "zinh")
         self.assertEqual(filtered[0]["online_pct"], 75.0)
 
+    def test_site_down_opens_ongoing_outage_for_details(self) -> None:
+        down_at = "2026-08-24T16:00:00+00:00"
+        self.db.insert_event(
+            {
+                "time": down_at,
+                "station_code": "gokw",
+                "status": "offline",
+                "previous_status": "online",
+                "event_type": "site_down",
+                "online_count": 17,
+                "degraded_count": 0,
+                "offline_count": 1,
+                "unknown_count": 0,
+                "api_reachable": True,
+                "message": "Site went offline (online → offline)",
+                "source": "test",
+            }
+        )
+        intervals = self.db.outage_intervals(hours=24, station_code="gokw", limit=10)
+        self.assertEqual(len(intervals), 1)
+        self.assertTrue(intervals[0]["ongoing"])
+        self.assertEqual(intervals[0]["started_at"], down_at)
+        self.assertIsNone(intervals[0]["ended_at"])
+
+    def test_initial_offline_opens_ongoing_outage(self) -> None:
+        down_at = "2026-08-24T15:30:00+00:00"
+        self.db.insert_event(
+            {
+                "time": down_at,
+                "station_code": "gokw",
+                "status": "offline",
+                "previous_status": None,
+                "event_type": "initial_state",
+                "online_count": 17,
+                "degraded_count": 0,
+                "offline_count": 1,
+                "unknown_count": 0,
+                "api_reachable": True,
+                "message": None,
+                "source": "test",
+            }
+        )
+        intervals = self.db.outage_intervals(hours=24, station_code="gokw", limit=10)
+        self.assertEqual(len(intervals), 1)
+        self.assertTrue(intervals[0]["ongoing"])
+        self.assertEqual(intervals[0]["started_at"], down_at)
+
     def test_postgres_snapshot_read_reconnects_once(self) -> None:
         db = object.__new__(StationStatusDB)
         db._dsn = "postgresql://example.invalid/status"
