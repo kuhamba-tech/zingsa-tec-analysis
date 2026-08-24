@@ -390,14 +390,12 @@ def ensure_spider_site_statuses(
             ):
                 return _CACHE  # type: ignore[return-value]
             time.sleep(0.2)
-        if _payload_has_rows(_CACHE):
-            return _CACHE  # type: ignore[return-value]
         acquired = _FETCH_LOCK.acquire(timeout=max(1.0, wait_sec))
         if not acquired:
-            return _CACHE or {
+            return {
                 "fetched_at": None,
                 "by_station": {},
-                "error": "Spider site status fetch in progress",
+                "error": "Fresh Spider site status fetch timed out",
             }
     else:
         acquired = True
@@ -411,11 +409,16 @@ def ensure_spider_site_statuses(
         ):
             return _CACHE  # type: ignore[return-value]
         payload = fetch_spider_site_statuses()
-        _store_cache(payload, keep_existing_on_empty=True)
-        return _CACHE or {
-            "fetched_at": None,
+        if _payload_has_rows(payload):
+            _store_cache(payload, keep_existing_on_empty=False)
+            return payload
+
+        # Live callers must never receive stale last-good rows after a failed
+        # refresh. Retain the cache only for explicitly non-live diagnostics.
+        return {
+            "fetched_at": payload.get("fetched_at"),
             "by_station": {},
-            "error": payload.get("error") or "Spider site status unavailable",
+            "error": payload.get("error") or "Fresh Spider site status unavailable",
         }
     finally:
         if acquired:

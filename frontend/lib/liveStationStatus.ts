@@ -30,8 +30,7 @@ export function getLiveStationStatus(station: Station): LiveStationStatus {
   }
   // Probe verdict is MSM quality, not Spider site status.
   if (station.ntrip_verdict === "msm_streaming") return "online";
-  if (station.status === "online" || station.status === "linked") return "online";
-  if (station.status === "offline") return "offline";
+  // Registry/default status without a named live source is not evidence.
   return "unavailable";
 }
 
