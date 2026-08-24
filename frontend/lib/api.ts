@@ -76,7 +76,7 @@ import type {
   UnderstandingTecPayload,
 } from "./types";
 import { peekSpaceWeather, publishSpaceWeather } from "./spaceWeatherStore";
-import { peekStations, publishStations, stationsCacheIsStale } from "./stationsStore";
+import { peekStations, publishStations, purgeStaleStationsCache, stationsAreSpiderAuthoritative, stationsCacheIsStale } from "./stationsStore";
 
 function apiBase(): string {
   const configured = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "");
@@ -467,6 +467,7 @@ export const testNavigationFacebookPost = async (live = false): Promise<Navigati
 // "Probing..." with a stale 0/25 reading. Give the live-probe call enough
 // room; the default (archived-status) call keeps the normal fast timeout.
 const NTRIP_LIVE_PROBE_TIMEOUT_MS = 90_000;
+const SPIDER_STATIONS_TIMEOUT_MS = 45_000;
 
 function refreshStationsNetwork(refreshNtrip: boolean): Promise<Station[]> {
   return dedupeGet(`cors/stations:${refreshNtrip ? "live" : "cached"}`, () =>
@@ -476,12 +477,16 @@ function refreshStationsNetwork(refreshNtrip: boolean): Promise<Station[]> {
         _ts: Date.now(),
         ...(refreshNtrip ? { refresh_ntrip: "true" } : {}),
       },
-      refreshNtrip ? NTRIP_LIVE_PROBE_TIMEOUT_MS : undefined,
+      refreshNtrip ? NTRIP_LIVE_PROBE_TIMEOUT_MS : SPIDER_STATIONS_TIMEOUT_MS,
     )
       .then((rows) => {
         if (Array.isArray(rows) && rows.length > 0) {
-          lastStationsNetworkAt = Date.now();
-          return publishStations(rows);
+          const published = publishStations(rows);
+          // Only treat Spider Site Status as a successful live fetch.
+          if (stationsAreSpiderAuthoritative(published.length ? published : rows)) {
+            lastStationsNetworkAt = Date.now();
+          }
+          return Array.isArray(published) && published.length > 0 ? published : rows;
         }
         const cached = peekStations();
         return cached.length > 0 ? cached : rows;
@@ -494,23 +499,21 @@ function refreshStationsNetwork(refreshNtrip: boolean): Promise<Station[]> {
   );
 }
 
-/** Fast catalog read. Live NTRIP probes (`refreshNtrip=true`) still wait on the caster. */
+/** Always await the live stations API — never return a browser snapshot as Spider truth. */
 export const getStations = (refreshNtrip = false) => {
+  // Drop leftover localStorage catalog snapshots from older deploys (once per tab).
+  if (typeof window !== "undefined" && !(window as Window & { __zgiisStationsPurged?: boolean }).__zgiisStationsPurged) {
+    purgeStaleStationsCache();
+    (window as Window & { __zgiisStationsPurged?: boolean }).__zgiisStationsPurged = true;
+  }
   const cached = peekStations();
-  // Spider online/offline changes often — never paint a multi-minute localStorage
-  // snapshot as current without awaiting a network refresh (Vercel was showing 9/25
-  // greens while Spider Site Status already had ~17 online).
   const cacheStale = stationsCacheIsStale();
   const recentlyFetched = Date.now() - lastStationsNetworkAt < LIVE_REFRESH_MIN_MS;
+  // Same-tab soft reuse only within a few seconds of a confirmed Spider pull.
   if (!refreshNtrip && cached.length > 0 && recentlyFetched && !cacheStale) {
     return Promise.resolve(cached);
   }
-  const pending = refreshStationsNetwork(refreshNtrip);
-  if (!refreshNtrip && cached.length > 0 && !cacheStale) {
-    void pending;
-    return Promise.resolve(cached);
-  }
-  return pending;
+  return refreshStationsNetwork(refreshNtrip);
 };
 export const getStation = (code: string) => get<Station>(`/cors/stations/${code}`);
 export const getCorsHealth = () => get<CorsHealth>("/cors/health");

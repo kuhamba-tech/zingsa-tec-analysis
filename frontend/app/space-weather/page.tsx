@@ -9,7 +9,7 @@ import AiRecommendationPanel from "@/components/layout/AiRecommendationPanel";
 import HomeStormAlertBanner from "@/components/layout/HomeStormAlertBanner";
 import LineChart from "@/components/charts/LineChart";
 import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
-import { countLiveStationStatuses, connectedStreamCount, type LiveStationCounts } from "@/lib/liveStationStatus";
+import { connectedStreamCount, countSpiderLiveStationStatuses, type LiveStationCounts } from "@/lib/liveStationStatus";
 import type { SpaceWeatherCurrent, SolarActivityFull, SpaceWeatherTimelines, TimelinePoint } from "@/lib/types";
 import {
   FLARE_SCALE,
@@ -231,7 +231,7 @@ export default function SpaceWeatherPage() {
     }
     const cachedStations = peekStations();
     if (cachedStations.length) {
-      setLiveStationCounts(countLiveStationStatuses(cachedStations));
+      setLiveStationCounts(countSpiderLiveStationStatuses(cachedStations));
     }
   }, []);
 
@@ -274,7 +274,7 @@ export default function SpaceWeatherPage() {
       });
 
     getStations(false)
-      .then((stations) => setLiveStationCounts(countLiveStationStatuses(stations)))
+      .then((stations) => setLiveStationCounts(countSpiderLiveStationStatuses(stations)))
       .catch(() => null);
 
     const loadSecondary = () => {
@@ -305,7 +305,7 @@ export default function SpaceWeatherPage() {
   }), []);
 
   useEffect(() => subscribeStations((next) => {
-    if (next.length) setLiveStationCounts(countLiveStationStatuses(next));
+    if (next.length) setLiveStationCounts(countSpiderLiveStationStatuses(next));
   }), []);
 
   const freshnessMsg = useFeedFreshness("space-weather", feedStatus);

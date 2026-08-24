@@ -24,7 +24,7 @@ from backend.station_status_logger import poll_and_log, status as station_log_st
 router = APIRouter(prefix="/cors", tags=["cors"])
 log = logging.getLogger(__name__)
 
-_STATIONS_CACHE_TTL_SEC = 45.0
+_STATIONS_CACHE_TTL_SEC = 15.0
 # Live pipeline status changes every few seconds. A long TTL kept markers
 # stale after streams went online/offline.
 _STATIONS_LIVE_CACHE_TTL_SEC = 5.0
@@ -37,6 +37,37 @@ def _is_serverless_runtime() -> bool:
         os.getenv(name)
         for name in ("VERCEL", "VERCEL_ENV", "VERCEL_URL", "AWS_LAMBDA_FUNCTION_NAME")
     )
+
+
+def _stations_are_spider_authoritative(stations: list) -> bool:
+    if not stations:
+        return False
+    spider = sum(1 for s in stations if getattr(s, "status_source", "") == "spider")
+    return spider >= max(1, (len(stations) + 1) // 2)
+
+
+def _hold_non_spider_as_unknown(stations: list) -> list:
+    """Never paint catalog/archive online-offline as live Spider Site Status."""
+    from dataclasses import replace
+
+    held = []
+    for station in stations:
+        if getattr(station, "status_source", "") == "spider":
+            held.append(station)
+            continue
+        catalog = getattr(station, "catalog_status", "") or ""
+        if getattr(station, "status_source", "") == "catalog" and not catalog:
+            catalog = station.status
+        held.append(
+            replace(
+                station,
+                status="unknown",
+                status_source="unknown",
+                catalog_status=catalog,
+                site_status_label="Awaiting Spider Site Status",
+            )
+        )
+    return held
 
 
 def _live_pipeline_can_poll() -> bool:
@@ -177,6 +208,8 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
         health = None
 
     stations = stations_for_map(health, require_live_telemetry=False)
+    # Catalog archive is useful for details, not for live greens/reds.
+    stations = _hold_non_spider_as_unknown(stations)
 
     live_streams: dict = {}
     pipeline_configured = False
@@ -187,14 +220,17 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
         if pipeline_configured:
             live = stations_for_map_live(live_streams)
             stations = _merge_live_station_statuses(stations, live)
+            stations = _hold_non_spider_as_unknown(stations)
     except Exception:
         log.exception("Failed to merge live NTRIP station states")
 
     archive_applied = False
     if not pipeline_configured:
         stations, archive_applied = _merge_archived_live_statuses(stations)
+        stations = _hold_non_spider_as_unknown(stations)
         if archive_applied and _is_serverless_runtime():
-            return stations
+            # Always overlay a fresh Spider pull — never return archive as map truth.
+            return _merge_rover_clients(_merge_spider_site_statuses(stations, refresh=True))
 
     probe_payload = None
     probe_by: dict = {}
@@ -321,41 +357,52 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
                 sourcetable_note=st_diag.get("note") or "",
             )
         merged.append(s)
-    return _merge_rover_clients(_merge_spider_site_statuses(merged, refresh=False))
+    return _merge_rover_clients(_merge_spider_site_statuses(merged, refresh=True))
 
 
 def _merge_spider_site_statuses(stations: list, *, refresh: bool = False) -> list:
     """Overlay Leica Spider Site Status (Status==3 ⇒ online) as map ground truth.
 
-    Uses the TTL cache only — never force a Spider login on every NTRIP refresh,
-    which previously hung the API and made the UI show 0/25.
+    Always prefer a live Spider pull (max ~15s age). If Spider is unreachable,
+    leave stations as unknown — never fall back to catalog greens/reds.
     """
     from dataclasses import replace
 
     from zgiis.cors.site_details import vendor_status_label
-    from zgiis.live.spider_site_status import get_cached_spider_site_statuses, spider_status_enabled
+    from zgiis.live.spider_site_status import (
+        ensure_spider_site_statuses,
+        spider_status_enabled,
+    )
 
     if not spider_status_enabled():
-        return stations
+        return _hold_non_spider_as_unknown(stations)
 
     try:
-        payload = get_cached_spider_site_statuses(refresh=refresh)
+        # refresh=True and the default path both require a fresh live pull.
+        payload = ensure_spider_site_statuses(max_age_sec=0.0 if refresh else 15.0)
     except Exception:
         log.exception("Failed to load Spider site status")
-        return stations
+        return _hold_non_spider_as_unknown(stations)
 
     by_station = payload.get("by_station") or {}
     if not by_station:
         if payload.get("error"):
             log.warning("Spider site status unavailable: %s", payload.get("error"))
-        return stations
+        return _hold_non_spider_as_unknown(stations)
 
     merged = []
     for station in stations:
         code = station.code.lower().rstrip("_")
         row = by_station.get(code)
         if row is None:
-            merged.append(station)
+            merged.append(
+                replace(
+                    station,
+                    status="unknown",
+                    status_source="unknown",
+                    site_status_label="Not listed on Spider Site Status",
+                )
+            )
             continue
         status = str(row.get("status") or "offline")
         last_update = str(row.get("last_update") or station.last_update or "")
@@ -435,12 +482,17 @@ def _stations(*, refresh_ntrip: bool = False) -> list:
         cached is not None
         and (now - float(_stations_cache["ts"])) < ttl
         and _stations_cache.get("key") == cache_key
+        and _stations_are_spider_authoritative(cached)  # type: ignore[arg-type]
     ):
         return cached  # type: ignore[return-value]
     rows = _stations_impl(refresh_ntrip=refresh_ntrip)
-    _stations_cache["rows"] = rows
-    _stations_cache["ts"] = now
-    _stations_cache["key"] = cache_key
+    # Never remember a catalog/unknown snapshot — that re-served false 9/25.
+    if _stations_are_spider_authoritative(rows):
+        _stations_cache["rows"] = rows
+        _stations_cache["ts"] = now
+        _stations_cache["key"] = cache_key
+    else:
+        clear_stations_cache()
     return rows
 
 

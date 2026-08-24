@@ -142,7 +142,11 @@ export function buildMetricCards(
     (stationsOnlineCount !== null && stationsTotal ? `${stationsOnlineCount}/${stationsTotal}` : "N/A");
   const windValue = formatSolarWindDisplay(wind);
 
-  const stationsNote = corsDisplay?.note ?? "CORS connected (NTRIP probe pending)";
+  const stationsNote =
+    corsDisplay?.note ??
+    (stationsOnlineCount !== null && stationsTotal
+      ? `${stationsOnlineCount}/${stationsTotal} from live network status`
+      : "Awaiting Spider Site Status");
 
   return [
     {

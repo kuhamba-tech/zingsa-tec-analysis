@@ -24,7 +24,7 @@ import GicLiveTimelinePanel, { type GicTimelineBundle } from "@/components/dashb
 import SpaceWeatherReportsPanel from "@/components/dashboard/SpaceWeatherReportsPanel";
 import StormWarningAlarm from "@/components/dashboard/StormWarningAlarm";
 import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
-import { countLiveStationStatuses, connectedStreamCount, type LiveStationCounts } from "@/lib/liveStationStatus";
+import { connectedStreamCount, countSpiderLiveStationStatuses, type LiveStationCounts } from "@/lib/liveStationStatus";
 import { alignEkfToPoints } from "@/lib/ekfAlign";
 import { conditionsForSeries } from "@/lib/spaceWeatherMetrics";
 import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
@@ -182,7 +182,7 @@ export default function DashboardPage() {
     }
     const cachedStations = peekStations();
     if (cachedStations.length) {
-      setLiveStationCounts(countLiveStationStatuses(cachedStations));
+      setLiveStationCounts(countSpiderLiveStationStatuses(cachedStations));
     }
   }, []);
 
@@ -194,7 +194,7 @@ export default function DashboardPage() {
   }), []);
 
   useEffect(() => subscribeStations((next) => {
-    if (next.length) setLiveStationCounts(countLiveStationStatuses(next));
+    if (next.length) setLiveStationCounts(countSpiderLiveStationStatuses(next));
   }), []);
 
   const loadGicBundle = useCallback(async (): Promise<GicTimelineBundle | null> => {
@@ -230,7 +230,7 @@ export default function DashboardPage() {
     if (logR.status === "fulfilled") setLogStatus(logR.value);
     if (stLogR.status === "fulfilled") setStationLog(stLogR.value);
     if (ekfR.status === "fulfilled") setEkf(ekfR.value);
-    if (stationsR.status === "fulfilled") setLiveStationCounts(countLiveStationStatuses(stationsR.value));
+    if (stationsR.status === "fulfilled") setLiveStationCounts(countSpiderLiveStationStatuses(stationsR.value));
     if (gicR.status === "fulfilled" && gicR.value) setGicBundle(gicR.value);
   }, [loadGicBundle]);
 

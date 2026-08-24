@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { getEkfStatus, getLivePipelineStatus, getSpaceWeather, getStations, getTecHeatmap } from "@/lib/api";
 import { peekSpaceWeather, subscribeSpaceWeather } from "@/lib/spaceWeatherStore";
-import { peekStations, subscribeStations } from "@/lib/stationsStore";
+import { peekStations, subscribeStations, stationsAreSpiderAuthoritative } from "@/lib/stationsStore";
 import { mergeSpaceWeatherWithEkf } from "@/lib/homeSpaceWeather";
 import { buildMetricCards } from "@/lib/spaceWeatherMetrics";
 import {
@@ -120,16 +120,12 @@ export default function HomePage() {
 
   useEffect(() => {
     const cachedSw = peekSpaceWeather();
-    const cachedStations = peekStations();
     if (cachedSw) {
       setLiveSw(cachedSw);
       setDisplaySw(cachedSw);
       setSwStatus("stale");
     }
-    if (cachedStations.length) {
-      setStations(cachedStations);
-      setStationsLoading(false);
-    }
+    // Do not paint station greens/reds from a previous session — wait for Spider.
   }, []);
 
   useEffect(() => subscribeSpaceWeather((next) => {
@@ -239,13 +235,15 @@ export default function HomePage() {
   const gnssRisk = displaySw?.gnss_risk ?? (loading ? "…" : "N/A");
 
   const liveCounts = countLiveStationStatuses(stations);
+  const spiderLive = stationsAreSpiderAuthoritative(stations);
   const displayHeatmap = useMemo(
     () => mergeTecHeatmapWithStations(tecHeatmap, stations),
     [tecHeatmap, stations],
   );
 
   const homeCards = buildMetricCards(displaySw, {
-    liveStationCounts: liveCounts,
+    // Catalog-only snapshots (cold Vercel) must not override Spider/SW counts.
+    liveStationCounts: spiderLive ? liveCounts : undefined,
     ekfFilled,
   })
     .filter((card) => HOME_METRIC_KEYS.includes(card.key))
@@ -254,7 +252,7 @@ export default function HomePage() {
       label: HOME_LABELS[card.key] ?? card.label,
       value: card.key === "kp" && displaySw?.kp != null ? displaySw.kp.toFixed(1) : card.value,
       note:
-        card.key === "stations" && liveCounts.total > 0
+        card.key === "stations" && spiderLive && liveCounts.total > 0
           ? formatCorsConnectedShort(liveCounts)
           : card.note,
     }));

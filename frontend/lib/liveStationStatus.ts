@@ -1,4 +1,5 @@
 import type { Station } from "@/lib/types";
+import { stationsAreSpiderAuthoritative } from "@/lib/stationsStore";
 
 export type LiveStationStatus = "online" | "offline" | "unavailable";
 
@@ -13,12 +14,17 @@ export interface LiveStationCounts {
  * Map marker status: prefer Spider Site Status from the API.
  * Do not promote NTRIP "connected without MSM" to online — that caused
  * false greens vs Spider (BULA/CHIM/GWER red while caster session still up).
+ * Catalog (CORS_Program archive) is not live — treat as unavailable so a
+ * cold Vercel response cannot paint a stale 9/25 as Spider truth.
  */
 export function getLiveStationStatus(station: Station): LiveStationStatus {
   if (station.status_source === "spider") {
     return station.status === "online" ? "online" : "offline";
   }
-  if (station.status_source === "ntrip" || station.status_source === "catalog") {
+  if (station.status_source === "catalog") {
+    return "unavailable";
+  }
+  if (station.status_source === "ntrip") {
     if (station.status === "online" || station.status === "linked") return "online";
     if (station.status === "offline") return "offline";
   }
@@ -113,6 +119,15 @@ export function countLiveStationStatuses(stations: Station[], expectedTotal = 24
   if (stations.length === 0) counts.unavailable = expectedTotal;
 
   return counts;
+}
+
+/** Only return live counts when Spider Site Status is the majority source. */
+export function countSpiderLiveStationStatuses(
+  stations: Station[],
+  expectedTotal = 24,
+): LiveStationCounts | null {
+  if (!stationsAreSpiderAuthoritative(stations)) return null;
+  return countLiveStationStatuses(stations, expectedTotal);
 }
 
 /** Online sites — used for X/24 “CORS Connected” display. */

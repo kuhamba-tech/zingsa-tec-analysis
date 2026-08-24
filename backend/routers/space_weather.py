@@ -62,12 +62,12 @@ def _cached_s4() -> tuple[float | None, float, str, str]:
 
 
 def _ntrip_stream_counts() -> tuple[int | None, int | None]:
-    """Non-blocking station counts — Spider Site Status first, then archives."""
+    """Station counts — live Spider Site Status first, then archives."""
     try:
-        from zgiis.live.spider_site_status import get_cached_spider_site_statuses, spider_status_enabled
+        from zgiis.live.spider_site_status import ensure_spider_site_statuses, spider_status_enabled
 
         if spider_status_enabled():
-            payload = get_cached_spider_site_statuses()
+            payload = ensure_spider_site_statuses(max_age_sec=15.0)
             by_station = payload.get("by_station") or {}
             if by_station:
                 online = sum(1 for row in by_station.values() if row.get("status") == "online")
