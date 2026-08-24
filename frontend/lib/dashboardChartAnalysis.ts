@@ -151,6 +151,40 @@ export function analyzeKpDstTimeline(
   return { lead, bullets };
 }
 
+export function analyzeKpTimeline(points: TimelinePoint[]): ChartAnalysisBlock {
+  const peak = peakPoint(points);
+  const latest = latestPoint(points);
+  const vals = validValues(points);
+  const stormSamples = vals.filter((value) => value >= 5).length;
+  const bullets = [
+    "Kp is a quasi-logarithmic planetary geomagnetic index from 0 to 9. Kp ≥ 5 marks G1 storm conditions; it describes disturbance at Earth, not solar activity at the Sun.",
+  ];
+  if (peak) bullets.push(`Peak Kp ${fmt(peak.v)} on ${dayKey(peak.t)} — ${kpStormClass(peak.v)}.`);
+  if (latest) bullets.push(`Latest Kp ${fmt(latest.v)} — ${kpStormClass(latest.v)}. Confirm operational effects with Dst, local S4/ROTI, TEC gradients, and receiver tracking quality.`);
+  if (stormSamples) bullets.push(`${stormSamples} plotted sample${stormSamples === 1 ? "" : "s"} reached the Kp ≥ 5 storm threshold.`);
+  return {
+    lead: peak && peak.v >= 5 ? "Storm-level planetary geomagnetic activity appears in this window." : "Planetary geomagnetic activity remains below the conventional storm threshold in this window.",
+    bullets,
+  };
+}
+
+export function analyzeDstTimeline(points: TimelinePoint[]): ChartAnalysisBlock {
+  const trough = troughPoint(points);
+  const latest = latestPoint(points);
+  const vals = validValues(points);
+  const stormSamples = vals.filter((value) => value <= -50).length;
+  const bullets = [
+    "Dst measures the symmetric magnetospheric ring current in nanotesla. Sustained negative values indicate storm development: approximately −50 nT for a moderate disturbance and below −100 nT for an intense storm.",
+  ];
+  if (trough) bullets.push(`Most negative Dst ${fmt(trough.v, 0)} nT on ${dayKey(trough.t)} — ${dstStormNote(trough.v)}.`);
+  if (latest) bullets.push(`Latest Dst ${fmt(latest.v, 0)} nT. A single sharp point should be verified against neighbouring hourly samples and Kp before declaring a storm main phase.`);
+  if (stormSamples) bullets.push(`${stormSamples} plotted sample${stormSamples === 1 ? "" : "s"} crossed the −50 nT storm threshold.`);
+  return {
+    lead: trough && trough.v <= -50 ? "The ring-current index reaches storm-level depression in this window." : "Dst remains above the conventional −50 nT storm threshold in this window.",
+    bullets,
+  };
+}
+
 export function analyzeF107Timeline(points: TimelinePoint[]): ChartAnalysisBlock {
   const vals = validValues(points);
   const peak = peakPoint(points);

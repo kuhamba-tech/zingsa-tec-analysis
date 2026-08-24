@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useState, type CSSProperties, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { getSpaceWeather, getSolarActivity, getTimelines, refreshSpaceWeather, getStations } from "@/lib/api";
 import { peekSpaceWeather, subscribeSpaceWeather } from "@/lib/spaceWeatherStore";
 import { peekStations, subscribeStations } from "@/lib/stationsStore";
@@ -8,6 +8,17 @@ import IndexScaleReference from "@/components/spaceWeather/IndexScaleReference";
 import AiRecommendationPanel from "@/components/layout/AiRecommendationPanel";
 import HomeStormAlertBanner from "@/components/layout/HomeStormAlertBanner";
 import LineChart from "@/components/charts/LineChart";
+import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
+import type { ChartAnalysisBlock } from "@/lib/multiSourceChartAnalysis";
+import {
+  analyzeDstTimeline,
+  analyzeF107Timeline,
+  analyzeGnssRiskTimeline,
+  analyzeKpTimeline,
+  analyzeS4Timeline,
+  analyzeSolarWindTimeline,
+  analyzeStationsOnlineTimeline,
+} from "@/lib/dashboardChartAnalysis";
 import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
 import { connectedStreamCount, countSpiderLiveStationStatuses, type LiveStationCounts } from "@/lib/liveStationStatus";
 import type { SpaceWeatherCurrent, SolarActivityFull, SpaceWeatherTimelines, TimelinePoint } from "@/lib/types";
@@ -154,15 +165,33 @@ function getGnssImpact(kp: number | null, s4: number | null, flare: string, leve
 }
 
 function TimelineCard({
-  title, pts, color, yLabel, threshold, source, emptyMsg,
+  title, pts, color, yLabel, threshold, source, analysis, emptyMsg,
 }: {
   title: string; pts: TimelinePoint[]; color: string; yLabel: string;
-  threshold?: { value: number; label: string }; source: string; emptyMsg?: string;
+  threshold?: { value: number; label: string }; source: string;
+  analysis: ChartAnalysisBlock; emptyMsg?: string;
 }) {
+  const [expanded, setExpanded] = useState(false);
   const labels = pts.map((p) => p.t.length >= 16 ? p.t.slice(11, 16) : p.t.slice(0, 13));
   const data = pts.map((p) => p.v ?? 0);
+  const toggle = () => pts.length > 0 && setExpanded((value) => !value);
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      toggle();
+    }
+  };
   return (
-    <div className="card">
+    <div
+      className="card"
+      role={pts.length > 0 ? "button" : undefined}
+      tabIndex={pts.length > 0 ? 0 : undefined}
+      aria-expanded={pts.length > 0 ? expanded : undefined}
+      aria-label={pts.length > 0 ? `${title}. Click for scientific explanation.` : undefined}
+      onClick={toggle}
+      onKeyDown={onKeyDown}
+      style={{ cursor: pts.length > 0 ? "pointer" : "default" }}
+    >
       <div className="metric-label" style={{ marginBottom: "0.6rem" }}>{title}</div>
       {pts.length > 0 ? (
         <>
@@ -170,6 +199,10 @@ function TimelineCard({
           <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>
             {source} · {pts.length} points.
           </div>
+          <div style={{ fontSize: "0.72rem", color: "var(--accent)", marginTop: "0.35rem", fontWeight: 700 }}>
+            {expanded ? "Click graph to hide scientific explanation" : "Click graph for scientific explanation"}
+          </div>
+          {expanded && <ChartAnalysisBox block={analysis} title="Scientific interpretation" />}
         </>
       ) : (
         <div className="banner banner-warn">{emptyMsg ?? "Live data unavailable."}</div>
@@ -342,6 +375,16 @@ export default function SpaceWeatherPage() {
     currentPoint(streamCount, currentTimestamp),
   );
 
+  const timelineAnalyses = useMemo(() => ({
+    kp: analyzeKpTimeline(kpPoints),
+    dst: analyzeDstTimeline(dstPoints),
+    f107: analyzeF107Timeline(f107Points),
+    solarWind: analyzeSolarWindTimeline(solarWindPoints),
+    s4: analyzeS4Timeline(s4Points),
+    gnss: analyzeGnssRiskTimeline(gnssPoints),
+    stations: analyzeStationsOnlineTimeline(stationsOnlinePoints),
+  }), [kpPoints, dstPoints, f107Points, solarWindPoints, s4Points, gnssPoints, stationsOnlinePoints]);
+
   const solarFeedLive = sa?.mode === "live";
   const solarFeedLabel = !sa ? "Loading solar data…" : solarFeedLive ? "Live Data" : "Feed unavailable";
   const flareClassRaw = sa?.flare_class?.trim();
@@ -376,6 +419,22 @@ export default function SpaceWeatherPage() {
     const minsAgo = (xrayLabelCount - 1 - i) * (xrayRange === "6H" ? 40 : 40);
     return minsAgo === 0 ? "now" : `-${Math.round(minsAgo / 60)}h`;
   });
+  const xrayAnalysis = useMemo<ChartAnalysisBlock>(() => {
+    if (!xraySlice.length) return { lead: "No GOES X-ray samples are available for interpretation.", bullets: [] };
+    const peak = Math.max(...xraySlice);
+    const latest = xraySlice[xraySlice.length - 1];
+    const average = xraySlice.reduce((sum, value) => sum + value, 0) / xraySlice.length;
+    const first = xraySlice[0];
+    return {
+      lead: `GOES soft X-ray emission is currently classified as ${flareClass}; this is the direct radiative signature used to identify solar flares.`,
+      bullets: [
+        `The plotted 0.1–0.8 nm series contains ${xraySlice.length} samples: latest ${latest.toFixed(3)}, mean ${average.toFixed(3)}, and peak ${peak.toFixed(3)} ×10⁻⁷ W/m².`,
+        `Net change across the displayed window is ${(latest - first) >= 0 ? "+" : ""}${(latest - first).toFixed(3)} ×10⁻⁷ W/m². Rapid impulsive rises followed by slower decay are flare-like; isolated single-sample spikes require feed-quality confirmation.`,
+        "X-ray bursts can cause immediate dayside ionospheric ionisation and HF fadeout. GNSS consequences must be verified with TEC gradients, S4/ROTI, tracking loss, and receiver residuals; X-ray class alone does not quantify positioning error.",
+      ],
+    };
+  }, [xraySlice, flareClass]);
+  const [xrayExplanationOpen, setXrayExplanationOpen] = useState(false);
 
   // ── GNSS Impact ───────────────────────────────────────────────────────────
   const impact = getGnssImpact(kp, s4, flareClass, actLabel);
@@ -793,42 +852,49 @@ export default function SpaceWeatherPage() {
             pts={kpPoints} color="#168bd2" yLabel="Kp Index"
             threshold={{ value: 5, label: "Storm threshold (5)" }}
             source="NOAA SWPC Planetary K-index 1-minute feed"
+            analysis={timelineAnalyses.kp}
             emptyMsg="Live NOAA Kp feed unavailable." />
 
           <TimelineCard title="Live NOAA Dst Timeline"
             pts={dstPoints} color="#a78bfa" yLabel="Dst (nT)"
             threshold={{ value: -50, label: "Storm threshold (−50 nT)" }}
             source="NOAA SWPC Kyoto Dst index (hourly)"
+            analysis={timelineAnalyses.dst}
             emptyMsg="Live NOAA Dst feed unavailable." />
 
           <TimelineCard title="Live NOAA F10.7 Solar Flux Timeline"
             pts={f107Points} color="#ffcc00" yLabel="F10.7 (sfu)"
             threshold={{ value: 150, label: "High activity (150 sfu)" }}
             source="NOAA SWPC F10.7 cm flux feed"
+            analysis={timelineAnalyses.f107}
             emptyMsg="Live NOAA F10.7 feed unavailable." />
 
           <TimelineCard title="Live NOAA Solar Wind Timeline"
             pts={solarWindPoints} color="#00cc88" yLabel="Speed (km/s)"
             threshold={{ value: 500, label: "Fast stream (500 km/s)" }}
             source="NOAA SWPC solar-wind plasma 1-day feed"
+            analysis={timelineAnalyses.solarWind}
             emptyMsg="Live solar wind feed unavailable." />
 
           <TimelineCard title="Live Scintillation S4 Timeline"
             pts={s4Points} color="#ff8c00" yLabel="S4 Index"
             threshold={{ value: 0.5, label: "Severe scintillation (0.5)" }}
             source="ZINGSA CORS ionosphere archive"
+            analysis={timelineAnalyses.s4}
             emptyMsg="No observed S4 archive value is available for the timeline." />
 
           <TimelineCard title="GNSS Risk Level Timeline"
             pts={gnssPoints} color="#168bd2" yLabel="Risk level"
             threshold={{ value: 2, label: "High risk (2)" }}
             source="Derived from NOAA Kp — ZINGSA GNSS risk thresholds"
+            analysis={timelineAnalyses.gnss}
             emptyMsg="GNSS risk timeline unavailable." />
 
           {stationsOnlinePoints.length > 0 ? (
             <TimelineCard title="Live CORS Stations Online Timeline"
               pts={stationsOnlinePoints} color="#00ff88" yLabel="Stations online"
               source="ZINGSA CORS station-health — current live count"
+              analysis={timelineAnalyses.stations}
               emptyMsg="Live CORS telemetry unavailable." />
           ) : (
             <div className="card">
@@ -850,12 +916,26 @@ export default function SpaceWeatherPage() {
           </div>
 
           {/* GOES X-Ray Flux chart */}
-          <div className="card">
+          <div
+            className="card"
+            role={xraySlice.length > 0 ? "button" : undefined}
+            tabIndex={xraySlice.length > 0 ? 0 : undefined}
+            aria-expanded={xraySlice.length > 0 ? xrayExplanationOpen : undefined}
+            aria-label={xraySlice.length > 0 ? "GOES X-ray flux graph. Click for scientific explanation." : undefined}
+            onClick={() => xraySlice.length > 0 && setXrayExplanationOpen((value) => !value)}
+            onKeyDown={(event) => {
+              if (xraySlice.length > 0 && (event.key === "Enter" || event.key === " ")) {
+                event.preventDefault();
+                setXrayExplanationOpen((value) => !value);
+              }
+            }}
+            style={{ cursor: xraySlice.length > 0 ? "pointer" : "default" }}
+          >
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.7rem", flexWrap: "wrap", gap: "0.5rem" }}>
               <div className="metric-label">SOLAR X-RAY FLUX (GOES-16) · 0.1–0.8 nm</div>
               <div style={{ display: "flex", gap: "0.4rem" }}>
                 {(["6H", "24H"] as const).map((r) => (
-                  <button key={r} onClick={() => setXrayRange(r)}
+                  <button key={r} onClick={(event) => { event.stopPropagation(); setXrayRange(r); }}
                     style={{ padding: "0.2rem 0.7rem", fontSize: "0.72rem", fontWeight: 700, borderRadius: "5px", border: `1px solid ${xrayRange === r ? "var(--accent)" : "var(--border)"}`, background: xrayRange === r ? "var(--accent)" : "var(--surface)", color: "#fff", cursor: "pointer" }}>
                     {r}
                   </button>
@@ -879,6 +959,10 @@ export default function SpaceWeatherPage() {
                     </span>
                   ))}
                 </div>
+                <div style={{ fontSize: "0.72rem", color: "var(--accent)", marginTop: "0.5rem", fontWeight: 700 }}>
+                  {xrayExplanationOpen ? "Click graph to hide scientific explanation" : "Click graph for scientific explanation"}
+                </div>
+                {xrayExplanationOpen && <ChartAnalysisBox block={xrayAnalysis} title="Scientific interpretation" />}
               </>
             ) : (
               <div className="banner banner-info">GOES X-ray flux data unavailable — NOAA SWPC feed offline or rate-limited.</div>
