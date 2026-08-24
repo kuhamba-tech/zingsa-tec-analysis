@@ -18,6 +18,8 @@ secrets.toml
 
 # Local runtime databases
 static/data/*.db
+static/data/*.db-wal
+static/data/*.db-shm
 static/data/*.sqlite
 static/data/*.sqlite3
 static/data/*.sqlite-journal
