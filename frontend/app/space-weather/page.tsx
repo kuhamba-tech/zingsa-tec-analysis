@@ -165,16 +165,15 @@ function getGnssImpact(kp: number | null, s4: number | null, flare: string, leve
 }
 
 function TimelineCard({
-  title, pts, color, yLabel, threshold, source, analysis, emptyMsg,
+  graphId, title, pts, color, yLabel, threshold, source, analysis, expanded, onToggle, emptyMsg,
 }: {
-  title: string; pts: TimelinePoint[]; color: string; yLabel: string;
+  graphId: string; title: string; pts: TimelinePoint[]; color: string; yLabel: string;
   threshold?: { value: number; label: string }; source: string;
-  analysis: ChartAnalysisBlock; emptyMsg?: string;
+  analysis: ChartAnalysisBlock; expanded: boolean; onToggle: (graphId: string) => void; emptyMsg?: string;
 }) {
-  const [expanded, setExpanded] = useState(false);
   const labels = pts.map((p) => p.t.length >= 16 ? p.t.slice(11, 16) : p.t.slice(0, 13));
   const data = pts.map((p) => p.v ?? 0);
-  const toggle = () => pts.length > 0 && setExpanded((value) => !value);
+  const toggle = () => pts.length > 0 && onToggle(graphId);
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
@@ -254,6 +253,8 @@ export default function SpaceWeatherPage() {
   const [feedStatus, setFeedStatus] = useState<FeedStatus>("pending");
   const [liveStationCounts, setLiveStationCounts] = useState<LiveStationCounts | null>(null);
   const [selectedSolarInfo, setSelectedSolarInfo] = useState<SolarInfoKey>("summary");
+  const [selectedGraph, setSelectedGraph] = useState<string | null>(null);
+  const toggleGraph = (graphId: string) => setSelectedGraph((current) => current === graphId ? null : graphId);
 
   useEffect(() => {
     const cached = peekSpaceWeather();
@@ -434,7 +435,7 @@ export default function SpaceWeatherPage() {
       ],
     };
   }, [xraySlice, flareClass]);
-  const [xrayExplanationOpen, setXrayExplanationOpen] = useState(false);
+  const xrayExplanationOpen = selectedGraph === "xray";
 
   // ── GNSS Impact ───────────────────────────────────────────────────────────
   const impact = getGnssImpact(kp, s4, flareClass, actLabel);
@@ -839,7 +840,7 @@ export default function SpaceWeatherPage() {
       {/* ── Tabs ── */}
       <div className="tabs">
         {["Live Metric Timelines", "Solar Activity", "Kp Scale"].map((t, i) => (
-          <button key={t} className={`tab${tab === i ? " active" : ""}`} onClick={() => setTab(i)}>{t}</button>
+          <button key={t} className={`tab${tab === i ? " active" : ""}`} onClick={() => { setTab(i); setSelectedGraph(null); }}>{t}</button>
         ))}
       </div>
 
@@ -848,53 +849,60 @@ export default function SpaceWeatherPage() {
         <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
           <p style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>Real-time NOAA feeds and derived indices — last 6 hours (UTC)</p>
 
-          <TimelineCard title="Live NOAA Kp Timeline"
+          <TimelineCard graphId="kp" title="Live NOAA Kp Timeline"
             pts={kpPoints} color="#168bd2" yLabel="Kp Index"
             threshold={{ value: 5, label: "Storm threshold (5)" }}
             source="NOAA SWPC Planetary K-index 1-minute feed"
             analysis={timelineAnalyses.kp}
+            expanded={selectedGraph === "kp"} onToggle={toggleGraph}
             emptyMsg="Live NOAA Kp feed unavailable." />
 
-          <TimelineCard title="Live NOAA Dst Timeline"
+          <TimelineCard graphId="dst" title="Live NOAA Dst Timeline"
             pts={dstPoints} color="#a78bfa" yLabel="Dst (nT)"
             threshold={{ value: -50, label: "Storm threshold (−50 nT)" }}
             source="NOAA SWPC Kyoto Dst index (hourly)"
             analysis={timelineAnalyses.dst}
+            expanded={selectedGraph === "dst"} onToggle={toggleGraph}
             emptyMsg="Live NOAA Dst feed unavailable." />
 
-          <TimelineCard title="Live NOAA F10.7 Solar Flux Timeline"
+          <TimelineCard graphId="f107" title="Live NOAA F10.7 Solar Flux Timeline"
             pts={f107Points} color="#ffcc00" yLabel="F10.7 (sfu)"
             threshold={{ value: 150, label: "High activity (150 sfu)" }}
             source="NOAA SWPC F10.7 cm flux feed"
             analysis={timelineAnalyses.f107}
+            expanded={selectedGraph === "f107"} onToggle={toggleGraph}
             emptyMsg="Live NOAA F10.7 feed unavailable." />
 
-          <TimelineCard title="Live NOAA Solar Wind Timeline"
+          <TimelineCard graphId="solar-wind" title="Live NOAA Solar Wind Timeline"
             pts={solarWindPoints} color="#00cc88" yLabel="Speed (km/s)"
             threshold={{ value: 500, label: "Fast stream (500 km/s)" }}
             source="NOAA SWPC solar-wind plasma 1-day feed"
             analysis={timelineAnalyses.solarWind}
+            expanded={selectedGraph === "solar-wind"} onToggle={toggleGraph}
             emptyMsg="Live solar wind feed unavailable." />
 
-          <TimelineCard title="Live Scintillation S4 Timeline"
+          <TimelineCard graphId="s4" title="Live Scintillation S4 Timeline"
             pts={s4Points} color="#ff8c00" yLabel="S4 Index"
             threshold={{ value: 0.5, label: "Severe scintillation (0.5)" }}
             source="ZINGSA CORS ionosphere archive"
             analysis={timelineAnalyses.s4}
+            expanded={selectedGraph === "s4"} onToggle={toggleGraph}
             emptyMsg="No observed S4 archive value is available for the timeline." />
 
-          <TimelineCard title="GNSS Risk Level Timeline"
+          <TimelineCard graphId="gnss-risk" title="GNSS Risk Level Timeline"
             pts={gnssPoints} color="#168bd2" yLabel="Risk level"
             threshold={{ value: 2, label: "High risk (2)" }}
             source="Derived from NOAA Kp — ZINGSA GNSS risk thresholds"
             analysis={timelineAnalyses.gnss}
+            expanded={selectedGraph === "gnss-risk"} onToggle={toggleGraph}
             emptyMsg="GNSS risk timeline unavailable." />
 
           {stationsOnlinePoints.length > 0 ? (
-            <TimelineCard title="Live CORS Stations Online Timeline"
+            <TimelineCard graphId="cors-online" title="Live CORS Stations Online Timeline"
               pts={stationsOnlinePoints} color="#00ff88" yLabel="Stations online"
               source="ZINGSA CORS station-health — current live count"
               analysis={timelineAnalyses.stations}
+              expanded={selectedGraph === "cors-online"} onToggle={toggleGraph}
               emptyMsg="Live CORS telemetry unavailable." />
           ) : (
             <div className="card">
@@ -922,11 +930,11 @@ export default function SpaceWeatherPage() {
             tabIndex={xraySlice.length > 0 ? 0 : undefined}
             aria-expanded={xraySlice.length > 0 ? xrayExplanationOpen : undefined}
             aria-label={xraySlice.length > 0 ? "GOES X-ray flux graph. Click for scientific explanation." : undefined}
-            onClick={() => xraySlice.length > 0 && setXrayExplanationOpen((value) => !value)}
+            onClick={() => xraySlice.length > 0 && toggleGraph("xray")}
             onKeyDown={(event) => {
               if (xraySlice.length > 0 && (event.key === "Enter" || event.key === " ")) {
                 event.preventDefault();
-                setXrayExplanationOpen((value) => !value);
+                toggleGraph("xray");
               }
             }}
             style={{ cursor: xraySlice.length > 0 ? "pointer" : "default" }}
