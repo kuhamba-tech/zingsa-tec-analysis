@@ -3,11 +3,13 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import BarChart from "@/components/charts/BarChart";
+import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
 import LineChart from "@/components/charts/LineChart";
 import PrnConstellationPanel from "@/components/prnExplorer/PrnConstellationPanel";
 import PrnFilters from "@/components/prnExplorer/PrnFilters";
 import PrnSkyPlot from "@/components/prnExplorer/PrnSkyPlot";
 import { getPrnConstellations, getPrnExplorer } from "@/lib/api";
+import { analyzePrnVtec } from "@/lib/prnChartAnalysis";
 import type {
   PrnConstellationInfo,
   PrnConstellationPayload,
@@ -307,6 +309,11 @@ export default function PrnExplorerPage() {
     : meta?.source === "archive" ? "TEC archive"
     : "No per-PRN source";
 
+  const vtecAnalysis = useMemo(
+    () => analyzePrnVtec(observations, chartPrns, sourceLabel),
+    [observations, chartPrns, sourceLabel],
+  );
+
   return (
     <div className="page-stack">
       <div>
@@ -407,6 +414,10 @@ export default function PrnExplorerPage() {
                 <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "0.4rem" }}>
                   Real timestamps (UTC). Showing up to {chartPrns.length} PRN{chartPrns.length === 1 ? "" : "s"} for {selected}.
                 </div>
+                <ChartAnalysisBox
+                  block={vtecAnalysis}
+                  title="Space-science interpretation and quality assessment"
+                />
               </>
             ) : (
               <div className="banner banner-info">No time-series PRN data for {selected}. Adjust filters or load per-PRN CMN/live data.</div>
