@@ -1,5 +1,7 @@
 "use client";
-import type { Station, TecHeatmapResponse } from "@/lib/types";
+import { useEffect, useMemo, useState } from "react";
+import { getStationUptimeAnalysis } from "@/lib/api";
+import type { Station, StationUptimeAnalysis, TecHeatmapResponse } from "@/lib/types";
 import { siteStatusColor, stationDetailRows } from "@/lib/stationDetails";
 import { getLiveStationStatus } from "@/lib/liveStationStatus";
 import { icaoTecColor, icaoTecDistanceLabel, icaoTecLabel } from "@/lib/icaoTecAdvisory";
@@ -35,7 +37,37 @@ function heatmapVtec(station: Station, heatmap?: TecHeatmapResponse | null): num
     : null;
 }
 
+function formatArchiveTime(value: string | null | undefined): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const cat = new Intl.DateTimeFormat("en-ZW", {
+    timeZone: "Africa/Harare",
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(date);
+  const utc = date.toISOString().replace("T", " ").replace(".000Z", " UTC");
+  return `${cat} CAT · ${utc}`;
+}
+
+function formatDuration(minutes: number): string {
+  if (!Number.isFinite(minutes)) return "—";
+  const totalMinutes = Math.max(0, Math.round(minutes));
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const mins = totalMinutes % 60;
+  return [days ? `${days}d` : "", hours ? `${hours}h` : "", `${mins}m`].filter(Boolean).join(" ");
+}
+
 export default function SiteDetailsPanel({ station, heatmap = null, onClose }: Props) {
+  const [uptime, setUptime] = useState<StationUptimeAnalysis | null>(null);
+  const [uptimeLoading, setUptimeLoading] = useState(true);
+  const [uptimeError, setUptimeError] = useState<string | null>(null);
   const rows = stationDetailRows(station);
   const vtec = heatmapVtec(station, heatmap);
   const heatmapStation = heatmapStationFor(station, heatmap);
@@ -47,6 +79,36 @@ export default function SiteDetailsPanel({ station, heatmap = null, onClose }: P
   const statusColor = siteStatusColor(
     rows.find((r) => r.label === "Site Status")?.value ?? station.status,
   );
+  const liveStatus = getLiveStationStatus(station);
+  const outageSummary = useMemo(() => {
+    const intervals = uptime?.outage_intervals ?? [];
+    const ongoing = intervals.find((item) => item.ongoing) ?? null;
+    const lastCompleted = intervals.find((item) => !item.ongoing && item.ended_at) ?? null;
+    const totalDowntime = intervals.reduce((sum, item) => sum + item.duration_min, 0);
+    return { ongoing, lastCompleted, totalDowntime };
+  }, [uptime]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setUptime(null);
+    setUptimeLoading(true);
+    setUptimeError(null);
+    getStationUptimeAnalysis(8760, stationKey(station.code))
+      .then((payload) => {
+        if (!cancelled) setUptime(payload);
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setUptimeError(error instanceof Error ? error.message : "Downtime archive unavailable");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setUptimeLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [station.code, station.status, station.last_update]);
 
   return (
     <aside
@@ -154,6 +216,90 @@ export default function SiteDetailsPanel({ station, heatmap = null, onClose }: P
             )}
           </tbody>
         </table>
+
+        <section
+          aria-label="Station downtime history"
+          style={{
+            marginTop: "0.8rem",
+            padding: "0.7rem",
+            border: "1px solid #244d73",
+            borderRadius: "8px",
+            background: "rgba(0, 0, 0, 0.28)",
+          }}
+        >
+          <div style={{ fontWeight: 800, fontSize: "0.74rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+            Downtime archive · 1 year
+          </div>
+          <div style={{ marginTop: "0.25rem", fontSize: "0.64rem", lineHeight: 1.45, color: "#ffffff" }}>
+            Times are recorded from live Spider/NTRIP status transitions and retained for outage analysis.
+          </div>
+
+          {uptimeLoading && <div style={{ marginTop: "0.55rem", color: "#ffffff" }}>Loading outage history…</div>}
+          {uptimeError && (
+            <div role="status" style={{ marginTop: "0.55rem", color: "#ffb347", lineHeight: 1.4 }}>
+              Downtime history unavailable: {uptimeError}
+            </div>
+          )}
+          {uptime && !uptimeLoading && (
+            <table style={{ width: "100%", borderCollapse: "collapse", marginTop: "0.45rem" }}>
+              <tbody>
+                <tr style={{ borderBottom: "1px solid rgba(36, 77, 115, 0.35)" }}>
+                  <td style={{ padding: "0.35rem 0.4rem 0.35rem 0", verticalAlign: "top", width: "42%" }}>
+                    Current outage
+                  </td>
+                  <td style={{ padding: "0.35rem 0", color: outageSummary.ongoing ? "#ff6b6b" : "#00ff88", fontWeight: 700 }}>
+                    {outageSummary.ongoing
+                      ? `Ongoing · ${formatDuration(outageSummary.ongoing.duration_min)}`
+                      : liveStatus === "offline"
+                        ? "Offline · awaiting a recorded transition time"
+                        : liveStatus === "unavailable"
+                          ? "Status unavailable"
+                          : "None · station up"}
+                  </td>
+                </tr>
+                <tr style={{ borderBottom: "1px solid rgba(36, 77, 115, 0.35)" }}>
+                  <td style={{ padding: "0.35rem 0.4rem 0.35rem 0", verticalAlign: "top" }}>Went down</td>
+                  <td style={{ padding: "0.35rem 0", color: "#ffffff", wordBreak: "break-word" }}>
+                    {formatArchiveTime(outageSummary.ongoing?.started_at)}
+                  </td>
+                </tr>
+                <tr style={{ borderBottom: "1px solid rgba(36, 77, 115, 0.35)" }}>
+                  <td style={{ padding: "0.35rem 0.4rem 0.35rem 0", verticalAlign: "top" }}>Last restored</td>
+                  <td style={{ padding: "0.35rem 0", color: "#ffffff", wordBreak: "break-word" }}>
+                    {formatArchiveTime(outageSummary.lastCompleted?.ended_at)}
+                  </td>
+                </tr>
+                <tr style={{ borderBottom: "1px solid rgba(36, 77, 115, 0.35)" }}>
+                  <td style={{ padding: "0.35rem 0.4rem 0.35rem 0", verticalAlign: "top" }}>Last outage</td>
+                  <td style={{ padding: "0.35rem 0", color: "#ffffff" }}>
+                    {outageSummary.lastCompleted ? formatDuration(outageSummary.lastCompleted.duration_min) : "—"}
+                  </td>
+                </tr>
+                <tr style={{ borderBottom: "1px solid rgba(36, 77, 115, 0.35)" }}>
+                  <td style={{ padding: "0.35rem 0.4rem 0.35rem 0", verticalAlign: "top" }}>Outages logged</td>
+                  <td style={{ padding: "0.35rem 0", color: "#ffffff" }}>{uptime.outage_events}</td>
+                </tr>
+                <tr style={{ borderBottom: "1px solid rgba(36, 77, 115, 0.35)" }}>
+                  <td style={{ padding: "0.35rem 0.4rem 0.35rem 0", verticalAlign: "top" }}>Downtime total</td>
+                  <td style={{ padding: "0.35rem 0", color: "#ffffff" }}>
+                    {uptime.samples > 0 ? formatDuration(outageSummary.totalDowntime) : "No archived samples"}
+                  </td>
+                </tr>
+                <tr>
+                  <td style={{ padding: "0.35rem 0.4rem 0.35rem 0", verticalAlign: "top" }}>Availability</td>
+                  <td style={{ padding: "0.35rem 0", color: "#ffffff" }}>{uptime.online_pct.toFixed(2)}%</td>
+                </tr>
+              </tbody>
+            </table>
+          )}
+
+          <a
+            href={`/reports?type=uptime&range=1y&station=${encodeURIComponent(stationKey(station.code))}`}
+            style={{ display: "inline-block", marginTop: "0.6rem", color: "#63c7ff", fontWeight: 700, fontSize: "0.68rem" }}
+          >
+            Open full downtime analysis →
+          </a>
+        </section>
 
         {station.constellations?.length > 0 && (
           <div style={{ marginTop: "0.65rem", fontSize: "0.72rem", color: "#ffffff" }}>
