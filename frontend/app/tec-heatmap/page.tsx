@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { getStations, getTecHeatmap } from "@/lib/api";
+import { peekStations } from "@/lib/stationsStore";
 import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
 import { heatmapQualityBanner, icaoTecLabel, icaoTecLevel, inferHeatmapQuality } from "@/lib/icaoTecAdvisory";
 import { mergeTecHeatmapWithStations } from "@/lib/tecHeatmapMerge";
@@ -15,10 +16,10 @@ const LAYERS: MapLayer[] = ["Hybrid", "Satellite", "Street", "TEC Heat Map"];
 const HEATMAP_REFRESH_MS = 90_000;
 
 export default function TecHeatmapPage() {
-  const [stations, setStations] = useState<Station[]>([]);
+  const [stations, setStations] = useState<Station[]>(() => peekStations());
   const [heatmap, setHeatmap] = useState<TecHeatmapResponse | null>(null);
   const [mapLayer, setMapLayer] = useState<MapLayer>("TEC Heat Map");
-  const [status, setStatus] = useState<FeedStatus>("pending");
+  const [status, setStatus] = useState<FeedStatus>(() => (peekStations().length ? "stale" : "pending"));
   const [heatmapStatus, setHeatmapStatus] = useState<FeedStatus>("pending");
   const [lastFetchedAt, setLastFetchedAt] = useState<Date | null>(null);
 
@@ -43,8 +44,8 @@ export default function TecHeatmapPage() {
         setStatus("ok");
       })
       .catch(() => {
-        setStations([]);
-        setStatus("down");
+        if (peekStations().length) setStatus("stale");
+        else setStatus("down");
       });
   }, []);
 

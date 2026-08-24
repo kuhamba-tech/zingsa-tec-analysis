@@ -25,6 +25,82 @@ SUBSTATIONS: list[dict] = [
     {"code": "SW_BORDER", "name": "Southern interconnector (border)", "lat": -21.8500, "lon": 28.2000},
 ]
 
+# ── ZPC power generation stations (ZESA Holdings / Zimbabwe Power Company) ───
+# Source: https://www.zesaholdings.co.zw/ZPC — Kariba South hydro plus Hwange
+# and the Bulawayo, Harare, and Munyati thermal stations. Coordinates are
+# approximate plant locations for map context, not survey-grade positions.
+POWER_PLANTS: list[dict] = [
+    {
+        "code": "KARIBA_SOUTH",
+        "name": "Kariba South (ZPC)",
+        "lat": -16.5253,
+        "lon": 28.7686,
+        "fuel": "hydro",
+        "operator": "ZPC",
+        "status": "operational",
+        "capacity_mw": 1050,
+        "linked_substation": "KARIBA",
+        "notes": "Kariba South Hydropower Station — ZPC flagship hydro plant on Lake Kariba.",
+    },
+    {
+        "code": "HWANGE_PS",
+        "name": "Hwange (ZPC)",
+        "lat": -18.3647,
+        "lon": 26.4831,
+        "fuel": "coal",
+        "operator": "ZPC",
+        "status": "operational",
+        "capacity_mw": 920,
+        "linked_substation": "HWANGE",
+        "notes": "Hwange Power Station — largest coal-fired plant in Zimbabwe.",
+    },
+    {
+        "code": "MUNYATI",
+        "name": "Munyati (ZPC)",
+        "lat": -19.4169,
+        "lon": 29.7336,
+        "fuel": "coal",
+        "operator": "ZPC",
+        "status": "care_and_maintenance",
+        "capacity_mw": 100,
+        "linked_substation": "SHERWOOD",
+        "notes": "Munyati thermal station — under care and maintenance; ZPC repurposing study in progress.",
+    },
+    {
+        "code": "BULAWAYO_PS",
+        "name": "Bulawayo (ZPC)",
+        "lat": -20.1547,
+        "lon": 28.5833,
+        "fuel": "coal",
+        "operator": "ZPC",
+        "status": "care_and_maintenance",
+        "capacity_mw": 90,
+        "linked_substation": "INSUKAMINI",
+        "notes": "Bulawayo thermal station — under care and maintenance; ZPC repurposing study in progress.",
+    },
+    {
+        "code": "HARARE_PS",
+        "name": "Harare (ZPC)",
+        "lat": -17.8178,
+        "lon": 31.0333,
+        "fuel": "coal",
+        "operator": "ZPC",
+        "status": "care_and_maintenance",
+        "capacity_mw": 90,
+        "linked_substation": "HARARE",
+        "notes": "Harare thermal station — under care and maintenance; ZPC repurposing study in progress.",
+    },
+]
+
+# Dashed generation tie-lines from ZPC plants to the nearest ZETDC substation.
+GENERATION_LINKS: list[dict] = [
+    {"from": "KARIBA_SOUTH", "to": "KARIBA"},
+    {"from": "HWANGE_PS", "to": "HWANGE"},
+    {"from": "MUNYATI", "to": "SHERWOOD"},
+    {"from": "BULAWAYO_PS", "to": "INSUKAMINI"},
+    {"from": "HARARE_PS", "to": "HARARE"},
+]
+
 # ── Transmission lines (voltage in kV) ───────────────────────────────────────
 LINES: list[dict] = [
     {"from": "KARIBA", "to": "ALASKA", "kv": 330},

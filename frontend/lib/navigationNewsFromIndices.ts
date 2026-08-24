@@ -44,7 +44,7 @@ export async function buildNavigationNewsFromIndices(
   const [stationsData, gic, kpRows] = await Promise.all([
     stations != null
       ? Promise.resolve(stations)
-      : getStations(true).catch(() => [] as Station[]),
+      : getStations(false).catch(() => [] as Station[]),
     getGicStatus().catch(() => null as GicStatusResponse | null),
     fetchNoaaKpForecast(),
   ]);

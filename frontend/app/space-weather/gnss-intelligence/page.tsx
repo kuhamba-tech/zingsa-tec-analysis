@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { getSpaceWeather, getStations } from "@/lib/api";
+import { peekSpaceWeather } from "@/lib/spaceWeatherStore";
+import { peekStations } from "@/lib/stationsStore";
 import { buildGnssForecastBundle, type GnssForecastBundle } from "@/lib/gnssForecastEngine";
 import type { NavigationNewsBrief } from "@/lib/gnssAudienceNews";
 import {
@@ -275,10 +277,10 @@ function AudienceNewsCard({
 
 export default function GnssIntelligencePage() {
   const [bundle, setBundle] = useState<GnssForecastBundle | null>(null);
-  const [sw, setSw] = useState<SpaceWeatherCurrent | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [sw, setSw] = useState<SpaceWeatherCurrent | null>(() => peekSpaceWeather());
+  const [loading, setLoading] = useState(() => !peekSpaceWeather() && peekStations().length === 0);
   const [error, setError] = useState<string | null>(null);
-  const swRef = useRef<SpaceWeatherCurrent | null>(null);
+  const swRef = useRef<SpaceWeatherCurrent | null>(peekSpaceWeather());
   swRef.current = sw;
 
   useEffect(() => {
@@ -286,33 +288,32 @@ export default function GnssIntelligencePage() {
 
     async function load(background = false) {
       if (!background) {
-        setLoading(true);
+        setLoading(!peekSpaceWeather() && peekStations().length === 0);
         setError(null);
       }
       try {
         const [swResult, stationsResult] = await Promise.allSettled([
           getSpaceWeather(),
-          getStations(true),
+          getStations(false),
         ]);
         if (cancelled) return;
 
         const nextSw: SpaceWeatherCurrent | null =
-          swResult.status === "fulfilled" ? swResult.value : null;
+          swResult.status === "fulfilled" ? swResult.value : peekSpaceWeather();
         const stationsRaw =
-          stationsResult.status === "fulfilled" ? stationsResult.value : [];
-        const stations: Station[] = Array.isArray(stationsRaw) ? stationsRaw : [];
+          stationsResult.status === "fulfilled" ? stationsResult.value : peekStations();
+        const stations: Station[] = Array.isArray(stationsRaw) && stationsRaw.length
+          ? stationsRaw
+          : peekStations();
 
         if (!nextSw && stations.length === 0) {
           if (!background) {
             setError("Could not load space-weather or CORS station feeds.");
-            setBundle(null);
-            setSw(null);
-            swRef.current = null;
           }
           return;
         }
 
-        const useSw = nextSw ?? (background ? swRef.current : null);
+        const useSw = nextSw ?? swRef.current;
         swRef.current = useSw;
         setSw(useSw);
         setBundle(buildGnssForecastBundle(useSw, stations));

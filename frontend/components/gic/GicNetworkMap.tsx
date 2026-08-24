@@ -20,6 +20,24 @@ const LINE_COLORS: Record<number, string> = {
   400: "#d946ef",
 };
 
+const PLANT_COLORS: Record<string, string> = {
+  hydro: "#06b6d4",
+  coal_operational: "#f59e0b",
+  coal_idle: "#94a3b8",
+};
+
+function plantMarkerColor(fuel: string, status: string): string {
+  if (fuel === "hydro") return PLANT_COLORS.hydro;
+  return status === "operational" ? PLANT_COLORS.coal_operational : PLANT_COLORS.coal_idle;
+}
+
+function plantStatusLabel(status: string): string {
+  if (status === "operational") return "Operational";
+  if (status === "care_and_maintenance") return "Care & maintenance";
+  if (status === "decommissioning") return "Decommissioning";
+  return status;
+}
+
 interface Props {
   network: GicNetwork | null;
   stationStatus: GicStationStatus[];
@@ -70,6 +88,21 @@ export default function GicNetworkMap({ network, stationStatus, height = 460, on
       features.push(f);
     }
 
+    for (const link of net.generation_links ?? []) {
+      const geom = new LineString(link.coords.map(([lat, lon]: [number, number]) => fromLonLat([lon, lat])));
+      const f = new Feature({ geometry: geom, kind: "generation_link", info: link });
+      f.setStyle(
+        new Style({
+          stroke: new Stroke({
+            color: "rgba(245, 158, 11, 0.75)",
+            width: 2,
+            lineDash: [8, 6],
+          }),
+        }),
+      );
+      features.push(f);
+    }
+
     const monitored = new Map<string, GicStationStatus>();
     for (const s of status) {
       if (s.substation) monitored.set(s.substation, s);
@@ -111,6 +144,34 @@ export default function GicNetworkMap({ network, stationStatus, height = 460, on
         );
       }
       f.setStyle(styles);
+      features.push(f);
+    }
+
+    for (const plant of net.power_plants ?? []) {
+      const color = plantMarkerColor(plant.fuel, plant.status);
+      const f = new Feature({
+        geometry: new Point(fromLonLat([plant.lon, plant.lat])),
+        kind: "power_plant",
+        info: plant,
+      });
+      f.setStyle(
+        new Style({
+          image: new RegularShape({
+            points: 4,
+            radius: 9,
+            angle: Math.PI / 4,
+            fill: new Fill({ color }),
+            stroke: new Stroke({ color: "#fff", width: 1.5 }),
+          }),
+          text: new Text({
+            text: plant.name.replace(/\s*\(ZPC\)/, ""),
+            offsetY: -18,
+            fill: new Fill({ color: "#fff" }),
+            stroke: new Stroke({ color: "#000", width: 3 }),
+            font: "bold 11px sans-serif",
+          }),
+        }),
+      );
       features.push(f);
     }
     return features;
@@ -209,6 +270,17 @@ export default function GicNetworkMap({ network, stationStatus, height = 460, on
                     ? `<br/>Latest GIC: <b>${mon.latest_gic_a.toFixed(2)} A</b> (${mon.latest_level ?? "—"})`
                     : "<br/>No field data ingested yet")
                 : "");
+          } else if (kind === "power_plant") {
+            const fuelLabel = info.fuel === "hydro" ? "Hydropower" : "Coal thermal";
+            const cap =
+              info.capacity_mw != null ? `<br/>Installed capacity: <b>${info.capacity_mw} MW</b>` : "";
+            popupEl.innerHTML =
+              `<b>${info.name}</b><br/>ZPC ${fuelLabel}<br/>Status: <b>${plantStatusLabel(info.status)}</b>${cap}` +
+              (info.linked_substation
+                ? `<br/>Grid tie: ${info.linked_substation} substation`
+                : "");
+          } else if (kind === "generation_link") {
+            popupEl.innerHTML = `<b>${info.from} → ${info.to}</b><br/>Generation tie-line (ZPC → ZETDC)`;
           } else {
             popupEl.innerHTML = `<b>${info.from} — ${info.to}</b><br/>${info.kv} kV transmission line`;
           }
@@ -274,8 +346,12 @@ export default function GicNetworkMap({ network, stationStatus, height = 460, on
         ))}
         <span style={{ marginLeft: "auto", display: "flex", gap: "0.9rem", fontSize: "0.72rem", color: "var(--text-muted)", flexWrap: "wrap" }}>
           <span><span style={{ color: "#c81e1e" }}>▲</span> Substation</span>
+          <span><span style={{ color: "#06b6d4" }}>◆</span> ZPC hydro</span>
+          <span><span style={{ color: "#f59e0b" }}>◆</span> ZPC coal (operational)</span>
+          <span><span style={{ color: "#94a3b8" }}>◆</span> ZPC coal (care &amp; maintenance)</span>
           <span><span style={{ color: "#ff5a5a" }}>━</span> 330 kV</span>
           <span><span style={{ color: "#d946ef" }}>━</span> 400 kV</span>
+          <span><span style={{ color: "#f59e0b", opacity: 0.85 }}>┄</span> Generation tie</span>
           <span><span style={{ color: "#00ff88" }}>◯</span> GIC sensor (data)</span>
           <span><span style={{ color: "#168bd2" }}>◯</span> GIC sensor (no data)</span>
         </span>

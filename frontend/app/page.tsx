@@ -2,11 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { getEkfStatus, getLivePipelineStatus, getSpaceWeather, getStations, getTecHeatmap } from "@/lib/api";
+import { peekSpaceWeather, subscribeSpaceWeather } from "@/lib/spaceWeatherStore";
+import { peekStations, subscribeStations } from "@/lib/stationsStore";
 import { mergeSpaceWeatherWithEkf } from "@/lib/homeSpaceWeather";
 import { buildMetricCards } from "@/lib/spaceWeatherMetrics";
 import {
   countLiveStationStatuses,
-  connectedStreamCount,
   formatCorsConnectedShort,
   mergeStationsPreferLive,
 } from "@/lib/liveStationStatus";
@@ -108,117 +109,115 @@ export default function HomePage() {
   const [ntripRefreshing, setNtripRefreshing] = useState(false);
 
   useEffect(() => {
+    const cachedSw = peekSpaceWeather();
+    const cachedStations = peekStations();
+    if (cachedSw) {
+      setLiveSw(cachedSw);
+      setDisplaySw(cachedSw);
+      setSwStatus("stale");
+    }
+    if (cachedStations.length) {
+      setStations(cachedStations);
+      setStationsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => subscribeSpaceWeather((next) => {
+    setLiveSw(next);
+    setDisplaySw((prev) => (prev ? { ...prev, ...next } : next));
+    setSwStatus("ok");
+    setLoadError(null);
+  }), []);
+
+  useEffect(() => subscribeStations((next) => {
+    setStations((prev) => mergeStationsPreferLive(prev, next, { nextIsLiveProbe: false }));
+    setStationsLoading(false);
+  }), []);
+
+  useEffect(() => {
     let cancelled = false;
-    let liveProbeApplied = false;
 
-    function applyStations(next: Station[], fromLiveProbe: boolean) {
-      setStations((prev) => {
-        const merged = mergeStationsPreferLive(prev, next, {
-          nextIsLiveProbe: fromLiveProbe,
-          lockLiveStatus: liveProbeApplied,
-        });
-
-        if (fromLiveProbe && merged.length > 0) {
-          const liveCounts = countLiveStationStatuses(merged);
-          const probed = merged.find((s) => s.ntrip_probed_at)?.ntrip_probed_at ?? null;
-          queueMicrotask(() => {
-            if (cancelled) return;
-            liveProbeApplied = true;
-            if (probed) setNtripProbedAt(probed);
-            setDisplaySw((sw) =>
-              sw
-                ? {
-                    ...sw,
-                    stations_online: connectedStreamCount(liveCounts),
-                    stations_total: liveCounts.total,
-                  }
-                : sw,
-            );
-          });
-        }
-
-        return merged;
-      });
+    function applyStations(next: Station[]) {
+      if (next.length === 0) return;
+      setStations((prev) => mergeStationsPreferLive(prev, next, { nextIsLiveProbe: false }));
+      const probed = next.find((s) => s.ntrip_probed_at)?.ntrip_probed_at ?? null;
+      if (probed) setNtripProbedAt(probed);
     }
 
     async function load(background = false) {
-      // Keep current values on screen during interval refresh — only the first
-      // load (or a cold retry with no data) may show pending/loading UI.
+      const cached = peekSpaceWeather();
+
       if (!background) {
-        setSwStatus("pending");
-        setLoadError(null);
-        setStationsLoading(true);
-        setNtripRefreshing(true);
+        if (cached) {
+          setDisplaySw(cached);
+          setLiveSw(cached);
+          setSwStatus("stale");
+        } else {
+          setSwStatus("pending");
+          setLoadError(null);
+        }
+        setStationsLoading(peekStations().length === 0);
+        setNtripRefreshing(!cached && peekStations().length === 0);
       }
 
-      const [swResult, ekfResult, pipelineResult] = await Promise.allSettled([
+      // Critical path: metrics + map markers (parallel, deduped in api.ts).
+      const [swResult, stationsResult] = await Promise.allSettled([
         getSpaceWeather(),
-        getEkfStatus(),
-        getLivePipelineStatus(),
+        getStations(false),
       ]);
 
       if (cancelled) return;
 
-      const sw = swResult.status === "fulfilled" ? swResult.value : null;
-      const ekfData = ekfResult.status === "fulfilled" ? ekfResult.value : null;
-      const merged = mergeSpaceWeatherWithEkf(sw, ekfData);
-
-      // Storm banners use observed live indices only — never EKF-filled display values.
-      if (sw) setLiveSw(sw);
-
-      if (merged) {
-        setDisplaySw(merged.data);
-        setEkfFilled(merged.ekfFilled);
-        setSwStatus("ok");
-        setLoadError(null);
-      } else if (swResult.status === "fulfilled") {
+      const sw = swResult.status === "fulfilled" ? swResult.value : cached;
+      if (swResult.status === "fulfilled") {
+        setLiveSw(swResult.value);
         setDisplaySw(swResult.value);
-        setEkfFilled(new Set());
         setSwStatus("ok");
         setLoadError(null);
+      } else if (cached) {
+        setSwStatus("stale");
       } else if (!background) {
-        setDisplaySw(null);
-        setEkfFilled(new Set());
         setSwStatus("down");
         setLoadError(
           "Live API is not connected. Start the FastAPI backend on port 8000, then refresh.",
         );
       } else {
-        // Background failure: keep last good indices on screen; mark feed stale only.
-        setSwStatus("down");
+        setSwStatus("stale");
       }
 
-      if (pipelineResult.status === "fulfilled") {
-        const p = pipelineResult.value;
-        setPipelineNote(p.message ?? null);
+      if (stationsResult.status === "fulfilled" && stationsResult.value.length > 0) {
+        applyStations(stationsResult.value);
       }
 
-      try {
-        const [stationsResult, heatmapResult] = await Promise.all([
-          getStations(false),
-          getTecHeatmap(6).catch(() => null),
-        ]);
-        if (cancelled) return;
-
-        // Apply Spider/API statuses immediately — do not wipe to offline first
-        // (that briefly painted 0/25 and often stuck there when the probe hung).
-        if (stationsResult.length > 0) {
-          applyStations(stationsResult, true);
-        }
-        if (heatmapResult) setTecHeatmap(heatmapResult);
-      } catch {
-        // Keep prior stations/heatmap if we already have a stable view.
-      } finally {
-        if (!cancelled) {
-          setStationsLoading(false);
-          setNtripRefreshing(false);
-        }
+      if (!cancelled) {
+        setStationsLoading(false);
+        setNtripRefreshing(false);
       }
+
+      // Secondary widgets — never block first paint.
+      void Promise.allSettled([getEkfStatus(), getLivePipelineStatus()]).then(
+        ([ekfResult, pipelineResult]) => {
+          if (cancelled) return;
+          const ekfData = ekfResult.status === "fulfilled" ? ekfResult.value : null;
+          const merged = mergeSpaceWeatherWithEkf(sw, ekfData);
+          if (merged) {
+            setDisplaySw(merged.data);
+            setEkfFilled(merged.ekfFilled);
+          }
+          if (pipelineResult.status === "fulfilled") {
+            setPipelineNote(pipelineResult.value.message ?? null);
+          }
+        },
+      );
+      void getTecHeatmap(6)
+        .then((heatmap) => {
+          if (!cancelled && heatmap) setTecHeatmap(heatmap);
+        })
+        .catch(() => null);
     }
 
     load(false);
-    // Refresh often so Spider/online markers stay current without forcing NTRIP.
-    const timer = window.setInterval(() => load(true), 20_000);
+    const timer = window.setInterval(() => load(true), 60_000);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
@@ -226,7 +225,7 @@ export default function HomePage() {
   }, []);
 
   const freshnessMsg = useFeedFreshness("space-weather", swStatus);
-  const loading = swStatus === "pending";
+  const loading = swStatus === "pending" && !displaySw;
   const gnssRisk = displaySw?.gnss_risk ?? (loading ? "…" : "N/A");
 
   const liveCounts = countLiveStationStatuses(stations);

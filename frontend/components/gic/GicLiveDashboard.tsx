@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import LineChart from "@/components/charts/LineChart";
 import GicGauge from "./GicGauge";
 import { getEkfAlertLog, getGicLiveModel, getGicSeries, getSpaceWeather } from "@/lib/api";
+import { peekSpaceWeather } from "@/lib/spaceWeatherStore";
 import type {
   EkfAlert,
   GicLiveModel,
@@ -56,7 +57,7 @@ interface Props {
  *  show N/A until field measurements arrive. */
 export default function GicLiveDashboard({ stationId, stationStatus, network, series: externalSeries }: Props) {
   const [internalSeries, setInternalSeries] = useState<GicSeriesResponse | null>(null);
-  const [sw, setSw] = useState<SpaceWeatherCurrent | null>(null);
+  const [sw, setSw] = useState<SpaceWeatherCurrent | null>(() => peekSpaceWeather());
   const [alerts, setAlerts] = useState<EkfAlert[]>([]);
   const [liveModel, setLiveModel] = useState<GicLiveModel | null>(null);
 
@@ -65,7 +66,7 @@ export default function GicLiveDashboard({ stationId, stationStatus, network, se
 
   const load = useCallback(async () => {
     const tasks: Promise<void>[] = [
-      getSpaceWeather().then(setSw).catch(() => setSw(null)),
+      getSpaceWeather().then(setSw).catch(() => undefined),
       getEkfAlertLog(24).then(setAlerts).catch(() => setAlerts([])),
       getGicLiveModel(24).then(setLiveModel).catch(() => setLiveModel(null)),
     ];

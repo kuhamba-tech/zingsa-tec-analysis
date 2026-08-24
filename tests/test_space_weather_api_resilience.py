@@ -1,4 +1,5 @@
 import unittest
+import threading
 from unittest.mock import Mock, patch
 
 from zgiis.api.cors_client import _api_bases
@@ -25,7 +26,10 @@ class SpaceWeatherApiResilienceTests(unittest.TestCase):
             "data": {"mode": "unavailable", "kp": None},
         }
 
-        with patch("time.time", return_value=111.0):
+        with (
+            patch("time.time", return_value=111.0),
+            patch("zgiis.space_weather.fetch_indices._load_persisted_snapshot", return_value=None),
+        ):
             result = _cached(
                 "space_weather",
                 lambda: {"mode": "live", "kp": 2.0},
@@ -51,12 +55,64 @@ class SpaceWeatherApiResilienceTests(unittest.TestCase):
         self.assertEqual(request.call_count, 2)
         self.assertEqual(result, [{"time_tag": "2026-06-15T07:00:00"}])
 
+    def test_cold_cache_serves_persisted_observation_immediately(self):
+        persisted = {"mode": "cached", "kp": 2.0, "timestamp": "2026-08-23T19:00:00Z"}
+        refreshed = threading.Event()
+
+        def fetch():
+            refreshed.set()
+            return {"mode": "live", "kp": 3.0}
+
+        with patch(
+            "zgiis.space_weather.fetch_indices._load_persisted_snapshot",
+            return_value=persisted,
+        ):
+            result = _cached("space_weather_fast", fetch)
+
+        self.assertEqual(result, persisted)
+        self.assertTrue(refreshed.wait(timeout=1.0))
+
     def test_cache_can_be_cleared_for_immediate_refresh(self):
         _CACHE["space_weather"] = {"ts": 100.0, "data": {"mode": "live"}}
 
         clear_space_weather_cache()
 
         self.assertNotIn("space_weather", _CACHE)
+
+    def test_stale_live_cache_returns_immediately_and_refreshes_in_background(self):
+        _CACHE["space_weather_fast"] = {
+            "ts": 100.0,
+            "data": {"mode": "live", "kp": 2.0},
+        }
+        refreshed = threading.Event()
+
+        def fetch():
+            refreshed.set()
+            return {"mode": "live", "kp": 3.0}
+
+        with patch("time.time", return_value=500.0):
+            result = _cached("space_weather_fast", fetch)
+
+        self.assertEqual(result["kp"], 2.0)
+        self.assertTrue(refreshed.wait(timeout=1.0))
+
+    def test_failed_background_refresh_keeps_last_good_data(self):
+        _CACHE["space_weather_fast"] = {
+            "ts": 100.0,
+            "data": {"mode": "live", "kp": 2.0},
+        }
+        refreshed = threading.Event()
+
+        def fetch():
+            refreshed.set()
+            return {"mode": "unavailable", "kp": None}
+
+        with patch("time.time", return_value=500.0):
+            result = _cached("space_weather_fast", fetch)
+
+        self.assertEqual(result["kp"], 2.0)
+        self.assertTrue(refreshed.wait(timeout=1.0))
+        self.assertEqual(_CACHE["space_weather_fast"]["data"]["kp"], 2.0)
 
     def test_noaa_rtsw_solar_wind_feed_is_parsed(self):
         response = Mock()

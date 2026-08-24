@@ -11,6 +11,7 @@ import {
   trainCnnGruModel,
   getStations,
 } from "@/lib/api";
+import { peekStations } from "@/lib/stationsStore";
 import MetricCard from "@/components/cards/MetricCard";
 import LineChart from "@/components/charts/LineChart";
 import { countLiveStationStatuses, formatCorsConnectedDisplay } from "@/lib/liveStationStatus";
@@ -54,13 +55,14 @@ export default function LivePipelinePage() {
   const [fcStatus, setFcStatus] = useState<ForecastStatus | null>(null);
   const [forecast, setForecast] = useState<ForecastPoint[]>([]);
   const [pipelineStatus, setPipelineStatus] = useState<LivePipelineStatus | null>(null);
-  const [corsStations, setCorsStations] = useState<Station[]>([]);
+  const [corsStations, setCorsStations] = useState<Station[]>(() => peekStations());
   const [probe, setProbe] = useState<NtripProbeResponse | null>(null);
   const [probeLoading, setProbeLoading] = useState(false);
   const [probeError, setProbeError] = useState<string | null>(null);
   const [trainStatus, setTrainStatus] = useState<CnnGruTrainStatus | null>(null);
   const [trainStarting, setTrainStarting] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
+  const latencyHistoryRef = useRef<Map<string, number[]>>(new Map());
   const [wsConnected, setWsConnected] = useState(false);
 
   const refreshLive = useCallback(async () => {
@@ -72,12 +74,18 @@ export default function LivePipelinePage() {
       getStations(false),
     ]);
     if (vtec.status === "fulfilled") setObs(vtec.value);
-    if (stations.status === "fulfilled") setStationStatus(stations.value);
+    if (stations.status === "fulfilled") {
+      setStationStatus(stations.value);
+      for (const s of stations.value) {
+        if (s.latency_ms == null || !Number.isFinite(s.latency_ms)) continue;
+        const hist = latencyHistoryRef.current.get(s.code) ?? [];
+        hist.push(s.latency_ms);
+        if (hist.length > 30) hist.shift();
+        latencyHistoryRef.current.set(s.code, hist);
+      }
+    }
     if (pipe.status === "fulfilled") setPipelineStatus(pipe.value);
     if (cors.status === "fulfilled") setCorsStations(cors.value);
-    getStations(true)
-      .then(setCorsStations)
-      .catch(() => null);
     if (fc.status === "fulfilled") {
       setFcStatus(fc.value);
       if (fc.value.model_exists && fc.value.torch_ok) {
@@ -170,6 +178,11 @@ export default function LivePipelinePage() {
 
   const chartLabels = obs.slice(-200).map((o) => o.time.slice(11, 19));
   const chartData = obs.slice(-200).map((o) => o.vtec_tecu ?? 0);
+  const latencyRows = [...stationStatus]
+    .filter((s) => s.latency_ms != null)
+    .sort((a, b) => (b.latency_ms ?? 0) - (a.latency_ms ?? 0));
+  const latencyChartLabels = latencyRows.slice(0, 12).map((s) => s.code.toUpperCase());
+  const latencyChartData = latencyRows.slice(0, 12).map((s) => s.latency_ms ?? 0);
   const vtecOnline = stationStatus.filter((s) => !s.stale && s.last_vtec != null && s.last_vtec > 0).length;
   const total = corsStations.length || stationStatus.length || 25;
   const corsCounts = countLiveStationStatuses(corsStations, total);
@@ -355,6 +368,65 @@ export default function LivePipelinePage() {
         )}
       </div>
 
+      {stationStatus.length > 0 && (
+        <div className="card">
+          <div className="metric-label" style={{ marginBottom: "0.6rem" }}>
+            Stream latency &amp; message rate (live, refreshes every 30s)
+          </div>
+          {latencyChartLabels.length > 0 ? (
+            <LineChart
+              labels={latencyChartLabels}
+              datasets={[{ label: "Latency (ms)", data: latencyChartData, color: "#06b6d4" }]}
+              height={220}
+              compact
+            />
+          ) : (
+            <div className="banner banner-info" style={{ fontSize: "0.82rem" }}>
+              Latency appears once MSM observations are flowing through the live pipeline.
+            </div>
+          )}
+          <div className="table-scroll compact" style={{ marginTop: "0.75rem" }}>
+            <table className="dark-table">
+              <thead>
+                <tr>
+                  <th>Station</th>
+                  <th>Latency</th>
+                  <th>Msg rate</th>
+                  <th>VTEC</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...stationStatus]
+                  .sort((a, b) => a.code.localeCompare(b.code))
+                  .map((s) => {
+                    const hist = latencyHistoryRef.current.get(s.code) ?? [];
+                    const avg = hist.length ? hist.reduce((a, b) => a + b, 0) / hist.length : null;
+                    const latColor =
+                      s.latency_ms == null ? "var(--text-muted)" : s.latency_ms > 3000 ? "#ff4444" : s.latency_ms > 1500 ? "#ff8c00" : "#00ff88";
+                    return (
+                      <tr key={s.code}>
+                        <td>{s.code.toUpperCase()}</td>
+                        <td style={{ color: latColor, fontWeight: 700 }}>
+                          {s.latency_ms != null ? `${Math.round(s.latency_ms)} ms` : "—"}
+                          {avg != null ? ` (avg ${Math.round(avg)} ms)` : ""}
+                        </td>
+                        <td>{s.msg_rate != null ? `${s.msg_rate.toFixed(1)}/s` : "—"}</td>
+                        <td>{s.last_vtec != null ? s.last_vtec.toFixed(2) : "—"}</td>
+                        <td style={{ color: s.stale ? "#ff4444" : "#00ff88" }}>{s.stale ? "Stale" : "Live"}</td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </table>
+          </div>
+          <p className="operations-source" style={{ marginTop: "0.45rem" }}>
+            Latency = observation age at ingest (lower is better). For archived up/down history and outage
+            duration, open <a href="/reports?type=uptime&amp;range=1w">Reports → Station Uptime</a>.
+          </p>
+        </div>
+      )}
+
       <div className="page-split-charts">
         <div className="card">
           <div className="metric-label" style={{ marginBottom: "0.6rem" }}>
@@ -414,7 +486,7 @@ export default function LivePipelinePage() {
                 {s.last_vtec != null ? s.last_vtec.toFixed(1) : s.stale ? "N/A" : "…"}
               </div>
               <div className="metric-label" style={{ fontSize: "0.58rem" }}>
-                {s.stale ? s.name.slice(0, 14) : s.last_vtec != null ? s.name.slice(0, 14) : "Connected"}
+                {s.latency_ms != null ? `${Math.round(s.latency_ms)} ms` : s.stale ? s.name.slice(0, 14) : s.last_vtec != null ? s.name.slice(0, 14) : "Connected"}
               </div>
             </div>
           ))}

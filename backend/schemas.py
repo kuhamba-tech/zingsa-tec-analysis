@@ -328,6 +328,15 @@ class StationUptimeTimelinePoint(BaseModel):
     samples: int
 
 
+class StationOutageInterval(BaseModel):
+    station_code: str
+    station_name: str
+    started_at: str
+    ended_at: str | None = None
+    duration_min: float
+    ongoing: bool = False
+
+
 class StationUptimeAnalysis(BaseModel):
     hours: float
     bucket_minutes: int
@@ -341,6 +350,7 @@ class StationUptimeAnalysis(BaseModel):
     network_online_pct: float
     stations: list[StationUptimeRow]
     timeline: list[StationUptimeTimelinePoint]
+    outage_intervals: list[StationOutageInterval] = []
 
 
 # ── Processing ─────────────────────────────────────────────────────────────────

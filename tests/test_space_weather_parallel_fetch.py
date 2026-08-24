@@ -46,6 +46,10 @@ class SpaceWeatherParallelFetchTests(unittest.TestCase):
 
         with (
             patch(
+                "zgiis.space_weather.fetch_indices._load_persisted_snapshot",
+                return_value=None,
+            ),
+            patch(
                 "zgiis.space_weather.fetch_indices.fetch_space_weather_africa",
                 side_effect=lambda: _delayed(africa),
             ),

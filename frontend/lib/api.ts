@@ -75,6 +75,8 @@ import type {
   GeomagneticTheoryPayload,
   UnderstandingTecPayload,
 } from "./types";
+import { peekSpaceWeather, publishSpaceWeather } from "./spaceWeatherStore";
+import { peekStations, publishStations } from "./stationsStore";
 
 function apiBase(): string {
   const configured = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "");
@@ -99,6 +101,31 @@ function apiBase(): string {
 const KEY = process.env.NEXT_PUBLIC_API_KEY ?? "";
 const FETCH_TIMEOUT_MS = 28_000;
 const ANALYSIS_TIMEOUT_MS = 120_000;
+const SW_FAST_TIMEOUT_MS = 12_000;
+const LIVE_REFRESH_MIN_MS = 20_000;
+
+let lastSpaceWeatherNetworkAt = 0;
+let lastStationsNetworkAt = 0;
+
+const inflightGets = new Map<string, Promise<unknown>>();
+
+function dedupeGet<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const existing = inflightGets.get(key);
+  if (existing) return existing as Promise<T>;
+  const pending = fn().finally(() => {
+    inflightGets.delete(key);
+  });
+  inflightGets.set(key, pending);
+  return pending;
+}
+
+export function getCachedSpaceWeather(): SpaceWeatherCurrent | null {
+  return peekSpaceWeather();
+}
+
+export function rememberSpaceWeather(data: SpaceWeatherCurrent): SpaceWeatherCurrent {
+  return publishSpaceWeather(data);
+}
 
 function baseUrl(): string {
   return apiBase();
@@ -227,11 +254,47 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 }
 
 // ── Space Weather ─────────────────────────────────────────────────────────────
-export const getSpaceWeather = () =>
-  getWithRetry<SpaceWeatherCurrent>("/space-weather/current", { _ts: Date.now() });
-export const getSolarActivity = () => get<SolarActivityFull>("/space-weather/solar-activity");
+function refreshSpaceWeatherNetwork(): Promise<SpaceWeatherCurrent> {
+  return dedupeGet("space-weather/current", () => {
+    const hasCache = Boolean(peekSpaceWeather());
+    const timeoutMs = hasCache ? SW_FAST_TIMEOUT_MS : FETCH_TIMEOUT_MS;
+    return getWithRetry<SpaceWeatherCurrent>(
+      "/space-weather/current",
+      { _ts: Date.now() },
+      timeoutMs,
+    )
+      .then((data) => {
+        lastSpaceWeatherNetworkAt = Date.now();
+        return publishSpaceWeather(data);
+      })
+      .catch((err) => {
+        const cached = peekSpaceWeather();
+        if (cached) return cached;
+        throw err;
+      });
+  });
+}
+
+/** Instant last-good snapshot when available; network refresh stays in the background. */
+export const getSpaceWeather = () => {
+  const cached = peekSpaceWeather();
+  const recentlyFetched = Date.now() - lastSpaceWeatherNetworkAt < LIVE_REFRESH_MIN_MS;
+  if (cached && recentlyFetched) return Promise.resolve(cached);
+  const pending = refreshSpaceWeatherNetwork();
+  if (cached) {
+    void pending;
+    return Promise.resolve(cached);
+  }
+  return pending;
+};
+export const getSolarActivity = () =>
+  dedupeGet("space-weather/solar-activity", () =>
+    get<SolarActivityFull>("/space-weather/solar-activity"),
+  );
 export const getTimelines = () =>
-  getWithRetry<SpaceWeatherTimelines>("/space-weather/timelines", { _ts: Date.now() });
+  dedupeGet("space-weather/timelines", () =>
+    getWithRetry<SpaceWeatherTimelines>("/space-weather/timelines", { _ts: Date.now() }),
+  );
 export const refreshSpaceWeather = () =>
   fetch(apiUrl("/space-weather/refresh"), { method: "POST", headers: KEY ? { "X-API-Key": KEY } : {} });
 export const getSpaceWeatherLogStatus = () => get<SpaceWeatherLogStatus>("/space-weather/log/status");
@@ -405,15 +468,46 @@ export const testNavigationFacebookPost = async (live = false): Promise<Navigati
 // room; the default (archived-status) call keeps the normal fast timeout.
 const NTRIP_LIVE_PROBE_TIMEOUT_MS = 90_000;
 
-export const getStations = (refreshNtrip = false) =>
-  getWithRetry<Station[]>(
-    "/cors/stations",
-    {
-      _ts: Date.now(),
-      ...(refreshNtrip ? { refresh_ntrip: "true" } : {}),
-    },
-    refreshNtrip ? NTRIP_LIVE_PROBE_TIMEOUT_MS : undefined,
+function refreshStationsNetwork(refreshNtrip: boolean): Promise<Station[]> {
+  return dedupeGet(`cors/stations:${refreshNtrip ? "live" : "cached"}`, () =>
+    getWithRetry<Station[]>(
+      "/cors/stations",
+      {
+        _ts: Date.now(),
+        ...(refreshNtrip ? { refresh_ntrip: "true" } : {}),
+      },
+      refreshNtrip ? NTRIP_LIVE_PROBE_TIMEOUT_MS : undefined,
+    )
+      .then((rows) => {
+        if (Array.isArray(rows) && rows.length > 0) {
+          lastStationsNetworkAt = Date.now();
+          return publishStations(rows);
+        }
+        const cached = peekStations();
+        return cached.length > 0 ? cached : rows;
+      })
+      .catch((err) => {
+        const cached = peekStations();
+        if (cached.length > 0) return cached;
+        throw err;
+      }),
   );
+}
+
+/** Fast catalog read. Live NTRIP probes (`refreshNtrip=true`) still wait on the caster. */
+export const getStations = (refreshNtrip = false) => {
+  const cached = peekStations();
+  const recentlyFetched = Date.now() - lastStationsNetworkAt < LIVE_REFRESH_MIN_MS;
+  if (!refreshNtrip && cached.length > 0 && recentlyFetched) {
+    return Promise.resolve(cached);
+  }
+  const pending = refreshStationsNetwork(refreshNtrip);
+  if (!refreshNtrip && cached.length > 0) {
+    void pending;
+    return Promise.resolve(cached);
+  }
+  return pending;
+};
 export const getStation = (code: string) => get<Station>(`/cors/stations/${code}`);
 export const getCorsHealth = () => get<CorsHealth>("/cors/health");
 export const getRoverClients = (refresh = false) =>

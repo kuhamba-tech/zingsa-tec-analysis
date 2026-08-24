@@ -148,7 +148,8 @@ export default function AiRecommendationPanel({
         const [stationsData, gicData, kpForecast] = await Promise.all([
           stations != null
             ? Promise.resolve(stations)
-            : getStations(true).catch(() => [] as Station[]),
+            // Cached Spider status only — never force a 90s NTRIP probe from the news panel.
+            : getStations(false).catch(() => [] as Station[]),
           getGicStatus().catch(() => null as GicStatusResponse | null),
           fetchNoaaKpForecast(),
         ]);

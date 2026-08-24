@@ -9,11 +9,14 @@ import {
   getTecHeatmap,
 } from "@/lib/api";
 import LineChart from "@/components/charts/LineChart";
+import NetworkUpDownChart from "@/components/charts/NetworkUpDownChart";
+import SiteAvailabilityRibbon from "@/components/charts/SiteAvailabilityRibbon";
 import StationStatusBarChart from "@/components/charts/StationStatusBarChart";
 import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
 import CorsMapWithLayers, { BASE_MAP_LAYERS } from "@/components/maps/CorsMapWithLayers";
 import { analyzeStationUptime } from "@/lib/dashboardChartAnalysis";
 import { countLiveStationStatuses } from "@/lib/liveStationStatus";
+import { peekStations } from "@/lib/stationsStore";
 import { mergeTecHeatmapWithStations } from "@/lib/tecHeatmapMerge";
 import type {
   Station,
@@ -68,6 +71,24 @@ function stationKey(code: string): string {
   return code.toLowerCase().replace(/_+$/, "");
 }
 
+function formatDurationMin(minutes: number): string {
+  if (minutes < 60) return `${minutes.toFixed(0)} min`;
+  const h = Math.floor(minutes / 60);
+  const m = Math.round(minutes % 60);
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
+function eventTone(eventType: string, status: string): string {
+  if (eventType === "site_down" || (eventType === "status_change" && status === "offline")) {
+    return "#ff4444";
+  }
+  if (eventType === "site_up" || (eventType === "status_change" && status === "online")) {
+    return "#00ff88";
+  }
+  if (eventType === "connection_lost") return "#ff8c00";
+  return "var(--text)";
+}
+
 export default function NetworkUptimePanel({
   initialRangeKey = "1w",
   onRangeKeyChange,
@@ -80,7 +101,7 @@ export default function NetworkUptimePanel({
 }) {
   const [rangeIdx, setRangeIdx] = useState(() => uptimeRangeIndex(initialRangeKey)); // default 1 week
   const [station, setStation] = useState(""); // "" = whole network
-  const [mapStations, setMapStations] = useState<Station[]>([]);
+  const [mapStations, setMapStations] = useState<Station[]>(() => peekStations());
   const [stationsLoading, setStationsLoading] = useState(true);
   const [ntripProbedAt, setNtripProbedAt] = useState<string | null>(null);
   const [tecHeatmap, setTecHeatmap] = useState<TecHeatmapResponse | null>(null);
@@ -119,15 +140,8 @@ export default function NetworkUptimePanel({
       if (sw?.gnss_risk) setRiskLevel(sw.gnss_risk);
       const probed = catalog.find((s) => s.ntrip_probed_at)?.ntrip_probed_at ?? null;
       setNtripProbedAt(probed);
-      getStations(true)
-        .then((live) => {
-          setMapStations(live);
-          const liveProbed = live.find((s) => s.ntrip_probed_at)?.ntrip_probed_at ?? null;
-          if (liveProbed) setNtripProbedAt(liveProbed);
-        })
-        .catch(() => null);
     } catch {
-      setMapStations([]);
+      /* keep last-good markers */
     } finally {
       setStationsLoading(false);
     }
@@ -266,8 +280,9 @@ export default function NetworkUptimePanel({
         {analysis ? ` · ${formatPeriodLabel(analysis.hours)}` : ""}
       </div>
       <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "0.85rem" }}>
-        Same Hybrid CORS map as the home page. Click a station to analyse its uptime, or use the
-        dropdown. Periods: 1 day / 1 week / 1 month / 1 year — archive data only, never invented.
+        Site up/down events are archived automatically (NTRIP ingest or Spider Site Status).
+        Green = online, red = offline. Use the charts below to assess performance, outages, and
+        network-wide availability over 1 day to 1 year.
       </p>
 
       <div
@@ -382,6 +397,31 @@ export default function NetworkUptimePanel({
           {timelineLabels.length > 0 && (
             <div style={{ marginBottom: "1.25rem" }}>
               <div className="operations-chart-title" style={{ marginBottom: "0.5rem" }}>
+                At-a-glance availability
+              </div>
+              <SiteAvailabilityRibbon
+                points={analysis.timeline}
+                label={station ? `${scopeLabel} uptime` : "Network uptime"}
+              />
+            </div>
+          )}
+
+          {timelineLabels.length > 0 && (
+            <div style={{ marginBottom: "1.25rem" }}>
+              <div className="operations-chart-title" style={{ marginBottom: "0.5rem" }}>
+                {station ? "Site up vs down (samples per bucket)" : "Sites up vs down (count per bucket)"}
+              </div>
+              <NetworkUpDownChart points={analysis.timeline} singleStation={Boolean(station)} />
+              <p className="operations-source" style={{ marginTop: "0.45rem" }}>
+                Stacked bars show how many sites (or samples) were online vs offline in each archive
+                bucket — easier to spot outages than a percentage line alone.
+              </p>
+            </div>
+          )}
+
+          {timelineLabels.length > 0 && (
+            <div style={{ marginBottom: "1.25rem" }}>
+              <div className="operations-chart-title" style={{ marginBottom: "0.5rem" }}>
                 {station ? "Station uptime over time" : "Network uptime over time"}
               </div>
               <LineChart
@@ -420,6 +460,40 @@ export default function NetworkUptimePanel({
             </>
           )}
 
+          {(analysis.outage_intervals?.length ?? 0) > 0 && (
+            <>
+              <div className="operations-chart-title" style={{ marginTop: "0.5rem", marginBottom: "0.5rem" }}>
+                Outage durations ({formatPeriodLabel(analysis.hours)})
+              </div>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.82rem", marginBottom: "1rem" }}>
+                <thead>
+                  <tr style={{ borderBottom: "1px solid var(--border)" }}>
+                    <th style={{ textAlign: "left", padding: "0.35rem 0.5rem" }}>Station</th>
+                    <th style={{ textAlign: "left", padding: "0.35rem 0.5rem" }}>Went down (UTC)</th>
+                    <th style={{ textAlign: "left", padding: "0.35rem 0.5rem" }}>Recovered (UTC)</th>
+                    <th style={{ textAlign: "left", padding: "0.35rem 0.5rem" }}>Duration</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {analysis.outage_intervals!.slice(0, 15).map((row) => (
+                    <tr key={`${row.station_code}-${row.started_at}`} style={{ borderBottom: "1px solid rgba(36,77,115,0.35)" }}>
+                      <td style={{ padding: "0.35rem 0.5rem" }}>{row.station_code.toUpperCase()}</td>
+                      <td style={{ padding: "0.35rem 0.5rem", whiteSpace: "nowrap" }}>
+                        {row.started_at.replace("T", " ").slice(0, 19)}
+                      </td>
+                      <td style={{ padding: "0.35rem 0.5rem", whiteSpace: "nowrap", color: row.ongoing ? "#ff8c00" : undefined }}>
+                        {row.ongoing ? "Still offline" : row.ended_at?.replace("T", " ").slice(0, 19) ?? "—"}
+                      </td>
+                      <td style={{ padding: "0.35rem 0.5rem", fontWeight: 600 }}>
+                        {formatDurationMin(row.duration_min)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
+
           {events.length > 0 && (
             <>
               <div className="operations-chart-title" style={{ marginTop: "1.25rem" }}>
@@ -447,7 +521,7 @@ export default function NetworkUptimePanel({
                       <td style={{ padding: "0.35rem 0.5rem" }}>
                         {ev.station_code?.toUpperCase() ?? "—"}
                       </td>
-                      <td style={{ padding: "0.35rem 0.5rem" }}>
+                      <td style={{ padding: "0.35rem 0.5rem", color: eventTone(ev.event_type, ev.status), fontWeight: 600 }}>
                         {ev.event_type.replace(/_/g, " ")}
                       </td>
                       <td style={{ padding: "0.35rem 0.5rem" }}>

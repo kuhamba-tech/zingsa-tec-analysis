@@ -469,6 +469,88 @@ class StationStatusDB:
             )
         return points
 
+    def outage_intervals(
+        self,
+        hours: float = 168.0,
+        *,
+        station_code: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Pair site_down / offline transitions with the next site_up / online recovery."""
+        from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
+
+        code_filter = station_code.lower().rstrip("_") if station_code else None
+        df = self.query_events(hours=hours, station_code=code_filter, limit=5000)
+        if df.empty:
+            return []
+
+        names = {s.code.lower().rstrip("_"): s.name for s in ZIMBABWE_CORS_STATIONS}
+        open_outages: dict[str, str] = {}
+        intervals: list[dict[str, Any]] = []
+
+        work = df.sort_values("time")
+        for _, row in work.iterrows():
+            code = str(row.get("station_code") or "").lower().rstrip("_")
+            if not code:
+                continue
+            status = _normalize_stored_status(str(row.get("status") or ""))
+            prev_raw = row.get("previous_status")
+            prev = _normalize_stored_status(str(prev_raw)) if prev_raw else None
+            event_type = str(row.get("event_type") or "")
+            when = str(row.get("time") or "")
+
+            went_down = event_type == "site_down" or (
+                event_type == "status_change" and status == "offline" and prev != "offline"
+            )
+            came_up = event_type == "site_up" or (
+                event_type == "status_change" and status == "online" and prev == "offline"
+            )
+
+            if went_down and code not in open_outages:
+                open_outages[code] = when
+            elif came_up and code in open_outages:
+                started = open_outages.pop(code)
+                duration_min = self._minutes_between(started, when)
+                intervals.append(
+                    {
+                        "station_code": code,
+                        "station_name": names.get(code, code.upper()),
+                        "started_at": started,
+                        "ended_at": when,
+                        "duration_min": duration_min,
+                        "ongoing": False,
+                    }
+                )
+
+        now_iso = datetime.now(tz=timezone.utc).replace(microsecond=0).isoformat()
+        for code, started in open_outages.items():
+            intervals.append(
+                {
+                    "station_code": code,
+                    "station_name": names.get(code, code.upper()),
+                    "started_at": started,
+                    "ended_at": None,
+                    "duration_min": self._minutes_between(started, now_iso),
+                    "ongoing": True,
+                }
+            )
+
+        intervals.sort(key=lambda r: r["started_at"], reverse=True)
+        return intervals[: max(1, int(limit))]
+
+    @staticmethod
+    def _minutes_between(start_iso: str, end_iso: str) -> float:
+        try:
+            start = pd.Timestamp(start_iso)
+            end = pd.Timestamp(end_iso)
+            if start.tzinfo is None:
+                start = start.tz_localize("UTC")
+            if end.tzinfo is None:
+                end = end.tz_localize("UTC")
+            return round(max(0.0, (end - start).total_seconds() / 60.0), 1)
+        except Exception:
+            return 0.0
+
     def uptime_analysis(
         self,
         hours: float = 168.0,
@@ -528,8 +610,14 @@ class StationStatusDB:
         outage_events = 0
         if not events.empty:
             status = events["status"].map(_normalize_stored_status)
-            outage_mask = (events["event_type"] == "status_change") & (status == "offline")
+            et = events["event_type"].astype(str)
+            outage_mask = (
+                et.isin(["site_down", "connection_lost"])
+                | ((events["event_type"] == "status_change") & (status == "offline"))
+            )
             outage_events = int(outage_mask.sum())
+
+        outages = self.outage_intervals(hours=hours, station_code=code, limit=50)
 
         network_with = [r for r in stations if int(r["samples"]) > 0]
         network_online_pct = (
@@ -548,6 +636,7 @@ class StationStatusDB:
             "offline_pct": offline_pct,
             "unknown_pct": unknown_pct,
             "outage_events": outage_events,
+            "outage_intervals": outages,
             "network_online_pct": network_online_pct,
             "stations": stations,
             "timeline": timeline,

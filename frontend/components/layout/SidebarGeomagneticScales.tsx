@@ -1,15 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getSpaceWeather } from "@/lib/api";
+import { subscribeSpaceWeather } from "@/lib/spaceWeatherStore";
 import {
   activeBandForRow,
   SIDEBAR_GEOMagnetic_SCALE_ROWS,
   type ScaleRow,
 } from "@/lib/geomagneticScales";
 import type { SpaceWeatherCurrent } from "@/lib/types";
-
-const REFRESH_MS = 120_000;
 
 function ScaleStrip({
   row,
@@ -49,26 +47,7 @@ function ScaleStrip({
 export default function SidebarGeomagneticScales() {
   const [sw, setSw] = useState<SpaceWeatherCurrent | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    const load = () => {
-      getSpaceWeather()
-        .then((data) => {
-          if (!cancelled) setSw(data);
-        })
-        .catch(() => {
-          if (!cancelled) setSw(null);
-        });
-    };
-
-    load();
-    const id = window.setInterval(load, REFRESH_MS);
-    return () => {
-      cancelled = true;
-      window.clearInterval(id);
-    };
-  }, []);
+  useEffect(() => subscribeSpaceWeather(setSw), []);
 
   const values = { kp: sw?.kp, dst: sw?.dst, ap: null };
 
@@ -78,16 +57,10 @@ export default function SidebarGeomagneticScales() {
       {SIDEBAR_GEOMagnetic_SCALE_ROWS.map((row) => {
         const activeIndex = activeBandForRow(row.id, values);
         let liveLabel: string | null = null;
-        if (row.id === "kp" && sw?.kp != null) liveLabel = `Kp ${sw.kp}`;
-        if (row.id === "geomagnetic" && sw?.kp_condition) liveLabel = sw.kp_condition;
-        if (row.id === "dst" && sw?.dst != null) liveLabel = `${sw.dst} nT`;
+        if (row.id === "kp" && sw?.kp != null) liveLabel = `Kp ${sw.kp.toFixed(1)}`;
+        if (row.id === "dst" && sw?.dst != null) liveLabel = `Dst ${sw.dst.toFixed(0)} nT`;
         return (
-          <ScaleStrip
-            key={row.id}
-            row={row}
-            activeIndex={activeIndex}
-            liveLabel={liveLabel}
-          />
+          <ScaleStrip key={row.id} row={row} activeIndex={activeIndex} liveLabel={liveLabel} />
         );
       })}
     </section>

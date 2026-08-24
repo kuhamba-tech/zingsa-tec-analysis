@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 import datetime
+import sqlite3
+import threading
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 from zgiis.api.cors_client import (
@@ -20,6 +23,8 @@ except ImportError:
     _REQUESTS_AVAILABLE = False
 
 _CACHE: Dict[str, Any] = {}
+_CACHE_LOCK = threading.Lock()
+_CACHE_REFRESHING: set[str] = set()
 _UNAVAILABLE_CACHE_TTL_SECONDS = 10
 _NOAA_HEADERS = {"User-Agent": "ZGIIS/1.0 (Zimbabwe space-weather dashboard)"}
 _CACHE_TTL_SECONDS = 300  # 5 minutes — matches CORS_Program refresh cadence
@@ -43,10 +48,92 @@ NOAA_PLASMA_URL = "https://services.swpc.noaa.gov/json/rtsw/rtsw_wind_1m.json"
 NOAA_LEGACY_PLASMA_URL = "https://services.swpc.noaa.gov/products/solar-wind/plasma-1-day.json"
 
 
+def _is_available(data: Any) -> bool:
+    return not (
+        isinstance(data, dict)
+        and (data.get("mode") == "unavailable" or data.get("kp") is None)
+    )
+
+
+def _load_persisted_snapshot() -> Any:
+    """Load the latest genuine local observation for instant cold starts."""
+    db_path = Path(__file__).resolve().parents[2] / "static" / "data" / "space_weather_log.sqlite"
+    if not db_path.exists():
+        return None
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=0.2)
+        conn.row_factory = sqlite3.Row
+        try:
+            row = conn.execute(
+                """SELECT time, kp, kp_condition, dst, f107, plasma_speed, s4,
+                          gnss_risk, stations_online, stations_total, mean_vtec
+                   FROM space_weather_log
+                   WHERE kp IS NOT NULL
+                   ORDER BY time DESC LIMIT 1"""
+            ).fetchone()
+        finally:
+            conn.close()
+        if row is None:
+            return None
+        data = dict(row)
+        condition, color = _resolve_kp_level(float(data["kp"]))
+        return {
+            "mode": "cached",
+            "source": "Last recorded live observation",
+            "timestamp": data["time"],
+            "updated_utc": data["time"],
+            "kp": data["kp"],
+            "kp_condition": data.get("kp_condition") or condition,
+            "kp_color": color,
+            "dst": data.get("dst"),
+            "f107": data.get("f107"),
+            "solar_wind_speed": data.get("plasma_speed"),
+            "s4": data.get("s4"),
+            "gnss_risk": data.get("gnss_risk"),
+            "gnss_risk_color": _GNSS_RISK_COLORS.get(data.get("gnss_risk"), "#1D9E75"),
+            "stations_online": data.get("stations_online"),
+            "stations_total": data.get("stations_total"),
+            "mean_vtec": data.get("mean_vtec"),
+        }
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        return None
+
+
+def _refresh_cached(key: str, fetch_fn, stale_data: Any) -> None:
+    """Refresh a stale entry without delaying dashboard page loads."""
+    import time
+
+    try:
+        data = fetch_fn()
+        # A transient provider outage must never replace a genuine last-known
+        # observation with an unavailable payload.
+        if _is_available(data) or not _is_available(stale_data):
+            with _CACHE_LOCK:
+                _CACHE[key] = {"ts": time.time(), "data": data}
+    finally:
+        with _CACHE_LOCK:
+            _CACHE_REFRESHING.discard(key)
+
+
 def _cached(key: str, fetch_fn) -> Any:
     import time
 
-    entry = _CACHE.get(key)
+    with _CACHE_LOCK:
+        entry = _CACHE.get(key)
+    if entry is None:
+        persisted = _load_persisted_snapshot()
+        if _is_available(persisted):
+            with _CACHE_LOCK:
+                _CACHE[key] = {"ts": 0.0, "data": persisted}
+                if key not in _CACHE_REFRESHING:
+                    _CACHE_REFRESHING.add(key)
+                    threading.Thread(
+                        target=_refresh_cached,
+                        args=(key, fetch_fn, persisted),
+                        daemon=True,
+                        name=f"{key}-refresh",
+                    ).start()
+            return persisted
     if entry:
         cached_data = entry["data"]
         ttl = (
@@ -57,16 +144,31 @@ def _cached(key: str, fetch_fn) -> Any:
         )
         if time.time() - entry["ts"] < ttl:
             return cached_data
+        if _is_available(cached_data):
+            # Stale-while-revalidate: serve genuine last-known values now and
+            # update them in the background. Navigation never waits on NOAA.
+            with _CACHE_LOCK:
+                if key not in _CACHE_REFRESHING:
+                    _CACHE_REFRESHING.add(key)
+                    threading.Thread(
+                        target=_refresh_cached,
+                        args=(key, fetch_fn, cached_data),
+                        daemon=True,
+                        name=f"{key}-refresh",
+                    ).start()
+            return cached_data
     data = fetch_fn()
-    _CACHE[key] = {"ts": time.time(), "data": data}
+    with _CACHE_LOCK:
+        _CACHE[key] = {"ts": time.time(), "data": data}
     return data
 
 
 def clear_space_weather_cache() -> None:
     """Discard cached metrics so the next call fetches every live API again."""
-    _CACHE.pop("space_weather", None)
-    _CACHE.pop("space_weather_live_only", None)
-    _CACHE.pop("space_weather_fast", None)
+    with _CACHE_LOCK:
+        _CACHE.pop("space_weather", None)
+        _CACHE.pop("space_weather_live_only", None)
+        _CACHE.pop("space_weather_fast", None)
 
 
 def _request_noaa_json(url: str) -> Any:
@@ -758,3 +860,8 @@ def _classify_kp(kp: float) -> tuple[str, str]:
 
 def _risk_color(risk: str) -> str:
     return _GNSS_RISK_COLORS.get(risk, "#1D9E75")
+
+
+def warm_space_weather_cache() -> None:
+    """Preload dashboard metrics on startup (persisted snapshot or background NOAA refresh)."""
+    get_space_weather(use_third_party=False, fetch_ionosphere=False)

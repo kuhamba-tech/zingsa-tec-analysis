@@ -89,19 +89,31 @@ def _log_status_changes(
     for code, status in sorted(current.items()):
         prev = _last_station_status.get(code)
         if prev is not None and prev != status:
+            if status == "offline":
+                event_type = "site_down"
+                message = f"Site went offline ({prev} → offline)"
+            elif prev == "offline" and status == "online":
+                event_type = "site_up"
+                message = f"Site back online (offline → online)"
+            elif prev == "online" and status == "unknown":
+                event_type = "connection_lost"
+                message = f"Connection lost ({prev} → unknown)"
+            else:
+                event_type = "status_change"
+                message = f"{prev} → {status}"
             db.insert_event(
                 {
                     "time": when,
                     "station_code": code,
                     "status": status,
                     "previous_status": prev,
-                    "event_type": "status_change",
+                    "event_type": event_type,
                     "online_count": counts["online"],
                     "degraded_count": counts["degraded"],
                     "offline_count": counts["offline"],
                     "unknown_count": counts["unknown"],
                     "api_reachable": api_reachable,
-                    "message": f"{prev} → {status}",
+                    "message": message,
                     "source": source,
                 }
             )
@@ -139,6 +151,44 @@ def _log_status_changes(
     return changes
 
 
+def _status_from_spider() -> dict[str, str]:
+    """Spider Site Status (Status==3 ⇒ online) when NTRIP ingest is unavailable."""
+    try:
+        from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
+        from zgiis.live.spider_site_status import get_cached_spider_site_statuses, spider_status_enabled
+
+        if not spider_status_enabled():
+            return {}
+        payload = get_cached_spider_site_statuses()
+        by_station = payload.get("by_station") or {}
+        if not by_station:
+            return {}
+        result: dict[str, str] = {}
+        for station in ZIMBABWE_CORS_STATIONS:
+            code = station.code.lower().rstrip("_")
+            row = by_station.get(code)
+            if row is None:
+                result[code] = "unknown"
+            else:
+                result[code] = "online" if row.get("status") == "online" else "offline"
+        return result
+    except Exception:
+        return {}
+
+
+def log_status_map(current: dict[str, str], *, source: str, api_reachable: bool = True) -> dict[str, Any]:
+    """Log a pre-built station_code → status map (Spider or external collector)."""
+    counts = _counts(current)
+    try:
+        changes = _log_status_changes(current, source=source, api_reachable=api_reachable)
+    except Exception as exc:
+        global _db
+        log.warning("station status archive write failed: %s", exc)
+        _db = None
+        return {"ok": False, "reason": "archive write failed", "stations": len(current), **counts}
+    return {"ok": True, "changes": changes, "stations": len(current), **counts}
+
+
 def log_streams(streams: dict[str, dict], *, source: str = "collector") -> dict[str, Any]:
     """
     Log status derived from an externally-supplied NTRIP stream-status dict
@@ -150,28 +200,7 @@ def log_streams(streams: dict[str, dict], *, source: str = "collector") -> dict[
     feeds station_status_snapshots for Vercel's serverless reads.
     """
     current = _status_from_streams(streams)
-    counts = _counts(current)
-    try:
-        changes = _log_status_changes(current, source=source, api_reachable=True)
-    except Exception as exc:
-        # The live dashboard must stay available even if the status archive
-        # database drops an idle connection. Reset so the next poll reconnects.
-        global _db
-        log.warning("station status archive write failed: %s", exc)
-        _db = None
-        return {
-            "ok": False,
-            "reason": "archive write failed",
-            "stations": len(current),
-            **counts,
-        }
-
-    return {
-        "ok": True,
-        "changes": changes,
-        "stations": len(current),
-        **counts,
-    }
+    return log_status_map(current, source=source, api_reachable=True)
 
 
 def poll_and_log(*, source: str = "scheduler", force: bool = False) -> dict[str, Any]:
@@ -185,20 +214,24 @@ def poll_and_log(*, source: str = "scheduler", force: bool = False) -> dict[str,
     if not force and _last_poll_at is not None and (now - _last_poll_at) < _MIN_POLL_GAP_SEC:
         return {"skipped": True}
 
+    pipeline_status: dict[str, Any] = {}
     try:
         from backend import live_manager
 
         pipeline_status = live_manager.status()
-        if not (pipeline_status.get("configured") or pipeline_status.get("active_streams")):
-            return {
-                "skipped": True,
-                "reason": "live pipeline is not configured in this process",
-            }
     except Exception:
-        return {"skipped": True, "reason": "live pipeline status unavailable"}
+        pipeline_status = {}
 
-    _last_poll_at = now
-    return log_streams(pipeline_status.get("streams", {}), source=source)
+    if pipeline_status.get("configured") or pipeline_status.get("active_streams"):
+        _last_poll_at = now
+        return log_streams(pipeline_status.get("streams", {}), source=source)
+
+    spider_status = _status_from_spider()
+    if spider_status:
+        _last_poll_at = now
+        return log_status_map(spider_status, source=f"{source}_spider", api_reachable=True)
+
+    return {"skipped": True, "reason": "live pipeline and Spider status both unavailable"}
 
 
 def _loop() -> None:

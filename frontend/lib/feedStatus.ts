@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useClientMounted } from "./useClientMounted";
 
-export type FeedStatus = "pending" | "ok" | "down";
+export type FeedStatus = "pending" | "ok" | "stale" | "down";
 
 const PREFIX = "zgiis:last-ok:";
 
@@ -34,6 +35,7 @@ function formatUtc(iso: string): string {
  * timestamp of the last successful fetch is persisted, never the data.
  */
 export function useFeedFreshness(feedKey: string, status: FeedStatus): string | null {
+  const mounted = useClientMounted();
   const [lastOk, setLastOk] = useState<string | null>(null);
 
   useEffect(() => {
@@ -48,6 +50,13 @@ export function useFeedFreshness(feedKey: string, status: FeedStatus): string | 
     }
   }, [status, feedKey]);
 
+  if (!mounted) return null;
+
+  if (status === "stale") {
+    return lastOk
+      ? `Showing the last successful live observation from ${formatUtc(lastOk)} while fresh data loads.`
+      : "Showing the last successful live observation while fresh data loads.";
+  }
   if (status !== "down") return null;
   return lastOk
     ? `Live feed unavailable since ${formatUtc(lastOk)} — figures below show N/A until it reconnects.`

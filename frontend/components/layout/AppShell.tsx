@@ -3,6 +3,8 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import SiteTranslator from "./SiteTranslator";
+import PageErrorBoundary from "./PageErrorBoundary";
+import { getSpaceWeather, getStations } from "@/lib/api";
 
 type NavItem = {
   href: string;
@@ -138,6 +140,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   }, [pathname]);
 
   useEffect(() => {
+    void getSpaceWeather().catch(() => null);
+    void getStations(false).catch(() => null);
+  }, [pathname]);
+
+  useEffect(() => {
     document.body.classList.toggle("mobile-nav-open", mobileOpen);
     return () => document.body.classList.remove("mobile-nav-open");
   }, [mobileOpen]);
@@ -224,7 +231,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       </aside>
 
       <main className="app-main">
-        {children}
+        <PageErrorBoundary key={pathname}>{children}</PageErrorBoundary>
       </main>
       <SiteTranslator />
     </div>

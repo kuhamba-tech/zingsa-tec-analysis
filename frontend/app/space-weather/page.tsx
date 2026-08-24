@@ -1,6 +1,8 @@
 "use client";
 import { useCallback, useEffect, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { getSpaceWeather, getSolarActivity, getTimelines, refreshSpaceWeather, getStations } from "@/lib/api";
+import { peekSpaceWeather, subscribeSpaceWeather } from "@/lib/spaceWeatherStore";
+import { peekStations, subscribeStations } from "@/lib/stationsStore";
 import ClickableMetricGrid from "@/components/spaceWeather/ClickableMetricGrid";
 import IndexScaleReference from "@/components/spaceWeather/IndexScaleReference";
 import AiRecommendationPanel from "@/components/layout/AiRecommendationPanel";
@@ -221,6 +223,19 @@ export default function SpaceWeatherPage() {
   const [selectedSolarInfo, setSelectedSolarInfo] = useState<SolarInfoKey>("summary");
 
   useEffect(() => {
+    const cached = peekSpaceWeather();
+    if (cached) {
+      setSw(cached);
+      setTl(snapshotTimelines(cached));
+      setFeedStatus("stale");
+    }
+    const cachedStations = peekStations();
+    if (cachedStations.length) {
+      setLiveStationCounts(countLiveStationStatuses(cachedStations));
+    }
+  }, []);
+
+  useEffect(() => {
     const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
     const fmt = () => {
       const cat = new Date(Date.now() + 2 * 3600 * 1000);
@@ -236,31 +251,66 @@ export default function SpaceWeatherPage() {
     return () => clearInterval(id);
   }, []);
 
-  const fetchAll = useCallback(() => {
+  const fetchAll = useCallback((background = false) => {
+    if (!background && !peekSpaceWeather()) {
+      setFeedStatus("pending");
+    }
+
     getSpaceWeather()
       .then((s) => {
         setSw(s);
         setTl((prev) => prev ?? snapshotTimelines(s));
         setFeedStatus("ok");
       })
-      .catch(() => setFeedStatus("down"));
-    getSolarActivity()
-      .then(setSa)
-      .catch(() => null);
-    getTimelines()
-      .then(setTl)
-      .catch(() => null);
+      .catch(() => {
+        const cached = peekSpaceWeather();
+        if (cached) {
+          setSw(cached);
+          setTl((prev) => prev ?? snapshotTimelines(cached));
+          setFeedStatus("stale");
+        } else {
+          setFeedStatus("down");
+        }
+      });
+
     getStations(false)
       .then((stations) => setLiveStationCounts(countLiveStationStatuses(stations)))
       .catch(() => null);
-    getStations(true)
-      .then((stations) => setLiveStationCounts(countLiveStationStatuses(stations)))
-      .catch(() => null);
+
+    const loadSecondary = () => {
+      getSolarActivity()
+        .then(setSa)
+        .catch(() => null);
+      getTimelines()
+        .then(setTl)
+        .catch(() => null);
+    };
+    if (typeof window !== "undefined" && typeof window.requestIdleCallback === "function") {
+      window.requestIdleCallback(loadSecondary, { timeout: 2500 });
+    } else {
+      window.setTimeout(loadSecondary, 80);
+    }
   }, []);
 
-  useEffect(() => { fetchAll(); }, [fetchAll]);
+  useEffect(() => {
+    fetchAll(false);
+    const id = window.setInterval(() => fetchAll(true), 45_000);
+    return () => window.clearInterval(id);
+  }, [fetchAll]);
+
+  // Keep in sync when another page (home) publishes a fresh snapshot.
+  useEffect(() => subscribeSpaceWeather((next) => {
+    setSw(next);
+    setFeedStatus("ok");
+  }), []);
+
+  useEffect(() => subscribeStations((next) => {
+    if (next.length) setLiveStationCounts(countLiveStationStatuses(next));
+  }), []);
 
   const freshnessMsg = useFeedFreshness("space-weather", feedStatus);
+  // Never claim “figures show N/A” while we already have live/cached values on screen.
+  const showUnavailableBanner = Boolean(freshnessMsg) && !sw;
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -473,7 +523,7 @@ export default function SpaceWeatherPage() {
 
       <ClickableMetricGrid sw={sw} updatedUtc={sw?.updated_utc} liveStationCounts={liveStationCounts} />
       <IndexScaleReference />
-      <AiRecommendationPanel sw={sw} indicesLoading={feedStatus === "pending"} />
+      <AiRecommendationPanel sw={sw} indicesLoading={feedStatus === "pending" && !sw} />
 
       {/* ── Solar Activity Monitor section ── */}
       <div style={{ display: "flex", flexDirection: "column", gap: "0.8rem" }}>

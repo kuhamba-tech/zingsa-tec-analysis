@@ -40,7 +40,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from backend import live_manager, navigation_broadcast_scheduler, space_weather_logger, station_status_logger
+from backend import navigation_broadcast_scheduler, space_weather_logger, station_status_logger
+from backend.startup_warmup import start_background_warmup
 from backend.routers import (
     chat,
     cors_network,
@@ -69,12 +70,8 @@ async def lifespan(app: FastAPI):
         yield
         return
 
-    # NTRIP ingest can take time to connect 25 mountpoints — do not block API startup.
-    threading.Thread(
-        target=live_manager.start,
-        daemon=True,
-        name="zgiis-live-pipeline-start",
-    ).start()
+    # Warm caches and start NTRIP ingest in background threads — never block HTTP startup.
+    start_background_warmup(include_live_ingest=True)
     space_weather_logger.start()
     station_status_logger.start()
     navigation_broadcast_scheduler.start()
@@ -87,6 +84,8 @@ async def lifespan(app: FastAPI):
     navigation_broadcast_scheduler.stop()
     station_status_logger.stop()
     space_weather_logger.stop()
+    from backend import live_manager
+
     live_manager.stop()
 
 
@@ -124,7 +123,31 @@ STATIC_EXPORT_DIR = Path(__file__).resolve().parents[1] / "static_export"
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "ZGIIS API"}
+    """Always fast — used by dev.ps1 and load balancers."""
+    from zgiis.space_weather.fetch_indices import _CACHE, _CACHE_LOCK, _is_available
+
+    sw_ready = False
+    spider_ready = False
+    try:
+        with _CACHE_LOCK:
+            entry = _CACHE.get("space_weather") or _CACHE.get("space_weather_fast")
+            sw_ready = bool(entry and _is_available(entry.get("data")))
+    except Exception:
+        pass
+    try:
+        from zgiis.live.spider_site_status import get_cached_spider_site_statuses, spider_status_enabled
+
+        if spider_status_enabled():
+            payload = get_cached_spider_site_statuses()
+            spider_ready = bool(payload.get("by_station"))
+    except Exception:
+        pass
+
+    return {
+        "status": "ok",
+        "service": "ZGIIS API",
+        "caches": {"space_weather": sw_ready, "spider_status": spider_ready},
+    }
 
 
 if STATIC_EXPORT_DIR.is_dir():

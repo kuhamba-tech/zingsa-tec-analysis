@@ -13,6 +13,14 @@ import {
 } from "@/lib/api";
 import LineChart from "@/components/charts/LineChart";
 import BarChart from "@/components/charts/BarChart";
+import AnomalyGuidePanel from "@/components/anomaly/AnomalyGuidePanel";
+import {
+  deviationAboveThreshold,
+  deviationPercent,
+  interpretAnomalyDay,
+  SEVERITY_COLORS,
+  SEVERITY_LABELS,
+} from "@/lib/anomalyInterpretation";
 import type {
   AnomalyDay,
   DiurnalPoint,
@@ -298,7 +306,7 @@ export default function AnomalyDetectionPage() {
     getCnnGruTrainStatus().then(setTrainStatus).catch(() => setTrainStatus(null));
     getStations()
       .then((items) => setStationCatalog(items.slice(0, 25)))
-      .catch(() => setStationCatalog([]));
+      .catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -339,14 +347,25 @@ export default function AnomalyDetectionPage() {
     [anomalies],
   );
   const threshold = anomalies[0]?.threshold ?? 0;
-  const meanTec = anomalies.length
-    ? anomalies.reduce((sum, item) => sum + item.mean_vtec, 0) / anomalies.length
-    : null;
   const maxDay = anomalies.reduce<AnomalyDay | null>(
     (best, item) => (!best || item.mean_vtec > best.mean_vtec ? item : best),
     null,
   );
   const anomalyRate = anomalies.length ? (anomalyDays.length * 100) / anomalies.length : 0;
+  const stormLinkedCount = anomalyDays.filter((d) => d.storm_flag).length;
+  const unconfirmedCount = anomalyDays.length - stormLinkedCount;
+  const latestAnomaly = useMemo(
+    () =>
+      anomalyDays
+        .slice()
+        .sort((a, b) => b.date.localeCompare(a.date))[0] ?? null,
+    [anomalyDays],
+  );
+  const topAnomalyInsight = useMemo(() => {
+    if (!anomalyDays.length) return null;
+    const top = anomalyDays.slice().sort((a, b) => b.mean_vtec - a.mean_vtec)[0];
+    return interpretAnomalyDay(top, pct);
+  }, [anomalyDays, pct]);
   const highSeason = seasonal.reduce<SeasonalRow | null>(
     (best, item) => (!best || item.mean > best.mean ? item : best),
     null,
@@ -380,9 +399,11 @@ export default function AnomalyDetectionPage() {
       <div>
         <h1 className="page-title">TEC Anomaly Detection</h1>
         <p className="page-subtitle">
-          Storm analysis, diurnal and seasonal variation, solar-cycle context, EIA study, and TEC prediction.
+          Detect unusual ionospheric days, correlate with geomagnetic storms, and explore diurnal, seasonal, and solar-cycle context for Zimbabwe CORS TEC.
         </p>
       </div>
+
+      <AnomalyGuidePanel />
 
       {trainStatus?.running && (
         <div className="banner banner-info" style={{ fontSize: "0.82rem" }}>
@@ -444,24 +465,63 @@ export default function AnomalyDetectionPage() {
         <div className="card card-accent">
           <div className="metric-label">Anomaly days</div>
           <div className="metric-value">{anomalyDays.length}</div>
-          <p className="small-note">VTEC at or above {pct}th percentile</p>
+          <p className="small-note">
+            {anomalyDays.length
+              ? `${fmt(anomalyRate, 1)}% of archive · threshold ${fmt(threshold)} TECU (${pct}th pct)`
+              : `No days above ${pct}th percentile yet`}
+          </p>
         </div>
         <div className="card card-warn">
-          <div className="metric-label">Storm-confirmed</div>
-          <div className="metric-value">{eia?.storm_confirmed_count ?? stormConfirmed.length}</div>
-          <p className="small-note">Anomaly days with Kp storm (G1+)</p>
+          <div className="metric-label">Storm-linked</div>
+          <div className="metric-value">{stormLinkedCount}</div>
+          <p className="small-note">
+            {stormLinkedCount
+              ? "High TEC during Kp storm (G1+) — likely space weather"
+              : "No storm-confirmed anomalies in range"}
+          </p>
         </div>
         <div className="card card-ok">
-          <div className="metric-label">Mean VTEC</div>
-          <div className="metric-value">{fmt(meanTec)}</div>
-          <p className="small-note">Daily archive average</p>
+          <div className="metric-label">Unconfirmed spikes</div>
+          <div className="metric-value">{unconfirmedCount}</div>
+          <p className="small-note">
+            {unconfirmedCount
+              ? "Above threshold without Kp storm — check EIA / local effects"
+              : "All anomalies matched storm flags or none flagged"}
+          </p>
         </div>
         <div className="card card-alert">
-          <div className="metric-label">Peak day</div>
+          <div className="metric-label">Strongest day</div>
           <div className="metric-value">{fmt(maxDay?.mean_vtec)}</div>
-          <p className="small-note">{maxDay?.date ?? "No archive data"}</p>
+          <p className="small-note">
+            {maxDay
+              ? `${maxDay.date}${maxDay.anomaly ? " · anomaly" : ""}${maxDay.storm_flag ? " · storm" : ""}`
+              : "No archive data"}
+          </p>
         </div>
       </section>
+
+      {!loading && topAnomalyInsight && anomalyDays.length > 0 && (
+        <div
+          className="card anomaly-insight-card"
+          style={{ borderLeft: `4px solid ${SEVERITY_COLORS[topAnomalyInsight.severity]}` }}
+        >
+          <div className="metric-label">Strongest anomaly — plain-language summary</div>
+          <strong style={{ fontSize: "1.05rem" }}>{topAnomalyInsight.headline}</strong>
+          <p className="body-copy" style={{ marginTop: "0.45rem" }}>{topAnomalyInsight.detail}</p>
+          <p className="small-note">
+            <strong>Recommended action:</strong> {topAnomalyInsight.recommendation}
+          </p>
+          {latestAnomaly && (
+            <p className="small-note" style={{ marginTop: "0.35rem" }}>
+              Most recent flagged day:{" "}
+              <Link href={timeSeriesLink(latestAnomaly.date, station)} className="link-inline">
+                {latestAnomaly.date}
+              </Link>
+              {" "}({fmt(latestAnomaly.mean_vtec)} TECU)
+            </p>
+          )}
+        </div>
+      )}
 
       {tab === 0 && (
         <section className="anomaly-stack">
@@ -501,6 +561,10 @@ export default function AnomalyDetectionPage() {
 
           <div className="card">
             <div className="metric-label">Daily mean VTEC with anomaly threshold</div>
+            <p className="small-note">
+              Values above the dashed threshold are flagged. Orange markers mean a geomagnetic storm (Kp ≥ 5) occurred the same day —
+              strong evidence the TEC rise was space-weather driven.
+            </p>
             <LineChart
               labels={anomalies.map((a) => a.date)}
               datasets={[
@@ -523,7 +587,7 @@ export default function AnomalyDetectionPage() {
                 <div className="metric-label">Flagged anomaly days</div>
                 <strong>{anomalyDays.length} days detected</strong>
               </div>
-              <span className="small-note">Top 20 by VTEC intensity — click date for time series</span>
+              <span className="small-note">Sorted by intensity — click date for full time series</span>
             </div>
             <div className="table-scroll">
               <table className="dark-table">
@@ -531,11 +595,12 @@ export default function AnomalyDetectionPage() {
                   <tr>
                     <th>Date</th>
                     <th>Mean VTEC</th>
+                    <th>Above threshold</th>
                     <th>Kp</th>
                     <th>Dst</th>
-                    <th>Storm</th>
-                    <th>TEC response</th>
-                    <th>Status</th>
+                    <th>Type</th>
+                    <th>Interpretation</th>
+                    <th>Severity</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -543,27 +608,64 @@ export default function AnomalyDetectionPage() {
                     .slice()
                     .sort((a, b) => b.mean_vtec - a.mean_vtec)
                     .slice(0, 20)
-                    .map((day) => (
-                      <tr key={day.date}>
-                        <td>
-                          <Link href={timeSeriesLink(day.date, station)} className="link-inline">
-                            {day.date}
-                          </Link>
-                        </td>
-                        <td>{fmt(day.mean_vtec)} TECU</td>
-                        <td>{day.kp != null ? fmt(day.kp, 1) : "—"}</td>
-                        <td>{day.dst != null ? fmt(day.dst, 0) : "—"}</td>
-                        <td>
-                          {day.storm_flag ? (
-                            <span className="status-pill warn">{day.kp_severity ?? "Storm"}</span>
-                          ) : (
-                            <span className="status-pill">Quiet</span>
-                          )}
-                        </td>
-                        <td>{day.tec_response ?? "—"}</td>
-                        <td><span className="status-pill alert">Anomaly</span></td>
-                      </tr>
-                    ))}
+                    .map((day) => {
+                      const interp = interpretAnomalyDay(day, pct);
+                      const above = deviationAboveThreshold(day);
+                      const pctAbove = deviationPercent(day);
+                      return (
+                        <tr key={day.date}>
+                          <td>
+                            <Link href={timeSeriesLink(day.date, station)} className="link-inline">
+                              {day.date}
+                            </Link>
+                          </td>
+                          <td>{fmt(day.mean_vtec)} TECU</td>
+                          <td>
+                            {above != null && above > 0 ? (
+                              <>
+                                +{fmt(above)} TECU
+                                {pctAbove != null ? (
+                                  <span className="small-note" style={{ display: "block" }}>
+                                    ({fmt(pctAbove, 0)}% over cutoff)
+                                  </span>
+                                ) : null}
+                              </>
+                            ) : (
+                              "—"
+                            )}
+                          </td>
+                          <td>{day.kp != null ? fmt(day.kp, 1) : "—"}</td>
+                          <td>{day.dst != null ? fmt(day.dst, 0) : "—"}</td>
+                          <td>
+                            <span
+                              className="status-pill"
+                              style={{
+                                borderColor: `${SEVERITY_COLORS[interp.severity]}66`,
+                                color: SEVERITY_COLORS[interp.severity],
+                              }}
+                            >
+                              {interp.category}
+                            </span>
+                          </td>
+                          <td className="anomaly-interpret-cell">
+                            <span>{interp.headline}</span>
+                            <span className="small-note">{day.tec_response ?? interp.detail.split(".")[0]}</span>
+                          </td>
+                          <td>
+                            <span
+                              className="status-pill"
+                              style={{
+                                background: `${SEVERITY_COLORS[interp.severity]}22`,
+                                borderColor: `${SEVERITY_COLORS[interp.severity]}88`,
+                                color: SEVERITY_COLORS[interp.severity],
+                              }}
+                            >
+                              {SEVERITY_LABELS[interp.severity]}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
                 </tbody>
               </table>
             </div>

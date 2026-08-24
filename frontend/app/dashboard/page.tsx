@@ -14,6 +14,8 @@ import {
   getGicSeries,
   getGicStatus,
 } from "@/lib/api";
+import { peekSpaceWeather, subscribeSpaceWeather } from "@/lib/spaceWeatherStore";
+import { peekStations, subscribeStations } from "@/lib/stationsStore";
 import ClickableMetricGrid from "@/components/spaceWeather/ClickableMetricGrid";
 import IndexScaleReference from "@/components/spaceWeather/IndexScaleReference";
 import StormWatchLog from "@/components/spaceWeather/StormWatchLog";
@@ -171,6 +173,30 @@ export default function DashboardPage() {
   const [liveStationCounts, setLiveStationCounts] = useState<LiveStationCounts | null>(null);
   const [gicBundle, setGicBundle] = useState<GicTimelineBundle | null>(null);
 
+  useEffect(() => {
+    const cached = peekSpaceWeather();
+    if (cached) {
+      setSw(cached);
+      setLoading(false);
+      setFeedStatus("stale");
+    }
+    const cachedStations = peekStations();
+    if (cachedStations.length) {
+      setLiveStationCounts(countLiveStationStatuses(cachedStations));
+    }
+  }, []);
+
+  useEffect(() => subscribeSpaceWeather((next) => {
+    setSw(next);
+    setFeedStatus("ok");
+    setApiStatus("Live");
+    setLoading(false);
+  }), []);
+
+  useEffect(() => subscribeStations((next) => {
+    if (next.length) setLiveStationCounts(countLiveStationStatuses(next));
+  }), []);
+
   const loadGicBundle = useCallback(async (): Promise<GicTimelineBundle | null> => {
     const status = await getGicStatus().catch(() => null);
     const withData = status?.stations.find((s) => s.has_data);
@@ -205,13 +231,17 @@ export default function DashboardPage() {
     if (stLogR.status === "fulfilled") setStationLog(stLogR.value);
     if (ekfR.status === "fulfilled") setEkf(ekfR.value);
     if (stationsR.status === "fulfilled") setLiveStationCounts(countLiveStationStatuses(stationsR.value));
-    getStations(true)
-      .then((stations) => setLiveStationCounts(countLiveStationStatuses(stations)))
-      .catch(() => null);
     if (gicR.status === "fulfilled" && gicR.value) setGicBundle(gicR.value);
   }, [loadGicBundle]);
 
   const load = useCallback(async (opts?: { refreshEkf?: boolean }) => {
+    const cached = peekSpaceWeather();
+    if (cached) {
+      setSw(cached);
+      setTl((prev) => prev ?? snapshotTimelines(cached));
+      setFeedStatus("stale");
+      setLoading(false);
+    }
     try {
       const swData = await getSpaceWeather();
       setSw(swData);
@@ -230,8 +260,13 @@ export default function DashboardPage() {
           .catch(() => null);
       }
     } catch {
-      setApiStatus("Offline");
-      setFeedStatus("down");
+      if (cached) {
+        setFeedStatus("stale");
+        setApiStatus("Live");
+      } else {
+        setApiStatus("Offline");
+        setFeedStatus("down");
+      }
       setLoading(false);
     }
   }, [loadSecondary]);

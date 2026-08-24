@@ -83,16 +83,8 @@ export default function RinexDownloadPanel() {
         setStations(catalog);
         if (sw?.gnss_risk) setRiskLevel(sw.gnss_risk);
         setNtripProbedAt(catalog.find((s) => s.ntrip_probed_at)?.ntrip_probed_at ?? null);
-        getStations(true)
-          .then((live) => {
-            if (cancelled) return;
-            setStations(live);
-            const probed = live.find((s) => s.ntrip_probed_at)?.ntrip_probed_at ?? null;
-            if (probed) setNtripProbedAt(probed);
-          })
-          .catch(() => null);
       } catch {
-        if (!cancelled) setStations([]);
+        /* keep last-good station list */
       } finally {
         if (!cancelled) setStationsLoading(false);
       }

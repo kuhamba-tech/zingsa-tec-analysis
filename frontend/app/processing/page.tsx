@@ -674,7 +674,7 @@ export default function ProcessingPage() {
   }, [tab]);
 
   useEffect(() => {
-    getStations().then(setStationsList).catch(() => setStationsList([]));
+    getStations().then(setStationsList).catch(() => undefined);
     getLivePipelineStatus()
       .then((p) => {
         if (p.runtime_mode === "vercel-serverless" || !p.ingest_enabled) {

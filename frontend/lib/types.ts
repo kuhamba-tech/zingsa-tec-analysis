@@ -317,6 +317,15 @@ export interface StationUptimeTimelinePoint {
   samples: number;
 }
 
+export interface StationOutageInterval {
+  station_code: string;
+  station_name: string;
+  started_at: string;
+  ended_at: string | null;
+  duration_min: number;
+  ongoing: boolean;
+}
+
 export interface StationUptimeAnalysis {
   hours: number;
   bucket_minutes: number;
@@ -330,6 +339,7 @@ export interface StationUptimeAnalysis {
   network_online_pct: number;
   stations: StationUptimeRow[];
   timeline: StationUptimeTimelinePoint[];
+  outage_intervals?: StationOutageInterval[];
 }
 
 // ── Processing ────────────────────────────────────────────────────────────────
@@ -1331,6 +1341,25 @@ export interface GicLine {
   coords: [number, number][];
 }
 
+export interface GicGenerationLink {
+  from: string;
+  to: string;
+  coords: [number, number][];
+}
+
+export interface GicPowerPlant {
+  code: string;
+  name: string;
+  lat: number;
+  lon: number;
+  fuel: "hydro" | "coal";
+  operator: string;
+  status: "operational" | "care_and_maintenance" | "decommissioning";
+  capacity_mw?: number | null;
+  linked_substation?: string | null;
+  notes?: string | null;
+}
+
 export interface GicMonitoringStationMeta {
   station_id: string;
   name: string;
@@ -1350,7 +1379,9 @@ export interface GicRiskBand {
 
 export interface GicNetwork {
   substations: GicSubstation[];
+  power_plants?: GicPowerPlant[];
   lines: GicLine[];
+  generation_links?: GicGenerationLink[];
   monitoring_stations: GicMonitoringStationMeta[];
   risk_bands: GicRiskBand[];
 }

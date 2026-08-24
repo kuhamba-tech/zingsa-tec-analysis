@@ -33,9 +33,17 @@ def _db():
 # ── Network / infrastructure ──────────────────────────────────────────────────
 @router.get("/network")
 async def network(_=Depends(require_api_key)) -> dict[str, Any]:
-    from zgiis.gic.network import LINES, MONITORING_STATIONS, RISK_BANDS, SUBSTATIONS
+    from zgiis.gic.network import (
+        GENERATION_LINKS,
+        LINES,
+        MONITORING_STATIONS,
+        POWER_PLANTS,
+        RISK_BANDS,
+        SUBSTATIONS,
+    )
 
     by_code = {s["code"]: s for s in SUBSTATIONS}
+    by_plant = {p["code"]: p for p in POWER_PLANTS}
     lines = [
         {
             "from": l["from"],
@@ -48,9 +56,23 @@ async def network(_=Depends(require_api_key)) -> dict[str, Any]:
         }
         for l in LINES
     ]
+    generation_links = [
+        {
+            "from": link["from"],
+            "to": link["to"],
+            "coords": [
+                [by_plant[link["from"]]["lat"], by_plant[link["from"]]["lon"]],
+                [by_code[link["to"]]["lat"], by_code[link["to"]]["lon"]],
+            ],
+        }
+        for link in GENERATION_LINKS
+        if link["from"] in by_plant and link["to"] in by_code
+    ]
     return {
         "substations": SUBSTATIONS,
+        "power_plants": POWER_PLANTS,
         "lines": lines,
+        "generation_links": generation_links,
         "monitoring_stations": MONITORING_STATIONS,
         "risk_bands": RISK_BANDS,
     }

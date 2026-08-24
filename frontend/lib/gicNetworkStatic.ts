@@ -25,6 +25,77 @@ const SUBSTATIONS = [
   { code: "SW_BORDER", name: "Southern interconnector (border)", lat: -21.85, lon: 28.2 },
 ] as const;
 
+const POWER_PLANTS = [
+  {
+    code: "KARIBA_SOUTH",
+    name: "Kariba South (ZPC)",
+    lat: -16.5253,
+    lon: 28.7686,
+    fuel: "hydro",
+    operator: "ZPC",
+    status: "operational",
+    capacity_mw: 1050,
+    linked_substation: "KARIBA",
+    notes: "Kariba South Hydropower Station — ZPC flagship hydro plant on Lake Kariba.",
+  },
+  {
+    code: "HWANGE_PS",
+    name: "Hwange (ZPC)",
+    lat: -18.3647,
+    lon: 26.4831,
+    fuel: "coal",
+    operator: "ZPC",
+    status: "operational",
+    capacity_mw: 920,
+    linked_substation: "HWANGE",
+    notes: "Hwange Power Station — largest coal-fired plant in Zimbabwe.",
+  },
+  {
+    code: "MUNYATI",
+    name: "Munyati (ZPC)",
+    lat: -19.4169,
+    lon: 29.7336,
+    fuel: "coal",
+    operator: "ZPC",
+    status: "care_and_maintenance",
+    capacity_mw: 100,
+    linked_substation: "SHERWOOD",
+    notes: "Munyati thermal station — under care and maintenance; ZPC repurposing study in progress.",
+  },
+  {
+    code: "BULAWAYO_PS",
+    name: "Bulawayo (ZPC)",
+    lat: -20.1547,
+    lon: 28.5833,
+    fuel: "coal",
+    operator: "ZPC",
+    status: "care_and_maintenance",
+    capacity_mw: 90,
+    linked_substation: "INSUKAMINI",
+    notes: "Bulawayo thermal station — under care and maintenance; ZPC repurposing study in progress.",
+  },
+  {
+    code: "HARARE_PS",
+    name: "Harare (ZPC)",
+    lat: -17.8178,
+    lon: 31.0333,
+    fuel: "coal",
+    operator: "ZPC",
+    status: "care_and_maintenance",
+    capacity_mw: 90,
+    linked_substation: "HARARE",
+    notes: "Harare thermal station — under care and maintenance; ZPC repurposing study in progress.",
+  },
+] as const;
+
+const GENERATION_LINKS = [
+  { from: "KARIBA_SOUTH", to: "KARIBA" },
+  { from: "HWANGE_PS", to: "HWANGE" },
+  { from: "MUNYATI", to: "SHERWOOD" },
+  { from: "BULAWAYO_PS", to: "INSUKAMINI" },
+  { from: "HARARE_PS", to: "HARARE" },
+] as const;
+
 const LINES = [
   { from: "KARIBA", to: "ALASKA", kv: 330 },
   { from: "ALASKA", to: "WARREN", kv: 330 },
@@ -75,14 +146,24 @@ const RISK_BANDS = [
 
 function buildNetwork(): GicNetwork {
   const byCode = Object.fromEntries(SUBSTATIONS.map((s) => [s.code, s]));
+  const byPlant = Object.fromEntries(POWER_PLANTS.map((p) => [p.code, p]));
   return {
     substations: [...SUBSTATIONS],
+    power_plants: [...POWER_PLANTS],
     lines: LINES.map((l) => ({
       from: l.from,
       to: l.to,
       kv: l.kv,
       coords: [
         [byCode[l.from].lat, byCode[l.from].lon],
+        [byCode[l.to].lat, byCode[l.to].lon],
+      ],
+    })),
+    generation_links: GENERATION_LINKS.map((l) => ({
+      from: l.from,
+      to: l.to,
+      coords: [
+        [byPlant[l.from].lat, byPlant[l.from].lon],
         [byCode[l.to].lat, byCode[l.to].lon],
       ],
     })),

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import os
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -61,12 +62,36 @@ def _cached_s4() -> tuple[float | None, float, str, str]:
 
 
 def _ntrip_stream_counts() -> tuple[int | None, int | None]:
-    """Non-blocking station counts — prefer persistent collector snapshots.
+    """Non-blocking station counts — Spider Site Status first, then archives."""
+    try:
+        from zgiis.live.spider_site_status import get_cached_spider_site_statuses, spider_status_enabled
 
-    On Vercel, live NTRIP sockets are not reliable from serverless functions.
-    The always-on collector writes status snapshots to Supabase; use those
-    counts first, then fall back to the local cached probe for development.
-    """
+        if spider_status_enabled():
+            payload = get_cached_spider_site_statuses()
+            by_station = payload.get("by_station") or {}
+            if by_station:
+                online = sum(1 for row in by_station.values() if row.get("status") == "online")
+                return online, len(by_station)
+    except Exception:
+        pass
+
+    # Local page loads must never wait on a hosted database connection. The
+    # collector cache is process-local and explicitly non-blocking.
+    if not os.getenv("VERCEL"):
+        try:
+            from zgiis.live.ntrip_status_cache import get_cached_ntrip_probe
+
+            probe = get_cached_ntrip_probe(refresh=False, listen_sec=4.0, allow_blocking_refresh=False)
+            if not probe.get("error"):
+                rows = probe.get("stations") or []
+                if rows:
+                    online = sum(
+                        1 for row in rows if str(row.get("verdict") or "").lower() == "msm_streaming"
+                    )
+                    return online, len(rows) or 24
+        except Exception:
+            pass
+
     try:
         from backend.routers.cors_network import _archived_status_counts
 

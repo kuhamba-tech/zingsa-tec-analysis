@@ -173,9 +173,10 @@ def get_cached_spider_site_statuses(
     """Return cached Spider statuses; refresh in-process with a single-flight lock.
 
     Stale cache is preferred over blocking the API when Spider is slow/unreachable.
+    On a cold start (no cache), returns immediately and fetches in a background thread.
     """
     global _CACHE, _CACHE_TS
-    del refresh  # callers may pass refresh; TTL + single-flight decide when to hit Spider
+
     if not spider_status_enabled():
         return {
             "fetched_at": None,
@@ -185,47 +186,82 @@ def get_cached_spider_site_statuses(
 
     age = None if _CACHE is None else (time.monotonic() - _CACHE_TS)
     have_rows = bool(_CACHE and (_CACHE.get("by_station") or {}))
-    if have_rows and age is not None and age <= ttl_sec:
+    if not refresh and have_rows and age is not None and age <= ttl_sec:
         return _CACHE  # type: ignore[return-value]
 
     if not _FETCH_LOCK.acquire(blocking=False):
-        if have_rows:
-            return _CACHE  # type: ignore[return-value]
-        acquired = _FETCH_LOCK.acquire(timeout=DEFAULT_TIMEOUT_SEC + 2.0)
-        if not acquired:
-            return _CACHE or {
-                "fetched_at": None,
-                "by_station": {},
-                "error": "Spider site status fetch busy",
-            }
+        return _CACHE or {
+            "fetched_at": None,
+            "by_station": {},
+            "error": "Spider site status fetch in progress",
+        }
+
+    if not refresh and have_rows:
+        # Stale-while-revalidate: serve last good rows while refresh runs.
+        def _background_refresh() -> None:
+            try:
+                payload = fetch_spider_site_statuses()
+                global _CACHE, _CACHE_TS
+                if payload.get("by_station"):
+                    _CACHE = payload
+                    _CACHE_TS = time.monotonic()
+                elif have_rows:
+                    log.warning(
+                        "Keeping stale Spider site status (%s)",
+                        payload.get("error") or "empty result",
+                    )
+                else:
+                    _CACHE = payload
+                    _CACHE_TS = time.monotonic()
+            except Exception as exc:
+                log.warning("Spider background refresh failed: %s", exc)
+            finally:
+                _FETCH_LOCK.release()
+
+        threading.Thread(
+            target=_background_refresh,
+            daemon=True,
+            name="spider-status-refresh",
+        ).start()
+        return _CACHE  # type: ignore[return-value]
+
+    def _blocking_fetch() -> None:
+        global _CACHE, _CACHE_TS
         try:
-            return _CACHE or {
-                "fetched_at": None,
-                "by_station": {},
-                "error": "Spider site status fetch busy",
-            }
+            payload = fetch_spider_site_statuses()
+            if payload.get("by_station"):
+                _CACHE = payload
+                _CACHE_TS = time.monotonic()
+            elif have_rows:
+                log.warning(
+                    "Keeping stale Spider site status (%s)",
+                    payload.get("error") or "empty result",
+                )
+            else:
+                _CACHE = payload
+                _CACHE_TS = time.monotonic()
         finally:
             _FETCH_LOCK.release()
 
-    try:
-        age = None if _CACHE is None else (time.monotonic() - _CACHE_TS)
-        have_rows = bool(_CACHE and (_CACHE.get("by_station") or {}))
-        if have_rows and age is not None and age <= ttl_sec:
-            return _CACHE  # type: ignore[return-value]
+    if refresh:
+        try:
+            _blocking_fetch()
+        except Exception:
+            log.exception("Spider site status refresh failed")
+        return _CACHE or {
+            "fetched_at": None,
+            "by_station": {},
+            "error": "Spider site status unavailable",
+        }
 
-        payload = fetch_spider_site_statuses()
-        if payload.get("by_station"):
-            _CACHE = payload
-            _CACHE_TS = time.monotonic()
-            return _CACHE
-        if have_rows:
-            log.warning(
-                "Keeping stale Spider site status (%s)",
-                payload.get("error") or "empty result",
-            )
-            return _CACHE  # type: ignore[return-value]
-        _CACHE = payload
-        _CACHE_TS = time.monotonic()
-        return _CACHE
-    finally:
-        _FETCH_LOCK.release()
+    # Cold cache — never block HTTP workers on Spider login.
+    threading.Thread(
+        target=_blocking_fetch,
+        daemon=True,
+        name="spider-status-warm",
+    ).start()
+    return _CACHE or {
+        "fetched_at": None,
+        "by_station": {},
+        "error": "Spider site status warming",
+    }
