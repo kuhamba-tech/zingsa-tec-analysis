@@ -744,6 +744,21 @@ export default function CorsMap({
       });
       viewLayerRef.current = layerRef.current;
 
+      // OpenLayers measures its canvas in physical pixels. Keep that canvas in
+      // sync when the dashboard, sidebar, or viewport changes width.
+      let resizeFrame: number | null = null;
+      const resizeMap = () => {
+        if (resizeFrame != null) cancelAnimationFrame(resizeFrame);
+        resizeFrame = requestAnimationFrame(() => {
+          map.updateSize();
+          resizeFrame = null;
+        });
+      };
+      const resizeObserver = new ResizeObserver(resizeMap);
+      resizeObserver.observe(container);
+      window.addEventListener("resize", resizeMap);
+      resizeMap();
+
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (map as any).on("pointermove", (evt: { pixel: [number, number] }) => {
         const hit = map.hasFeatureAtPixel(evt.pixel);
@@ -803,11 +818,19 @@ export default function CorsMap({
       await syncScienceLayer();
       await syncNetworkLayer();
       await syncProposedSitesLayer();
+
+      map.set("corsResizeCleanup", () => {
+        resizeObserver.disconnect();
+        window.removeEventListener("resize", resizeMap);
+        if (resizeFrame != null) cancelAnimationFrame(resizeFrame);
+      });
     })();
 
     return () => {
       disposed = true;
       if (olMapRef.current) {
+        const resizeCleanup = olMapRef.current.get("corsResizeCleanup");
+        if (typeof resizeCleanup === "function") resizeCleanup();
         olMapRef.current.dispose();
         olMapRef.current = null;
       }

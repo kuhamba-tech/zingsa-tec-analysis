@@ -3095,6 +3095,9 @@ a.home-map-layer-btn {
 }
 .tec-map-frame {
   position: relative;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
 }
 .tec-map-legend-stack {
   position: absolute;
@@ -3170,6 +3173,20 @@ a.home-map-layer-btn {
 
 .tec-map-frame .map-container {
   border-radius: 7px;
+}
+
+.cors-map-shell,
+.cors-map-shell > div,
+.cors-map-shell .map-container,
+.cors-map-shell .ol-viewport {
+  width: 100%;
+  min-width: 0;
+}
+
+/* OpenLayers uses a high-DPI backing canvas and scales it itself. The generic
+   responsive-canvas max-width rule would otherwise shrink the map on DPR > 1. */
+.cors-map-shell .ol-layer canvas {
+  max-width: none;
 }
 .tec-map-legend {
   position: absolute;

@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Suspense } from "react";
+import "ol/ol.css";
 import "./globals.css";
 import AppShell from "@/components/layout/AppShell";
 
