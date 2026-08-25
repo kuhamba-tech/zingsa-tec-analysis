@@ -1062,6 +1062,11 @@ export default function ProcessingPage() {
         {tab === "cmn" && (
           <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
             <label style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>Select .Cmn observation file</label>
+            <p style={{ margin: "-0.15rem 0 0.1rem", color: "var(--text-muted)", fontSize: "0.76rem", lineHeight: 1.45 }}>
+              A CMN file is a pre-processed GNSS observation product containing satellite measurements
+              with receiver and satellite bias corrections. Upload it to calculate filtered STEC and VTEC
+              for the selected period and stations.
+            </p>
             <div className="file-picker-row">
               <button type="button" className="file-picker-button" onClick={() => cmnRef.current?.click()}>
                 <span className="file-picker-icon" aria-hidden="true">

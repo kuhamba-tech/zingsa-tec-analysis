@@ -112,19 +112,52 @@ def star_field(count: int = 18, seed: int = 7, width: int = _W) -> str:
 
 def earth_disk(g: dict[str, float], *, label: str = "Earth", grad_id: str = "td-earth") -> str:
     ox, oy, re = g["ox"], g["oy"], g["re"]
-    land = (
-        f'<ellipse cx="{ox - re * 0.15:.1f}" cy="{oy - re * 0.2:.1f}" '
-        f'rx="{re * 0.35:.1f}" ry="{re * 0.28:.1f}" fill="#14532d" opacity="0.55"/>'
-        f'<ellipse cx="{ox + re * 0.22:.1f}" cy="{oy + re * 0.08:.1f}" '
-        f'rx="{re * 0.28:.1f}" ry="{re * 0.22:.1f}" fill="#166534" opacity="0.45"/>'
+    clip_id = f"{grad_id}-globe-clip"
+    shade_id = f"{grad_id}-limb-shade"
+
+    # Africa-centred land geometry keeps Zimbabwe's location visually relevant
+    # while remaining legible at the small sizes used by the teaching diagrams.
+    africa = (
+        f"M {ox - re * .16:.1f} {oy - re * .53:.1f} "
+        f"C {ox - re * .34:.1f} {oy - re * .42:.1f}, {ox - re * .38:.1f} {oy - re * .18:.1f}, {ox - re * .27:.1f} {oy - re * .03:.1f} "
+        f"L {ox - re * .15:.1f} {oy + re * .08:.1f} L {ox - re * .08:.1f} {oy + re * .36:.1f} "
+        f"L {ox + re * .08:.1f} {oy + re * .62:.1f} L {ox + re * .24:.1f} {oy + re * .34:.1f} "
+        f"L {ox + re * .31:.1f} {oy + re * .04:.1f} L {ox + re * .18:.1f} {oy - re * .11:.1f} "
+        f"L {ox + re * .31:.1f} {oy - re * .30:.1f} L {ox + re * .08:.1f} {oy - re * .48:.1f} Z"
+    )
+    europe_asia = (
+        f"M {ox - re * .18:.1f} {oy - re * .56:.1f} "
+        f"C {ox + re * .05:.1f} {oy - re * .78:.1f}, {ox + re * .43:.1f} {oy - re * .70:.1f}, {ox + re * .73:.1f} {oy - re * .44:.1f} "
+        f"L {ox + re * .48:.1f} {oy - re * .22:.1f} L {ox + re * .25:.1f} {oy - re * .30:.1f} "
+        f"L {ox + re * .10:.1f} {oy - re * .48:.1f} Z"
     )
     return f"""
-  {land}
+  <defs>
+    <clipPath id="{clip_id}"><circle cx="{ox}" cy="{oy}" r="{re}"/></clipPath>
+    <radialGradient id="{shade_id}" cx="31%" cy="27%" r="76%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.20"/>
+      <stop offset="48%" stop-color="#ffffff" stop-opacity="0.01"/>
+      <stop offset="78%" stop-color="#020617" stop-opacity="0.28"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0.82"/>
+    </radialGradient>
+  </defs>
+  <circle cx="{ox}" cy="{oy}" r="{re * 1.045:.1f}" fill="none" stroke="#38bdf8" stroke-width="2.8" opacity="0.26"/>
   <circle cx="{ox}" cy="{oy}" r="{re}" fill="url(#{grad_id})" stroke="#64748b" stroke-width="1.6"/>
-  <circle cx="{ox - re * 0.28:.1f}" cy="{oy - re * 0.32:.1f}" r="{re * 0.18:.1f}"
-          fill="#ffffff" opacity="0.08"/>
+  <g clip-path="url(#{clip_id})">
+    <path d="{africa}" fill="#4d8b3d" stroke="#7cbf63" stroke-width="0.8"/>
+    <path d="{europe_asia}" fill="#527f3d" stroke="#79ad5d" stroke-width="0.7"/>
+    <ellipse cx="{ox + re * .35:.1f}" cy="{oy + re * .39:.1f}" rx="{re * .055:.1f}" ry="{re * .16:.1f}"
+             transform="rotate(18 {ox + re * .35:.1f} {oy + re * .39:.1f})" fill="#538b43"/>
+    <path d="M {ox - re * .55:.1f} {oy - re * .25:.1f} Q {ox - re * .05:.1f} {oy - re * .40:.1f} {ox + re * .50:.1f} {oy - re * .17:.1f}"
+          fill="none" stroke="#ffffff" stroke-width="{max(1.2, re * .045):.1f}" stroke-linecap="round" opacity="0.34"/>
+    <path d="M {ox - re * .42:.1f} {oy + re * .18:.1f} Q {ox - re * .02:.1f} {oy + re * .02:.1f} {ox + re * .42:.1f} {oy + re * .22:.1f}"
+          fill="none" stroke="#e0f2fe" stroke-width="{max(1.0, re * .035):.1f}" stroke-linecap="round" opacity="0.25"/>
+    <circle cx="{ox}" cy="{oy}" r="{re}" fill="url(#{shade_id})"/>
+  </g>
+  <ellipse cx="{ox - re * .28:.1f}" cy="{oy - re * .36:.1f}" rx="{re * .20:.1f}" ry="{re * .11:.1f}"
+           fill="#ffffff" opacity="0.13" transform="rotate(-24 {ox - re * .28:.1f} {oy - re * .36:.1f})"/>
   <text x="{ox}" y="{oy + 4}" text-anchor="middle" fill="{_WHITE}" font-size="9"
-        font-weight="700" font-family="{_FONT}">{label}</text>"""
+        font-weight="700" font-family="{_FONT}" paint-order="stroke" stroke="#020617" stroke-width="2">{label}</text>"""
 
 
 def troposphere_ring(g: dict[str, float]) -> str:
@@ -140,8 +173,12 @@ def ionosphere_shell(g: dict[str, float], *, grad_id: str = "td-iono", label: st
     ox, oy, re, rs = g["ox"], g["oy"], g["re"], g["shell_r"]
     inner = re * 1.04
     return f"""
+  <circle cx="{ox}" cy="{oy}" r="{rs * .91:.1f}" fill="none" stroke="#38bdf8"
+          stroke-width="8" opacity="0.045"/>
   <circle cx="{ox}" cy="{oy}" r="{rs:.1f}" fill="url(#{grad_id})" stroke="#168bd2"
           stroke-width="1.2" stroke-dasharray="5,3" opacity="0.85"/>
+  <circle cx="{ox}" cy="{oy}" r="{rs * 1.035:.1f}" fill="none" stroke="#38bdf8"
+          stroke-width="2.4" opacity="0.10"/>
   <circle cx="{ox}" cy="{oy}" r="{inner:.1f}" fill="{_BG}" opacity="0.0"/>
   <text x="{ox + rs * 0.55:.1f}" y="{oy - rs * 0.72:.1f}" fill="#168bd2" font-size="9"
         font-weight="700" font-family="{_FONT}">{label}</text>"""
@@ -150,9 +187,13 @@ def ionosphere_shell(g: dict[str, float], *, grad_id: str = "td-iono", label: st
 def cors_receiver(g: dict[str, float], *, label: str = "CORS", color: str = "#00ff88") -> str:
     sx, sy = g["sx"], g["sy"]
     return f"""
-  <rect x="{sx - 5:.1f}" y="{sy - 14:.1f}" width="10" height="10" rx="1.5" fill="{color}" stroke="#ffffff" stroke-width="0.8"/>
-  <line x1="{sx:.1f}" y1="{sy - 4:.1f}" x2="{sx:.1f}" y2="{sy + 2:.1f}" stroke="{color}" stroke-width="2"/>
-  <polygon points="{sx:.1f},{sy + 2:.1f} {sx + 6:.1f},{sy + 12:.1f} {sx - 6:.1f},{sy + 12:.1f}" fill="{color}"/>
+  <ellipse cx="{sx:.1f}" cy="{sy - 12:.1f}" rx="7" ry="3.4" fill="#e2e8f0" stroke="{color}" stroke-width="1"
+           transform="rotate(-18 {sx:.1f} {sy - 12:.1f})"/>
+  <path d="M {sx - 5.8:.1f} {sy - 13.5:.1f} Q {sx:.1f} {sy - 7.5:.1f} {sx + 5.8:.1f} {sy - 10.5:.1f}"
+        fill="none" stroke="#94a3b8" stroke-width="1"/>
+  <circle cx="{sx + 2.2:.1f}" cy="{sy - 13.8:.1f}" r="1.5" fill="{color}"/>
+  <line x1="{sx:.1f}" y1="{sy - 8:.1f}" x2="{sx:.1f}" y2="{sy + 3:.1f}" stroke="#cbd5e1" stroke-width="1.8"/>
+  <polygon points="{sx:.1f},{sy + 1:.1f} {sx + 6:.1f},{sy + 12:.1f} {sx - 6:.1f},{sy + 12:.1f}" fill="{color}" opacity="0.92"/>
   <text x="{sx - 52:.1f}" y="{sy - 2:.1f}" fill="{color}" font-size="9" font-weight="700"
         font-family="{_FONT}">{label}</text>"""
 
@@ -160,10 +201,18 @@ def cors_receiver(g: dict[str, float], *, label: str = "CORS", color: str = "#00
 def gps_satellite(g: dict[str, float], *, label: str = "GPS", prefix: str = "td") -> str:
     sx, sy = g["sat_x"], g["sat_y"]
     return f"""
-  <rect x="{sx - 14:.1f}" y="{sy - 5:.1f}" width="28" height="10" rx="2" fill="#1e3a5f" stroke="#168bd2" stroke-width="1.2"/>
-  <rect x="{sx - 22:.1f}" y="{sy - 3:.1f}" width="8" height="6" fill="#168bd2" opacity="0.85"/>
-  <rect x="{sx + 14:.1f}" y="{sy - 3:.1f}" width="8" height="6" fill="#168bd2" opacity="0.85"/>
-  <circle cx="{sx:.1f}" cy="{sy:.1f}" r="3" fill="#ffcc00"/>
+  <g transform="rotate(-12 {sx:.1f} {sy:.1f})">
+    <rect x="{sx - 28:.1f}" y="{sy - 5:.1f}" width="17" height="10" rx="1" fill="#0b4f86" stroke="#38bdf8" stroke-width="0.8"/>
+    <path d="M {sx - 22.3:.1f} {sy - 5:.1f} V {sy + 5:.1f} M {sx - 16.7:.1f} {sy - 5:.1f} V {sy + 5:.1f} M {sx - 28:.1f} {sy:.1f} H {sx - 11:.1f}"
+          stroke="#7dd3fc" stroke-width="0.45" opacity="0.8"/>
+    <rect x="{sx + 11:.1f}" y="{sy - 5:.1f}" width="17" height="10" rx="1" fill="#0b4f86" stroke="#38bdf8" stroke-width="0.8"/>
+    <path d="M {sx + 16.7:.1f} {sy - 5:.1f} V {sy + 5:.1f} M {sx + 22.3:.1f} {sy - 5:.1f} V {sy + 5:.1f} M {sx + 11:.1f} {sy:.1f} H {sx + 28:.1f}"
+          stroke="#7dd3fc" stroke-width="0.45" opacity="0.8"/>
+    <rect x="{sx - 9:.1f}" y="{sy - 7:.1f}" width="18" height="14" rx="3" fill="#b7791f" stroke="#fde68a" stroke-width="1"/>
+    <rect x="{sx - 5.5:.1f}" y="{sy - 4:.1f}" width="11" height="8" rx="1.5" fill="#d6a33a" opacity="0.9"/>
+    <ellipse cx="{sx:.1f}" cy="{sy + 8.5:.1f}" rx="7" ry="2.8" fill="#cbd5e1" stroke="#ffffff" stroke-width="0.7"/>
+    <line x1="{sx:.1f}" y1="{sy + 5:.1f}" x2="{sx:.1f}" y2="{sy + 8:.1f}" stroke="#f8fafc" stroke-width="1"/>
+  </g>
   <text x="{sx + 26:.1f}" y="{sy + 4:.1f}" fill="{_WHITE}" font-size="9" font-weight="700"
         font-family="{_FONT}">{label}</text>
   <text x="{sx + 26:.1f}" y="{sy + 14:.1f}" fill="#94a3b8" font-size="7" font-family="{_FONT}">~20,200 km</text>"""

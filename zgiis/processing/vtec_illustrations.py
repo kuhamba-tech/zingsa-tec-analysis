@@ -241,9 +241,20 @@ def _arrow_defs(marker_id: str, color: str = "#e2e8f0") -> str:
 
 def _chart_grid(x0: float = 54, y0: float = 34, w: float = 268, h: float = 128) -> str:
     x1, y1 = x0 + w, y0 + h
+    grid_y = "".join(
+        f'<line x1="{x0}" y1="{y0 + h * i / 4:.1f}" x2="{x1}" y2="{y0 + h * i / 4:.1f}" '
+        f'stroke="#17324d" stroke-width="0.7" opacity="0.8"/>'
+        for i in range(1, 4)
+    )
+    grid_x = "".join(
+        f'<line x1="{x0 + w * i / 5:.1f}" y1="{y0}" x2="{x0 + w * i / 5:.1f}" y2="{y1}" '
+        f'stroke="#13283d" stroke-width="0.6" opacity="0.65"/>'
+        for i in range(1, 5)
+    )
     return f"""
   <rect x="{x0 - 4}" y="{y0 - 4}" width="{w + 8}" height="{h + 8}" rx="6"
-        fill="#000000" stroke="#244d73" stroke-width="1"/>
+        fill="#07111f" stroke="#244d73" stroke-width="1"/>
+  {grid_y}{grid_x}
   <line x1="{x0}" y1="{y1}" x2="{x1}" y2="{y1}" stroke="#475569" stroke-width="1.2"/>
   <line x1="{x0}" y1="{y0}" x2="{x0}" y2="{y1}" stroke="#475569" stroke-width="1.2"/>"""
 
@@ -332,21 +343,23 @@ _register(
     "Carrier phase advances (shorter range); pseudorange/code is delayed (longer range).",
     _canvas(
         f"""
-  <rect x="16" y="18" width="308" height="96" rx="10" fill="#000000" stroke="#00ff88" stroke-width="1.2"/>
+  <rect x="16" y="18" width="308" height="96" rx="10" fill="#07111f" stroke="#00ff88" stroke-width="1.2"/>
   <text x="28" y="40" fill="#00ff88" font-size="11" font-weight="700" font-family="{_FONT}">
     Phase (carrier L)
   </text>
   <line x1="28" y1="64" x2="312" y2="64" stroke="#64748b" stroke-width="1" stroke-dasharray="5,4"/>
+  <path d="M 28 54 Q 96 36 164 54 T 300 54" fill="none" stroke="#00ff88" stroke-width="8" opacity="0.10"/>
   <path d="M 28 54 Q 96 36 164 54 T 300 54" fill="none" stroke="#00ff88" stroke-width="2.4"/>
   <text x="28" y="98" fill="{_WHITE}" font-size="10" font-family="{_FONT}">
     Shorter apparent range (phase advance)
   </text>
 
-  <rect x="16" y="126" width="308" height="96" rx="10" fill="#000000" stroke="#f472b6" stroke-width="1.2"/>
+  <rect x="16" y="126" width="308" height="96" rx="10" fill="#07111f" stroke="#f472b6" stroke-width="1.2"/>
   <text x="28" y="148" fill="#f472b6" font-size="11" font-weight="700" font-family="{_FONT}">
     Group (code C)
   </text>
   <line x1="28" y1="172" x2="312" y2="172" stroke="#64748b" stroke-width="1" stroke-dasharray="5,4"/>
+  <path d="M 28 182 Q 96 200 164 182 T 300 182" fill="none" stroke="#f472b6" stroke-width="8" opacity="0.10"/>
   <path d="M 28 182 Q 96 200 164 182 T 300 182" fill="none" stroke="#f472b6" stroke-width="2.4"/>
   <text x="28" y="206" fill="{_WHITE}" font-size="10" font-family="{_FONT}">
     Longer apparent range (group delay)
@@ -402,7 +415,7 @@ _register(
   <text x="20" y="32" fill="#f472b6" font-size="11" font-weight="700" font-family="{_FONT}">
     L1 pseudorange C1
   </text>
-  <rect x="20" y="40" width="240" height="24" rx="5" fill="#334155"/>
+  <rect x="20" y="40" width="240" height="24" rx="5" fill="#172334" stroke="#475569" stroke-width="0.8"/>
   <rect x="20" y="40" width="168" height="24" rx="5" fill="#244d73"/>
   <rect x="188" y="40" width="72" height="24" rx="5" fill="#f472b6" opacity="0.9"/>
   <text x="268" y="56" fill="{_WHITE}" font-size="10" font-family="{_FONT}">C1</text>
@@ -410,7 +423,7 @@ _register(
   <text x="20" y="88" fill="#168bd2" font-size="11" font-weight="700" font-family="{_FONT}">
     L2 pseudorange C2
   </text>
-  <rect x="20" y="96" width="240" height="24" rx="5" fill="#334155"/>
+  <rect x="20" y="96" width="240" height="24" rx="5" fill="#172334" stroke="#475569" stroke-width="0.8"/>
   <rect x="20" y="96" width="168" height="24" rx="5" fill="#244d73"/>
   <rect x="188" y="96" width="92" height="24" rx="5" fill="#168bd2" opacity="0.9"/>
   <text x="268" y="112" fill="{_WHITE}" font-size="10" font-family="{_FONT}">C2</text>
@@ -422,7 +435,7 @@ _register(
     Colour = dispersive ionospheric delay (different on L1 vs L2)
   </text>
 
-  <rect x="20" y="178" width="300" height="62" rx="10" fill="#000000" stroke="#00ff88" stroke-width="1.3"/>
+  <rect x="20" y="178" width="300" height="62" rx="10" fill="#071b18" stroke="#00ff88" stroke-width="1.3"/>
   <text x="170" y="206" text-anchor="middle" fill="#00ff88" font-size="14" font-weight="700"
         font-family="{_FONT}">C2 - C1  -&gt;  TEC_G</text>
   <text x="170" y="228" text-anchor="middle" fill="{_WHITE}" font-size="10" font-family="{_FONT}">
@@ -510,7 +523,9 @@ _register(
     _canvas(
         _arrow_defs("s7-arr")
         + f"""
-  <circle cx="170" cy="148" r="42" fill="#0a1e38" stroke="#334155" stroke-width="1.4"/>
+  <circle cx="170" cy="148" r="48" fill="#168bd2" opacity="0.08"/>
+  <circle cx="170" cy="148" r="42" fill="#07182b" stroke="#38bdf8" stroke-width="1.4"/>
+  <circle cx="170" cy="148" r="34" fill="none" stroke="#168bd2" stroke-width="0.8" stroke-dasharray="3,4" opacity="0.6"/>
   <text x="170" y="152" text-anchor="middle" fill="{_WHITE}" font-size="9"
         font-family="{_FONT}">Signal path</text>
 
@@ -570,7 +585,7 @@ def _pipeline_box(
     label: str,
     *,
     stroke: str,
-    fill: str = "#000000",
+    fill: str = "#07111f",
     text_color: str | None = None,
     font_size: int = 12,
     font_weight: str = "700",
@@ -646,7 +661,7 @@ def _step8_svg() -> str:
         fill="#00ff88" font-size="10" font-weight="700" font-family="{_FONT}">Vertical (VTEC)</text>
 
   <!-- Formula panel — right column, clear of geometry -->
-  <rect x="228" y="18" width="168" height="148" rx="10" fill="#000000" stroke="#f59e0b" stroke-width="1.4"/>
+  <rect x="228" y="18" width="168" height="148" rx="10" fill="#07111f" stroke="#f59e0b" stroke-width="1.4"/>
   <text x="240" y="40" fill="{_WHITE}" font-size="10" font-weight="700" font-family="{_FONT}">
     Low E -&gt; longer slant path
   </text>
@@ -697,7 +712,7 @@ def _step9_svg() -> str:
     return _canvas(
         _pipeline_arrow_defs(arrow_id)
         + f"""
-  <rect x="{bx}" y="{y_num}" width="{bw}" height="{num_h}" rx="12" fill="#000000"
+  <rect x="{bx}" y="{y_num}" width="{bw}" height="{num_h}" rx="12" fill="#07111f"
         stroke="#475569" stroke-width="1.4" stroke-dasharray="6 4"/>
   <text x="{cx}" y="{y_num + 8}" text-anchor="middle" fill="{_WHITE}" font-size="9"
         font-weight="700" font-family="{_FONT}">NUMERATOR — bias-corrected slant TEC</text>
@@ -858,7 +873,7 @@ def _step10_svg() -> str:
   <circle cx="{ix:.1f}" cy="{iy:.1f}" r="8" fill="#ff8c00" stroke="#ffffff" stroke-width="1.4"/>
   <line x1="{g['ox']:.1f}" y1="{g['oy']:.1f}" x2="{ix:.1f}" y2="{iy:.1f}"
         stroke="#64748b" stroke-width="1.2" stroke-dasharray="4,3"/>
-  <rect x="198" y="28" width="128" height="52" rx="8" fill="#000000" stroke="#00ff88" stroke-width="1.4"/>
+  <rect x="198" y="28" width="128" height="52" rx="8" fill="#071b18" stroke="#00ff88" stroke-width="1.4"/>
   <text x="262" y="48" text-anchor="middle" fill="#00ff88" font-size="11" font-weight="800"
         font-family="{_FONT}">IPP coordinates</text>
   <text x="262" y="66" text-anchor="middle" fill="{_WHITE}" font-size="10" font-family="{_FONT}">
@@ -880,4 +895,3 @@ _register(
     "The IPP is where the signal crosses the thin shell — VTEC is geo-located there.",
     _step10_svg(),
 )
-

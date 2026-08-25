@@ -136,6 +136,10 @@ export default function RinexConverterPanel() {
   return (
     <div className="rinex-conv">
       <div className="rinex-conv-titlebar">RINEX conversion</div>
+      <p className="rinex-conv-description">
+        Convert receiver MDB or raw GNSS files into standard RINEX observation and navigation files.
+        Choose the RINEX version, sampling rate, included measurements, and download archive format.
+      </p>
 
       <div className="tabs rinex-conv-tabs">
         <button type="button" className={`tab${subTab === "general" ? " active" : ""}`} onClick={() => setSubTab("general")}>
