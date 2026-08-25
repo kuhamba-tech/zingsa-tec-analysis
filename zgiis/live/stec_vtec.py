@@ -166,10 +166,16 @@ class LiveVtecAccumulator:
             except (TypeError, ValueError, FloatingPointError):
                 tecg = None
 
-        # Live RTCM sampling gives instantaneous L1/L2 pairs. Full GOPI parity
-        # for Eq 4.13-4.16 requires connected arcs plus DCB context, so live
-        # values are formula-compatible but not leveled/DCB-corrected here.
-        stec = tecp
+        # Prefer dual-frequency CODE TEC for absolute VTEC (comparable to Global TEC).
+        # Unleveled carrier-phase TEC has an unknown ambiguity and is only relative —
+        # using it as "live VTEC" produced ~0.3 TECU while Global TEC over Zimbabwe
+        # was ~28 TECU at the same epoch.
+        if tecg is not None and np.isfinite(tecg):
+            stec = float(tecg)
+            tec_method = "gopi_eq_4_11_code_live"
+        else:
+            stec = float(tecp)
+            tec_method = "gopi_eq_4_12_phase_only_live_unleveled"
         vtec = vtec_from_stec(stec, elevation, self.ipp_height_km)
 
         # Sanity-check (ionospheric VTEC is 0–150 TECU under normal conditions)
@@ -190,7 +196,7 @@ class LiveVtecAccumulator:
             "vtec_tecu":     round(vtec, 4),
             "elevation_deg": round(elevation, 2),
             "cnr_dbhz":      obs1.get("cnr_dbhz"),
-            "tec_method":    "gopi_eq_4_12_phase_only_live_unleveled",
+            "tec_method":    tec_method,
             "bias_method":   "none_live_no_dcb",
         }, "ok"
 

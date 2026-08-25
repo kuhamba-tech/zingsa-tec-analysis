@@ -8,6 +8,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 import numpy as np
+import pandas as pd
 
 from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
 from zgiis.ionosonde.didbase import get_madimbo_metadata
@@ -500,35 +501,16 @@ def _row_from_station(station, *, vtec: float, obs_count: int, source: str = "li
 
 
 def _pipeline_station_rows(hours: float = 2.0) -> list[dict[str, Any]]:
+    """Station VTEC from the live ingest DB, using absolute (code) TEC when available."""
     if not _live_db_heatmap_enabled():
         return []
     try:
         from backend.live_manager import get_db
 
-        summary = get_db().station_summary(hours=hours)
+        df = get_db().query_recent(hours=hours)
     except Exception:
         return []
-
-    if summary is None or summary.empty:
-        return []
-
-    rows: list[dict[str, Any]] = []
-    for _, record in summary.iterrows():
-        code = str(record.get("station", "")).lower().rstrip("_")
-        station = _STATION_LOOKUP.get(code)
-        if station is None:
-            continue
-        mean_vtec = float(record["mean_vtec"])
-        if not np.isfinite(mean_vtec) or mean_vtec <= 0:
-            continue
-        rows.append(
-            _row_from_station(
-                station,
-                vtec=mean_vtec,
-                obs_count=int(record.get("obs_count") or 0),
-            )
-        )
-    return rows
+    return _station_rows_from_observation_frame(df, source="live")
 
 
 def _recent_pipeline_rows(hours: float = 0.5) -> list[dict[str, Any]]:
@@ -544,7 +526,39 @@ def _recent_pipeline_rows(hours: float = 0.5) -> list[dict[str, Any]]:
     return _station_rows_from_observation_frame(df, source="live")
 
 
+def _absolute_vtec_observation_frame(df):
+    """Prefer dual-frequency CODE TEC so heat-map values are absolute (Global-TEC comparable).
+
+    Unleveled carrier-phase VTEC is relative (unknown ambiguity) and must not be
+    plotted as live TECU against DLR/Global TEC.
+    """
+    if df is None or not hasattr(df, "empty") or df.empty:
+        return df
+    work = df.copy()
+    if "tecg_tecu" in work.columns and "elevation_deg" in work.columns:
+        from zgiis.live.stec_vtec import vtec_from_stec
+
+        tecg = pd.to_numeric(work["tecg_tecu"], errors="coerce")
+        elev = pd.to_numeric(work["elevation_deg"], errors="coerce")
+        ok = tecg.notna() & elev.notna() & (tecg > 0) & (elev > 0)
+        if bool(ok.any()):
+            work.loc[ok, "vtec_tecu"] = [
+                float(vtec_from_stec(float(t), float(e)))
+                for t, e in zip(tecg[ok].tolist(), elev[ok].tolist())
+            ]
+    if "tec_method" in work.columns:
+        method = work["tec_method"].astype(str)
+        phase_only = method.str.contains("phase_only_live_unleveled", na=False)
+        if "tecg_tecu" in work.columns:
+            no_code = pd.to_numeric(work["tecg_tecu"], errors="coerce").isna()
+            work = work[~(phase_only & no_code)].copy()
+        else:
+            work = work[~phase_only].copy()
+    return work
+
+
 def _station_rows_from_observation_frame(df, *, source: str) -> list[dict[str, Any]]:
+    df = _absolute_vtec_observation_frame(df)
     if df is None or not hasattr(df, "empty") or df.empty or "station" not in df.columns or "vtec_tecu" not in df.columns:
         return []
     rows: list[dict[str, Any]] = []

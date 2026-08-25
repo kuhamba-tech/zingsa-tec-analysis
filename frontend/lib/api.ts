@@ -746,8 +746,29 @@ export const getAnomalyAnalysis = (threshold_pct = 95, station?: string) =>
 /** Live NTRIP heat-map sampling can take ~30–55s on Vercel when the ingest DB is empty. */
 const TEC_HEATMAP_TIMEOUT_MS = 90_000;
 
-export const getTecHeatmap = (hours = 6, refreshNtrip = false) =>
-  get<TecHeatmapResponse>(
+function rejectArchiveHeatmap(payload: TecHeatmapResponse): TecHeatmapResponse {
+  const archiveQuality = payload.data_quality === "processed_archive";
+  const archiveSources =
+    (payload.stations?.length ?? 0) > 0 &&
+    payload.stations.every((s) => /processed_archive/i.test(s.source ?? ""));
+  if (!archiveQuality && !archiveSources) return payload;
+  return {
+    ...payload,
+    available: false,
+    stations: [],
+    heat_points: [],
+    grid: null,
+    tec_min: null,
+    tec_max: null,
+    station_count: 0,
+    data_quality: "none",
+    message:
+      "Live TEC heat map ignores processed RINEX/CMN archive values. Waiting for live NTRIP VTEC.",
+  };
+}
+
+export const getTecHeatmap = async (hours = 6, refreshNtrip = false) => {
+  const payload = await get<TecHeatmapResponse>(
     "/tec/heatmap",
     {
       hours,
@@ -755,6 +776,8 @@ export const getTecHeatmap = (hours = 6, refreshNtrip = false) =>
     },
     refreshNtrip ? TEC_HEATMAP_TIMEOUT_MS : Math.max(FETCH_TIMEOUT_MS, 55_000),
   );
+  return rejectArchiveHeatmap(payload);
+};
 export const getDiurnal = (station?: string) => get<DiurnalPoint[]>("/tec/diurnal", { station });
 export const getSeasonal = (station?: string) => get<SeasonalRow[]>("/tec/seasonal", { station });
 export const getSolarCycle = (station?: string) => get<SolarCycleRow[]>("/tec/solar-cycle", { station });

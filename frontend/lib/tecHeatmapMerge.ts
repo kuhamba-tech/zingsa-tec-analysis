@@ -9,12 +9,37 @@ function isInterpolatedSource(source: string | null | undefined): boolean {
   return /estimate|interpolated|surface/i.test(source ?? "");
 }
 
+function isArchiveHeatmap(heatmap: TecHeatmapResponse | null | undefined): boolean {
+  if (!heatmap) return false;
+  if (heatmap.data_quality === "processed_archive") return true;
+  const stations = heatmap.stations ?? [];
+  if (stations.length === 0) return false;
+  return stations.every((s) => /processed_archive/i.test(s.source ?? ""));
+}
+
 /** Merge station-level live VTEC into an empty heat-map API response. */
 export function mergeTecHeatmapWithStations(
   heatmap: TecHeatmapResponse | null,
   stations: Station[],
 ): TecHeatmapResponse | null {
-  if (heatmap?.available && (heatmap.stations?.length ?? 0) > 0) {
+  // Never paint stale RINEX/CMN archive VTEC on the live TEC heat map.
+  const liveHeatmap = isArchiveHeatmap(heatmap)
+    ? {
+        ...heatmap!,
+        available: false,
+        stations: [],
+        heat_points: [],
+        grid: null,
+        tec_min: null,
+        tec_max: null,
+        station_count: 0,
+        data_quality: "none" as const,
+        message:
+          "Live TEC heat map ignores processed RINEX/CMN archive values. Waiting for live NTRIP VTEC.",
+      }
+    : heatmap;
+
+  if (liveHeatmap?.available && (liveHeatmap.stations?.length ?? 0) > 0) {
     const stationStatusByCode = new Map(
       stations.map((s) => [stationKey(s.code), getLiveStationStatus(s)]),
     );
@@ -23,7 +48,7 @@ export function mergeTecHeatmapWithStations(
       const status = stationStatusByCode.get(stationKey(code));
       return status === "offline" || status === "unavailable";
     };
-    const heatmapStations = heatmap.stations.map((s) => {
+    const heatmapStations = liveHeatmap.stations.map((s) => {
       if (!isOfflineStation(s.code)) return s;
       return {
         ...s,
@@ -33,13 +58,13 @@ export function mergeTecHeatmapWithStations(
     });
     const values = heatmapStations.map((s) => s.vtec).filter((v) => Number.isFinite(v));
     return {
-      ...heatmap,
+      ...liveHeatmap,
       stations: heatmapStations,
-      heat_points: heatmap.heat_points,
-      tec_min: values.length > 0 ? Math.min(...values) : heatmap.tec_min,
-      tec_max: values.length > 0 ? Math.max(...values) : heatmap.tec_max,
-      message: heatmap.message
-        ? `${heatmap.message} Offline/unavailable stations retain interpolated TEC estimates where the grid is available.`
+      heat_points: liveHeatmap.heat_points,
+      tec_min: values.length > 0 ? Math.min(...values) : liveHeatmap.tec_min,
+      tec_max: values.length > 0 ? Math.max(...values) : liveHeatmap.tec_max,
+      message: liveHeatmap.message
+        ? `${liveHeatmap.message} Offline/unavailable stations retain interpolated TEC estimates where the grid is available.`
         : "Offline/unavailable stations retain interpolated TEC estimates where the grid is available.",
     };
   }
@@ -48,7 +73,7 @@ export function mergeTecHeatmapWithStations(
     (s) => typeof s.current_tec === "number" && Number.isFinite(s.current_tec) && s.current_tec > 0,
   );
   if (reporting.length === 0) {
-    return heatmap;
+    return liveHeatmap;
   }
 
   const heatmapStations = reporting.map((s) => ({
