@@ -310,7 +310,7 @@ export const getSpaceWeatherHistory = (hours = 168, resample?: string) =>
 export const getSpaceWeatherCorrelations = (hours = 168, resample = "1h") =>
   get<SpaceWeatherCorrelationResponse>("/space-weather/correlations", { hours, resample });
 export const getSpaceWeatherReport = (period: SpaceWeatherReportPeriod = "hourly") =>
-  get<SpaceWeatherReport>(
+  getWithRetry<SpaceWeatherReport>(
     "/space-weather/report",
     { period, _ts: Date.now() },
     REPORT_TIMEOUT_MS,

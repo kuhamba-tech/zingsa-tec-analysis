@@ -1118,6 +1118,12 @@ select option {
   padding-bottom: 0.35rem;
   border-bottom: 1px solid var(--border);
 }
+.rinex-conv-description {
+  margin: -0.15rem 0 0.1rem;
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
 .rinex-conv-tabs { margin-bottom: 0.25rem; }
 .rinex-conv-body { display: flex; flex-direction: column; gap: 0.55rem; min-height: 280px; }
 .rinex-conv-fieldset {
@@ -1753,6 +1759,29 @@ select option {
 }
 .home-getting-started-head {
   margin-bottom: 1rem;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.home-getting-started-copy {
+  min-width: 0;
+}
+.home-getting-started-toggle {
+  flex-shrink: 0;
+  height: 30px;
+  padding: 0 0.7rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: rgba(22, 139, 210, 0.12);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.home-getting-started-toggle:hover,
+.home-getting-started-toggle:focus-visible {
+  border-color: var(--accent);
 }
 .home-getting-started-sub {
   font-size: 0.82rem;
@@ -2271,8 +2300,10 @@ a.home-map-layer-btn {
   color: var(--text-muted);
 }
 
-.network-ga-count select {
+.network-ga-count select,
+.network-ga-count input[type="number"] {
   height: 30px;
+  width: 4.25rem;
   border-radius: 6px;
   border: 1px solid var(--border);
   background: #0a1929;
@@ -2744,6 +2775,44 @@ a.home-map-layer-btn {
 
 /* ── Map container ── */
 .map-container { border-radius: 10px; overflow: hidden; border: 1px solid var(--border); }
+
+.cors-map-skeleton {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  background: #06101c;
+  border-radius: 10px;
+  pointer-events: none;
+}
+
+.cors-map-skeleton-pulse {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 2px solid rgba(22, 139, 210, 0.25);
+  border-top-color: #168bd2;
+  animation: cors-map-spin 0.9s linear infinite;
+}
+
+.cors-map-skeleton-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.cors-map-skeleton-meta {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+
+@keyframes cors-map-spin {
+  to { transform: rotate(360deg); }
+}
 
 .home-map-loading {
   min-height: 480px;

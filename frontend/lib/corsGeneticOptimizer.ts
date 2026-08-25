@@ -33,6 +33,10 @@ export const USEFUL_COVERAGE_KM = NRTK_ROVER_MAX_KM;
 /** Prefer new sites at least this far from an existing CORS (Leica NRTK spacing floor). */
 export const MIN_SEPARATION_KM = NRTK_SPACING_MIN_KM;
 
+/** User may request this many new CORS sites in one GA run. */
+export const MIN_NEW_SITES = 1;
+export const MAX_NEW_SITES = 12;
+
 export interface GeoPoint {
   lat: number;
   lon: number;
@@ -90,7 +94,6 @@ function buildGrid(stepDeg: number): GeoPoint[] {
   for (let lat = ZIMBABWE_BOUNDS.minLat; lat <= ZIMBABWE_BOUNDS.maxLat; lat += stepDeg) {
     for (let lon = ZIMBABWE_BOUNDS.minLon; lon <= ZIMBABWE_BOUNDS.maxLon; lon += stepDeg) {
       const p = { lat: roundCoord(lat), lon: roundCoord(lon) };
-      // Coverage sampling may use the full land polygon.
       if (isInsideZimbabwe(p.lat, p.lon)) points.push(p);
     }
   }
@@ -133,6 +136,11 @@ function nearestExisting(point: GeoPoint, stations: Station[]): { km: number; co
     }
   }
   return { km: best, code };
+}
+
+export function clampNewSiteCount(n: number): number {
+  if (!Number.isFinite(n)) return 4;
+  return Math.max(MIN_NEW_SITES, Math.min(MAX_NEW_SITES, Math.round(n)));
 }
 
 export function computeCoverageStats(
@@ -227,17 +235,106 @@ function repairChromosome(genes: number[], poolSize: number, k: number, rand: ()
   return [...set].slice(0, k).sort((a, b) => a - b);
 }
 
+/** Uniform crossover — better mixing than a single cut when k is larger. */
 function crossover(a: number[], b: number[], k: number, poolSize: number, rand: () => number): number[] {
-  const cut = 1 + Math.floor(rand() * Math.max(1, k - 1));
-  return repairChromosome([...a.slice(0, cut), ...b.slice(cut)], poolSize, k, rand);
+  const mixed: number[] = [];
+  const seen = new Set<number>();
+  const pool = [...a, ...b];
+  for (const g of pool) {
+    if (seen.has(g)) continue;
+    if (rand() < 0.5 || mixed.length < k) {
+      seen.add(g);
+      mixed.push(g);
+    }
+    if (mixed.length >= k) break;
+  }
+  return repairChromosome(mixed, poolSize, k, rand);
 }
 
-function mutate(genes: number[], poolSize: number, k: number, rand: () => number, rate = 0.25): number[] {
+function mutate(
+  genes: number[],
+  poolSize: number,
+  k: number,
+  rand: () => number,
+  rate: number,
+): number[] {
   const next = [...genes];
   for (let i = 0; i < next.length; i++) {
     if (rand() < rate) next[i] = Math.floor(rand() * poolSize);
   }
   return repairChromosome(next, poolSize, k, rand);
+}
+
+function tournamentPick(
+  population: { genes: number[]; score: number }[],
+  rand: () => number,
+  size = 4,
+): { genes: number[]; score: number } {
+  let best = population[Math.floor(rand() * population.length)];
+  for (let i = 1; i < size; i++) {
+    const challenger = population[Math.floor(rand() * population.length)];
+    if (challenger.score > best.score) best = challenger;
+  }
+  return best;
+}
+
+/**
+ * Bias initial picks toward coverage gaps: farther from existing CORS
+ * (and from already-picked proposed sites) get higher sample weight.
+ */
+function gapBiasedSample(
+  rand: () => number,
+  candidatePool: GeoPoint[],
+  existing: GeoPoint[],
+  k: number,
+  usefulKm: number,
+  gapWeights: Float64Array,
+): number[] {
+  const picked: number[] = [];
+  const blocked = new Set<number>();
+  const working = existing.map((p) => ({ ...p }));
+
+  for (let n = 0; n < k; n++) {
+    let total = 0;
+    const weights: number[] = new Array(candidatePool.length);
+    for (let i = 0; i < candidatePool.length; i++) {
+      if (blocked.has(i)) {
+        weights[i] = 0;
+        continue;
+      }
+      const gap = gapWeights[i];
+      const nearestProposed =
+        working.length === existing.length
+          ? gap
+          : nearestStationDistance(candidatePool[i], working);
+      // Prefer cells that are currently poorly covered and still far from picks this round.
+      const w = Math.max(0.05, gap - usefulKm * 0.35) * Math.max(0.2, nearestProposed / usefulKm);
+      weights[i] = w * w;
+      total += weights[i];
+    }
+    if (total <= 0) {
+      const rest = uniqueSample(rand, candidatePool.length, k - n).filter((i) => !blocked.has(i));
+      for (const i of rest) {
+        if (picked.length >= k) break;
+        picked.push(i);
+        blocked.add(i);
+      }
+      break;
+    }
+    let r = rand() * total;
+    let chosen = 0;
+    for (let i = 0; i < weights.length; i++) {
+      r -= weights[i];
+      if (r <= 0) {
+        chosen = i;
+        break;
+      }
+    }
+    picked.push(chosen);
+    blocked.add(chosen);
+    working.push(candidatePool[chosen]);
+  }
+  return repairChromosome(picked, candidatePool.length, k, rand);
 }
 
 function fitness(
@@ -254,17 +351,17 @@ function fitness(
   for (let i = 0; i < proposed.length; i++) {
     for (let j = i + 1; j < proposed.length; j++) {
       const d = haversineKm(proposed[i].lat, proposed[i].lon, proposed[j].lat, proposed[j].lon);
-      if (d < minSeparationKm) penalty += (minSeparationKm - d) * 2;
-      else if (d > NRTK_SPACING_MAX_KM) penalty += (d - NRTK_SPACING_MAX_KM) * 0.35;
+      if (d < minSeparationKm) penalty += (minSeparationKm - d) * 2.4;
+      else if (d > NRTK_SPACING_MAX_KM) penalty += (d - NRTK_SPACING_MAX_KM) * 0.4;
     }
     let nearestExisting = Infinity;
     for (const e of existing) {
       const d = haversineKm(proposed[i].lat, proposed[i].lon, e.lat, e.lon);
       if (d < nearestExisting) nearestExisting = d;
-      if (d < minSeparationKm) penalty += (minSeparationKm - d) * 1.5;
+      if (d < minSeparationKm) penalty += (minSeparationKm - d) * 1.8;
     }
     if (Number.isFinite(nearestExisting) && nearestExisting > NRTK_SPACING_MAX_KM) {
-      penalty += (nearestExisting - NRTK_SPACING_MAX_KM) * 0.2;
+      penalty += (nearestExisting - NRTK_SPACING_MAX_KM) * 0.25;
     }
   }
 
@@ -272,16 +369,64 @@ function fitness(
   let sum = 0;
   let max = 0;
   let covered = 0;
+  let uncoveredPenalty = 0;
   for (const p of coverageGrid) {
     const d = nearestStationDistance(p, all);
     sum += d;
     if (d > max) max = d;
     if (d <= usefulKm) covered += 1;
+    else uncoveredPenalty += (d - usefulKm) * 0.015;
   }
   const mean = sum / coverageGrid.length;
   const coverFrac = covered / coverageGrid.length;
-  // Higher is better
-  return coverFrac * 120 - mean * 0.85 - max * 0.35 - penalty;
+  // Emphasize closing service holes over shaving already-good mean distance.
+  return coverFrac * 160 - mean * 0.55 - max * 0.55 - uncoveredPenalty - penalty;
+}
+
+/** Greedy local polish: try swapping each gene for a better nearby candidate. */
+function polishBest(
+  genes: number[],
+  candidatePool: GeoPoint[],
+  existing: GeoPoint[],
+  coverageGrid: GeoPoint[],
+  usefulKm: number,
+  minSeparationKm: number,
+  rand: () => number,
+): number[] {
+  let best = [...genes];
+  let bestScore = fitness(best, candidatePool, existing, coverageGrid, usefulKm, minSeparationKm);
+  const attemptsPerGene = 8;
+
+  for (let gi = 0; gi < best.length; gi++) {
+    const base = candidatePool[best[gi]];
+    for (let t = 0; t < attemptsPerGene; t++) {
+      // Prefer candidates within ~1° of the current gene (local search).
+      let trialIdx = Math.floor(rand() * candidatePool.length);
+      if (rand() < 0.7) {
+        let found = -1;
+        for (let tries = 0; tries < 40; tries++) {
+          const j = Math.floor(rand() * candidatePool.length);
+          if (best.includes(j)) continue;
+          const p = candidatePool[j];
+          if (Math.abs(p.lat - base.lat) <= 1.1 && Math.abs(p.lon - base.lon) <= 1.1) {
+            found = j;
+            break;
+          }
+        }
+        if (found >= 0) trialIdx = found;
+      }
+      if (best.includes(trialIdx)) continue;
+      const trial = [...best];
+      trial[gi] = trialIdx;
+      const repaired = repairChromosome(trial, candidatePool.length, best.length, rand);
+      const score = fitness(repaired, candidatePool, existing, coverageGrid, usefulKm, minSeparationKm);
+      if (score > bestScore) {
+        best = repaired;
+        bestScore = score;
+      }
+    }
+  }
+  return best;
 }
 
 /**
@@ -293,10 +438,17 @@ export function optimizeCorsPlacement(
   options: GeneticOptimizeOptions = {},
 ): GeneticOptimizeResult {
   const t0 = performance.now();
-  const newSiteCount = Math.max(1, Math.min(8, options.newSiteCount ?? 4));
-  const generations = Math.max(10, Math.min(120, options.generations ?? 45));
-  const populationSize = Math.max(12, Math.min(80, options.populationSize ?? 36));
-  const gridStepDeg = options.gridStepDeg ?? 0.45;
+  const newSiteCount = clampNewSiteCount(options.newSiteCount ?? 4);
+  // Scale search effort with how many sites the user wants to place.
+  const generations = Math.max(
+    20,
+    Math.min(160, options.generations ?? 40 + newSiteCount * 8),
+  );
+  const populationSize = Math.max(
+    20,
+    Math.min(100, options.populationSize ?? 28 + newSiteCount * 5),
+  );
+  const gridStepDeg = options.gridStepDeg ?? (newSiteCount >= 8 ? 0.4 : 0.45);
   const usefulKm = options.usefulKm ?? USEFUL_COVERAGE_KM;
   const minSeparationKm = options.minSeparationKm ?? MIN_SEPARATION_KM;
   const rand = mulberry32(options.seed ?? 42);
@@ -304,7 +456,6 @@ export function optimizeCorsPlacement(
   const existingStations = usableStations(stations);
   const existingPts = existingStations.map((s) => ({ lat: s.lat, lon: s.lon }));
   const coverageGrid = buildGrid(gridStepDeg);
-  // Proposal candidates are inland-Zimbabwe only — never outside the country.
   const inlandCandidates = buildProposalCandidates(gridStepDeg);
   const before = computeCoverageStats(existingStations, [], { gridStepDeg, usefulKm });
 
@@ -318,7 +469,7 @@ export function optimizeCorsPlacement(
   const notes: string[] = [
     `Leica ZIGSA offer: single RTK ≤ ${SINGLE_RTK_RECOMMENDED_KM} km recommended (≤ ${SINGLE_RTK_MAX_GOOD_KM} km good conditions); NRTK CORS spacing ${NRTK_SPACING_MIN_KM}–${NRTK_SPACING_MAX_KM} km.`,
     `Coverage target: ≤ ${usefulKm} km to nearest CORS (NRTK serviceable band).`,
-    `Hard rule: proposed CORS sites must be inside Zimbabwe (never outside). Searching ${candidatePool.length} inland candidate cells.`,
+    `Hard rule: proposed CORS sites must be inside Zimbabwe (never outside). Searching ${candidatePool.length} inland candidate cells for ${newSiteCount} new site(s).`,
   ];
 
   if (inlandCandidates.length === 0 || candidatePool.length < newSiteCount) {
@@ -340,9 +491,18 @@ export function optimizeCorsPlacement(
     notes.push("No existing stations loaded — recommendations assume an empty national network.");
   }
 
+  const gapWeights = new Float64Array(candidatePool.length);
+  for (let i = 0; i < candidatePool.length; i++) {
+    gapWeights[i] = nearestStationDistance(candidatePool[i], existingPts);
+  }
+
   type Individual = { genes: number[]; score: number };
-  let population: Individual[] = Array.from({ length: populationSize }, () => {
-    const genes = uniqueSample(rand, candidatePool.length, newSiteCount);
+  let population: Individual[] = Array.from({ length: populationSize }, (_, idx) => {
+    // Seed most of the population from coverage gaps; keep some random diversity.
+    const genes =
+      idx < Math.floor(populationSize * 0.7)
+        ? gapBiasedSample(rand, candidatePool, existingPts, newSiteCount, usefulKm, gapWeights)
+        : uniqueSample(rand, candidatePool.length, newSiteCount);
     return {
       genes,
       score: fitness(genes, candidatePool, existingPts, coverageGrid, usefulKm, minSeparationKm),
@@ -351,13 +511,15 @@ export function optimizeCorsPlacement(
 
   for (let gen = 0; gen < generations; gen++) {
     population.sort((a, b) => b.score - a.score);
-    const elites = population.slice(0, Math.max(2, Math.floor(populationSize * 0.15)));
+    const elites = population.slice(0, Math.max(2, Math.floor(populationSize * 0.12)));
     const next: Individual[] = [...elites];
+    // Cool mutation: explore early, exploit later.
+    const mutRate = 0.32 - (0.18 * gen) / Math.max(1, generations - 1);
     while (next.length < populationSize) {
-      const p1 = population[Math.floor(rand() * Math.min(12, population.length))];
-      const p2 = population[Math.floor(rand() * Math.min(12, population.length))];
+      const p1 = tournamentPick(population, rand, 4);
+      const p2 = tournamentPick(population, rand, 4);
       let child = crossover(p1.genes, p2.genes, newSiteCount, candidatePool.length, rand);
-      child = mutate(child, candidatePool.length, newSiteCount, rand, 0.22);
+      child = mutate(child, candidatePool.length, newSiteCount, rand, mutRate);
       next.push({
         genes: child,
         score: fitness(child, candidatePool, existingPts, coverageGrid, usefulKm, minSeparationKm),
@@ -367,14 +529,28 @@ export function optimizeCorsPlacement(
   }
 
   population.sort((a, b) => b.score - a.score);
-  const best = population[0];
-  // Final hard filter: drop anything not strictly valid inland Zimbabwe.
-  const proposedPts = best.genes
+  const polished = polishBest(
+    population[0].genes,
+    candidatePool,
+    existingPts,
+    coverageGrid,
+    usefulKm,
+    minSeparationKm,
+    rand,
+  );
+
+  const proposedPts = polished
     .map((i) => candidatePool[i])
     .filter((p) => p != null && isValidProposedCorsSite(p.lat, p.lon));
-  const after = computeCoverageStats(existingStations, proposedPts, { gridStepDeg, usefulKm });
 
-  const proposed: ProposedCorsSite[] = proposedPts.map((p, idx) => {
+  // Final hard reject: never return a site outside inland Zimbabwe.
+  const safePts = proposedPts.filter((p) => isValidProposedCorsSite(p.lat, p.lon));
+  if (safePts.length < proposedPts.length) {
+    notes.push("Dropped proposed site(s) that failed the inland-Zimbabwe border check.");
+  }
+  const after = computeCoverageStats(existingStations, safePts, { gridStepDeg, usefulKm });
+
+  const proposed: ProposedCorsSite[] = safePts.map((p, idx) => {
     const near = nearestExisting(p, existingStations);
     const gapFill = Math.max(0, near.km - usefulKm);
     return {
@@ -389,7 +565,6 @@ export function optimizeCorsPlacement(
     };
   });
 
-  // Rank proposed by how much gap they fill (farther from existing = higher priority)
   proposed.sort((a, b) => b.nearestExistingKm - a.nearestExistingKm);
   proposed.forEach((site, i) => {
     site.id = `ga-site-${i + 1}`;

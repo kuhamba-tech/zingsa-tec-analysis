@@ -5,7 +5,6 @@ import {
   getEkfStatus,
   getLivePipelineStatus,
   getSpaceWeather,
-  getSpaceWeatherHistory,
   getStations,
   getTecHeatmap,
 } from "@/lib/api";
@@ -14,7 +13,6 @@ import { peekStations, subscribeStations, stationsAreSpiderAuthoritative } from 
 import { mergeSpaceWeatherWithEkf } from "@/lib/homeSpaceWeather";
 import { buildMetricCards } from "@/lib/spaceWeatherMetrics";
 import {
-  connectedStreamCount,
   countLiveStationStatuses,
   formatCorsConnectedShort,
   mergeStationsPreferLive,
@@ -22,12 +20,10 @@ import {
 import { mergeTecHeatmapWithStations } from "@/lib/tecHeatmapMerge";
 import AiRecommendationPanel from "@/components/layout/AiRecommendationPanel";
 import HomeStormAlertBanner from "@/components/layout/HomeStormAlertBanner";
-import MetricSparkline from "@/components/dashboard/MetricSparkline";
 import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
 import type {
   Station,
   SpaceWeatherCurrent,
-  SpaceWeatherHistoryRow,
   TecHeatmapResponse,
 } from "@/lib/types";
 import type { MetricKey } from "@/lib/spaceWeatherMetrics";
@@ -92,19 +88,6 @@ const HOME_LABELS: Partial<Record<MetricKey, string>> = {
   stations: "CORS Connected",
 };
 
-/** Pull finite samples from history for home-card sparklines (omit when thin). */
-function sparklineSeries(
-  rows: SpaceWeatherHistoryRow[],
-  pick: (row: SpaceWeatherHistoryRow) => number | null | undefined,
-): number[] {
-  const out: number[] = [];
-  for (const row of rows) {
-    const v = pick(row);
-    if (v != null && Number.isFinite(v)) out.push(v);
-  }
-  return out;
-}
-
 function HomeMetricCard({
   icon,
   label,
@@ -112,8 +95,6 @@ function HomeMetricCard({
   note,
   valueColor,
   loading,
-  sparkline,
-  progress,
 }: {
   icon: string;
   label: string;
@@ -121,16 +102,7 @@ function HomeMetricCard({
   note: string;
   valueColor: string;
   loading?: boolean;
-  sparkline?: number[];
-  progress?: { value: number; max: number } | null;
 }) {
-  const ratio =
-    progress && progress.max > 0
-      ? Math.max(0, Math.min(1, progress.value / progress.max))
-      : null;
-  const progressColor =
-    ratio == null ? valueColor : ratio >= 0.9 ? "#00ff88" : ratio >= 0.7 ? "#eab308" : "#f97316";
-
   return (
     <div className="sw-metric-card home-metric-card">
       <span className="sw-metric-icon">{icon}</span>
@@ -138,24 +110,6 @@ function HomeMetricCard({
       <div className="sw-metric-value" style={{ color: loading ? "var(--text-muted)" : valueColor }}>
         {loading ? "…" : value}
       </div>
-      {ratio != null && !loading && (
-        <div
-          className="home-metric-progress"
-          role="progressbar"
-          aria-valuenow={progress!.value}
-          aria-valuemin={0}
-          aria-valuemax={progress!.max}
-          aria-label={`${label}: ${progress!.value} of ${progress!.max}`}
-        >
-          <div
-            className="home-metric-progress-fill"
-            style={{ width: `${ratio * 100}%`, background: progressColor }}
-          />
-        </div>
-      )}
-      {sparkline && sparkline.length >= 2 && !loading && (
-        <MetricSparkline values={sparkline} color={valueColor} label={`${label} 24-hour trend`} />
-      )}
       <div className="sw-metric-note">{loading ? "Loading live feed…" : note}</div>
     </div>
   );
@@ -171,9 +125,19 @@ export default function HomePage() {
   const [ntripProbedAt, setNtripProbedAt] = useState<string | null>(null);
   const [pipelineNote, setPipelineNote] = useState<string | null>(null);
   const [tecHeatmap, setTecHeatmap] = useState<TecHeatmapResponse | null>(null);
-  const [swHistoryRows, setSwHistoryRows] = useState<SpaceWeatherHistoryRow[]>([]);
   const [stationsLoading, setStationsLoading] = useState(true);
   const [ntripRefreshing, setNtripRefreshing] = useState(false);
+  const [gettingStartedOpen, setGettingStartedOpen] = useState(true);
+
+  useEffect(() => {
+    try {
+      const seen = window.localStorage.getItem("zgiis:getting-started-seen");
+      if (seen === "1") setGettingStartedOpen(false);
+      else window.localStorage.setItem("zgiis:getting-started-seen", "1");
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   useEffect(() => {
     const cachedSw = peekSpaceWeather();
@@ -286,11 +250,6 @@ export default function HomePage() {
             if (!cancelled && heatmap) setTecHeatmap(heatmap);
           })
           .catch(() => null);
-        void getSpaceWeatherHistory(24, "1h")
-          .then((history) => {
-            if (!cancelled && history?.rows?.length) setSwHistoryRows(history.rows);
-          })
-          .catch(() => null);
       });
 
       await Promise.allSettled([swPromise, stationsPromise]);
@@ -315,24 +274,6 @@ export default function HomePage() {
     [tecHeatmap, stations],
   );
 
-  const homeSparklines: Partial<Record<MetricKey, number[]>> = useMemo(() => {
-    const kp = sparklineSeries(swHistoryRows, (r) => r.kp);
-    const dst = sparklineSeries(swHistoryRows, (r) => r.dst);
-    const risk = sparklineSeries(swHistoryRows, (r) => r.gnss_risk_score);
-    return {
-      kp,
-      dst,
-      gnss_risk: risk,
-    };
-  }, [swHistoryRows]);
-
-  const corsProgress =
-    spiderLive && liveCounts.total > 0
-      ? { value: connectedStreamCount(liveCounts), max: liveCounts.total }
-      : displaySw?.stations_online != null && displaySw?.stations_total
-        ? { value: displaySw.stations_online, max: displaySw.stations_total }
-        : null;
-
   const homeCards = buildMetricCards(displaySw, {
     // Catalog-only snapshots (cold Vercel) must not override Spider/SW counts.
     liveStationCounts: spiderLive ? liveCounts : undefined,
@@ -347,9 +288,6 @@ export default function HomePage() {
         card.key === "stations" && spiderLive && liveCounts.total > 0
           ? formatCorsConnectedShort(liveCounts)
           : card.note,
-      // CORS uses a progress bar; categorical geomagnetic has no numeric series.
-      sparkline: card.key === "stations" || card.key === "geomagnetic" ? undefined : homeSparklines[card.key],
-      progress: card.key === "stations" ? corsProgress : null,
     }));
 
   return (
@@ -416,8 +354,6 @@ export default function HomePage() {
                 value={card.value}
                 note={card.note}
                 valueColor={card.valueColor}
-                sparkline={card.sparkline}
-                progress={card.progress}
                 loading={card.key === "stations" ? stationsLoading : loading && card.value === "N/A"}
               />
             ))}
@@ -446,43 +382,65 @@ export default function HomePage() {
       <section className="home-getting-started" aria-label="Getting started">
         <div className="home-getting-started-panel">
           <div className="home-getting-started-head">
-            <h2 className="home-section-heading">Getting Started</h2>
-            <p className="home-getting-started-sub">
-              New here? Follow this workflow from live station health through processing to analysis.
-            </p>
+            <div className="home-getting-started-copy">
+              <h2 className="home-section-heading">Getting Started</h2>
+              <p className="home-getting-started-sub">
+                New here? Follow this workflow from live station health through processing to analysis.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="home-getting-started-toggle"
+              aria-expanded={gettingStartedOpen}
+              onClick={() => {
+                setGettingStartedOpen((open) => {
+                  const next = !open;
+                  try {
+                    window.localStorage.setItem("zgiis:getting-started-seen", next ? "0" : "1");
+                  } catch {
+                    /* ignore */
+                  }
+                  return next;
+                });
+              }}
+            >
+              {gettingStartedOpen ? "Hide" : "Show"}
+            </button>
           </div>
-          <ol className="home-steps-strip">
-            {GETTING_STARTED.map((item, index) => (
-              <li key={item.step} className="home-step-item">
-                {index > 0 && (
-                  <span className="home-step-connector" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" width="20" height="20">
-                      <path d="M8 5l8 7-8 7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  </span>
-                )}
-                <article className="home-step-card">
-                  <div className="home-step-card-top">
-                    <span className="home-step-badge">Step {item.step}</span>
-                    <span className="home-step-icon" aria-hidden="true">{item.icon}</span>
-                  </div>
-                  <h3 className="home-step-title">{item.title}</h3>
-                  <p className="home-step-desc">{item.desc}</p>
-                  <div className="home-step-actions">
-                    <Link href={item.href} className="home-step-cta">
-                      {item.cta}
-                      <span aria-hidden="true"> →</span>
-                    </Link>
-                    {"altHref" in item && item.altHref && (
-                      <Link href={item.altHref} className="home-step-alt">
-                        {item.altLabel}
+          {gettingStartedOpen && (
+            <ol className="home-steps-strip">
+              {GETTING_STARTED.map((item, index) => (
+                <li key={item.step} className="home-step-item">
+                  {index > 0 && (
+                    <span className="home-step-connector" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" width="20" height="20">
+                        <path d="M8 5l8 7-8 7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </span>
+                  )}
+                  <article className="home-step-card">
+                    <div className="home-step-card-top">
+                      <span className="home-step-badge">Step {item.step}</span>
+                      <span className="home-step-icon" aria-hidden="true">{item.icon}</span>
+                    </div>
+                    <h3 className="home-step-title">{item.title}</h3>
+                    <p className="home-step-desc">{item.desc}</p>
+                    <div className="home-step-actions">
+                      <Link href={item.href} className="home-step-cta">
+                        {item.cta}
+                        <span aria-hidden="true"> →</span>
                       </Link>
-                    )}
-                  </div>
-                </article>
-              </li>
-            ))}
-          </ol>
+                      {"altHref" in item && item.altHref && (
+                        <Link href={item.altHref} className="home-step-alt">
+                          {item.altLabel}
+                        </Link>
+                      )}
+                    </div>
+                  </article>
+                </li>
+              ))}
+            </ol>
+          )}
         </div>
       </section>
 

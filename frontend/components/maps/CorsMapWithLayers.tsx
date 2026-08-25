@@ -4,6 +4,7 @@ import CorsMap from "./CorsMap";
 import NetworkDistancesPanel from "./NetworkDistancesPanel";
 import TecHeatMapLegend from "./TecHeatMapLegend";
 import { heatmapQualityBanner, icaoTecLabel, icaoTecLevel, inferHeatmapQuality } from "@/lib/icaoTecAdvisory";
+import type { ProposedCorsSite } from "@/lib/corsGeneticOptimizer";
 import type { Station, TecHeatmapResponse } from "@/lib/types";
 import type { LiveStationCounts } from "@/lib/liveStationStatus";
 
@@ -12,10 +13,7 @@ export type MapLayer =
   | "Satellite"
   | "Street"
   | "TEC Heat Map"
-  | "Zimbabwe TEC Map"
   | "Zimbabwe ROTI Map"
-  | "Scintillation Map"
-  | "PWV Map"
   | "Global TEC"
   | "Network Distances";
 
@@ -41,10 +39,7 @@ export const HOME_MAP_LAYERS: MapLayer[] = [
   "Satellite",
   "Street",
   "TEC Heat Map",
-  "Zimbabwe TEC Map",
   "Zimbabwe ROTI Map",
-  "Scintillation Map",
-  "PWV Map",
   "Global TEC",
   "Network Distances",
 ];
@@ -78,6 +73,7 @@ export default function CorsMapWithLayers({
 }: Props) {
   const availableLayers = layers.length > 0 ? layers : LAYERS;
   const [layer, setLayer] = useState<MapLayer>(availableLayers[0] ?? "Hybrid");
+  const [proposedCorsSites, setProposedCorsSites] = useState<ProposedCorsSite[]>([]);
 
   useEffect(() => {
     if (!availableLayers.includes(layer)) {
@@ -86,12 +82,16 @@ export default function CorsMapWithLayers({
   }, [availableLayers, layer]);
 
   const tecLayerActive = layer === "TEC Heat Map";
-  const zimbabweTecLayerActive = layer === "Zimbabwe TEC Map";
-  const scienceMapLayerActive =
-    zimbabweTecLayerActive || layer === "Zimbabwe ROTI Map" || layer === "Scintillation Map" || layer === "PWV Map";
+  const scienceMapLayerActive = layer === "Zimbabwe ROTI Map";
   const globalTecLayerActive = layer === "Global TEC";
   const networkDistancesActive = layer === "Network Distances";
   const showLayerSwitcher = availableLayers.length > 1;
+
+  useEffect(() => {
+    if (!networkDistancesActive && proposedCorsSites.length > 0) {
+      setProposedCorsSites([]);
+    }
+  }, [networkDistancesActive, proposedCorsSites.length]);
   const maxVtec = heatmap?.tec_max ?? null;
   const qualityBanner = heatmapQualityBanner(inferHeatmapQuality(heatmap ?? null), heatmap?.message);
   const awaitingVtecBanner =
@@ -188,6 +188,7 @@ export default function CorsMapWithLayers({
           height={height}
           layer={layer}
           heatmap={heatmap}
+          proposedCorsSites={networkDistancesActive ? proposedCorsSites : []}
           highlightCode={highlightCode}
           onStationSelect={onStationSelect}
         />
@@ -203,6 +204,12 @@ export default function CorsMapWithLayers({
               <span className="dot" style={{ background: "#5ec8ff" }} />
               <span>Reference Station (HARARE)</span>
             </div>
+            {proposedCorsSites.length > 0 && (
+              <div className="network-distances-map-legend-row">
+                <span className="dot" style={{ background: "#ffb020" }} />
+                <span>GA proposed CORS site</span>
+              </div>
+            )}
             {stations.some((s) => s.connected_rovers != null) && (
               <div className="network-distances-map-legend-row">
                 <span className="dot" style={{ background: "#c4b5fd" }} />
@@ -268,7 +275,11 @@ export default function CorsMapWithLayers({
         )}
         </div>
         {networkDistancesActive && (
-          <NetworkDistancesPanel stations={stations} />
+          <NetworkDistancesPanel
+            stations={stations}
+            proposedSites={proposedCorsSites}
+            onProposedSitesChange={setProposedCorsSites}
+          />
         )}
       </div>
 
@@ -304,7 +315,7 @@ export default function CorsMapWithLayers({
         </div>
       )}
 
-      {(tecLayerActive || zimbabweTecLayerActive) && (
+      {tecLayerActive && (
         <TecHeatMapLegend className="tec-heatmap-legend-below" maxVtec={maxVtec} />
       )}
     </div>

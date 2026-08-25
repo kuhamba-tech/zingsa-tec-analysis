@@ -17,10 +17,12 @@ import {
   nationalServiceStatusColor,
 } from "@/lib/nationalGnssStatus";
 import type { NoaaKpForecastRow } from "@/lib/gnssAvailabilityForecast";
-import { fetchNoaaKpForecast } from "@/lib/gnssAvailabilityForecast";
 import type { GnssAvailabilityForecast } from "@/lib/gnssAvailabilityForecast";
 import type { ForecastStatus } from "@/lib/gnssWeatherIntelligence";
-import { getGicStatus, getStations } from "@/lib/api";
+import {
+  loadNavigationNewsSupplements,
+  peekNavigationNewsSupplements,
+} from "@/lib/navigationNewsStore";
 import type { GicStatusResponse, SpaceWeatherCurrent, Station } from "@/lib/types";
 
 const TONE_COLOR: Record<ForecastStatus, string> = {
@@ -139,26 +141,24 @@ export default function AiRecommendationPanel({
       return;
     }
 
+    const cached = peekNavigationNewsSupplements();
+    if (cached) {
+      if (stations == null && cached.stations.length) setResolvedStations(cached.stations);
+      setGic(cached.gic);
+      setKpRows(cached.kpRows);
+    }
+
     const generation = ++fetchGen.current;
-    setSupplementLoading(true);
+    setSupplementLoading(!cached);
     setError(null);
 
     (async () => {
       try {
-        const [stationsData, gicData, kpForecast] = await Promise.all([
-          stations != null
-            ? Promise.resolve(stations)
-            // Cached Spider status only — never force a 90s NTRIP probe from the news panel.
-            : getStations(false).catch(() => [] as Station[]),
-          getGicStatus().catch(() => null as GicStatusResponse | null),
-          fetchNoaaKpForecast(),
-        ]);
-
+        const supplements = await loadNavigationNewsSupplements(stations);
         if (generation !== fetchGen.current) return;
-
-        if (stations == null) setResolvedStations(stationsData);
-        setGic(gicData);
-        setKpRows(kpForecast);
+        if (stations == null) setResolvedStations(supplements.stations);
+        setGic(supplements.gic);
+        setKpRows(supplements.kpRows);
       } catch (e) {
         if (generation !== fetchGen.current) return;
         setError(e instanceof Error ? e.message : "Could not build recommendations");

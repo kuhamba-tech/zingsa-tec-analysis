@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent } from "react";
-import { getSpaceWeather, getSolarActivity, getTimelines, refreshSpaceWeather, getStations } from "@/lib/api";
+import { getSpaceWeather, getSolarActivity, getTimelines, refreshSpaceWeather, getStations, getEkfStatus } from "@/lib/api";
 import { peekSpaceWeather, subscribeSpaceWeather } from "@/lib/spaceWeatherStore";
 import { peekStations, subscribeStations } from "@/lib/stationsStore";
 import ClickableMetricGrid from "@/components/spaceWeather/ClickableMetricGrid";
@@ -19,9 +19,10 @@ import {
   analyzeSolarWindTimeline,
   analyzeStationsOnlineTimeline,
 } from "@/lib/dashboardChartAnalysis";
+import { alignEkfToPoints } from "@/lib/ekfAlign";
 import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
 import { connectedStreamCount, countSpiderLiveStationStatuses, type LiveStationCounts } from "@/lib/liveStationStatus";
-import type { SpaceWeatherCurrent, SolarActivityFull, SpaceWeatherTimelines, TimelinePoint } from "@/lib/types";
+import type { EkfPoint, EkfStatus, SpaceWeatherCurrent, SolarActivityFull, SpaceWeatherTimelines, TimelinePoint } from "@/lib/types";
 import {
   FLARE_SCALE,
   donkiCmeCountColor,
@@ -165,14 +166,18 @@ function getGnssImpact(kp: number | null, s4: number | null, flare: string, leve
 }
 
 function TimelineCard({
-  graphId, title, pts, color, yLabel, threshold, source, analysis, expanded, onToggle, emptyMsg,
+  graphId, title, pts, color, yLabel, threshold, source, analysis, expanded, onToggle, emptyMsg, ekfPoints, ekfColor,
 }: {
   graphId: string; title: string; pts: TimelinePoint[]; color: string; yLabel: string;
   threshold?: { value: number; label: string }; source: string;
   analysis: ChartAnalysisBlock; expanded: boolean; onToggle: (graphId: string) => void; emptyMsg?: string;
+  ekfPoints?: EkfPoint[];
+  ekfColor?: string;
 }) {
   const labels = pts.map((p) => p.t.length >= 16 ? p.t.slice(11, 16) : p.t.slice(0, 13));
   const data = pts.map((p) => p.v ?? 0);
+  const ekf = alignEkfToPoints(pts, ekfPoints);
+  const hasEkf = ekf.data.some((v) => v !== null);
   const toggle = () => pts.length > 0 && onToggle(graphId);
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === "Enter" || event.key === " ") {
@@ -194,9 +199,26 @@ function TimelineCard({
       <div className="metric-label" style={{ marginBottom: "0.6rem" }}>{title}</div>
       {pts.length > 0 ? (
         <>
-          <LineChart labels={labels} datasets={[{ label: yLabel, data, color }]} yLabel={yLabel} height={220} threshold={threshold} />
+          <LineChart
+            labels={labels}
+            datasets={[
+              { label: "Observed", data, color },
+              ...(hasEkf
+                ? [{
+                    label: "EKF Predicted",
+                    data: ekf.data,
+                    color: ekfColor ?? "#ffffff",
+                    dashed: true,
+                    meta: ekf.meta,
+                  }]
+                : []),
+            ]}
+            yLabel={yLabel}
+            height={220}
+            threshold={threshold}
+          />
           <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>
-            {source} · {pts.length} points.
+            {source} · {pts.length} points{hasEkf ? " · EKF overlay" : ""}.
           </div>
           <div style={{ fontSize: "0.72rem", color: "var(--accent)", marginTop: "0.35rem", fontWeight: 700 }}>
             {expanded ? "Click graph to hide scientific explanation" : "Click graph for scientific explanation"}
@@ -248,6 +270,7 @@ export default function SpaceWeatherPage() {
   const [saError, setSaError] = useState<string | null>(null);
   const [saLoading, setSaLoading] = useState(true);
   const [tl, setTl]         = useState<SpaceWeatherTimelines | null>(null);
+  const [ekf, setEkf]       = useState<EkfStatus | null>(null);
   const [tab, setTab]       = useState(0);
   const [xrayRange, setXrayRange] = useState<"6H" | "24H">("24H");
   const [refreshing, setRefreshing] = useState(false);
@@ -328,6 +351,10 @@ export default function SpaceWeatherPage() {
 
     getTimelines()
       .then(setTl)
+      .catch(() => null);
+
+    getEkfStatus()
+      .then(setEkf)
       .catch(() => null);
   }, []);
 
@@ -872,6 +899,8 @@ export default function SpaceWeatherPage() {
             source="NOAA SWPC Planetary K-index 1-minute feed"
             analysis={timelineAnalyses.kp}
             expanded={selectedGraph === "kp"} onToggle={toggleGraph}
+            ekfPoints={ekf?.series.kp?.points}
+            ekfColor="#7dd3fc"
             emptyMsg="Live NOAA Kp feed unavailable." />
 
           <TimelineCard graphId="dst" title="Live NOAA Dst Timeline"
@@ -880,6 +909,8 @@ export default function SpaceWeatherPage() {
             source="NOAA SWPC Kyoto Dst index (hourly)"
             analysis={timelineAnalyses.dst}
             expanded={selectedGraph === "dst"} onToggle={toggleGraph}
+            ekfPoints={ekf?.series.dst?.points}
+            ekfColor="#d8b4fe"
             emptyMsg="Live NOAA Dst feed unavailable." />
 
           <TimelineCard graphId="f107" title="Live NOAA F10.7 Solar Flux Timeline"
@@ -888,6 +919,8 @@ export default function SpaceWeatherPage() {
             source="NOAA SWPC F10.7 cm flux feed"
             analysis={timelineAnalyses.f107}
             expanded={selectedGraph === "f107"} onToggle={toggleGraph}
+            ekfPoints={ekf?.series.f107?.points}
+            ekfColor="#fde68a"
             emptyMsg="Live NOAA F10.7 feed unavailable." />
 
           <TimelineCard graphId="solar-wind" title="Live NOAA Solar Wind Timeline"
@@ -896,6 +929,8 @@ export default function SpaceWeatherPage() {
             source="NOAA SWPC solar-wind plasma 1-day feed"
             analysis={timelineAnalyses.solarWind}
             expanded={selectedGraph === "solar-wind"} onToggle={toggleGraph}
+            ekfPoints={ekf?.series.solar_wind?.points}
+            ekfColor="#86efac"
             emptyMsg="Live solar wind feed unavailable." />
 
           <TimelineCard graphId="s4" title="Live Scintillation S4 Timeline"
@@ -904,6 +939,8 @@ export default function SpaceWeatherPage() {
             source="ZINGSA CORS ionosphere archive"
             analysis={timelineAnalyses.s4}
             expanded={selectedGraph === "s4"} onToggle={toggleGraph}
+            ekfPoints={ekf?.series.s4?.points}
+            ekfColor="#fdba74"
             emptyMsg="No observed S4 archive value is available for the timeline." />
 
           <TimelineCard graphId="gnss-risk" title="GNSS Risk Level Timeline"
@@ -912,6 +949,8 @@ export default function SpaceWeatherPage() {
             source="Derived from NOAA Kp — ZINGSA GNSS risk thresholds"
             analysis={timelineAnalyses.gnss}
             expanded={selectedGraph === "gnss-risk"} onToggle={toggleGraph}
+            ekfPoints={ekf?.series.gnss_risk?.points}
+            ekfColor="#7dd3fc"
             emptyMsg="GNSS risk timeline unavailable." />
 
           {stationsOnlinePoints.length > 0 ? (
@@ -920,6 +959,8 @@ export default function SpaceWeatherPage() {
               source="ZINGSA CORS station-health — current live count"
               analysis={timelineAnalyses.stations}
               expanded={selectedGraph === "cors-online"} onToggle={toggleGraph}
+              ekfPoints={ekf?.series.stations_online?.points}
+              ekfColor="#86efac"
               emptyMsg="Live CORS telemetry unavailable." />
           ) : (
             <div className="card">

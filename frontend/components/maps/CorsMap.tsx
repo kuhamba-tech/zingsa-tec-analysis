@@ -53,10 +53,7 @@ function usesHybridOverlays(layer: MapLayer): boolean {
   return (
     layer === "Hybrid" ||
     layer === "TEC Heat Map" ||
-    layer === "Zimbabwe TEC Map" ||
     layer === "Zimbabwe ROTI Map" ||
-    layer === "Scintillation Map" ||
-    layer === "PWV Map" ||
     layer === "Network Distances"
   );
 }
@@ -66,88 +63,34 @@ function heatOverlayOpacity(layer: MapLayer): number {
 }
 
 function shouldShowHeatOverlay(layer: MapLayer, heatmap: TecHeatmapResponse | null | undefined): boolean {
-  if (layer !== "TEC Heat Map" && layer !== "Zimbabwe TEC Map") return false;
+  if (layer !== "TEC Heat Map") return false;
   if (!heatmap?.available) return false;
   if (heatmap.grid) return true;
   return (heatmap.heat_points?.length ?? 0) >= 1;
 }
 
 function isZimbabweScienceLayer(layer: MapLayer): boolean {
-  return layer === "Zimbabwe TEC Map" || layer === "Zimbabwe ROTI Map" || layer === "Scintillation Map" || layer === "PWV Map";
+  return layer === "Zimbabwe ROTI Map";
 }
 
-function scienceLayerMeta(layer: MapLayer) {
-  if (layer === "Zimbabwe ROTI Map") {
-    return {
-      title: "Zimbabwe ROTI Map",
-      subtitle: "Rate of TEC Index · ionospheric gradient / irregularity monitor",
-      unit: "TECU/min",
-      note: "ROTI highlights rapid TEC change that can disrupt GNSS carrier tracking.",
-      ticks: ["0.00", "0.25", "0.50", "0.75", "1.00+"],
-      colors: ["#0b33ff", "#00c8ff", "#28f06a", "#ffe600", "#ff3b30"],
-      contours: ["0.25", "0.50", "0.75"],
-    };
-  }
-  if (layer === "Scintillation Map") {
-    return {
-      title: "Zimbabwe Scintillation Map",
-      subtitle: "S4 amplitude scintillation · GNSS signal fading risk",
-      unit: "S4",
-      note: "S4 above 0.5 is severe and can cause loss of lock on precision GNSS.",
-      ticks: ["0.0", "0.2", "0.4", "0.6", "0.8+"],
-      colors: ["#1236ff", "#00b8ff", "#2df06f", "#ffcf33", "#ff355e"],
-      contours: ["0.2", "0.4", "0.6"],
-    };
-  }
-  if (layer === "PWV Map") {
-    return {
-      title: "Zimbabwe PWV Map",
-      subtitle: "Precipitable Water Vapour · GNSS meteorology product",
-      unit: "mm",
-      note: "PWV uses GNSS zenith delay to estimate atmospheric water vapour.",
-      ticks: ["0", "15", "30", "45", "60+"],
-      colors: ["#2532ff", "#00a9ff", "#22e080", "#ffe45c", "#ff8a00"],
-      contours: ["15", "30", "45"],
-    };
-  }
+function scienceLayerMeta(_layer: MapLayer) {
   return {
-    title: "Zimbabwe TEC Map",
-    subtitle: "Vertical Total Electron Content · Zimbabwe CORS network",
-    unit: "TECU",
-    note: "TEC indicates ionospheric electron density. Higher TEC increases GNSS range delay.",
-    ticks: ["0", "20", "40", "60", "80+"],
-    colors: ["#1734ff", "#00c4ff", "#22ef72", "#fff000", "#ff3b30"],
-    contours: ["20", "40", "60"],
+    title: "Zimbabwe ROTI Map",
+    subtitle: "Rate of TEC Index · ionospheric gradient / irregularity monitor",
+    unit: "TECU/min",
+    note: "ROTI highlights rapid TEC change that can disrupt GNSS carrier tracking.",
+    ticks: ["0.00", "0.25", "0.50", "0.75", "1.00+"],
+    colors: ["#0b33ff", "#00c8ff", "#28f06a", "#ffe600", "#ff3b30"],
+    contours: ["0.25", "0.50", "0.75"],
   };
 }
 
-function scienceLayerLabelPositions(layer: MapLayer): Array<{ label: string; lon: number; lat: number }> {
-  const meta = scienceLayerMeta(layer);
-  if (layer === "Scintillation Map") {
-    return [
-      { label: meta.contours[0], lon: -58, lat: 12 },
-      { label: meta.contours[1], lon: 8, lat: -2 },
-      { label: meta.contours[2], lon: 58, lat: -18 },
-    ];
-  }
-  if (layer === "PWV Map") {
-    return [
-      { label: meta.contours[0], lon: -55, lat: -8 },
-      { label: meta.contours[1], lon: 18, lat: -15 },
-      { label: meta.contours[2], lon: 66, lat: -23 },
-    ];
-  }
-  if (layer === "Zimbabwe ROTI Map") {
-    return [
-      { label: meta.contours[0], lon: -62, lat: 4 },
-      { label: meta.contours[1], lon: 2, lat: -6 },
-      { label: meta.contours[2], lon: 55, lat: -20 },
-    ];
-  }
+function scienceLayerLabelPositions(_layer: MapLayer): Array<{ label: string; lon: number; lat: number }> {
+  const meta = scienceLayerMeta(_layer);
   return [
-    { label: meta.contours[0], lon: -62, lat: -4 },
-    { label: meta.contours[1], lon: 4, lat: -10 },
-    { label: meta.contours[2], lon: 58, lat: -18 },
+    { label: meta.contours[0], lon: -62, lat: 4 },
+    { label: meta.contours[1], lon: 2, lat: -6 },
+    { label: meta.contours[2], lon: 55, lat: -20 },
   ];
 }
 
@@ -232,6 +175,7 @@ export default function CorsMap({
 }: Props) {
   const mapRef = useRef<HTMLDivElement>(null);
   const popupElementRef = useRef<HTMLDivElement | null>(null);
+  const [mapReady, setMapReady] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const olMapRef = useRef<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -818,6 +762,7 @@ export default function CorsMap({
       await syncScienceLayer();
       await syncNetworkLayer();
       await syncProposedSitesLayer();
+      if (!disposed) setMapReady(true);
 
       map.set("corsResizeCleanup", () => {
         resizeObserver.disconnect();
@@ -828,6 +773,7 @@ export default function CorsMap({
 
     return () => {
       disposed = true;
+      setMapReady(false);
       if (olMapRef.current) {
         const resizeCleanup = olMapRef.current.get("corsResizeCleanup");
         if (typeof resizeCleanup === "function") resizeCleanup();
@@ -928,6 +874,17 @@ export default function CorsMap({
     >
       <div style={{ flex: 1, position: "relative", minWidth: 0 }}>
         <div ref={mapRef} className="map-container" style={{ width: "100%", height: "100%" }} />
+        {!mapReady && (
+          <div className="cors-map-skeleton" aria-busy="true" aria-live="polite">
+            <div className="cors-map-skeleton-pulse" />
+            <span className="cors-map-skeleton-label">Loading map…</span>
+            <span className="cors-map-skeleton-meta">
+              {stations.length > 0
+                ? `${stations.length} CORS stations ready`
+                : "Waiting for station status"}
+            </span>
+          </div>
+        )}
         {isZimbabweScienceLayer(layer) && (
           <div
             style={{

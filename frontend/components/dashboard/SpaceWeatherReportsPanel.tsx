@@ -45,7 +45,19 @@ export default function SpaceWeatherReportsPanel({
       setReport(data);
     } catch (loadError) {
       const detail = loadError instanceof Error ? loadError.message : "Unknown report error";
-      setError(`Could not load report — ${detail}`);
+      if (/timed out/i.test(detail)) {
+        setError(
+          "Report request timed out — the backend may be cold-starting. Click Generate Report to retry.",
+        );
+      } else if (/→ 5\d\d/.test(detail) || /→ 500/.test(detail)) {
+        setError(
+          "Report server error — try again in a moment. If it persists, check space-weather archive health.",
+        );
+      } else if (/unreachable|Failed to fetch|NetworkError/i.test(detail)) {
+        setError("Could not reach the API — check that the backend is running.");
+      } else {
+        setError(`Could not load report — ${detail}`);
+      }
       setReport(null);
     } finally {
       setBusy(false);

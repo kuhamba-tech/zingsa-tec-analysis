@@ -31,14 +31,14 @@ _CACHE_TTL_SECONDS = 300  # 5 minutes — matches CORS_Program refresh cadence
 
 
 _GNSS_RISK_COLORS = {
-    "Low": "#1D9E75",
+    "Low": "#00ff88",
     "Moderate": "#EF9F27",
     "High": "#ef4444",
     "Critical": "#dc2626",
     "SEVERE": "#dc2626",
     "HIGH": "#ef4444",
     "MODERATE": "#EF9F27",
-    "LOW": "#1D9E75",
+    "LOW": "#00ff88",
 }
 
 NOAA_KP_URL = "https://services.swpc.noaa.gov/json/planetary_k_index_1m.json"
@@ -90,7 +90,7 @@ def _load_persisted_snapshot() -> Any:
             "solar_wind_speed": data.get("plasma_speed"),
             "s4": data.get("s4"),
             "gnss_risk": data.get("gnss_risk"),
-            "gnss_risk_color": _GNSS_RISK_COLORS.get(data.get("gnss_risk"), "#1D9E75"),
+            "gnss_risk_color": _GNSS_RISK_COLORS.get(data.get("gnss_risk"), "#00ff88"),
             "stations_online": data.get("stations_online"),
             "stations_total": data.get("stations_total"),
             "mean_vtec": data.get("mean_vtec"),
@@ -790,7 +790,7 @@ def get_space_weather(
             "kp_color": condition_color,
             "f107": round(float(f107), 1) if f107 is not None else None,
             "gnss_risk": gnss_risk,
-            "gnss_risk_color": _GNSS_RISK_COLORS.get(gnss_risk, "#1D9E75"),
+            "gnss_risk_color": _GNSS_RISK_COLORS.get(gnss_risk, "#00ff88"),
             "mode": mode,
             "source": source,
             "timestamp": timestamp,
@@ -859,7 +859,7 @@ def _classify_kp(kp: float) -> tuple[str, str]:
 
 
 def _risk_color(risk: str) -> str:
-    return _GNSS_RISK_COLORS.get(risk, "#1D9E75")
+    return _GNSS_RISK_COLORS.get(risk, "#00ff88")
 
 
 def warm_space_weather_cache() -> None:

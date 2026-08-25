@@ -127,7 +127,7 @@ export function buildMetricCards(
   const online = sw?.stations_online ?? null;
   const total = sw?.stations_total ?? null;
   const kpColor = sw?.kp_color ?? "#168bd2";
-  const riskColor = sw?.gnss_risk_color ?? "#1D9E75";
+  const riskColor = sw?.gnss_risk_color ?? "#00ff88";
   const ekfFilled = opts?.ekfFilled ?? new Set<string>();
   const liveCounts = opts?.liveStationCounts;
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import NetworkUptimePanel, {
@@ -9,7 +9,8 @@ import NetworkUptimePanel, {
   uptimeRangeKey,
 } from "@/components/dashboard/NetworkUptimePanel";
 import SpaceWeatherReportsPanel from "@/components/dashboard/SpaceWeatherReportsPanel";
-import type { SpaceWeatherReportPeriod } from "@/lib/types";
+import { getEkfStatus } from "@/lib/api";
+import type { EkfStatus, SpaceWeatherReportPeriod } from "@/lib/types";
 
 const PERIOD_ALIASES: Record<string, SpaceWeatherReportPeriod> = {
   hourly: "hourly",
@@ -56,6 +57,14 @@ function ReportsContent() {
   const reportType = searchParams.get("type") === "uptime" ? "uptime" : "space-weather";
   const period = resolvePeriod(searchParams.get("period"));
   const uptimeRange = resolveUptimeRange(searchParams.get("range"));
+  const [ekf, setEkf] = useState<EkfStatus | null>(null);
+
+  useEffect(() => {
+    if (reportType !== "space-weather") return;
+    getEkfStatus()
+      .then(setEkf)
+      .catch(() => setEkf(null));
+  }, [reportType]);
 
   const setUptimeRange = useCallback(
     (key: UptimeRangeKey) => {
@@ -119,7 +128,7 @@ function ReportsContent() {
           onRangeKeyChange={setUptimeRange}
         />
       ) : (
-        <SpaceWeatherReportsPanel initialPeriod={period} />
+        <SpaceWeatherReportsPanel ekf={ekf} initialPeriod={period} />
       )}
     </div>
   );
