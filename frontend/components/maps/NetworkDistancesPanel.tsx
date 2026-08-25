@@ -114,10 +114,10 @@ export default function NetworkDistancesPanel({
         <div className="network-ga-head">
           <h4 className="network-ga-title">GA network optimization</h4>
           <p className="network-ga-lead">
-            Enter how many new CORS stations to add. Sites are placed only inside Zimbabwe
-            (never across the border into Zambia, Botswana, South Africa, or Mozambique). Uses
-            Leica NRTK spacing {NRTK_SPACING_MIN_KM}–{NRTK_SPACING_MAX_KM} km · rover ≤{" "}
-            {USEFUL_COVERAGE_KM} km · single RTK prefer ≤ {SINGLE_RTK_RECOMMENDED_KM} km.
+            Enter how many new CORS stations to add. The optimiser analyses the whole network and
+            places sites in distinct coverage gaps nationwide (not clustered in one corridor),
+            only inside Zimbabwe. Uses Leica NRTK spacing {NRTK_SPACING_MIN_KM}–{NRTK_SPACING_MAX_KM}{" "}
+            km · rover ≤ {USEFUL_COVERAGE_KM} km · single RTK prefer ≤ {SINGLE_RTK_RECOMMENDED_KM} km.
           </p>
         </div>
 
