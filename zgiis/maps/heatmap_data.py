@@ -534,27 +534,36 @@ def _absolute_vtec_observation_frame(df):
     """
     if df is None or not hasattr(df, "empty") or df.empty:
         return df
-    work = df.copy()
-    if "tecg_tecu" in work.columns and "elevation_deg" in work.columns:
-        from zgiis.live.stec_vtec import vtec_from_stec
+    work = df
+    if "tec_method" not in work.columns:
+        return work
 
-        tecg = pd.to_numeric(work["tecg_tecu"], errors="coerce")
-        elev = pd.to_numeric(work["elevation_deg"], errors="coerce")
-        ok = tecg.notna() & elev.notna() & (tecg > 0) & (elev > 0)
-        if bool(ok.any()):
-            work.loc[ok, "vtec_tecu"] = [
-                float(vtec_from_stec(float(t), float(e)))
-                for t, e in zip(tecg[ok].tolist(), elev[ok].tolist())
-            ]
-    if "tec_method" in work.columns:
-        method = work["tec_method"].astype(str)
-        phase_only = method.str.contains("phase_only_live_unleveled", na=False)
-        if "tecg_tecu" in work.columns:
-            no_code = pd.to_numeric(work["tecg_tecu"], errors="coerce").isna()
-            work = work[~(phase_only & no_code)].copy()
-        else:
-            work = work[~phase_only].copy()
-    return work
+    method = work["tec_method"].astype(str)
+    code_live = method.str.contains("code_live", na=False)
+    # Fast path: new collector rows are already absolute code TEC.
+    if bool(code_live.any()):
+        return work.loc[code_live].copy()
+
+    phase_only = method.str.contains("phase_only_live_unleveled", na=False)
+    if not bool(phase_only.any()):
+        return work
+
+    if "tecg_tecu" in work.columns and "elevation_deg" in work.columns:
+        from zgiis.live.stec_vtec import mapping_function
+
+        need = phase_only & pd.to_numeric(work["tecg_tecu"], errors="coerce").notna()
+        if bool(need.any()):
+            work = work.copy()
+            tecg = pd.to_numeric(work.loc[need, "tecg_tecu"], errors="coerce")
+            elev = pd.to_numeric(work.loc[need, "elevation_deg"], errors="coerce")
+            mapping = elev.map(
+                lambda e: mapping_function(float(e)) if pd.notna(e) and float(e) > 0 else np.nan
+            )
+            work.loc[need, "vtec_tecu"] = tecg.to_numpy(dtype=float) / mapping.to_numpy(dtype=float)
+        no_code = pd.to_numeric(work["tecg_tecu"], errors="coerce").isna()
+        return work.loc[~(phase_only & no_code)].copy()
+
+    return work.loc[~phase_only].copy()
 
 
 def _station_rows_from_observation_frame(df, *, source: str) -> list[dict[str, Any]]:
