@@ -33,17 +33,25 @@ def _mock_madimbo_didbase():
 
 def test_build_tec_heatmap_empty_when_no_db_rows():
     with patch("backend.live_manager.get_db") as mock_db, patch(
+        "backend.live_manager.latest_vtec_by_station", return_value={}
+    ), patch("backend.routers.cors_network._stations", return_value=[]), patch(
+        "zgiis.live.ntrip_status_cache.ntrip_probe_enabled", return_value=False
+    ), patch(
+        "zgiis.maps.heatmap_data._live_ntrip_heatmap_rows", return_value=[]
+    ), patch(
         "zgiis.data.tec_archive.load_historical_tec",
-        return_value=(pd.DataFrame(), {"available": False}),
+        return_value=(pd.DataFrame({"timestamp": [], "station": [], "vtec": []}), {"available": True}),
     ):
         mock_db.return_value.station_summary.return_value = pd.DataFrame()
         mock_db.return_value.query_recent.return_value = pd.DataFrame()
         payload = build_tec_heatmap(hours=2)
     assert payload["available"] is False
     assert payload["stations"] == []
+    assert payload["data_quality"] == "none"
+    assert "archive" in (payload["message"] or "").lower() or "live" in (payload["message"] or "").lower()
 
 
-def test_build_tec_heatmap_falls_back_to_processed_archive():
+def test_build_tec_heatmap_does_not_fall_back_to_processed_archive():
     archive = pd.DataFrame(
         {
             "timestamp": pd.to_datetime(
@@ -60,6 +68,8 @@ def test_build_tec_heatmap_falls_back_to_processed_archive():
     ), patch("backend.routers.cors_network._stations", return_value=[]), patch(
         "zgiis.live.ntrip_status_cache.ntrip_probe_enabled", return_value=False
     ), patch(
+        "zgiis.maps.heatmap_data._live_ntrip_heatmap_rows", return_value=[]
+    ), patch(
         "zgiis.data.tec_archive.load_historical_tec",
         return_value=(archive, {"available": True}),
     ):
@@ -67,15 +77,41 @@ def test_build_tec_heatmap_falls_back_to_processed_archive():
         mock_db.return_value.query_recent.return_value = pd.DataFrame()
         payload = build_tec_heatmap(hours=2)
 
+    assert payload["available"] is False
+    assert payload["stations"] == []
+    assert payload["data_quality"] == "none"
+
+
+def test_build_tec_heatmap_uses_live_ntrip_samples_when_db_empty():
+    live_ntrip_rows = [
+        {
+            "code": "hara",
+            "name": "Harare",
+            "lat": -17.78,
+            "lon": 31.05,
+            "vtec": 34.2,
+            "obs_count": 4,
+            "source": "live_ntrip",
+        }
+    ]
+    with patch("backend.live_manager.get_db") as mock_db, patch(
+        "backend.live_manager.latest_vtec_by_station", return_value={}
+    ), patch("backend.routers.cors_network._stations", return_value=[]), patch(
+        "zgiis.live.ntrip_status_cache.ntrip_probe_enabled", return_value=False
+    ), patch(
+        "zgiis.maps.heatmap_data._live_ntrip_heatmap_rows", return_value=live_ntrip_rows
+    ):
+        mock_db.return_value.station_summary.return_value = pd.DataFrame()
+        mock_db.return_value.query_recent.return_value = pd.DataFrame()
+        payload = build_tec_heatmap(hours=2)
+
     assert payload["available"] is True
-    assert payload["data_quality"] == "processed_archive"
-    assert payload["station_count"] >= 2
     rows_by_code = {row["code"]: row for row in payload["stations"]}
-    assert rows_by_code["hara"]["source"] == "processed_archive"
-    assert rows_by_code["gsu"]["source"] == "processed_archive"
-    assert rows_by_code["cent"]["source"] == "processed_archive_estimate"
-    assert rows_by_code["cent"]["vtec"] > 0
-    assert payload["message"] is not None
+    assert rows_by_code["hara"]["source"] == "live_ntrip"
+    assert rows_by_code["hara"]["vtec"] == 34.2
+    assert rows_by_code["cent"]["source"] == "live_surface_estimate"
+    assert payload["tec_min"] is not None
+    assert payload["tec_max"] is not None
 
 
 def test_build_tec_heatmap_interpolates_with_three_stations():
@@ -269,6 +305,8 @@ def test_build_tec_heatmap_merges_cors_current_tec():
     ), patch(
         "backend.routers.cors_network._stations", return_value=[mock_station]
     ), patch("zgiis.live.ntrip_status_cache.ntrip_probe_enabled", return_value=False), patch(
+        "zgiis.maps.heatmap_data._live_ntrip_heatmap_rows", return_value=[]
+    ), patch(
         "zgiis.data.tec_archive.load_historical_tec",
         return_value=(pd.DataFrame(), {"available": False}),
     ):

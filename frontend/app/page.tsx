@@ -245,7 +245,7 @@ export default function HomePage() {
             }
           },
         );
-        void getTecHeatmap(6)
+        void getTecHeatmap(6, !background)
           .then((heatmap) => {
             if (!cancelled && heatmap) setTecHeatmap(heatmap);
           })

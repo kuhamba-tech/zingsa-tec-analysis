@@ -10,12 +10,12 @@ from typing import Any
 class ProbeVtecSampler:
     """Feed RTCM MSM messages through the live STEC/VTEC pipeline during a probe."""
 
-    def __init__(self, station_code: str) -> None:
+    def __init__(self, station_code: str, nav_cache=None) -> None:
         from zgiis.live.satellite_geometry import LiveNavCache
         from zgiis.live.stec_vtec import LiveVtecPipeline
 
         self._station = station_code.lower().rstrip("_")
-        self._nav = LiveNavCache()
+        self._nav = nav_cache if nav_cache is not None else LiveNavCache()
         self._samples: list[float] = []
 
         def _on_vtec(vtec: dict) -> None:

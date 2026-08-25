@@ -255,10 +255,32 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
         stations, archive_applied = _merge_archived_live_statuses(stations)
         stations = _hold_non_spider_as_unknown(stations)
         if archive_applied and _is_serverless_runtime():
-            # Always overlay Spider (live or durable Postgres last-good).
-            return _merge_rover_clients(
-                _merge_spider_site_statuses(stations, refresh=refresh_ntrip)
-            )
+            # Keep Spider status overlay, but still attach recent live VTEC from the
+            # shared DB so TEC heat-map / station cards are not stuck on zeros.
+            stations = _merge_spider_site_statuses(stations, refresh=refresh_ntrip)
+            try:
+                df = get_db().query_recent(hours=2.0)
+            except Exception:
+                df = None
+            if (
+                df is not None
+                and not df.empty
+                and "station" in df.columns
+                and "vtec_tecu" in df.columns
+            ):
+                grouped = df.groupby("station")["vtec_tecu"]
+                for code_raw, series in grouped:
+                    code = str(code_raw).lower().rstrip("_")
+                    mean_vtec = float(series.mean())
+                    if not math.isfinite(mean_vtec) or mean_vtec <= 0:
+                        continue
+                    stations = [
+                        replace(s, current_tec=round(mean_vtec, 2))
+                        if s.code.lower().rstrip("_") == code
+                        else s
+                        for s in stations
+                    ]
+            return _merge_rover_clients(stations)
 
     probe_payload = None
     probe_by: dict = {}

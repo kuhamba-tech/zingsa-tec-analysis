@@ -743,7 +743,18 @@ export const getAnomalies = (threshold_pct = 95, station?: string) =>
   get<AnomalyDay[]>("/tec/anomalies", { threshold_pct, station }, ANALYSIS_TIMEOUT_MS);
 export const getAnomalyAnalysis = (threshold_pct = 95, station?: string) =>
   get<AnomalyAnalysisResponse>("/tec/anomaly-analysis", { threshold_pct, station }, ANALYSIS_TIMEOUT_MS);
-export const getTecHeatmap = (hours = 6) => get<TecHeatmapResponse>("/tec/heatmap", { hours });
+/** Live NTRIP heat-map sampling can take ~30–55s on Vercel when the ingest DB is empty. */
+const TEC_HEATMAP_TIMEOUT_MS = 90_000;
+
+export const getTecHeatmap = (hours = 6, refreshNtrip = false) =>
+  get<TecHeatmapResponse>(
+    "/tec/heatmap",
+    {
+      hours,
+      ...(refreshNtrip ? { refresh_ntrip: "true" } : {}),
+    },
+    refreshNtrip ? TEC_HEATMAP_TIMEOUT_MS : Math.max(FETCH_TIMEOUT_MS, 55_000),
+  );
 export const getDiurnal = (station?: string) => get<DiurnalPoint[]>("/tec/diurnal", { station });
 export const getSeasonal = (station?: string) => get<SeasonalRow[]>("/tec/seasonal", { station });
 export const getSolarCycle = (station?: string) => get<SolarCycleRow[]>("/tec/solar-cycle", { station });

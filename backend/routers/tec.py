@@ -412,11 +412,12 @@ async def solar_cycle(
 @router.get("/heatmap", response_model=TecHeatmapResponse)
 async def tec_heatmap(
     hours: float = Query(2.0, ge=0.5, le=24),
+    refresh_ntrip: bool = Query(False, description="Force a fresh live NTRIP VTEC sample when set"),
     _=Depends(require_api_key),
 ):
     from zgiis.maps.heatmap_data import build_tec_heatmap
 
-    payload = build_tec_heatmap(hours=hours)
+    payload = build_tec_heatmap(hours=hours, refresh_ntrip=refresh_ntrip)
 
     grid = payload.get("grid")
     return TecHeatmapResponse(

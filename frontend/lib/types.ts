@@ -618,7 +618,7 @@ export interface TecHeatmapStation {
   lon: number;
   vtec: number;
   obs_count: number;
-  source?: "live" | "processed_archive" | "processed_archive_estimate" | string;
+  source?: "live" | "live_ntrip" | "processed_archive" | "processed_archive_estimate" | string;
 }
 
 export interface TecHeatmapPoint {

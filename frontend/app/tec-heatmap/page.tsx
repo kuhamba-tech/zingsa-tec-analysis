@@ -27,7 +27,8 @@ export default function TecHeatmapPage() {
     // Do not flip status to pending on interval refresh — that flashes banners/UI.
     if (!background) setHeatmapStatus("pending");
     try {
-      const payload = await getTecHeatmap(6);
+      // First load forces a live NTRIP sample when the ingest DB is empty.
+      const payload = await getTecHeatmap(6, !background);
       setHeatmap(payload);
       setHeatmapStatus(payload.available ? "ok" : "down");
       setLastFetchedAt(new Date());

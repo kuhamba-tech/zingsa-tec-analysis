@@ -94,23 +94,6 @@ def _absolute_weight(vtec: float) -> float:
     return float(max(0.05, min(1.0, (vtec - TEC_SCALE_MIN) / span)))
 
 
-def _classify_data_quality(stations: list[dict[str, Any]], grid: dict[str, Any] | None) -> str:
-    if not stations:
-        return "none"
-    if all(str(s.get("source") or "") in _PROCESSED_ARCHIVE_SOURCES for s in stations):
-        return "processed_archive"
-    if any(str(s.get("source") or "") in _SURFACE_ESTIMATE_SOURCES for s in stations):
-        return "regional_mean"
-    codes = {str(s["code"]).lower() for s in stations}
-    if codes.issubset(_REGIONAL_CODES):
-        return "regional_mean"
-    if all(int(s.get("obs_count") or 0) == 0 for s in stations):
-        return "regional_mean"
-    if grid is None:
-        return "stations_only"
-    return "station"
-
-
 def _quality_message(quality: str, station_count: int) -> str | None:
     if quality == "regional_mean":
         return (
@@ -125,9 +108,34 @@ def _quality_message(quality: str, station_count: int) -> str | None:
     if quality == "processed_archive":
         return (
             f"Showing calculated VTEC from the latest processed RINEX/CMN archive for {station_count} CORS site(s). "
-            "Stations without an exact archive row use the interpolated archive surface until live NTRIP emits VTEC."
+            "Use the archive heat-map endpoint for historical products; the live map uses NTRIP only."
         )
     return None
+
+
+def _classify_data_quality(stations: list[dict[str, Any]], grid: dict[str, Any] | None) -> str:
+    if not stations:
+        return "none"
+    sources = {str(s.get("source") or "") for s in stations}
+    if sources & {"live_ntrip"} and not (sources & ({"live"} | _PROCESSED_ARCHIVE_SOURCES)):
+        # On-demand NTRIP samples still count as live station product for ICAO banners.
+        if grid is None:
+            return "stations_only"
+        if any(int(s.get("obs_count") or 0) == 0 for s in stations):
+            return "regional_mean"
+        return "station"
+    if all(str(s.get("source") or "") in _PROCESSED_ARCHIVE_SOURCES for s in stations):
+        return "processed_archive"
+    if any(str(s.get("source") or "") in _SURFACE_ESTIMATE_SOURCES for s in stations):
+        return "regional_mean"
+    codes = {str(s["code"]).lower() for s in stations}
+    if codes.issubset(_REGIONAL_CODES):
+        return "regional_mean"
+    if all(int(s.get("obs_count") or 0) == 0 for s in stations):
+        return "regional_mean"
+    if grid is None:
+        return "stations_only"
+    return "station"
 
 
 def _matamba_metadata() -> dict[str, Any]:
@@ -629,6 +637,42 @@ def _probe_sample_vtec_rows() -> list[dict[str, Any]]:
                     station,
                     vtec=vtec,
                     obs_count=int(probe_row.get("vtec_sample_count") or 1),
+                    source="live",
+                )
+            )
+        return rows
+    except Exception:
+        return []
+
+
+def _live_ntrip_heatmap_rows(*, refresh: bool = False) -> list[dict[str, Any]]:
+    """Fresh on-demand NTRIP VTEC samples when the ingest DB has no recent rows."""
+    try:
+        from zgiis.live.heatmap_live_vtec import rows_by_station, sample_live_ntrip_vtec
+
+        payload = sample_live_ntrip_vtec(refresh=refresh)
+        if payload.get("error") and not any(
+            float(row.get("mean_vtec_tecu") or 0) > 0 for row in (payload.get("stations") or [])
+        ):
+            return []
+
+        rows: list[dict[str, Any]] = []
+        for code, probe_row in rows_by_station(payload).items():
+            raw = probe_row.get("mean_vtec_tecu")
+            if raw is None:
+                continue
+            vtec = float(raw)
+            if not np.isfinite(vtec) or vtec <= 0:
+                continue
+            station = _STATION_LOOKUP.get(code.lower().rstrip("_"))
+            if station is None:
+                continue
+            rows.append(
+                _row_from_station(
+                    station,
+                    vtec=vtec,
+                    obs_count=int(probe_row.get("vtec_sample_count") or 1),
+                    source="live_ntrip",
                 )
             )
         return rows
@@ -638,10 +682,21 @@ def _probe_sample_vtec_rows() -> list[dict[str, Any]]:
 
 def _empty_heatmap_message() -> str:
     try:
+        from zgiis.live.heatmap_live_vtec import live_ntrip_heatmap_enabled
         from zgiis.live.ntrip_status_cache import get_cached_ntrip_probe, ntrip_probe_enabled, probe_rows_by_station
 
+        if live_ntrip_heatmap_enabled():
+            return (
+                "No live NTRIP VTEC yet — the heat map waits for the persistent collector "
+                "or an on-demand NTRIP sample with MSM observations and broadcast ephemeris. "
+                "Processed RINEX archive values are not shown here."
+            )
+
         if not ntrip_probe_enabled():
-            return "No recent live VTEC observations in the pipeline database."
+            return (
+                "No recent live VTEC observations in the pipeline database. "
+                "Run scripts/live_ntrip_collector.py or enable TEC_HEATMAP_LIVE_NTRIP."
+            )
 
         payload = get_cached_ntrip_probe(refresh=False, allow_blocking_refresh=False)
         if payload.get("error"):
@@ -662,7 +717,7 @@ def _empty_heatmap_message() -> str:
         if msm > 0:
             return (
                 f"{msm} CORS site(s) streaming MSM observations — "
-                "live VTEC decode needs L1/L2 carrier phase and GPS ephemeris (RTCM 1019)."
+                "live VTEC decode needs L1/L2 carrier phase and GPS ephemeris (RTCM 1019 / BKG BRDC)."
             )
         if connected > 0:
             return (
@@ -671,7 +726,10 @@ def _empty_heatmap_message() -> str:
             )
     except Exception:
         pass
-    return "No recent live VTEC observations in the pipeline database."
+    return (
+        "No recent live VTEC observations in the pipeline database. "
+        "Processed RINEX archive values are not used for this map."
+    )
 
 
 def _cors_current_tec_rows() -> list[dict[str, Any]]:
@@ -694,7 +752,7 @@ def _cors_current_tec_rows() -> list[dict[str, Any]]:
 
 
 def _processed_archive_rows() -> list[dict[str, Any]]:
-    """Newest processed RINEX/CMN VTEC per station, used only when live VTEC is absent."""
+    """Newest processed RINEX/CMN VTEC per station (archive heat-map endpoint only)."""
     try:
         from zgiis.data.tec_archive import load_historical_tec
 
@@ -948,20 +1006,22 @@ def _heatmap_payload_from_station_rows(
     }
 
 
-def build_tec_heatmap(*, hours: float = 2.0) -> dict[str, Any]:
-    """Return interpolated grid + heat points for map overlay."""
+def build_tec_heatmap(*, hours: float = 2.0, refresh_ntrip: bool = False) -> dict[str, Any]:
+    """Return interpolated grid + heat points for map overlay (live NTRIP only)."""
     live_rows = _merge_station_rows(
         _pipeline_station_rows(hours=hours),
         _recent_pipeline_rows(hours=min(hours, 0.75)),
         _live_pipeline_memory_rows(),
         _probe_sample_vtec_rows(),
     )
+    if not live_rows or refresh_ntrip:
+        live_rows = _merge_station_rows(live_rows, _live_ntrip_heatmap_rows(refresh=refresh_ntrip or not live_rows))
     previous_rows = _temporal_reference_pipeline_rows() if live_rows else []
     stations = _live_surface_station_rows(live_rows) if live_rows else []
     if not stations:
-        stations = _processed_archive_rows()
-    if not stations:
         cors_rows = _cors_current_tec_rows()
+        # Ignore zero/placeholder current_tec — only real live values.
+        cors_rows = [row for row in cors_rows if float(row.get("vtec") or 0) > 0]
         stations = _live_surface_station_rows(cors_rows) if cors_rows else []
     return _heatmap_payload_from_station_rows(
         stations,
