@@ -303,7 +303,7 @@ export default function HomePage() {
     [tecHeatmap, stations],
   );
 
-  const homeSparklines = useMemo(() => {
+  const homeSparklines: Partial<Record<MetricKey, number[]>> = useMemo(() => {
     const kp = sparklineSeries(swHistoryRows, (r) => r.kp);
     const dst = sparklineSeries(swHistoryRows, (r) => r.dst);
     const risk = sparklineSeries(swHistoryRows, (r) => r.gnss_risk_score);
@@ -311,7 +311,7 @@ export default function HomePage() {
       kp,
       dst,
       gnss_risk: risk,
-    } satisfies Partial<Record<MetricKey, number[]>>;
+    };
   }, [swHistoryRows]);
 
   const corsProgress =
