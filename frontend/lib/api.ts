@@ -747,11 +747,11 @@ export const getAnomalyAnalysis = (threshold_pct = 95, station?: string) =>
 const TEC_HEATMAP_TIMEOUT_MS = 90_000;
 
 function rejectArchiveHeatmap(payload: TecHeatmapResponse): TecHeatmapResponse {
+  const hasArchiveSource = (payload.stations ?? []).some((s) =>
+    /processed_archive/i.test(s.source ?? ""),
+  );
   const archiveQuality = payload.data_quality === "processed_archive";
-  const archiveSources =
-    (payload.stations?.length ?? 0) > 0 &&
-    payload.stations.every((s) => /processed_archive/i.test(s.source ?? ""));
-  if (!archiveQuality && !archiveSources) return payload;
+  if (!archiveQuality && !hasArchiveSource) return payload;
   return {
     ...payload,
     available: false,

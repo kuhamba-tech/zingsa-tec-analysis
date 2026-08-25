@@ -1037,15 +1037,29 @@ def build_tec_heatmap(*, hours: float = 2.0, refresh_ntrip: bool = False) -> dic
         # Ignore zero/placeholder current_tec — only real live values.
         cors_rows = [row for row in cors_rows if float(row.get("vtec") or 0) > 0]
         stations = _live_surface_station_rows(cors_rows) if cors_rows else []
-    return _heatmap_payload_from_station_rows(
+    # Hard guard: never emit RINEX/CMN archive rows on the live map product.
+    stations = [
+        row
+        for row in stations
+        if str(row.get("source") or "") not in _PROCESSED_ARCHIVE_SOURCES
+        and "processed_archive" not in str(row.get("source") or "")
+    ]
+    payload = _heatmap_payload_from_station_rows(
         stations,
         empty_message=_empty_heatmap_message(),
         previous_rows=previous_rows,
     )
+    if payload.get("data_quality") == "processed_archive":
+        return _heatmap_payload_from_station_rows(
+            [],
+            empty_message=_empty_heatmap_message(),
+            previous_rows=[],
+        )
+    return payload
 
 
 def build_archive_tec_heatmap() -> dict[str, Any]:
-    """Return the processed-archive heat map without touching live services."""
+    """Historical archive heat map only — not used by the live dashboard map."""
     return _heatmap_payload_from_station_rows(
         _processed_archive_rows(),
         empty_message="No processed RINEX/CMN archive VTEC is available.",

@@ -153,7 +153,11 @@ function isInterpolatedSource(source: string | null | undefined): boolean {
 }
 
 function stationTecValue(station: Station, heatmap: TecHeatmapResponse | null | undefined): number | null {
-  const fromHeatmap = heatmapStationFor(station, heatmap)?.vtec;
+  const heatStation = heatmapStationFor(station, heatmap);
+  if (heatStation && /processed_archive/i.test(heatStation.source ?? "")) {
+    return null;
+  }
+  const fromHeatmap = heatStation?.vtec;
   if (typeof fromHeatmap === "number" && Number.isFinite(fromHeatmap) && fromHeatmap >= 0) {
     return fromHeatmap;
   }

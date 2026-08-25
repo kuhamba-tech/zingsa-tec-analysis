@@ -13,8 +13,7 @@ function isArchiveHeatmap(heatmap: TecHeatmapResponse | null | undefined): boole
   if (!heatmap) return false;
   if (heatmap.data_quality === "processed_archive") return true;
   const stations = heatmap.stations ?? [];
-  if (stations.length === 0) return false;
-  return stations.every((s) => /processed_archive/i.test(s.source ?? ""));
+  return stations.some((s) => /processed_archive/i.test(s.source ?? ""));
 }
 
 /** Merge station-level live VTEC into an empty heat-map API response. */

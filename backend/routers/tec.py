@@ -419,6 +419,33 @@ async def tec_heatmap(
 
     payload = build_tec_heatmap(hours=hours, refresh_ntrip=refresh_ntrip)
 
+    # Final API guard: never return RINEX/CMN archive VTEC on this live endpoint.
+    stations = [
+        s
+        for s in (payload.get("stations") or [])
+        if "processed_archive" not in str(s.get("source") or "")
+    ]
+    if payload.get("data_quality") == "processed_archive" or (
+        payload.get("stations") and not stations
+    ):
+        payload = {
+            **payload,
+            "available": False,
+            "stations": [],
+            "heat_points": [],
+            "grid": None,
+            "tec_min": None,
+            "tec_max": None,
+            "station_count": 0,
+            "data_quality": "none",
+            "message": (
+                "No live NTRIP VTEC yet — processed RINEX/CMN archive values are not shown on this map."
+            ),
+            "diagnostics": None,
+        }
+    elif len(stations) != len(payload.get("stations") or []):
+        payload = {**payload, "stations": stations, "station_count": len(stations)}
+
     grid = payload.get("grid")
     return TecHeatmapResponse(
         available=payload["available"],
