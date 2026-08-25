@@ -39,6 +39,7 @@ export function mergeTecHeatmapWithStations(
     : heatmap;
 
   if (liveHeatmap?.available && (liveHeatmap.stations?.length ?? 0) > 0) {
+    const stationByCode = new Map(stations.map((s) => [stationKey(s.code), s]));
     const stationStatusByCode = new Map(
       stations.map((s) => [stationKey(s.code), getLiveStationStatus(s)]),
     );
@@ -47,24 +48,75 @@ export function mergeTecHeatmapWithStations(
       const status = stationStatusByCode.get(stationKey(code));
       return status === "offline" || status === "unavailable";
     };
-    const heatmapStations = liveHeatmap.stations.map((s) => {
-      if (!isOfflineStation(s.code)) return s;
-      return {
-        ...s,
-        obs_count: 0,
-        source: isInterpolatedSource(s.source) ? s.source : "interpolated_offline",
-      };
-    });
+    // Measured heatmap stations (obs_count > 0) define the trusted band.
+    // Never replace them with Neon current_tec spikes; those caused Vercel to
+    // show ~80–120 TECU while local NTRIP decode stayed ~16–30.
+    const measured = liveHeatmap.stations.filter((s) => (s.obs_count ?? 0) > 0);
+    const measuredVals = measured.map((s) => s.vtec).filter((v) => Number.isFinite(v));
+    const refMedian =
+      measuredVals.length > 0
+        ? [...measuredVals].sort((a, b) => a - b)[Math.floor(measuredVals.length / 2)]
+        : null;
+    const withinBand = (v: number) => {
+      if (refMedian == null) return true;
+      return Math.abs(v - refMedian) <= Math.max(3.5 * 8, refMedian * 1.25);
+    };
+
+    const heatmapStations = liveHeatmap.stations
+      .map((s) => {
+        const liveStation = stationByCode.get(stationKey(s.code));
+        const liveTec =
+          typeof liveStation?.current_tec === "number" &&
+          Number.isFinite(liveStation.current_tec) &&
+          liveStation.current_tec > 0
+            ? liveStation.current_tec
+            : null;
+
+        // Keep cleaned backend surface / measured values.
+        if ((s.obs_count ?? 0) > 0) {
+          if (!isOfflineStation(s.code)) return s;
+          return { ...s, obs_count: 0, source: "interpolated_offline" };
+        }
+
+        // Interpolated marker: only adopt current_tec when it sits in the
+        // measured consensus band (local-like), otherwise keep surface estimate.
+        if (isInterpolatedSource(s.source)) {
+          if (liveTec != null && withinBand(liveTec)) {
+            return {
+              ...s,
+              vtec: liveTec,
+              obs_count: Math.max(1, s.obs_count ?? 0),
+              source: "live",
+            };
+          }
+          return s;
+        }
+
+        if (!isOfflineStation(s.code)) return s;
+        return {
+          ...s,
+          obs_count: 0,
+          source: isInterpolatedSource(s.source) ? s.source : "interpolated_offline",
+        };
+      })
+      .filter((s): s is NonNullable<typeof s> => s != null);
+
     const values = heatmapStations.map((s) => s.vtec).filter((v) => Number.isFinite(v));
+    const measuredCount = heatmapStations.filter((s) => (s.obs_count ?? 0) > 0).length;
     return {
       ...liveHeatmap,
       stations: heatmapStations,
       heat_points: liveHeatmap.heat_points,
       tec_min: values.length > 0 ? Math.min(...values) : liveHeatmap.tec_min,
       tec_max: values.length > 0 ? Math.max(...values) : liveHeatmap.tec_max,
-      message: liveHeatmap.message
-        ? `${liveHeatmap.message} Offline/unavailable stations retain interpolated TEC estimates where the grid is available.`
-        : "Offline/unavailable stations retain interpolated TEC estimates where the grid is available.",
+      station_count: heatmapStations.length,
+      data_quality: liveHeatmap.data_quality,
+      message:
+        measuredCount > 0
+          ? measuredCount === 1
+            ? "1 connected CORS site reporting live VTEC from NTRIP decode."
+            : `${measuredCount} connected CORS sites reporting live VTEC from NTRIP decode.`
+          : liveHeatmap.message,
     };
   }
 

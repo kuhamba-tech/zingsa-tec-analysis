@@ -992,6 +992,20 @@ class LiveObservation(BaseModel):
     prn: str | None = None
 
 
+class LiveStationVtecPoint(BaseModel):
+    time: str
+    vtec_tecu: float
+    obs_count: int = 0
+
+
+class LiveStationVtecSeries(BaseModel):
+    station: str
+    name: str
+    points: list[LiveStationVtecPoint] = []
+    latest_vtec: float | None = None
+    mean_vtec: float | None = None
+
+
 class StationLiveStatus(BaseModel):
     code: str
     name: str

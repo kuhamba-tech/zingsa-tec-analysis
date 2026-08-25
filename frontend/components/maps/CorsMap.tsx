@@ -6,6 +6,7 @@ import { buildCorsNetworkEdges, isReferenceCorsStation } from "@/lib/corsNetwork
 import type { ProposedCorsSite } from "@/lib/corsGeneticOptimizer";
 import { isValidProposedCorsSite } from "@/lib/zimbabweBoundary";
 import { icaoTecColor, icaoTecDistanceLabel, icaoTecLabel } from "@/lib/icaoTecAdvisory";
+import { fetchGlobalTecForecastObjectUrl } from "@/lib/api";
 import { vtecToRgba } from "@/lib/tecHeatmapColors";
 import type { MapLayer } from "./CorsMapWithLayers";
 import SiteDetailsPanel from "./SiteDetailsPanel";
@@ -42,8 +43,8 @@ const LABEL_URL =
   "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}";
 const TRANSPORT_URL =
   "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}";
-const GLOBAL_TEC_IMAGE_URL =
-  "https://data.impc.dlr.de/tec-forecast/DLR_GNSS_GCG_L4_VTEC-FC-1H-NTCM-SCM_FC_GLOBAL/latest/DLR_GNSS_GCG_L4_VTEC-FC-1H-NTCM-SCM_FC_GLOBAL_latest_I.png";
+/** DLR rewrites the same "latest" path; refresh via our no-store API proxy. */
+const GLOBAL_TEC_REFRESH_MS = 2 * 60 * 1000;
 
 function baseTileUrl(layer: MapLayer): string {
   return layer === "Street" ? STREET_URL : SATELLITE_URL;
@@ -211,6 +212,7 @@ export default function CorsMap({
   /** Tracks layer used for the last view animation — ignore heatmap-only updates. */
   const viewLayerRef = useRef<MapLayer | null>(null);
   const [selected, setSelected] = useState<Station | null>(null);
+  const [globalTecSrc, setGlobalTecSrc] = useState<string | null>(null);
   const scienceMeta = scienceLayerMeta(layer);
   const setSelectedRef = useRef(setSelected);
   setSelectedRef.current = setSelected;
@@ -220,6 +222,46 @@ export default function CorsMap({
   proposedSitesRef.current = proposedCorsSites;
   highlightCodeRef.current = highlightCode;
   onStationSelectRef.current = onStationSelect;
+
+  useEffect(() => {
+    if (layer !== "Global TEC") {
+      setGlobalTecSrc((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return null;
+      });
+      return;
+    }
+    let cancelled = false;
+    let objectUrl: string | null = null;
+
+    const load = async () => {
+      try {
+        const next = await fetchGlobalTecForecastObjectUrl();
+        if (cancelled) {
+          URL.revokeObjectURL(next);
+          return;
+        }
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
+        objectUrl = next;
+        setGlobalTecSrc(next);
+      } catch {
+        // Keep the last good frame if a refresh fails (cold start / DLR blip).
+      }
+    };
+
+    void load();
+    const id = window.setInterval(() => void load(), GLOBAL_TEC_REFRESH_MS);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void load();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [layer]);
 
   const buildFeatures = (list: Station[]) => {
     const helpers = olHelpersRef.current;
@@ -973,12 +1015,17 @@ export default function CorsMap({
             overflow: "hidden",
           }}
         >
-          {/* DLR publishes this as a composed map product, so render it intact instead of georectifying a crop. */}
-          <img
-            src={GLOBAL_TEC_IMAGE_URL}
-            alt="DLR IMPC one-hour forecast total electron content global map"
-            style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
-          />
+          {/* DLR map product, proxied through /tec/global-forecast-image (no-store) so Vercel stays current. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          {globalTecSrc ? (
+            <img
+              src={globalTecSrc}
+              alt="DLR IMPC one-hour forecast total electron content global map"
+              style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
+            />
+          ) : (
+            <div style={{ color: "#334", fontSize: 14 }}>Loading Global TEC forecast…</div>
+          )}
         </div>
       </div>
       {selected && (

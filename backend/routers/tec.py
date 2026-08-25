@@ -5,7 +5,8 @@ from functools import lru_cache
 
 import numpy as np
 import pandas as pd
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
 
 from backend.deps import require_api_key
 from backend.schemas import (
@@ -39,6 +40,14 @@ from backend.schemas import (
 )
 
 router = APIRouter(prefix="/tec", tags=["tec"])
+
+# DLR IMPC rewrites this fixed path in place; browsers/CDNs often keep a
+# multi-hour stale copy when the dashboard loads the URL directly.
+DLR_GLOBAL_TEC_FORECAST_PNG = (
+    "https://data.impc.dlr.de/tec-forecast/"
+    "DLR_GNSS_GCG_L4_VTEC-FC-1H-NTCM-SCM_FC_GLOBAL/latest/"
+    "DLR_GNSS_GCG_L4_VTEC-FC-1H-NTCM-SCM_FC_GLOBAL_latest_I.png"
+)
 
 
 @lru_cache(maxsize=1)
@@ -407,6 +416,39 @@ async def solar_cycle(
 
     rows = compute_solar_cycle(_archive(), station)
     return [SolarCycleRow(**row) for row in rows]
+
+
+@router.get("/global-forecast-image")
+def global_forecast_image(_=Depends(require_api_key)):
+    """Proxy DLR's latest 1h global TEC forecast PNG with Cache-Control: no-store.
+
+    Used by the National Dashboard Global TEC layer so Vercel clients do not
+    keep a stale browser/CDN copy of DLR's fixed 'latest' URL.
+    """
+    import requests
+
+    try:
+        upstream = requests.get(
+            DLR_GLOBAL_TEC_FORECAST_PNG,
+            timeout=45,
+            headers={"Cache-Control": "no-cache", "Pragma": "no-cache"},
+        )
+        upstream.raise_for_status()
+    except requests.RequestException as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"DLR TEC forecast unavailable: {exc}",
+        ) from exc
+
+    headers = {
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+        "Expires": "0",
+    }
+    last_modified = upstream.headers.get("Last-Modified")
+    if last_modified:
+        headers["X-DLR-Last-Modified"] = last_modified
+    return Response(content=upstream.content, media_type="image/png", headers=headers)
 
 
 @router.get("/heatmap", response_model=TecHeatmapResponse)

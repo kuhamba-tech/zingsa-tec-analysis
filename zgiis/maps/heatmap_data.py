@@ -526,6 +526,74 @@ def _recent_pipeline_rows(hours: float = 0.5) -> list[dict[str, Any]]:
     return _station_rows_from_observation_frame(df, source="live")
 
 
+def _robust_station_vtec(series) -> float | None:
+    """Median VTEC for one station, with within-station spike clipping.
+
+    Code TEC without full DCB can throw large PRN outliers; mean() was
+    pulling Neon station cards to ~100 TECU while peer sites stayed ~20.
+    """
+    vals = pd.to_numeric(series, errors="coerce").dropna()
+    vals = vals[(vals > 0) & (vals < 200)]
+    if vals.empty:
+        return None
+    med = float(vals.median())
+    mad = float((vals - med).abs().median())
+    if mad > 0:
+        # ~3σ on a MAD scale, with a 12 TECU floor so quiet days still clip spikes.
+        limit = max(3.0 * mad / 0.6745, 12.0)
+        clipped = vals[(vals - med).abs() <= limit]
+        if not clipped.empty:
+            vals = clipped
+    return float(vals.median())
+
+
+def _consensus_filter_control_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Drop spatially inconsistent live control points before IDW / Matamba fill.
+
+    Vercel Neon currently mixes good absolute code TEC (~16–25 TECU) with a few
+    stations stuck near 90–120 TECU. Filling every CORS site from that set made
+    production look nothing like the local NTRIP-decoded map.
+    """
+    measured = [
+        row
+        for row in rows
+        if int(row.get("obs_count") or 0) > 0 and float(row.get("vtec") or 0) > 0
+    ]
+    if len(measured) < 2:
+        return list(rows)
+
+    vals = np.array([float(row["vtec"]) for row in measured], dtype=float)
+    order = np.argsort(vals)
+    # Positive spikes dominate African CORS code-TEC failures; anchor on the
+    # lower half of the network so a few bad mounts cannot set the reference.
+    k = max(1, int(np.ceil(len(vals) / 2.0)))
+    low = vals[order[:k]]
+    ref = float(np.median(low))
+    sigma = float(np.std(low)) if len(low) > 1 else 8.0
+    sigma = max(sigma, 8.0)
+    lo = max(0.0, ref - 3.5 * sigma)
+    hi = ref + 3.5 * sigma
+    kept = [row for row in measured if lo <= float(row["vtec"]) <= hi]
+    return kept if kept else measured
+
+
+def station_vtec_by_code_from_frame(df) -> dict[str, float]:
+    """Shared Neon/local aggregation used by heat-map + CORS station cards."""
+    df = _absolute_vtec_observation_frame(df)
+    if df is None or not hasattr(df, "empty") or df.empty:
+        return {}
+    if "station" not in df.columns or "vtec_tecu" not in df.columns:
+        return {}
+    out: dict[str, float] = {}
+    for code_raw, series in df.groupby("station")["vtec_tecu"]:
+        code = str(code_raw).lower().rstrip("_")
+        vtec = _robust_station_vtec(series)
+        if vtec is None:
+            continue
+        out[code] = round(vtec, 2)
+    return out
+
+
 def _absolute_vtec_observation_frame(df):
     """Prefer dual-frequency CODE TEC so heat-map values are absolute (Global-TEC comparable).
 
@@ -577,14 +645,14 @@ def _station_rows_from_observation_frame(df, *, source: str) -> list[dict[str, A
         station = _STATION_LOOKUP.get(code)
         if station is None:
             continue
-        mean_vtec = float(series.mean())
-        if not np.isfinite(mean_vtec) or mean_vtec <= 0:
+        mean_vtec = _robust_station_vtec(series)
+        if mean_vtec is None:
             continue
         rows.append(
             _row_from_station(
                 station,
                 vtec=mean_vtec,
-                obs_count=int(series.count()),
+                obs_count=int(pd.to_numeric(series, errors="coerce").dropna().count()),
                 source=source,
             )
         )
@@ -1039,12 +1107,18 @@ def build_tec_heatmap(*, hours: float = 2.0, refresh_ntrip: bool = False) -> dic
     )
     if not live_rows or refresh_ntrip:
         live_rows = _merge_station_rows(live_rows, _live_ntrip_heatmap_rows(refresh=refresh_ntrip or not live_rows))
+    live_rows = _consensus_filter_control_rows(live_rows) if live_rows else []
     previous_rows = _temporal_reference_pipeline_rows() if live_rows else []
+    if previous_rows:
+        previous_rows = _consensus_filter_control_rows(previous_rows)
+    # Fill every CORS marker from cleaned measured controls (same ~16–30 TECU
+    # band local NTRIP decode shows). Spiked Neon mounts are dropped first.
     stations = _live_surface_station_rows(live_rows) if live_rows else []
     if not stations:
         cors_rows = _cors_current_tec_rows()
         # Ignore zero/placeholder current_tec — only real live values.
         cors_rows = [row for row in cors_rows if float(row.get("vtec") or 0) > 0]
+        cors_rows = _consensus_filter_control_rows(cors_rows) if cors_rows else []
         stations = _live_surface_station_rows(cors_rows) if cors_rows else []
     # Hard guard: never emit RINEX/CMN archive rows on the live map product.
     stations = [

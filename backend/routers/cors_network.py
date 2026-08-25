@@ -268,12 +268,27 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
                 and "station" in df.columns
                 and "vtec_tecu" in df.columns
             ):
-                grouped = df.groupby("station")["vtec_tecu"]
-                for code_raw, series in grouped:
-                    code = str(code_raw).lower().rstrip("_")
-                    mean_vtec = float(series.mean())
-                    if not math.isfinite(mean_vtec) or mean_vtec <= 0:
-                        continue
+                try:
+                    from zgiis.maps.heatmap_data import (
+                        _consensus_filter_control_rows,
+                        station_vtec_by_code_from_frame,
+                    )
+
+                    vtec_by_station = station_vtec_by_code_from_frame(df)
+                    if len(vtec_by_station) >= 2:
+                        filtered = _consensus_filter_control_rows(
+                            [
+                                {"code": code, "vtec": vtec, "obs_count": 1}
+                                for code, vtec in vtec_by_station.items()
+                            ]
+                        )
+                        vtec_by_station = {
+                            str(row["code"]).lower().rstrip("_"): float(row["vtec"])
+                            for row in filtered
+                        }
+                except Exception:
+                    vtec_by_station = {}
+                for code, mean_vtec in vtec_by_station.items():
                     stations = [
                         replace(s, current_tec=round(mean_vtec, 2))
                         if s.code.lower().rstrip("_") == code
@@ -297,12 +312,31 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
     )
     vtec_by_station: dict[str, float] = {}
     if has_recent_vtec:
-        grouped = df.groupby("station")["vtec_tecu"]
-        for code_raw, series in grouped:
-            code = str(code_raw).lower().rstrip("_")
-            mean_vtec = float(series.mean())
-            if math.isfinite(mean_vtec) and mean_vtec > 0:
-                vtec_by_station[code] = mean_vtec
+        try:
+            from zgiis.maps.heatmap_data import (
+                _consensus_filter_control_rows,
+                station_vtec_by_code_from_frame,
+            )
+
+            vtec_by_station = station_vtec_by_code_from_frame(df)
+            if len(vtec_by_station) >= 2:
+                filtered = _consensus_filter_control_rows(
+                    [
+                        {"code": code, "vtec": vtec, "obs_count": 1}
+                        for code, vtec in vtec_by_station.items()
+                    ]
+                )
+                vtec_by_station = {
+                    str(row["code"]).lower().rstrip("_"): float(row["vtec"])
+                    for row in filtered
+                }
+        except Exception:
+            grouped = df.groupby("station")["vtec_tecu"]
+            for code_raw, series in grouped:
+                code = str(code_raw).lower().rstrip("_")
+                mean_vtec = float(series.mean())
+                if math.isfinite(mean_vtec) and mean_vtec > 0:
+                    vtec_by_station[code] = mean_vtec
 
     try:
         from backend.live_manager import latest_vtec_by_station

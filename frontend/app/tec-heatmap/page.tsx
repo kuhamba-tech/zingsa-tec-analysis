@@ -9,6 +9,7 @@ import { mergeTecHeatmapWithStations } from "@/lib/tecHeatmapMerge";
 import type { Station, TecHeatmapResponse } from "@/lib/types";
 import type { MapLayer } from "@/components/maps/CorsMapWithLayers";
 import TecHeatMapLegend from "@/components/maps/TecHeatMapLegend";
+import StationVtecTimePlots from "@/components/charts/StationVtecTimePlots";
 
 const CorsMap = dynamic(() => import("@/components/maps/CorsMap"), { ssr: false });
 
@@ -154,6 +155,8 @@ export default function TecHeatmapPage() {
       </div>
 
       <TecHeatMapLegend className="tec-heatmap-legend-below" maxVtec={maxVtec} />
+
+      <StationVtecTimePlots />
 
       {diagnostics && (
         <section className="tec-map-diagnostics" aria-label="TEC interpolation diagnostics">

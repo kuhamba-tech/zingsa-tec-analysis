@@ -29,6 +29,7 @@ import type {
   IntermagnetAnalysisResponse,
   LiveObservation,
   LivePipelineStatus,
+  LiveStationVtecSeries,
   NavigationNewsBriefApi,
   NavigationNewsBundleApi,
   NavigationNewsScheduleApi,
@@ -778,6 +779,22 @@ export const getTecHeatmap = async (hours = 6, refreshNtrip = false) => {
   );
   return rejectArchiveHeatmap(payload);
 };
+
+/** Object URL for DLR's latest 1h global TEC forecast (proxied, no-store). Caller must revoke. */
+export async function fetchGlobalTecForecastObjectUrl(): Promise<string> {
+  const url = new URL(apiUrl("/tec/global-forecast-image"));
+  url.searchParams.set("t", String(Date.now()));
+  const res = await fetchWithTimeout(url.toString(), {
+    cache: "no-store",
+    headers: KEY ? { "X-API-Key": KEY } : {},
+  }, Math.max(FETCH_TIMEOUT_MS, 55_000));
+  if (!res.ok) {
+    throw new Error(`Global TEC forecast failed (${res.status})`);
+  }
+  const blob = await res.blob();
+  return URL.createObjectURL(blob);
+}
+
 export const getDiurnal = (station?: string) => get<DiurnalPoint[]>("/tec/diurnal", { station });
 export const getSeasonal = (station?: string) => get<SeasonalRow[]>("/tec/seasonal", { station });
 export const getSolarCycle = (station?: string) => get<SolarCycleRow[]>("/tec/solar-cycle", { station });
@@ -826,7 +843,14 @@ export const getPrnConstellations = () =>
   get<PrnConstellationPayload>("/theory/prn-constellations");
 
 // ── Live ──────────────────────────────────────────────────────────────────────
-export const getLiveVtec = (hours = 2) => get<LiveObservation[]>("/live/vtec", { hours });
+export const getLiveVtec = (hours = 2, station?: string) =>
+  get<LiveObservation[]>("/live/vtec", { hours, station });
+export const getLiveVtecByStation = (hours = 6, resampleMinutes = 2) =>
+  get<LiveStationVtecSeries[]>(
+    "/live/vtec-by-station",
+    { hours, resample_minutes: resampleMinutes, _ts: Date.now() },
+    Math.max(FETCH_TIMEOUT_MS, 55_000),
+  );
 export const getLiveStations = () => get<StationLiveStatus[]>("/live/stations");
 export const getLivePipelineStatus = () => get<LivePipelineStatus>("/live/pipeline-status");
 export const getNtripStatus = (refresh = false, listen_sec = 4) =>

@@ -1005,6 +1005,20 @@ export interface LiveObservation {
   prn: string | null;
 }
 
+export interface LiveStationVtecPoint {
+  time: string;
+  vtec_tecu: number;
+  obs_count: number;
+}
+
+export interface LiveStationVtecSeries {
+  station: string;
+  name: string;
+  points: LiveStationVtecPoint[];
+  latest_vtec: number | null;
+  mean_vtec: number | null;
+}
+
 export interface StationLiveStatus {
   code: string;
   name: string;

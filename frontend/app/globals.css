@@ -1486,6 +1486,119 @@ select option {
 .home-cors-map-section {
   scroll-margin-top: 1rem;
 }
+
+.home-station-vtec-plots {
+  margin-top: 0.85rem;
+}
+
+.station-vtec-plots {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin: 0.5rem 0 1rem;
+}
+.station-vtec-plots-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem 1.25rem;
+}
+.station-vtec-plots-sub {
+  margin: 0.35rem 0 0;
+  max-width: 52rem;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+.station-vtec-plots-controls {
+  display: flex;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+.station-vtec-plots-controls button {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  border-radius: 6px;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.station-vtec-plots-controls button.active {
+  background: rgba(61, 139, 253, 0.18);
+  border-color: #3d8bfd;
+  color: #9ec5ff;
+}
+.station-vtec-plots-meta {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+.station-vtec-plots-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 0.75rem;
+}
+.station-vtec-plot-card {
+  padding: 0.7rem 0.75rem 0.45rem;
+  min-height: 230px;
+}
+.station-vtec-plot-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+.station-vtec-plot-head strong {
+  display: block;
+  font-size: 0.92rem;
+  letter-spacing: 0.04em;
+}
+.station-vtec-plot-head span {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+.station-vtec-plot-stats {
+  text-align: right;
+}
+.station-vtec-plot-stats em {
+  display: block;
+  font-style: normal;
+  font-weight: 800;
+  color: #7eb6ff;
+  font-size: 0.9rem;
+}
+.station-vtec-plot-stats small {
+  color: var(--text-muted);
+  font-size: 0.68rem;
+}
+.station-vtec-plot-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 160px;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  text-align: center;
+  padding: 0.5rem;
+}
+.site-details-vtec-chart {
+  margin: 0.65rem 0 0.35rem;
+  padding-top: 0.45rem;
+  border-top: 1px solid rgba(36, 77, 115, 0.35);
+}
+.site-details-vtec-chart-title {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #ffffff;
+  margin-bottom: 0.35rem;
+}
 .home-top-intro {
   margin-bottom: 0;
   max-width: 56rem;

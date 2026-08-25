@@ -3,10 +3,18 @@ from __future__ import annotations
 import asyncio
 import json
 
+import pandas as pd
 from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
 
 from backend.deps import require_api_key
-from backend.schemas import LiveObservation, LivePipelineStatus, NtripProbeResponse, StationLiveStatus
+from backend.schemas import (
+    LiveObservation,
+    LivePipelineStatus,
+    LiveStationVtecPoint,
+    LiveStationVtecSeries,
+    NtripProbeResponse,
+    StationLiveStatus,
+)
 
 router = APIRouter(prefix="/live", tags=["live"])
 
@@ -54,6 +62,93 @@ async def live_vtec(
         return result
     except Exception:
         return []
+
+
+@router.get("/vtec-by-station", response_model=list[LiveStationVtecSeries])
+async def live_vtec_by_station(
+    hours: float = Query(6.0, ge=0.5, le=48),
+    resample_minutes: int = Query(2, ge=1, le=30),
+    _=Depends(require_api_key),
+):
+    """Binned mean/median live VTEC vs time for every Zimbabwe CORS station.
+
+    Used by the National Dashboard / TEC heat-map pages so operators can verify
+    station VTEC against the map snapshot. Prefers absolute code TEC when present.
+    """
+    from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
+    from zgiis.maps.heatmap_data import _absolute_vtec_observation_frame
+
+    catalog = {
+        s.code.lower().rstrip("_"): s
+        for s in ZIMBABWE_CORS_STATIONS
+    }
+    empty = [
+        LiveStationVtecSeries(station=code, name=station.name, points=[])
+        for code, station in sorted(catalog.items(), key=lambda item: item[0])
+    ]
+
+    db = _db()
+    if db is None:
+        return empty
+    try:
+        df = db.query_recent(hours=hours)
+        if df is None or getattr(df, "empty", True):
+            return empty
+        df = _absolute_vtec_observation_frame(df)
+        if df is None or getattr(df, "empty", True):
+            return empty
+        if "station" not in df.columns or "vtec_tecu" not in df.columns or "time" not in df.columns:
+            return empty
+
+        work = df.copy()
+        work["station"] = work["station"].astype(str).str.lower().str.rstrip("_")
+        work["time"] = pd.to_datetime(work["time"], utc=True, errors="coerce")
+        work["vtec_tecu"] = pd.to_numeric(work["vtec_tecu"], errors="coerce")
+        work = work.dropna(subset=["time", "vtec_tecu"])
+        work = work[(work["vtec_tecu"] > 0) & (work["vtec_tecu"] < 200)]
+        if work.empty:
+            return empty
+
+        rule = f"{int(resample_minutes)}min"
+        series_by_code: dict[str, LiveStationVtecSeries] = {
+            code: LiveStationVtecSeries(station=code, name=station.name, points=[])
+            for code, station in catalog.items()
+        }
+
+        for code, group in work.groupby("station"):
+            key = str(code).lower().rstrip("_")
+            if key not in series_by_code:
+                continue
+            # Median per bin is less sensitive to PRN/code-TEC spikes than mean.
+            binned = (
+                group.set_index("time")["vtec_tecu"]
+                .resample(rule)
+                .agg(["median", "count"])
+                .dropna(subset=["median"])
+            )
+            if binned.empty:
+                continue
+            points = [
+                LiveStationVtecPoint(
+                    time=idx.isoformat().replace("+00:00", "Z"),
+                    vtec_tecu=round(float(row["median"]), 2),
+                    obs_count=int(row["count"]),
+                )
+                for idx, row in binned.iterrows()
+                if float(row["median"]) > 0
+            ]
+            values = [p.vtec_tecu for p in points]
+            series_by_code[key] = LiveStationVtecSeries(
+                station=key,
+                name=series_by_code[key].name,
+                points=points,
+                latest_vtec=values[-1] if values else None,
+                mean_vtec=round(sum(values) / len(values), 2) if values else None,
+            )
+
+        return [series_by_code[code] for code in sorted(series_by_code)]
+    except Exception:
+        return empty
 
 
 @router.get("/stations", response_model=list[StationLiveStatus])

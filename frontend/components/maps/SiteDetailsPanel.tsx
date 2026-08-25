@@ -1,10 +1,11 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import { getStationUptimeAnalysis } from "@/lib/api";
-import type { Station, StationUptimeAnalysis, TecHeatmapResponse } from "@/lib/types";
+import { getLiveVtec, getStationUptimeAnalysis } from "@/lib/api";
+import type { LiveObservation, Station, StationUptimeAnalysis, TecHeatmapResponse } from "@/lib/types";
 import { siteStatusColor, stationDetailRows } from "@/lib/stationDetails";
 import { getLiveStationStatus } from "@/lib/liveStationStatus";
 import { icaoTecColor, icaoTecDistanceLabel, icaoTecLabel } from "@/lib/icaoTecAdvisory";
+import LineChart from "@/components/charts/LineChart";
 
 interface Props {
   station: Station;
@@ -64,10 +65,47 @@ function formatDuration(minutes: number): string {
   return [days ? `${days}d` : "", hours ? `${hours}h` : "", `${mins}m`].filter(Boolean).join(" ");
 }
 
+function binLiveVtec(rows: LiveObservation[], minutes = 2): { labels: string[]; values: number[] } {
+  const buckets = new Map<number, number[]>();
+  const stepMs = minutes * 60_000;
+  for (const row of rows) {
+    const v = row.vtec_tecu;
+    if (v == null || !Number.isFinite(v) || v <= 0 || v >= 200) continue;
+    const t = Date.parse(row.time);
+    if (!Number.isFinite(t)) continue;
+    const key = Math.floor(t / stepMs) * stepMs;
+    const list = buckets.get(key) ?? [];
+    list.push(v);
+    buckets.set(key, list);
+  }
+  const keys = [...buckets.keys()].sort((a, b) => a - b);
+  const labels: string[] = [];
+  const values: number[] = [];
+  for (const key of keys) {
+    const list = buckets.get(key) ?? [];
+    if (!list.length) continue;
+    const sorted = [...list].sort((a, b) => a - b);
+    const mid = sorted[Math.floor(sorted.length / 2)] ?? sorted[0];
+    labels.push(
+      new Date(key).toLocaleTimeString("en-GB", {
+        timeZone: "UTC",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      }),
+    );
+    values.push(Math.round(mid * 100) / 100);
+  }
+  return { labels, values };
+}
+
 export default function SiteDetailsPanel({ station, heatmap = null, onClose }: Props) {
   const [uptime, setUptime] = useState<StationUptimeAnalysis | null>(null);
   const [uptimeLoading, setUptimeLoading] = useState(true);
   const [uptimeError, setUptimeError] = useState<string | null>(null);
+  const [vtecLabels, setVtecLabels] = useState<string[]>([]);
+  const [vtecValues, setVtecValues] = useState<number[]>([]);
+  const [vtecLoading, setVtecLoading] = useState(true);
   const rows = stationDetailRows(station);
   const vtec = heatmapVtec(station, heatmap);
   const heatmapStation = heatmapStationFor(station, heatmap);
@@ -160,11 +198,37 @@ export default function SiteDetailsPanel({ station, heatmap = null, onClose }: P
     };
   }, [station.code, station.status, station.last_update]);
 
+  useEffect(() => {
+    let cancelled = false;
+    setVtecLoading(true);
+    setVtecLabels([]);
+    setVtecValues([]);
+    getLiveVtec(6, stationKey(station.code))
+      .then((rows) => {
+        if (cancelled) return;
+        const binned = binLiveVtec(rows, 2);
+        setVtecLabels(binned.labels);
+        setVtecValues(binned.values);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setVtecLabels([]);
+          setVtecValues([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setVtecLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [station.code]);
+
   return (
     <aside
       className="site-details-panel"
       style={{
-        width: "min(280px, 38%)",
+        width: "min(320px, 42%)",
         flexShrink: 0,
         background: "linear-gradient(180deg, #0c1628 0%, #0a1018 100%)",
         borderLeft: "1px solid #244d73",
@@ -271,6 +335,23 @@ export default function SiteDetailsPanel({ station, heatmap = null, onClose }: P
             )}
           </tbody>
         </table>
+
+        <div className="site-details-vtec-chart">
+          <div className="site-details-vtec-chart-title">Live VTEC · last 6 h</div>
+          {vtecLoading ? (
+            <div style={{ color: "#94a3b8", fontSize: "0.75rem" }}>Loading VTEC series…</div>
+          ) : vtecValues.length > 0 ? (
+            <LineChart
+              labels={vtecLabels}
+              datasets={[{ label: "Observed", data: vtecValues, color: "#3d8bfd", fill: true }]}
+              yLabel="TECU"
+              height={140}
+              compact
+            />
+          ) : (
+            <div style={{ color: "#94a3b8", fontSize: "0.75rem" }}>No live pipeline VTEC for this station.</div>
+          )}
+        </div>
 
         <section
           aria-label="Station downtime history"
