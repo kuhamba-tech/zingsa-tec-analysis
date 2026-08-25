@@ -132,8 +132,18 @@ async def statistical_forecast(
     except Exception:
         raise HTTPException(status_code=503, detail="No historical data available")
 
-    df["date"] = pd.to_datetime(df.get("date", df.get("timestamp")))
-    daily = df.groupby("date")["vtec"].mean().reset_index().sort_values("date").dropna()
+    if df is None or df.empty:
+        raise HTTPException(status_code=503, detail="No historical data available")
+
+    date_col = "date" if "date" in df.columns else "timestamp" if "timestamp" in df.columns else None
+    value_col = "vtec" if "vtec" in df.columns else "mean_vtec" if "mean_vtec" in df.columns else None
+    if date_col is None or value_col is None:
+        raise HTTPException(status_code=503, detail="Historical TEC archive has an unsupported schema")
+
+    work = df[[date_col, value_col]].copy()
+    work["date"] = pd.to_datetime(work[date_col], errors="coerce").dt.normalize()
+    work["vtec"] = pd.to_numeric(work[value_col], errors="coerce")
+    daily = work.groupby("date")["vtec"].mean().reset_index().sort_values("date").dropna()
     if len(daily) < 30:
         raise HTTPException(status_code=422, detail="Insufficient history (need ≥30 days)")
 

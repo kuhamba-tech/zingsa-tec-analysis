@@ -43,8 +43,9 @@ export default function SpaceWeatherReportsPanel({
     try {
       const data = await getSpaceWeatherReport(p);
       setReport(data);
-    } catch {
-      setError("Could not load report — check that the backend is running and the archive has samples.");
+    } catch (loadError) {
+      const detail = loadError instanceof Error ? loadError.message : "Unknown report error";
+      setError(`Could not load report — ${detail}`);
       setReport(null);
     } finally {
       setBusy(false);

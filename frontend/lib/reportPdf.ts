@@ -214,7 +214,7 @@ export async function downloadUptimeReportPdf(analysis: StationUptimeAnalysis, s
       doc,
       y,
       [["Station", "Started (UTC)", "Ended (UTC)", "Duration (min)", "Ongoing"]],
-      outages.slice(0, 40).map((o) => [
+      outages.map((o) => [
         o.station_code.toUpperCase(),
         fmtUtc(o.started_at),
         o.ended_at ? fmtUtc(o.ended_at) : "—",

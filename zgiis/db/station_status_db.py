@@ -542,7 +542,15 @@ class StationStatusDB:
                 }
             )
 
-        intervals.sort(key=lambda r: r["started_at"], reverse=True)
+        # Ongoing / longest outages first so every still-down site (0% uptime)
+        # surfaces ahead of short recovered flaps that would otherwise crowd the list.
+        intervals.sort(
+            key=lambda r: (
+                0 if r.get("ongoing") else 1,
+                -float(r.get("duration_min") or 0.0),
+                str(r.get("started_at") or ""),
+            )
+        )
         return intervals[: max(1, int(limit))]
 
     @staticmethod
@@ -624,7 +632,9 @@ class StationStatusDB:
             )
             outage_events = int(outage_mask.sum())
 
-        outages = self.outage_intervals(hours=hours, station_code=code, limit=50)
+        # Cap high enough to include every CORS site's outages in network view
+        # (short recovered flaps + ongoing downtime for all registered stations).
+        outages = self.outage_intervals(hours=hours, station_code=code, limit=500)
 
         network_with = [r for r in stations if int(r["samples"]) > 0]
         network_online_pct = (

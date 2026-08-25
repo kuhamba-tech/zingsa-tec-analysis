@@ -688,10 +688,6 @@ export default function TimeSeriesPage() {
           {meta.first_date && ` | available year(s): ${metaAvailYears}`}.
         </div>
       )}
-      {meta && !meta.available && (
-        <div className="banner banner-warn">TEC archive not found. Upload files via Processing to generate data.</div>
-      )}
-
       {/* Coverage note */}
       {meta?.available && meta.first_date && meta.last_date && (
         <div style={{ fontSize: "0.82rem", fontWeight: 600 }}>

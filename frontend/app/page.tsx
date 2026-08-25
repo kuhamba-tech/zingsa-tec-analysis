@@ -223,65 +223,77 @@ export default function HomePage() {
         setNtripRefreshing(!cached && peekStations().length === 0);
       }
 
-      // Critical path: metrics + map markers (parallel, deduped in api.ts).
-      const [swResult, stationsResult] = await Promise.allSettled([
-        getSpaceWeather(),
-        getStations(false),
-      ]);
+      // Paint space-weather metrics as soon as they arrive — do not wait on Spider/stations.
+      const swPromise = getSpaceWeather()
+        .then((value) => {
+          if (cancelled) return value;
+          setLiveSw(value);
+          setDisplaySw(value);
+          setSwStatus("ok");
+          setLoadError(null);
+          return value;
+        })
+        .catch(() => {
+          if (cancelled) return cached;
+          if (cached) {
+            setSwStatus("stale");
+            return cached;
+          }
+          if (!background) {
+            setSwStatus("down");
+            setLoadError(
+              "Live API is not connected. Start the FastAPI backend on port 8000, then refresh.",
+            );
+          } else {
+            setSwStatus("stale");
+          }
+          return null;
+        });
 
-      if (cancelled) return;
+      const stationsPromise = getStations(false)
+        .then((rows) => {
+          if (cancelled) return rows;
+          if (rows.length > 0) applyStations(rows);
+          return rows;
+        })
+        .catch(() => [] as Station[])
+        .finally(() => {
+          if (!cancelled) {
+            setStationsLoading(false);
+            setNtripRefreshing(false);
+          }
+        });
 
-      const sw = swResult.status === "fulfilled" ? swResult.value : cached;
-      if (swResult.status === "fulfilled") {
-        setLiveSw(swResult.value);
-        setDisplaySw(swResult.value);
-        setSwStatus("ok");
-        setLoadError(null);
-      } else if (cached) {
-        setSwStatus("stale");
-      } else if (!background) {
-        setSwStatus("down");
-        setLoadError(
-          "Live API is not connected. Start the FastAPI backend on port 8000, then refresh.",
+      // Secondary widgets after SW resolves (stations may still be in flight).
+      void swPromise.then((sw) => {
+        if (cancelled) return;
+        void Promise.allSettled([getEkfStatus(), getLivePipelineStatus()]).then(
+          ([ekfResult, pipelineResult]) => {
+            if (cancelled) return;
+            const ekfData = ekfResult.status === "fulfilled" ? ekfResult.value : null;
+            const merged = mergeSpaceWeatherWithEkf(sw, ekfData);
+            if (merged) {
+              setDisplaySw(merged.data);
+              setEkfFilled(merged.ekfFilled);
+            }
+            if (pipelineResult.status === "fulfilled") {
+              setPipelineNote(pipelineResult.value.message ?? null);
+            }
+          },
         );
-      } else {
-        setSwStatus("stale");
-      }
+        void getTecHeatmap(6)
+          .then((heatmap) => {
+            if (!cancelled && heatmap) setTecHeatmap(heatmap);
+          })
+          .catch(() => null);
+        void getSpaceWeatherHistory(24, "1h")
+          .then((history) => {
+            if (!cancelled && history?.rows?.length) setSwHistoryRows(history.rows);
+          })
+          .catch(() => null);
+      });
 
-      if (stationsResult.status === "fulfilled" && stationsResult.value.length > 0) {
-        applyStations(stationsResult.value);
-      }
-
-      if (!cancelled) {
-        setStationsLoading(false);
-        setNtripRefreshing(false);
-      }
-
-      // Secondary widgets — never block first paint.
-      void Promise.allSettled([getEkfStatus(), getLivePipelineStatus()]).then(
-        ([ekfResult, pipelineResult]) => {
-          if (cancelled) return;
-          const ekfData = ekfResult.status === "fulfilled" ? ekfResult.value : null;
-          const merged = mergeSpaceWeatherWithEkf(sw, ekfData);
-          if (merged) {
-            setDisplaySw(merged.data);
-            setEkfFilled(merged.ekfFilled);
-          }
-          if (pipelineResult.status === "fulfilled") {
-            setPipelineNote(pipelineResult.value.message ?? null);
-          }
-        },
-      );
-      void getTecHeatmap(6)
-        .then((heatmap) => {
-          if (!cancelled && heatmap) setTecHeatmap(heatmap);
-        })
-        .catch(() => null);
-      void getSpaceWeatherHistory(24, "1h")
-        .then((history) => {
-          if (!cancelled && history?.rows?.length) setSwHistoryRows(history.rows);
-        })
-        .catch(() => null);
+      await Promise.allSettled([swPromise, stationsPromise]);
     }
 
     load(false);

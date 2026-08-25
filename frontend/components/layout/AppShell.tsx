@@ -151,6 +151,14 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("hashchange", sync);
   }, [pathname]);
 
+  // Warm the live space-weather cache as soon as the shell mounts so page
+  // metrics can paint without waiting on slower station/Spider calls.
+  useEffect(() => {
+    void import("@/lib/api").then(({ getSpaceWeather }) => {
+      void getSpaceWeather().catch(() => null);
+    });
+  }, []);
+
   const closeMobile = () => setMobileOpen(false);
 
   return (

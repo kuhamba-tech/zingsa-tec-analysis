@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import {
   getSpaceWeather,
   getTimelines,
@@ -20,17 +21,13 @@ import ClickableMetricGrid from "@/components/spaceWeather/ClickableMetricGrid";
 import IndexScaleReference from "@/components/spaceWeather/IndexScaleReference";
 import StormWatchLog from "@/components/spaceWeather/StormWatchLog";
 import { DashboardHeaderClocks } from "@/components/dashboard/DashboardClocks";
-import GicLiveTimelinePanel, { type GicTimelineBundle } from "@/components/dashboard/GicLiveTimelinePanel";
-import SpaceWeatherReportsPanel from "@/components/dashboard/SpaceWeatherReportsPanel";
+import type { GicTimelineBundle } from "@/components/dashboard/GicLiveTimelinePanel";
 import StormWarningAlarm from "@/components/dashboard/StormWarningAlarm";
 import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
 import { connectedStreamCount, countSpiderLiveStationStatuses, type LiveStationCounts } from "@/lib/liveStationStatus";
 import { alignEkfToPoints } from "@/lib/ekfAlign";
 import { conditionsForSeries } from "@/lib/spaceWeatherMetrics";
-import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
-import NetworkUptimePanel from "@/components/dashboard/NetworkUptimePanel";
 import type { ChartAnalysisBlock } from "@/lib/multiSourceChartAnalysis";
-import LineChart from "@/components/charts/LineChart";
 import {
   analyzeF107Timeline,
   analyzeGnssRiskTimeline,
@@ -49,6 +46,12 @@ import type {
   SpaceWeatherLogStatus,
   StationStatusLogStatus,
 } from "@/lib/types";
+
+const LineChart = dynamic(() => import("@/components/charts/LineChart"));
+const ChartAnalysisBox = dynamic(() => import("@/components/dashboard/ChartAnalysisBox"));
+const GicLiveTimelinePanel = dynamic(() => import("@/components/dashboard/GicLiveTimelinePanel"));
+const NetworkUptimePanel = dynamic(() => import("@/components/dashboard/NetworkUptimePanel"));
+const SpaceWeatherReportsPanel = dynamic(() => import("@/components/dashboard/SpaceWeatherReportsPanel"));
 
 function timelineLabels(points: TimelinePoint[]) {
   return points.map((point) => point.t.slice(0, 16));
@@ -102,6 +105,29 @@ function liveSource(source: string, points: TimelinePoint[]) {
 }
 
 type ConditionKind = "kp" | "dst" | "tec" | "s4";
+type ApiStatus = "Connecting" | "Live" | "Offline";
+type SourceState = "pending" | "ok" | "error";
+type SourceHealth = {
+  current: SourceState;
+  timelines: SourceState;
+  stations: SourceState;
+  ekf: SourceState;
+};
+
+function operationalCondition(sw: SpaceWeatherCurrent | null): { label: string; tone: string } {
+  if (!sw) return { label: "Connecting", tone: "var(--text-muted)" };
+  const risk = (sw.gnss_risk ?? "").toLowerCase();
+  if ((sw.kp ?? 0) >= 7 || (sw.dst ?? 0) <= -100 || risk === "critical") {
+    return { label: "Critical", tone: "var(--accent-alert)" };
+  }
+  if ((sw.kp ?? 0) >= 5 || (sw.dst ?? 0) <= -50 || risk === "high") {
+    return { label: "Warning", tone: "var(--accent-warn)" };
+  }
+  if ((sw.kp ?? 0) >= 4 || risk === "moderate") {
+    return { label: "Watch", tone: "#ffd166" };
+  }
+  return { label: "Quiet", tone: "var(--accent-ok)" };
+}
 
 function TimelinePanel({
   title,
@@ -165,7 +191,14 @@ export default function DashboardPage() {
   const [tl, setTl] = useState<SpaceWeatherTimelines | null>(null);
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState("");
-  const [apiStatus, setApiStatus] = useState<"Live" | "Offline">("Live");
+  const [apiStatus, setApiStatus] = useState<ApiStatus>("Connecting");
+  const [apiError, setApiError] = useState("");
+  const [sourceHealth, setSourceHealth] = useState<SourceHealth>({
+    current: "pending",
+    timelines: "pending",
+    stations: "pending",
+    ekf: "pending",
+  });
   const [feedStatus, setFeedStatus] = useState<FeedStatus>("pending");
   const [logStatus, setLogStatus] = useState<SpaceWeatherLogStatus | null>(null);
   const [stationLog, setStationLog] = useState<StationStatusLogStatus | null>(null);
@@ -232,6 +265,11 @@ export default function DashboardPage() {
     if (ekfR.status === "fulfilled") setEkf(ekfR.value);
     if (stationsR.status === "fulfilled") setLiveStationCounts(countSpiderLiveStationStatuses(stationsR.value));
     if (gicR.status === "fulfilled" && gicR.value) setGicBundle(gicR.value);
+    setSourceHealth((previous) => ({
+      ...previous,
+      ekf: ekfR.status === "fulfilled" ? "ok" : "error",
+      stations: stationsR.status === "fulfilled" ? "ok" : "error",
+    }));
   }, [loadGicBundle]);
 
   const load = useCallback(async (opts?: { refreshEkf?: boolean }) => {
@@ -242,27 +280,38 @@ export default function DashboardPage() {
       setFeedStatus("stale");
       setLoading(false);
     }
+    setApiError("");
+    if (!cached) setApiStatus("Connecting");
     try {
       const swData = await getSpaceWeather();
       setSw(swData);
       setTl((prev) => prev ?? snapshotTimelines(swData));
       setLastUpdated(new Date().toUTCString().slice(0, 25));
       setApiStatus("Live");
+      setSourceHealth((previous) => ({ ...previous, current: "ok" }));
       setFeedStatus("ok");
       setLoading(false);
       getTimelines()
-        .then(setTl)
-        .catch(() => null);
+        .then((data) => {
+          setTl(data);
+          setSourceHealth((previous) => ({ ...previous, timelines: "ok" }));
+        })
+        .catch(() => {
+          setSourceHealth((previous) => ({ ...previous, timelines: "error" }));
+        });
       void loadSecondary();
       if (opts?.refreshEkf) {
         getEkfStatusWithRetry()
           .then(setEkf)
           .catch(() => null);
       }
-    } catch {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "The live API request failed.";
+      setApiError(message);
+      setSourceHealth((previous) => ({ ...previous, current: "error" }));
       if (cached) {
         setFeedStatus("stale");
-        setApiStatus("Live");
+        setApiStatus("Offline");
       } else {
         setApiStatus("Offline");
         setFeedStatus("down");
@@ -272,6 +321,12 @@ export default function DashboardPage() {
   }, [loadSecondary]);
 
   const freshnessMsg = useFeedFreshness("dashboard-space-weather", feedStatus);
+  const condition = operationalCondition(sw);
+  const sourceStates = Object.values(sourceHealth);
+  const sourcesOnline = sourceStates.filter((state) => state === "ok").length;
+  const sourceStatusLabel = sourceStates.some((state) => state === "pending")
+    ? `${sourcesOnline}/${sourceStates.length} connected · checking`
+    : `${sourcesOnline}/${sourceStates.length} connected`;
 
   useEffect(() => {
     load();
@@ -323,11 +378,42 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      <section className="operations-summary" aria-label="Operational status summary">
+        <div className="operations-summary-item">
+          <span>Overall condition</span>
+          <strong style={{ color: condition.tone }}>{condition.label}</strong>
+        </div>
+        <div className="operations-summary-item">
+          <span>Live API</span>
+          <strong className={`operations-status-${apiStatus.toLowerCase()}`}>{apiStatus}</strong>
+        </div>
+        <div className="operations-summary-item">
+          <span>Core data sources</span>
+          <strong>{sourceStatusLabel}</strong>
+        </div>
+        <div className="operations-summary-item">
+          <span>CORS connected</span>
+          <strong>{liveStationCounts ? connectedStreamCount(liveStationCounts) : "Checking…"}</strong>
+        </div>
+        <div className="operations-summary-item">
+          <span>Last observation</span>
+          <strong>{sw?.updated_utc ? sw.updated_utc.slice(0, 16).replace("T", " ") + " UTC" : "Checking…"}</strong>
+        </div>
+      </section>
+
       {apiStatus === "Offline" && (
         <div className="banner banner-warn" role="status">
-          Live API is not connected for this frontend deployment. Set <code>NEXT_PUBLIC_API_URL</code> to the FastAPI
-          backend, or run <code>dev.ps1</code> locally. Metrics appear as soon as <code>/space-weather/current</code> responds.
+          <div className="dashboard-error-row">
+            <span>
+              Live API unavailable{apiError ? `: ${apiError}` : "."} Cached observations may be shown.
+            </span>
+            <button className="btn" type="button" onClick={() => void load()}>Retry connection</button>
+          </div>
         </div>
+      )}
+
+      {apiStatus === "Connecting" && (
+        <div className="banner banner-info" role="status">Connecting to live space-weather feeds…</div>
       )}
 
       {apiStatus === "Live" && freshnessMsg && <div className="banner banner-warn">{freshnessMsg}</div>}
@@ -351,7 +437,12 @@ export default function DashboardPage() {
         Operational snapshot of every index — for solar flare, CME, and NOAA alert detail see{" "}
         <Link href="/space-weather">Space Weather Monitoring</Link>.
       </p>
-      <ClickableMetricGrid sw={sw} updatedUtc={sw?.updated_utc} liveStationCounts={liveStationCounts} />
+      <ClickableMetricGrid
+        sw={sw}
+        updatedUtc={sw?.updated_utc}
+        liveStationCounts={liveStationCounts}
+        loading={loading || apiStatus === "Connecting"}
+      />
 
       <IndexScaleReference />
 

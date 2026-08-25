@@ -3,6 +3,12 @@
   "installCommand": "npm install --package-lock=false && cd frontend && npm ci",
   "buildCommand": "cd frontend && npm run build",
   "outputDirectory": "frontend/.next",
+  "functions": {
+    "api/space-weather-router.py": {
+      "maxDuration": 60,
+      "memory": 1024
+    }
+  },
   "headers": [
     {
       "source": "/(.*)",

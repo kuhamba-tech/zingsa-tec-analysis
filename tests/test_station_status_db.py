@@ -214,6 +214,64 @@ class StationStatusDBTests(unittest.TestCase):
         self.assertTrue(intervals[0]["ongoing"])
         self.assertEqual(intervals[0]["started_at"], down_at)
 
+    def test_outage_intervals_list_ongoing_sites_before_short_recovered(self) -> None:
+        """Zero-uptime sites must not be crowded out by short recovered flaps."""
+        self.db.insert_event(
+            {
+                "time": "2026-08-21T00:38:12+00:00",
+                "station_code": "bula",
+                "status": "offline",
+                "previous_status": "online",
+                "event_type": "site_down",
+                "online_count": 20,
+                "degraded_count": 0,
+                "offline_count": 1,
+                "unknown_count": 0,
+                "api_reachable": True,
+                "message": "Site went offline",
+                "source": "test",
+            }
+        )
+        self.db.insert_event(
+            {
+                "time": "2026-08-24T12:00:00+00:00",
+                "station_code": "zinh",
+                "status": "offline",
+                "previous_status": "online",
+                "event_type": "site_down",
+                "online_count": 20,
+                "degraded_count": 0,
+                "offline_count": 1,
+                "unknown_count": 0,
+                "api_reachable": True,
+                "message": "Site went offline",
+                "source": "test",
+            }
+        )
+        self.db.insert_event(
+            {
+                "time": "2026-08-24T12:10:00+00:00",
+                "station_code": "zinh",
+                "status": "online",
+                "previous_status": "offline",
+                "event_type": "site_up",
+                "online_count": 21,
+                "degraded_count": 0,
+                "offline_count": 0,
+                "unknown_count": 0,
+                "api_reachable": True,
+                "message": "Site back online",
+                "source": "test",
+            }
+        )
+        intervals = self.db.outage_intervals(hours=24 * 7, limit=50)
+        self.assertGreaterEqual(len(intervals), 2)
+        self.assertEqual(intervals[0]["station_code"], "bula")
+        self.assertTrue(intervals[0]["ongoing"])
+        codes = {row["station_code"] for row in intervals}
+        self.assertIn("bula", codes)
+        self.assertIn("zinh", codes)
+
     def test_postgres_snapshot_read_reconnects_once(self) -> None:
         db = object.__new__(StationStatusDB)
         db._dsn = "postgresql://example.invalid/status"

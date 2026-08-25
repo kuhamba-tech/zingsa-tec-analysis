@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from backend.schemas import EkfAlertOut, EkfPointOut, EkfSeriesOut, EkfStatusOut
-from backend.timeline_builder import build_timelines
+from backend.timeline_builder import build_timelines, limit_timelines
 
 
 def _float_or_none(v: object) -> float | None:
@@ -18,6 +18,7 @@ def compute_ekf_status(
     sw: dict,
     *,
     dispatch_notifications: bool = False,
+    max_points: int = 336,
 ) -> EkfStatusOut:
     """Run EKF on dashboard timelines, persist alerts, optionally notify."""
     from zgiis.space_weather.ekf import run_ekf_series
@@ -30,7 +31,7 @@ def compute_ekf_status(
     )
     from zgiis.db.ekf_alert_db import EkfAlertDB
 
-    tl = build_timelines(sw)
+    tl = limit_timelines(build_timelines(sw), max_points=max_points)
     raw_series = {
         name: getattr(tl, name)
         for name in (

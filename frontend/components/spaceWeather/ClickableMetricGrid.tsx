@@ -15,6 +15,7 @@ interface Props {
   updatedUtc?: string | null;
   showHint?: boolean;
   liveStationCounts?: LiveStationCounts | null;
+  loading?: boolean;
 }
 
 function MetricCardButton({
@@ -24,6 +25,7 @@ function MetricCardButton({
   note,
   valueColor,
   selected,
+  disabled,
   onClick,
 }: {
   icon: string;
@@ -32,13 +34,15 @@ function MetricCardButton({
   note: string;
   valueColor: string;
   selected: boolean;
+  disabled: boolean;
   onClick: () => void;
 }) {
   return (
     <button
       type="button"
-      className={`sw-metric-card${selected ? " sw-metric-card-selected" : ""}`}
+      className={`sw-metric-card${selected ? " sw-metric-card-selected" : ""}${disabled ? " is-loading" : ""}`}
       onClick={onClick}
+      disabled={disabled}
       aria-pressed={selected}
       aria-label={`${label}: ${value}. Click for explanation.`}
     >
@@ -75,7 +79,13 @@ function ExplanationPanel({
   );
 }
 
-export default function ClickableMetricGrid({ sw, updatedUtc, showHint = true, liveStationCounts = null }: Props) {
+export default function ClickableMetricGrid({
+  sw,
+  updatedUtc,
+  showHint = true,
+  liveStationCounts = null,
+  loading = false,
+}: Props) {
   const [selected, setSelected] = useState<MetricKey | null>(null);
   const cards = buildMetricCards(sw, { liveStationCounts });
 
@@ -98,10 +108,11 @@ export default function ClickableMetricGrid({ sw, updatedUtc, showHint = true, l
             key={card.key}
             icon={card.icon}
             label={card.label}
-            value={card.value}
-            note={card.note}
+            value={loading && !sw ? "Connecting…" : card.value}
+            note={loading && !sw ? "Waiting for live API" : card.note}
             valueColor={card.valueColor}
             selected={selected === card.key}
+            disabled={loading && !sw}
             onClick={() => setSelected((prev) => (prev === card.key ? null : card.key))}
           />
         ))}

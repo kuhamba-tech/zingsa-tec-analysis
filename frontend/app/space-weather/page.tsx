@@ -245,6 +245,8 @@ function DataTable({ headers, rows, emptyMsg }: { headers: string[]; rows: strin
 export default function SpaceWeatherPage() {
   const [sw, setSw]         = useState<SpaceWeatherCurrent | null>(null);
   const [sa, setSa]         = useState<SolarActivityFull | null>(null);
+  const [saError, setSaError] = useState<string | null>(null);
+  const [saLoading, setSaLoading] = useState(true);
   const [tl, setTl]         = useState<SpaceWeatherTimelines | null>(null);
   const [tab, setTab]       = useState(0);
   const [xrayRange, setXrayRange] = useState<"6H" | "24H">("24H");
@@ -290,6 +292,7 @@ export default function SpaceWeatherPage() {
       setFeedStatus("pending");
     }
 
+    // Kick off every feed immediately so the page fills as each API returns.
     getSpaceWeather()
       .then((s) => {
         setSw(s);
@@ -311,19 +314,21 @@ export default function SpaceWeatherPage() {
       .then((stations) => setLiveStationCounts(countSpiderLiveStationStatuses(stations)))
       .catch(() => null);
 
-    const loadSecondary = () => {
-      getSolarActivity()
-        .then(setSa)
-        .catch(() => null);
-      getTimelines()
-        .then(setTl)
-        .catch(() => null);
-    };
-    if (typeof window !== "undefined" && typeof window.requestIdleCallback === "function") {
-      window.requestIdleCallback(loadSecondary, { timeout: 2500 });
-    } else {
-      window.setTimeout(loadSecondary, 80);
-    }
+    if (!background) setSaLoading(true);
+    getSolarActivity()
+      .then((payload) => {
+        setSa(payload);
+        setSaError(payload?.error ?? null);
+      })
+      .catch((error: unknown) => {
+        // Keep any previous payload so the monitor doesn't blank out on a transient failure.
+        setSaError(error instanceof Error ? error.message : "Solar monitor API unreachable");
+      })
+      .finally(() => setSaLoading(false));
+
+    getTimelines()
+      .then(setTl)
+      .catch(() => null);
   }, []);
 
   useEffect(() => {
@@ -387,9 +392,15 @@ export default function SpaceWeatherPage() {
   }), [kpPoints, dstPoints, f107Points, solarWindPoints, s4Points, gnssPoints, stationsOnlinePoints]);
 
   const solarFeedLive = sa?.mode === "live";
-  const solarFeedLabel = !sa ? "Loading solar data…" : solarFeedLive ? "Live Data" : "Feed unavailable";
+  const solarFeedLabel = saLoading && !sa
+    ? "Loading solar data…"
+    : solarFeedLive
+      ? "Live Data"
+      : saError
+        ? "Connection issue"
+        : "Feed unavailable";
   const flareClassRaw = sa?.flare_class?.trim();
-  const flareClass = !sa
+  const flareClass = saLoading && !sa
     ? "Loading…"
     : !flareClassRaw || flareClassRaw.toUpperCase() === "N/A"
       ? "Unavailable"
@@ -607,6 +618,12 @@ export default function SpaceWeatherPage() {
           </div>
         </div>
 
+        {saError && !solarFeedLive && (
+          <div className="banner banner-warn" style={{ fontSize: "0.78rem" }} role="status">
+            Solar monitor: {saError}. Retrying automatically — set <code>NASA_API_KEY</code> on the backend for more reliable DONKI.
+          </div>
+        )}
+
         <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", fontSize: "0.72rem", color: "var(--text-muted)", paddingLeft: "0.2rem" }}>
           <span style={{ fontWeight: 600, color: "var(--text)" }}>Real-time solar conditions for GNSS, satellites and CORS networks</span>
         </div>
@@ -752,11 +769,11 @@ export default function SpaceWeatherPage() {
           <div className="card" {...solarCardClickProps("flareEvents", { textAlign: "center" })}>
             <div style={{ fontSize: "0.62rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "0.6rem" }}>Solar Flares</div>
             <div style={{ fontSize: donkiLive ? "3rem" : "1.1rem", fontWeight: 900, lineHeight: 1, marginBottom: "0.4rem", color: donkiLive ? flareCountColor : "var(--text-muted)" }}>
-              {!sa ? "Loading…" : donkiLive ? donkiFlares.length : "Feed unavailable"}
+              {saLoading && !sa ? "Loading…" : donkiLive ? donkiFlares.length : "Feed unavailable"}
             </div>
             <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
               {!donkiLive
-                ? sa?.donki_note || "NASA DONKI flare feed is unavailable."
+                ? sa?.donki_note || saError || "NASA DONKI flare feed is unavailable."
                 : donkiFlares.length === 0
                 ? `No flare events in the selected 7-day window.`
                 : `Flare event(s) detected.`}
@@ -772,11 +789,11 @@ export default function SpaceWeatherPage() {
           <div className="card" {...solarCardClickProps("cme", { textAlign: "center" })}>
             <div style={{ fontSize: "0.62rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "0.6rem" }}>Coronal Mass Ejections</div>
             <div style={{ fontSize: donkiLive ? "3rem" : "1.1rem", fontWeight: 900, lineHeight: 1, marginBottom: "0.4rem", color: donkiLive ? cmeCountColor : "var(--text-muted)" }}>
-              {!sa ? "Loading…" : donkiLive ? donkiCmes.length : "Feed unavailable"}
+              {saLoading && !sa ? "Loading…" : donkiLive ? donkiCmes.length : "Feed unavailable"}
             </div>
             <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
               {!donkiLive
-                ? sa?.donki_note || "NASA DONKI CME feed is unavailable."
+                ? sa?.donki_note || saError || "NASA DONKI CME feed is unavailable."
                 : donkiCmes.length === 0 ? "No CME events in the selected 7-day window." : "CME event(s) detected."}
             </div>
             {dateRange && <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>CME event history · {dateRange}</div>}
@@ -786,11 +803,11 @@ export default function SpaceWeatherPage() {
           <div className="card" {...solarCardClickProps("storms", { textAlign: "center" })}>
             <div style={{ fontSize: "0.62rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "0.6rem" }}>Geomagnetic Storms</div>
             <div style={{ fontSize: donkiLive ? "3rem" : "1.1rem", fontWeight: 900, lineHeight: 1, marginBottom: "0.4rem", color: donkiLive ? stormCountColor : "var(--text-muted)" }}>
-              {!sa ? "Loading…" : donkiLive ? donkiStorms.length : "Feed unavailable"}
+              {saLoading && !sa ? "Loading…" : donkiLive ? donkiStorms.length : "Feed unavailable"}
             </div>
             <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
               {!donkiLive
-                ? sa?.donki_note || "NASA DONKI storm feed is unavailable."
+                ? sa?.donki_note || saError || "NASA DONKI storm feed is unavailable."
                 : donkiStorms.length === 0 ? "No geomagnetic storm events in the selected 7-day window." : "Storm event(s) detected."}
             </div>
             {dateRange && <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>GST event history · {dateRange}</div>}

@@ -160,10 +160,16 @@ def start_refresh_thread(nav_cache, *, interval_s: float = 3600.0) -> threading.
         while True:
             try:
                 nav_by_sv = fetch_gps_nav()
+                if not nav_by_sv:
+                    raise RuntimeError("broadcast ephemeris source returned no usable GPS satellites")
                 updated = nav_cache.bulk_update_gps(nav_by_sv)
                 log.info("Broadcast ephemeris refresh: %d GPS satellite(s) updated.", updated)
             except Exception as exc:
                 log.warning("Broadcast ephemeris refresh failed: %s", exc)
+                # A transient mirror/network failure must not leave VTEC dark
+                # until the next hourly refresh.
+                time.sleep(min(60.0, interval_s))
+                continue
             time.sleep(interval_s)
 
     thread = threading.Thread(target=_loop, daemon=True, name="ephemeris-refresh")

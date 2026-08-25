@@ -119,6 +119,8 @@ def _start_ephemeris_thread() -> None:
         while True:
             try:
                 nav_by_sv = fetch_gps_nav()
+                if not nav_by_sv:
+                    raise RuntimeError("broadcast ephemeris source returned no usable GPS satellites")
                 updated = nav_cache.bulk_update_gps(nav_by_sv)
                 failures = 0
                 log.info("Broadcast ephemeris refresh: %d GPS satellite(s) updated.", updated)

@@ -478,6 +478,10 @@ export default function NetworkUptimePanel({
             <>
               <div className="operations-chart-title" style={{ marginTop: "0.5rem", marginBottom: "0.5rem" }}>
                 Outage durations ({formatPeriodLabel(analysis.hours)})
+                {" · "}
+                {analysis.outage_intervals!.length} logged
+                {" · "}
+                {new Set(analysis.outage_intervals!.map((r) => r.station_code)).size} sites
               </div>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.82rem", marginBottom: "1rem" }}>
                 <thead>
@@ -489,8 +493,8 @@ export default function NetworkUptimePanel({
                   </tr>
                 </thead>
                 <tbody>
-                  {analysis.outage_intervals!.slice(0, 15).map((row) => (
-                    <tr key={`${row.station_code}-${row.started_at}`} style={{ borderBottom: "1px solid rgba(36,77,115,0.35)" }}>
+                  {analysis.outage_intervals!.map((row) => (
+                    <tr key={`${row.station_code}-${row.started_at}-${row.ended_at ?? "ongoing"}`} style={{ borderBottom: "1px solid rgba(36,77,115,0.35)" }}>
                       <td style={{ padding: "0.35rem 0.5rem" }}>{row.station_code.toUpperCase()}</td>
                       <td style={{ padding: "0.35rem 0.5rem", whiteSpace: "nowrap" }}>
                         {row.started_at.replace("T", " ").slice(0, 19)}

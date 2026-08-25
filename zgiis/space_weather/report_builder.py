@@ -14,6 +14,36 @@ REPORT_WINDOWS: dict[str, dict[str, Any]] = {
     "yearly": {"hours": 8760.0, "label": "Yearly Report (This Year)", "resample": "1D"},
 }
 
+_REPORT_NUMERIC_COLUMNS = (
+    "kp",
+    "dst",
+    "f107",
+    "plasma_speed",
+    "s4",
+    "gnss_risk_score",
+    "mean_vtec",
+)
+
+
+def _normalise_report_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Supply optional archive fields that older or sparse logs omit.
+
+    Pandas resampling may also drop columns whose values are entirely null.
+    Reports should still render the available metrics instead of returning a
+    server error because TEC, scintillation, or another feed has no samples.
+    """
+    normalised = df.copy()
+    for column in _REPORT_NUMERIC_COLUMNS:
+        if column not in normalised.columns:
+            normalised[column] = float("nan")
+    if "gnss_risk" not in normalised.columns:
+        normalised["gnss_risk"] = None
+    return normalised
+
+
+def _utc_iso(value: datetime) -> str:
+    return value.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
 
 def _trend(series: pd.Series) -> str:
     s = series.dropna()
@@ -169,7 +199,7 @@ def build_space_weather_report(
             "period_label": meta["label"],
             "window_start": window_start.isoformat(),
             "window_end": now.isoformat(),
-            "generated_utc": now.replace(microsecond=0).isoformat() + "Z",
+            "generated_utc": _utc_iso(now),
             "sample_count": 0,
             "impact": _impact_level(None, None, None, None),
             "executive_summary": _executive_summary(df, _impact_level(None, None, None, None)),
@@ -181,6 +211,7 @@ def build_space_weather_report(
             "charts": {"kp": [], "dst": [], "tec": [], "labels": []},
         }
 
+    df = _normalise_report_columns(df)
     latest = df.iloc[-1]
     kp_cur = _float(latest.get("kp"))
     dst_cur = _float(latest.get("dst"))
@@ -235,7 +266,7 @@ def build_space_weather_report(
         "period_label": meta["label"],
         "window_start": window_start.isoformat(),
         "window_end": now.isoformat(),
-        "generated_utc": now.replace(microsecond=0).isoformat() + "Z",
+        "generated_utc": _utc_iso(now),
         "sample_count": int(len(df)),
         "impact": impact,
         "executive_summary": _executive_summary(df, impact),

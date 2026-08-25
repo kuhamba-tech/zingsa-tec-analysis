@@ -256,7 +256,9 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
         stations = _hold_non_spider_as_unknown(stations)
         if archive_applied and _is_serverless_runtime():
             # Always overlay Spider (live or durable Postgres last-good).
-            return _merge_rover_clients(_merge_spider_site_statuses(stations, refresh=True))
+            return _merge_rover_clients(
+                _merge_spider_site_statuses(stations, refresh=refresh_ntrip)
+            )
 
     probe_payload = None
     probe_by: dict = {}
@@ -383,14 +385,18 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
                 sourcetable_note=st_diag.get("note") or "",
             )
         merged.append(s)
-    return _merge_rover_clients(_merge_spider_site_statuses(merged, refresh=True))
+    return _merge_rover_clients(
+        _merge_spider_site_statuses(merged, refresh=refresh_ntrip)
+    )
 
 
 def _merge_spider_site_statuses(stations: list, *, refresh: bool = False) -> list:
     """Overlay Leica Spider Site Status (Status==3 ⇒ online) as map ground truth.
 
-    Always prefer a live Spider pull (max ~15s age). If Spider is unreachable,
-    leave stations as unknown — never fall back to catalog greens/reds.
+    Prefer cached Spider rows and refresh them in the background for normal
+    reads. An explicit refresh may block for a live pull. If Spider is
+    unreachable, leave stations as unknown — never fall back to catalog
+    greens/reds.
     """
     from dataclasses import replace
 

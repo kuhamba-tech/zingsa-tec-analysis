@@ -22,7 +22,11 @@ frontend/out/
 frontend/*.log
 frontend/tsconfig.tsbuildinfo
 
-static/data/
+# Runtime databases, caches, credentials, and the large trained model must not
+# enter the serverless bundle. The statistical forecast does require the small,
+# committed historical archive.
+static/data/*
+!static/data/tec_archive_hourly.csv
 
 *.24o
 *.24n

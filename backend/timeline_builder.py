@@ -7,6 +7,35 @@ from backend.schemas import SpaceWeatherTimelines, TimelinePoint
 from backend.timeline_cache import merge_timeline
 
 
+def limit_timeline_points(
+    points: list[TimelinePoint],
+    max_points: int = 336,
+) -> list[TimelinePoint]:
+    """Downsample a series evenly while always retaining its newest point."""
+    if max_points <= 0 or len(points) <= max_points:
+        return points
+    if max_points == 1:
+        return [points[-1]]
+    last_index = len(points) - 1
+    indices = {
+        round(position * last_index / (max_points - 1))
+        for position in range(max_points)
+    }
+    return [points[index] for index in sorted(indices)]
+
+
+def limit_timelines(
+    timelines: SpaceWeatherTimelines,
+    max_points: int = 336,
+) -> SpaceWeatherTimelines:
+    return SpaceWeatherTimelines(
+        **{
+            field: limit_timeline_points(getattr(timelines, field), max_points)
+            for field in SpaceWeatherTimelines.model_fields
+        }
+    )
+
+
 def _archive_points(column: str, hours: float = 168.0, resample: str = "1h") -> list[TimelinePoint]:
     try:
         from backend.space_weather_logger import get_db

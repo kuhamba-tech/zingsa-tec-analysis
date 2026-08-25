@@ -372,7 +372,7 @@ export function analyzeStationUptime(
   ];
   if (worst[0] && worst[0].online_pct < 95) {
     bullets.push(
-      `Lowest uptime: ${worst.map((r) => `${r.station_code?.toUpperCase() ?? r.station_name} ${fmt(r.online_pct, 1)}%`).join(", ")} — check recent status events below.`,
+      `Lowest uptime: ${worst.map((r) => `${r.station_code?.toUpperCase() ?? r.station_name} ${fmt(r.online_pct, 1)}%`).join(", ")} — see Outage durations below for every logged site.`,
     );
   }
   return {

@@ -102,6 +102,9 @@ const KEY = process.env.NEXT_PUBLIC_API_KEY ?? "";
 const FETCH_TIMEOUT_MS = 28_000;
 const ANALYSIS_TIMEOUT_MS = 120_000;
 const SW_FAST_TIMEOUT_MS = 12_000;
+/** Solar monitor hits NOAA + NASA DONKI; allow cold-start headroom + one retry. */
+const SOLAR_TIMEOUT_MS = 55_000;
+const REPORT_TIMEOUT_MS = 60_000;
 const LIVE_REFRESH_MIN_MS = 20_000;
 
 let lastSpaceWeatherNetworkAt = 0;
@@ -144,18 +147,18 @@ function baseUrl(): string {
 // such constraint, so this only rewrites when apiBase() resolves to the
 // Vercel-style "<origin>/api" base.
 const GROUP_ROUTERS: [prefix: string, router: string][] = [
-  ["/tec/", "/tec-router"],
-  ["/navigation-news", "/navigation-news-router"],
-  ["/cors/", "/cors-router"],
-  ["/space-weather/", "/space-weather-router"],
-  ["/processing/", "/processing-router"],
-  ["/live/", "/core-router"],
-  ["/forecast/", "/core-router"],
-  ["/reports/", "/core-router"],
-  ["/chat", "/core-router"],
-  ["/theory/", "/core-router"],
-  ["/gic/", "/core-router"],
-  ["/cosmic2/", "/core-router"],
+  ["/tec/", "/tec-router/"],
+  ["/navigation-news", "/navigation-news-router/"],
+  ["/cors/", "/cors-router/"],
+  ["/space-weather/", "/space-weather-router/"],
+  ["/processing/", "/processing-router/"],
+  ["/live/", "/core-router/"],
+  ["/forecast/", "/core-router/"],
+  ["/reports/", "/core-router/"],
+  ["/chat", "/core-router/"],
+  ["/theory/", "/core-router/"],
+  ["/gic/", "/core-router/"],
+  ["/cosmic2/", "/core-router/"],
 ];
 
 /** Builds the full request URL for `path`, routing through a consolidated
@@ -289,7 +292,11 @@ export const getSpaceWeather = () => {
 };
 export const getSolarActivity = () =>
   dedupeGet("space-weather/solar-activity", () =>
-    get<SolarActivityFull>("/space-weather/solar-activity"),
+    getWithRetry<SolarActivityFull>(
+      "/space-weather/solar-activity",
+      { _ts: Date.now() },
+      SOLAR_TIMEOUT_MS,
+    ),
   );
 export const getTimelines = () =>
   dedupeGet("space-weather/timelines", () =>
@@ -303,7 +310,11 @@ export const getSpaceWeatherHistory = (hours = 168, resample?: string) =>
 export const getSpaceWeatherCorrelations = (hours = 168, resample = "1h") =>
   get<SpaceWeatherCorrelationResponse>("/space-weather/correlations", { hours, resample });
 export const getSpaceWeatherReport = (period: SpaceWeatherReportPeriod = "hourly") =>
-  get<SpaceWeatherReport>("/space-weather/report", { period, _ts: Date.now() });
+  get<SpaceWeatherReport>(
+    "/space-weather/report",
+    { period, _ts: Date.now() },
+    REPORT_TIMEOUT_MS,
+  );
 export const getEkfStatus = () => get<EkfStatus>("/space-weather/ekf", { _ts: Date.now() });
 /** Retried EKF fetch — use on manual refresh only; avoid blocking the 60s poll. */
 export const getEkfStatusWithRetry = () =>

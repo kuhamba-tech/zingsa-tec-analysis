@@ -111,9 +111,30 @@ def _cors_origins() -> list[str]:
         "http://127.0.0.1:3001",
     ]
 
+
+def _cors_origin_regex() -> str | None:
+    """Allow browser clients on the local network during development.
+
+    Next.js advertises a LAN URL when it starts. The frontend intentionally
+    calls FastAPI on the same host at port 8000, so that browser origin must be
+    accepted as well as localhost. Production remains same-origin unless an
+    explicit regex is configured.
+    """
+    configured = os.getenv("CORS_ORIGIN_REGEX", "").strip()
+    if configured:
+        return configured
+    if os.getenv("VERCEL") or (os.getenv("ZGIIS_ENV") or "").strip().lower() in {"production", "prod"}:
+        return None
+    return (
+        r"https?://(?:localhost|127\.0\.0\.1|\[::1\]|10(?:\.\d{1,3}){3}|"
+        r"192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2})"
+        r"(?::\d{1,5})?"
+    )
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins(),
+    allow_origin_regex=_cors_origin_regex(),
     allow_credentials=False,
     allow_methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Accept", "Content-Type", "X-API-Key", "X-Broadcast-Admin-Key"],

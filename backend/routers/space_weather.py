@@ -3,7 +3,7 @@ from __future__ import annotations
 import threading
 import os
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from backend.deps import require_api_key
 from backend.schemas import (
@@ -25,7 +25,7 @@ from backend.schemas import (
     TimelinePoint,
 )
 from backend.space_weather_logger import log_snapshot, status as log_status
-from backend.timeline_builder import build_timelines
+from backend.timeline_builder import build_timelines, limit_timelines
 
 router = APIRouter(prefix="/space-weather", tags=["space-weather"])
 
@@ -216,8 +216,11 @@ async def solar_activity(_=Depends(require_api_key)):
 
 
 @router.get("/timelines", response_model=SpaceWeatherTimelines)
-async def timelines(_=Depends(require_api_key)):
-    return build_timelines(_sw())
+async def timelines(
+    max_points: int = Query(336, ge=24, le=2000),
+    _=Depends(require_api_key),
+):
+    return limit_timelines(build_timelines(_sw()), max_points=max_points)
 
 
 @router.post("/refresh", status_code=204)
@@ -319,12 +322,19 @@ async def correlations(
 
 
 @router.get("/ekf", response_model=EkfStatusOut)
-async def ekf_status(_=Depends(require_api_key)):
+async def ekf_status(
+    max_points: int = Query(336, ge=24, le=2000),
+    _=Depends(require_api_key),
+):
     """EKF overlay for dashboard timelines. Alerts are persisted; notifications
     are dispatched only on manual refresh or the background logger — not on read."""
     from zgiis.space_weather.ekf_service import compute_ekf_status
 
-    return compute_ekf_status(_sw(), dispatch_notifications=False)
+    return compute_ekf_status(
+        _sw(),
+        dispatch_notifications=False,
+        max_points=max_points,
+    )
 
 
 @router.get("/storm-alerts/status", response_model=StormAlertStatus)
