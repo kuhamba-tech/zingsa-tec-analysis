@@ -235,7 +235,7 @@ export default function CorsMap({
     if (layer !== "Global TEC") {
       setGlobalTecError(null);
       setGlobalTecSrc((prev) => {
-        if (prev) URL.revokeObjectURL(prev);
+        if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev);
         return null;
       });
       return;
@@ -247,11 +247,11 @@ export default function CorsMap({
       try {
         const next = await fetchGlobalTecForecastObjectUrl();
         if (cancelled) {
-          URL.revokeObjectURL(next);
+          if (next.startsWith("blob:")) URL.revokeObjectURL(next);
           return;
         }
-        if (objectUrl) URL.revokeObjectURL(objectUrl);
-        objectUrl = next;
+        if (objectUrl?.startsWith("blob:")) URL.revokeObjectURL(objectUrl);
+        objectUrl = next.startsWith("blob:") ? next : null;
         setGlobalTecSrc(next);
         setGlobalTecError(null);
       } catch (err) {
@@ -274,7 +274,7 @@ export default function CorsMap({
       cancelled = true;
       window.clearInterval(id);
       document.removeEventListener("visibilitychange", onVisible);
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      if (objectUrl?.startsWith("blob:")) URL.revokeObjectURL(objectUrl);
     };
   }, [layer]);
 

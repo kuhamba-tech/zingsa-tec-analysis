@@ -781,19 +781,40 @@ export const getTecHeatmap = async (hours = 6, refreshNtrip = false) => {
   return rejectArchiveHeatmap(payload);
 };
 
-/** Object URL for DLR's latest 1h global TEC forecast (proxied, no-store). Caller must revoke. */
+/** DLR 1h Global TEC forecast PNG (same asset the FastAPI proxy serves). */
+export const DLR_GLOBAL_TEC_FORECAST_PNG =
+  "https://data.impc.dlr.de/tec-forecast/" +
+  "DLR_GNSS_GCG_L4_VTEC-FC-1H-NTCM-SCM_FC_GLOBAL/latest/" +
+  "DLR_GNSS_GCG_L4_VTEC-FC-1H-NTCM-SCM_FC_GLOBAL_latest_I.png";
+
+/** Object URL / direct URL for DLR's latest 1h global TEC forecast.
+ * Prefer the FastAPI no-store proxy; if the API is busy (NTRIP/SQLite), fall
+ * back to the DLR URL with a cache-buster so the Global TEC tab still renders.
+ * Caller must revoke blob: object URLs.
+ */
 export async function fetchGlobalTecForecastObjectUrl(): Promise<string> {
+  const bust = String(Date.now());
   const url = new URL(apiUrl("/tec/global-forecast-image"));
-  url.searchParams.set("t", String(Date.now()));
-  const res = await fetchWithTimeout(url.toString(), {
-    cache: "no-store",
-    headers: KEY ? { "X-API-Key": KEY } : {},
-  }, Math.max(FETCH_TIMEOUT_MS, 55_000));
-  if (!res.ok) {
-    throw new Error(`Global TEC forecast failed (${res.status})`);
+  url.searchParams.set("t", bust);
+  try {
+    const res = await fetchWithTimeout(
+      url.toString(),
+      {
+        cache: "no-store",
+        headers: KEY ? { "X-API-Key": KEY } : {},
+      },
+      12_000,
+    );
+    if (!res.ok) {
+      throw new Error(`Global TEC forecast failed (${res.status})`);
+    }
+    const blob = await res.blob();
+    return URL.createObjectURL(blob);
+  } catch {
+    // <img> can load the DLR URL directly without CORS; keeps the layer usable
+    // when localhost:8000 is saturated by live NTRIP ingest.
+    return `${DLR_GLOBAL_TEC_FORECAST_PNG}?t=${bust}`;
   }
-  const blob = await res.blob();
-  return URL.createObjectURL(blob);
 }
 
 /** Sample + log DLR Global TEC at each CORS site; return time series for chart overlay. */

@@ -49,6 +49,11 @@ DLR_GLOBAL_TEC_FORECAST_PNG = (
     "DLR_GNSS_GCG_L4_VTEC-FC-1H-NTCM-SCM_FC_GLOBAL_latest_I.png"
 )
 
+# Short in-process cache so Global TEC tab switches stay fast while NTRIP ingest
+# is saturating the SQLite thread pool. DLR rewrites "latest" in place ~hourly.
+_DLR_PNG_CACHE: dict[str, object] = {}
+_DLR_PNG_CACHE_TTL_S = 300.0
+
 
 @lru_cache(maxsize=1)
 def _archive() -> pd.DataFrame:
@@ -419,36 +424,75 @@ async def solar_cycle(
 
 
 @router.get("/global-forecast-image")
-def global_forecast_image(_=Depends(require_api_key)):
+async def global_forecast_image(_=Depends(require_api_key)):
     """Proxy DLR's latest 1h global TEC forecast PNG with Cache-Control: no-store.
 
     Used by the National Dashboard Global TEC layer so Vercel clients do not
     keep a stale browser/CDN copy of DLR's fixed 'latest' URL.
+
+    Cached briefly in-process so NTRIP/SQLite load on the API cannot turn every
+    map tab switch into a 45s upstream wait that exhausts the thread pool.
     """
+    import asyncio
+    import time
+
     import requests
 
-    try:
+    global _DLR_PNG_CACHE
+    now = time.monotonic()
+    cached = _DLR_PNG_CACHE
+    if cached and (now - float(cached.get("at") or 0)) < _DLR_PNG_CACHE_TTL_S and cached.get("body"):
+        headers = {
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+            "X-ZGIIS-Cache": "hit",
+        }
+        if cached.get("last_modified"):
+            headers["X-DLR-Last-Modified"] = str(cached["last_modified"])
+        return Response(content=cached["body"], media_type="image/png", headers=headers)
+
+    def _fetch() -> tuple[bytes, str | None]:
         upstream = requests.get(
             DLR_GLOBAL_TEC_FORECAST_PNG,
-            timeout=45,
+            timeout=12,
             headers={"Cache-Control": "no-cache", "Pragma": "no-cache"},
         )
         upstream.raise_for_status()
-    except requests.RequestException as exc:
+        return upstream.content, upstream.headers.get("Last-Modified")
+
+    try:
+        body, last_modified = await asyncio.wait_for(asyncio.to_thread(_fetch), timeout=15)
+    except Exception as exc:
+        if cached and cached.get("body"):
+            headers = {
+                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+                "Expires": "0",
+                "X-ZGIIS-Cache": "stale",
+            }
+            if cached.get("last_modified"):
+                headers["X-DLR-Last-Modified"] = str(cached["last_modified"])
+            return Response(content=cached["body"], media_type="image/png", headers=headers)
         raise HTTPException(
             status_code=502,
             detail=f"DLR TEC forecast unavailable: {exc}",
         ) from exc
 
+    _DLR_PNG_CACHE = {
+        "at": now,
+        "body": body,
+        "last_modified": last_modified,
+    }
     headers = {
         "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
         "Pragma": "no-cache",
         "Expires": "0",
+        "X-ZGIIS-Cache": "miss",
     }
-    last_modified = upstream.headers.get("Last-Modified")
     if last_modified:
         headers["X-DLR-Last-Modified"] = last_modified
-    return Response(content=upstream.content, media_type="image/png", headers=headers)
+    return Response(content=body, media_type="image/png", headers=headers)
 
 
 @router.get("/global-vtec-by-station")
