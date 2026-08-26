@@ -133,7 +133,7 @@ export default function NetworkUptimePanel({
     try {
       const [catalog, heatmap, sw] = await Promise.all([
         getStations(false),
-        getTecHeatmap(6, true).catch(() => null),
+        getTecHeatmap(0.05, true).catch(() => null),
         getSpaceWeather().catch(() => null),
       ]);
       setMapStations(catalog);

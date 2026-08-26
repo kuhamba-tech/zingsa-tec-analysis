@@ -769,14 +769,17 @@ function rejectArchiveHeatmap(payload: TecHeatmapResponse): TecHeatmapResponse {
   };
 }
 
-export const getTecHeatmap = async (hours = 6, refreshNtrip = false) => {
+export const getTecHeatmap = async (hours = 0.05, refreshNtrip = false) => {
+  // Cap client lookback; backend also clamps to ~3 minutes so TEC never looks cached.
+  const liveHours = Math.min(Math.max(hours, 0.02), 0.05);
   const payload = await get<TecHeatmapResponse>(
     "/tec/heatmap",
     {
-      hours,
+      hours: liveHours,
+      _ts: Date.now(),
       ...(refreshNtrip ? { refresh_ntrip: "true" } : {}),
     },
-    refreshNtrip ? TEC_HEATMAP_TIMEOUT_MS : Math.max(FETCH_TIMEOUT_MS, 55_000),
+    refreshNtrip ? TEC_HEATMAP_TIMEOUT_MS : Math.max(FETCH_TIMEOUT_MS, 45_000),
   );
   return rejectArchiveHeatmap(payload);
 };
@@ -874,7 +877,7 @@ export const getPrnConstellations = () =>
 
 // ── Live ──────────────────────────────────────────────────────────────────────
 export const getLiveVtec = (hours = 2, station?: string) =>
-  get<LiveObservation[]>("/live/vtec", { hours, station });
+  get<LiveObservation[]>("/live/vtec", { hours, station, _ts: Date.now() });
 export const getLiveVtecByStation = (hours = 6, resampleMinutes = 2) =>
   get<LiveStationVtecSeries[]>(
     "/live/vtec-by-station",

@@ -479,18 +479,17 @@ class TecDB:
         minutes: float = 10.0,
         code_live_only: bool = True,
     ) -> pd.DataFrame:
-        """Latest live NTRIP VTEC per station from a short lookback (SQL aggregate).
+        """Latest live NTRIP VTEC per station from a short lookback.
 
-        Used by the heat-map so continuous MSM ingest cannot force a multi-minute
-        pandas scan of raw PRN samples on every refresh.
+        Uses a robust per-station median (MAD spike clip) instead of AVG so
+        one bad PRN cannot push Gokwe/similar sites to 100+ TECU while peers
+        stay near 15–25 TECU.
         """
         since = (datetime.now(tz=timezone.utc) - timedelta(minutes=max(1.0, float(minutes)))).isoformat()
         if self._is_pg:
             method_clause = " AND tec_method LIKE '%%code_live%%'" if code_live_only else ""
             sql = f"""
-            SELECT station,
-                   AVG(vtec_tecu) AS mean_vtec,
-                   COUNT(*) AS obs_count
+            SELECT station, vtec_tecu
             FROM vtec_obs
             WHERE time >= %s
               AND vtec_tecu IS NOT NULL
@@ -498,15 +497,12 @@ class TecDB:
               AND vtec_tecu < 200
               AND (tec_method IS NULL OR tec_method NOT LIKE 'dlr_%%')
               {method_clause}
-            GROUP BY station
             """
             params: list = [since]
         else:
             method_clause = " AND tec_method LIKE '%code_live%'" if code_live_only else ""
             sql = f"""
-            SELECT station,
-                   AVG(vtec_tecu) AS mean_vtec,
-                   COUNT(*) AS obs_count
+            SELECT station, vtec_tecu
             FROM vtec_obs
             WHERE time >= ?
               AND vtec_tecu IS NOT NULL
@@ -514,20 +510,39 @@ class TecDB:
               AND vtec_tecu < 200
               AND (tec_method IS NULL OR tec_method NOT LIKE 'dlr_%')
               {method_clause}
-            GROUP BY station
             """
             params = [since]
         try:
             if self._is_pg:
-                df = pd.read_sql(sql, self._conn, params=params)
+                raw = pd.read_sql(sql, self._conn, params=params)
             else:
-                df = pd.read_sql_query(sql, self._conn, params=params)
+                raw = pd.read_sql_query(sql, self._conn, params=params)
         except Exception as exc:
             log.warning("recent_station_vtec failed (%s)", exc)
             return pd.DataFrame(columns=["station", "mean_vtec", "obs_count"])
-        if df.empty and code_live_only:
+
+        if raw.empty and code_live_only:
             return self.recent_station_vtec(minutes=minutes, code_live_only=False)
-        return df
+        if raw.empty:
+            return pd.DataFrame(columns=["station", "mean_vtec", "obs_count"])
+
+        from zgiis.maps.heatmap_data import _robust_station_vtec
+
+        rows: list[dict] = []
+        work = raw.copy()
+        work["station"] = work["station"].astype(str).str.lower().str.rstrip("_")
+        for code, group in work.groupby("station"):
+            vtec = _robust_station_vtec(group["vtec_tecu"])
+            if vtec is None:
+                continue
+            rows.append(
+                {
+                    "station": str(code),
+                    "mean_vtec": float(vtec),
+                    "obs_count": int(len(group)),
+                }
+            )
+        return pd.DataFrame(rows, columns=["station", "mean_vtec", "obs_count"])
 
     def station_mean_vtec(self, hours: float = 2.0) -> dict[str, float]:
         """Fast station → mean VTEC map for CORS markers / heat-map overlays."""

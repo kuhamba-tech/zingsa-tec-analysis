@@ -245,7 +245,7 @@ export default function HomePage() {
             }
           },
         );
-        void getTecHeatmap(6, !background)
+        void getTecHeatmap(0.05, !background)
           .then((heatmap) => {
             if (!cancelled && heatmap) setTecHeatmap(heatmap);
           })
@@ -256,7 +256,7 @@ export default function HomePage() {
     }
 
     load(false);
-    const timer = window.setInterval(() => load(true), 60_000);
+    const timer = window.setInterval(() => load(true), 45_000);
     return () => {
       cancelled = true;
       window.clearInterval(timer);

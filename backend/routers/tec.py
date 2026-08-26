@@ -5,8 +5,7 @@ from functools import lru_cache
 
 import numpy as np
 import pandas as pd
-from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from backend.deps import require_api_key
 from backend.schemas import (
@@ -513,13 +512,16 @@ def global_vtec_by_station(
 
 @router.get("/heatmap", response_model=TecHeatmapResponse)
 async def tec_heatmap(
-    hours: float = Query(2.0, ge=0.5, le=24),
+    response: Response,
+    hours: float = Query(0.05, ge=0.02, le=2.0, description="Lookback hours (live map caps to ~3 minutes)"),
     refresh_ntrip: bool = Query(False, description="Force a fresh live NTRIP VTEC sample when set"),
     _=Depends(require_api_key),
 ):
     from zgiis.maps.heatmap_data import build_tec_heatmap
 
-    payload = build_tec_heatmap(hours=hours, refresh_ntrip=refresh_ntrip)
+    # Live map product: ignore multi-hour averages that look like a stale cache.
+    live_hours = min(float(hours), 3.0 / 60.0)
+    payload = build_tec_heatmap(hours=live_hours, refresh_ntrip=refresh_ntrip)
 
     # Final API guard: never return RINEX/CMN archive VTEC on this live endpoint.
     stations = [
@@ -547,6 +549,11 @@ async def tec_heatmap(
         }
     elif len(stations) != len(payload.get("stations") or []):
         payload = {**payload, "stations": stations, "station_count": len(stations)}
+
+    # Always defeat browser/CDN caches — live NTRIP must not look frozen.
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
 
     grid = payload.get("grid")
     return TecHeatmapResponse(

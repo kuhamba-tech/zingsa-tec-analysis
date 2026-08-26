@@ -168,11 +168,15 @@ def get_pipeline():
 
 
 def latest_vtec_by_station() -> dict[str, float]:
-    """In-memory latest VTEC per station from the live ingest pipeline."""
+    """In-memory latest VTEC per station from the live ingest pipeline (fresh only)."""
     pipeline = _pipeline
     if pipeline is None:
         return {}
-    return pipeline.latest_by_station()
+    try:
+        return pipeline.latest_by_station(max_age_s=180.0)
+    except TypeError:
+        # Older pipeline without max_age_s kwarg.
+        return pipeline.latest_by_station()
 
 
 def diagnostics_by_station() -> dict[str, dict]:

@@ -245,13 +245,27 @@ class LiveVtecPipeline:
             }
         )
 
-    def latest_by_station(self) -> dict[str, float]:
-        """Most recent VTEC (TECU) per station from the in-memory pipeline."""
-        return {
-            code: float(row["vtec_tecu"])
-            for code, row in self._latest.items()
-            if row.get("vtec_tecu") is not None
-        }
+    def latest_by_station(self, *, max_age_s: float = 180.0) -> dict[str, float]:
+        """Most recent live NTRIP VTEC per station, dropping stale in-memory values.
+
+        ``max_age_s`` is wall-clock age of the observation epoch so the map cannot
+        keep painting a station from a value decoded many minutes earlier.
+        """
+        now = datetime.now(timezone.utc)
+        out: dict[str, float] = {}
+        for code, row in self._latest.items():
+            raw = row.get("vtec_tecu")
+            if raw is None:
+                continue
+            epoch = row.get("epoch")
+            if isinstance(epoch, datetime):
+                ep = epoch if epoch.tzinfo is not None else epoch.replace(tzinfo=timezone.utc)
+                age = (now - ep.astimezone(timezone.utc)).total_seconds()
+                # Allow a little GNSS/clock skew ahead of wall time; reject old cache.
+                if age > float(max_age_s) or age < -600.0:
+                    continue
+            out[str(code)] = float(raw)
+        return out
 
     def diagnostics_by_station(self) -> dict[str, dict]:
         """Per-station ingest counters for explaining connected-but-no-VTEC states."""

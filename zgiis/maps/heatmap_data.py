@@ -533,15 +533,18 @@ def _rows_from_station_vtec_summary(df, *, source: str = "live") -> list[dict[st
 def _pipeline_station_rows(hours: float = 2.0) -> list[dict[str, Any]]:
     """Station VTEC from the live NTRIP ingest DB (absolute code TEC when available).
 
-    Aggregates in SQL over the last ~10 minutes so continuous MSM writes cannot
-    stall /tec/heatmap by loading hundreds of thousands of PRN samples.
+    Uses only the last few minutes of code_live MSM decode so the map cannot
+    linger on an older multi-hour average while NTRIP is still streaming.
     """
     if not _live_db_heatmap_enabled():
         return []
     try:
         from backend.live_manager import get_db
 
-        minutes = max(5.0, min(float(hours) * 60.0, float(LIVE_VTEC_RECENT_MINUTES)))
+        minutes = max(
+            1.5,
+            min(float(hours) * 60.0, float(LIVE_HEATMAP_MAX_LOOKBACK_MINUTES), float(LIVE_VTEC_RECENT_MINUTES)),
+        )
         df = get_db().recent_station_vtec(minutes=minutes, code_live_only=True)
     except Exception:
         return []
@@ -549,13 +552,13 @@ def _pipeline_station_rows(hours: float = 2.0) -> list[dict[str, Any]]:
 
 
 def _recent_pipeline_rows(hours: float = 0.5) -> list[dict[str, Any]]:
-    """Shorter-window pipeline query — catches stations that just came online."""
+    """Very short window — catches stations that just came online."""
     try:
         if not _live_db_heatmap_enabled():
             return []
         from backend.live_manager import get_db
 
-        minutes = max(3.0, min(float(hours) * 60.0, 5.0))
+        minutes = max(1.0, min(float(hours) * 60.0, 2.0, float(LIVE_HEATMAP_MAX_LOOKBACK_MINUTES)))
         df = get_db().recent_station_vtec(minutes=minutes, code_live_only=True)
     except Exception:
         return []
@@ -613,7 +616,9 @@ def _consensus_filter_control_rows(rows: list[dict[str, Any]]) -> list[dict[str,
     return kept if kept else measured
 
 
-LIVE_VTEC_RECENT_MINUTES = 10.0
+LIVE_VTEC_RECENT_MINUTES = 2.0
+# Hard ceiling for the live map product — never average hours of old NTRIP samples.
+LIVE_HEATMAP_MAX_LOOKBACK_MINUTES = 2.0
 
 
 def station_vtec_by_code_from_frame(
@@ -623,9 +628,10 @@ def station_vtec_by_code_from_frame(
 ) -> dict[str, float]:
     """Shared Neon/local aggregation used by heat-map + CORS station cards.
 
-    When ``recent_minutes`` is set, each station uses only samples from the last
-    N minutes before *that station's* newest observation — so markers track the
-    live NTRIP decode instead of a multi-hour diurnal median.
+    When ``recent_minutes`` is set, each station uses only samples inside the
+    wall-clock window ``[now - N minutes, now + 2 minutes]`` so markers track
+    the live NTRIP decode instead of the last samples stored in a long DB
+    history (which looks like an old cache when ingest pauses).
     """
     df = _absolute_vtec_observation_frame(df)
     if df is None or not hasattr(df, "empty") or df.empty:
@@ -641,12 +647,15 @@ def station_vtec_by_code_from_frame(
         work = work.dropna(subset=["time", "vtec_tecu", "station"])
         if work.empty:
             return {}
-        out: dict[str, float] = {}
+        now = pd.Timestamp.now(tz="UTC")
         window = pd.Timedelta(minutes=float(recent_minutes))
+        skew = pd.Timedelta(minutes=2)
+        work = work[(work["time"] >= now - window) & (work["time"] <= now + skew)]
+        if work.empty:
+            return {}
+        out: dict[str, float] = {}
         for code_raw, group in work.groupby(work["station"].astype(str).str.lower().str.rstrip("_")):
-            latest = group["time"].max()
-            recent = group[group["time"] >= latest - window]
-            vtec = _robust_station_vtec(recent["vtec_tecu"])
+            vtec = _robust_station_vtec(group["vtec_tecu"])
             if vtec is None:
                 continue
             out[str(code_raw)] = round(vtec, 2)
@@ -1196,15 +1205,21 @@ def _heatmap_payload_from_station_rows(
 
 def build_tec_heatmap(*, hours: float = 2.0, refresh_ntrip: bool = False) -> dict[str, Any]:
     """Return interpolated grid + heat points for map overlay (live NTRIP only)."""
-    live_rows = _merge_station_rows(
-        _pipeline_station_rows(hours=hours),
-        _recent_pipeline_rows(hours=min(hours, 0.25)),
-        _probe_sample_vtec_rows(),
-        # In-memory NTRIP decode wins — this is what the local collector/API just computed.
-        _live_pipeline_memory_rows(),
-    )
+    # Cap lookback so callers asking for hours=6 cannot paint an old average.
+    live_hours = min(float(hours), LIVE_HEATMAP_MAX_LOOKBACK_MINUTES / 60.0)
+    pipeline_rows = _pipeline_station_rows(hours=live_hours)
+    recent_rows = _recent_pipeline_rows(hours=min(live_hours, 2.0 / 60.0))
+    memory_rows = _live_pipeline_memory_rows()
+    # Prefer DB + in-memory NTRIP decode. Skip the cached probe sample whenever
+    # we already have fresh pipeline VTEC — that probe can be minutes stale.
+    live_rows = _merge_station_rows(pipeline_rows, recent_rows, memory_rows)
     if not live_rows or refresh_ntrip:
-        live_rows = _merge_station_rows(live_rows, _live_ntrip_heatmap_rows(refresh=refresh_ntrip or not live_rows))
+        live_rows = _merge_station_rows(
+            live_rows,
+            _probe_sample_vtec_rows() if not live_rows else [],
+            _live_ntrip_heatmap_rows(refresh=refresh_ntrip or not live_rows),
+            memory_rows,
+        )
     live_rows = _consensus_filter_control_rows(live_rows) if live_rows else []
     previous_rows = _temporal_reference_pipeline_rows() if live_rows else []
     if previous_rows:
@@ -1236,6 +1251,9 @@ def build_tec_heatmap(*, hours: float = 2.0, refresh_ntrip: bool = False) -> dic
             empty_message=_empty_heatmap_message(),
             previous_rows=[],
         )
+    # Advertise freshness so the UI can reject stale browser/CDN copies.
+    payload["lookback_minutes"] = LIVE_HEATMAP_MAX_LOOKBACK_MINUTES
+    payload["freshness"] = "live_ntrip"
     return payload
 
 

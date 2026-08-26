@@ -14,7 +14,7 @@ import StationVtecTimePlots from "@/components/charts/StationVtecTimePlots";
 const CorsMap = dynamic(() => import("@/components/maps/CorsMap"), { ssr: false });
 
 const LAYERS: MapLayer[] = ["Hybrid", "Satellite", "Street", "TEC Heat Map"];
-const HEATMAP_REFRESH_MS = 90_000;
+const HEATMAP_REFRESH_MS = 45_000;
 
 export default function TecHeatmapPage() {
   const [stations, setStations] = useState<Station[]>(() => peekStations());
@@ -28,8 +28,8 @@ export default function TecHeatmapPage() {
     // Do not flip status to pending on interval refresh — that flashes banners/UI.
     if (!background) setHeatmapStatus("pending");
     try {
-      // First load forces a live NTRIP sample when the ingest DB is empty.
-      const payload = await getTecHeatmap(6, !background);
+      // First load and periodic refresh use a short live lookback (API caps ~3 min).
+      const payload = await getTecHeatmap(0.05, !background);
       setHeatmap(payload);
       setHeatmapStatus(payload.available ? "ok" : "down");
       setLastFetchedAt(new Date());

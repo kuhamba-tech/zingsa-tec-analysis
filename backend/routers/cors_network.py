@@ -53,28 +53,50 @@ def _safe_station_mean_vtec(hours: float = 2.0) -> dict[str, float]:
         return {}
 
 
-def _safe_station_live_vtec(hours: float = 0.25) -> dict[str, float]:
-    """Recent absolute NTRIP/code VTEC per station (same aggregator as the heat map)."""
+def _safe_station_live_vtec(hours: float = 0.05) -> dict[str, float]:
+    """Fresh absolute NTRIP/code VTEC per station (same short window as the heat map).
+
+    Caps lookback to a few minutes so station cards cannot show a 15–60 minute
+    average while MSM streams are still live.
+    """
     out: dict[str, float] = {}
+    try:
+        from backend.live_manager import get_db
+        from zgiis.maps.heatmap_data import LIVE_HEATMAP_MAX_LOOKBACK_MINUTES, LIVE_VTEC_RECENT_MINUTES
+
+        minutes = max(
+            1.0,
+            min(float(hours) * 60.0, float(LIVE_HEATMAP_MAX_LOOKBACK_MINUTES), float(LIVE_VTEC_RECENT_MINUTES)),
+        )
+        df = get_db().recent_station_vtec(minutes=minutes, code_live_only=True)
+        if df is not None and not getattr(df, "empty", True):
+            for _, row in df.iterrows():
+                code = str(row["station"]).lower().rstrip("_")
+                try:
+                    value = float(row["mean_vtec"])
+                except (TypeError, ValueError, KeyError):
+                    continue
+                if value > 0:
+                    out[code] = round(value, 2)
+    except Exception as exc:
+        log.warning("stations live NTRIP VTEC attach skipped: %s", exc)
     try:
         from backend.live_manager import latest_vtec_by_station
 
+        # In-memory NTRIP decode is freshest, but reject single-PRN spikes that
+        # disagree with the robust short-window station value (Gokwe was ~124
+        # TECU from one bad sample while the median sat near ~20).
         for code, vtec in latest_vtec_by_station().items():
+            key = str(code).lower().rstrip("_")
             value = float(vtec)
-            if value > 0:
-                out[str(code).lower().rstrip("_")] = round(value, 2)
+            if value <= 0:
+                continue
+            prior = out.get(key)
+            if prior is not None and abs(value - prior) > max(12.0, 0.4 * prior):
+                continue
+            out[key] = round(value, 2)
     except Exception:
         pass
-    try:
-        from backend.live_manager import get_db
-        from zgiis.maps.heatmap_data import station_vtec_by_code_from_frame
-
-        df = get_db().query_recent(hours=min(float(hours), 0.25))
-        for code, value in station_vtec_by_code_from_frame(df).items():
-            # In-memory NTRIP decode wins over DB window when both exist.
-            out.setdefault(code, value)
-    except Exception as exc:
-        log.warning("stations live NTRIP VTEC attach skipped: %s", exc)
     return out
 
 
