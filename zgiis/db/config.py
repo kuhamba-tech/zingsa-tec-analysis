@@ -109,7 +109,8 @@ def ensure_sslmode(dsn: str) -> str:
     if not host or parts.scheme not in {"postgres", "postgresql"}:
         return dsn
     query = dict(parse_qsl(parts.query, keep_blank_values=True))
-    if "supabase" in host and "sslmode" not in query:
+    hosted = any(token in host for token in ("supabase", "neon.tech", "render.com", "amazonaws.com"))
+    if hosted and "sslmode" not in query:
         query["sslmode"] = "require"
     if "connect_timeout" not in query:
         query["connect_timeout"] = "5"

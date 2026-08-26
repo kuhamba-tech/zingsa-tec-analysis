@@ -57,10 +57,18 @@ def _status_push_url() -> str:
     ``/api/cors/*`` paths return Vercel's own 404, so requests to the production
     host must target ``cors-router`` and carry the real FastAPI route in
     ``__zr`` (the same contract used by frontend/lib/api.ts).
+
+    On Render the FastAPI service exposes real paths, so
+    ``STATUS_SNAPSHOT_PUSH_URL`` should be
+    ``https://<api-service>.onrender.com/cors/status/snapshots``.
     """
-    raw = (os.getenv("STATUS_SNAPSHOT_PUSH_URL") or DEFAULT_STATUS_PUSH_URL).strip()
+    raw = (os.getenv("STATUS_SNAPSHOT_PUSH_URL") or "").strip()
     if not raw:
-        return ""
+        api_host = (os.getenv("RENDER_API_HOST") or "").strip()
+        if api_host:
+            raw = f"https://{api_host}/cors/status/snapshots"
+        else:
+            raw = DEFAULT_STATUS_PUSH_URL
 
     parsed = urllib.parse.urlsplit(raw)
     if parsed.hostname == "zingsa-gnss-tec.vercel.app" and parsed.path.rstrip("/") in {

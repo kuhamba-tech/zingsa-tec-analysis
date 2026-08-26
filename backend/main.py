@@ -25,7 +25,8 @@ from backend.env_bootstrap import load_runtime_env
 
 # Local dashboard reads SQLite by default. Hosted Neon is for Vercel/collector
 # production pushes — forcing it here hung local /cors/stations when Neon was unreachable.
-load_runtime_env(prefer_vercel_db=False)
+# On Render, Blueprint injects DATABASE_URL/TSDB_DSN; do not prefer .env.vercel.*.
+load_runtime_env(prefer_vercel_db=bool(os.getenv("VERCEL")))
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -93,8 +94,12 @@ def _cors_origins() -> list[str]:
     configured = os.getenv("CORS_ORIGINS", "").strip()
     if configured:
         return [origin.strip().rstrip("/") for origin in configured.split(",") if origin.strip()]
-    if os.getenv("VERCEL") or (os.getenv("ZGIIS_ENV") or "").strip().lower() in {"production", "prod"}:
-        return []  # Production frontend uses same-origin /api routes.
+    # Vercel serves UI + /api same-origin. Render serves a separate static site.
+    if os.getenv("VERCEL") or (
+        (os.getenv("ZGIIS_ENV") or "").strip().lower() in {"production", "prod"}
+        and not os.getenv("RENDER")
+    ):
+        return []
     return [
         "http://localhost:3000",
         "http://localhost:3001",
@@ -108,12 +113,14 @@ def _cors_origin_regex() -> str | None:
 
     Next.js advertises a LAN URL when it starts. The frontend intentionally
     calls FastAPI on the same host at port 8000, so that browser origin must be
-    accepted as well as localhost. Production remains same-origin unless an
-    explicit regex is configured.
+    accepted as well as localhost. Vercel production is same-origin unless an
+    explicit regex is configured. Render uses CORS_ORIGIN_REGEX for the static site.
     """
     configured = os.getenv("CORS_ORIGIN_REGEX", "").strip()
     if configured:
         return configured
+    if os.getenv("RENDER"):
+        return r"https://.*\.onrender\.com"
     if os.getenv("VERCEL") or (os.getenv("ZGIIS_ENV") or "").strip().lower() in {"production", "prod"}:
         return None
     return (
