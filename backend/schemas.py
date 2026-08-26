@@ -1006,6 +1006,27 @@ class LiveStationVtecSeries(BaseModel):
     mean_vtec: float | None = None
 
 
+class GlobalTecStationPoint(BaseModel):
+    time: str
+    vtec_tecu: float
+
+
+class GlobalTecStationSeries(BaseModel):
+    station: str
+    points: list[GlobalTecStationPoint] = []
+    latest_vtec: float | None = None
+
+
+class GlobalTecByStationResponse(BaseModel):
+    available: bool = False
+    epoch: str | None = None
+    source: str | None = None
+    inserted: int = 0
+    stations: list[GlobalTecStationSeries] = []
+    latest: list[dict] = []
+    message: str | None = None
+
+
 class StationLiveStatus(BaseModel):
     code: str
     name: str

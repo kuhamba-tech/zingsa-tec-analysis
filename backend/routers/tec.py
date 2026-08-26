@@ -451,6 +451,22 @@ def global_forecast_image(_=Depends(require_api_key)):
     return Response(content=upstream.content, media_type="image/png", headers=headers)
 
 
+@router.get("/global-vtec-by-station")
+def global_vtec_by_station(
+    hours: float = Query(6.0, ge=0.5, le=48),
+    _=Depends(require_api_key),
+):
+    """Sample DLR Global TEC at every CORS site and return logged time series.
+
+    Each call refreshes the latest DLR 1h-forecast grid, bilinear-samples at
+    station coordinates, persists those values, then returns the recent log so
+    station VTEC charts can overlay Observed vs Global TEC.
+    """
+    from zgiis.maps.dlr_global_tec import refresh_and_query_global_tec
+
+    return refresh_and_query_global_tec(hours=hours)
+
+
 @router.get("/heatmap", response_model=TecHeatmapResponse)
 async def tec_heatmap(
     hours: float = Query(2.0, ge=0.5, le=24),

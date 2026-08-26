@@ -156,7 +156,7 @@ export default function TecHeatmapPage() {
 
       <TecHeatMapLegend className="tec-heatmap-legend-below" maxVtec={maxVtec} />
 
-      <StationVtecTimePlots />
+      {mapLayer === "TEC Heat Map" && <StationVtecTimePlots />}
 
       {diagnostics && (
         <section className="tec-map-diagnostics" aria-label="TEC interpolation diagnostics">

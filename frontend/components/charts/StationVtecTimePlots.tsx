@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { getLiveVtecByStation } from "@/lib/api";
-import type { LiveStationVtecSeries } from "@/lib/types";
+import { getGlobalVtecByStation, getLiveVtecByStation } from "@/lib/api";
+import type { GlobalTecStationSeries, LiveStationVtecSeries } from "@/lib/types";
 import LineChart from "@/components/charts/LineChart";
 
 const HOUR_OPTIONS = [2, 6, 12] as const;
@@ -19,10 +19,67 @@ function formatTick(iso: string): string {
   });
 }
 
-function StationChartCard({ series }: { series: LiveStationVtecSeries }) {
-  const hasData = series.points.length > 0;
-  const labels = series.points.map((p) => formatTick(p.time));
-  const values = series.points.map((p) => p.vtec_tecu);
+/** Align observed + global series onto a shared UTC timeline (null where missing). */
+function mergeSeries(
+  observed: LiveStationVtecSeries,
+  global: GlobalTecStationSeries | undefined,
+): {
+  labels: string[];
+  observed: (number | null)[];
+  global: (number | null)[];
+  hasObserved: boolean;
+  hasGlobal: boolean;
+} {
+  const obsMap = new Map(observed.points.map((p) => [p.time, p.vtec_tecu]));
+  const globMap = new Map((global?.points ?? []).map((p) => [p.time, p.vtec_tecu]));
+  const times = Array.from(new Set([...obsMap.keys(), ...globMap.keys()])).sort(
+    (a, b) => new Date(a).getTime() - new Date(b).getTime(),
+  );
+  return {
+    labels: times.map(formatTick),
+    observed: times.map((t) => (obsMap.has(t) ? (obsMap.get(t) as number) : null)),
+    global: times.map((t) => (globMap.has(t) ? (globMap.get(t) as number) : null)),
+    hasObserved: obsMap.size > 0,
+    hasGlobal: globMap.size > 0,
+  };
+}
+
+function StationChartCard({
+  series,
+  globalSeries,
+}: {
+  series: LiveStationVtecSeries;
+  globalSeries?: GlobalTecStationSeries;
+}) {
+  const merged = mergeSeries(series, globalSeries);
+  const hasData = merged.hasObserved || merged.hasGlobal;
+  const latestGlobal = globalSeries?.latest_vtec ?? null;
+
+  const datasets = [
+    ...(merged.hasObserved
+      ? [
+          {
+            label: "Observed (NTRIP)",
+            data: merged.observed,
+            color: "#3d8bfd",
+            fill: true,
+            spanGaps: true,
+          },
+        ]
+      : []),
+    ...(merged.hasGlobal
+      ? [
+          {
+            label: "Global TEC (DLR)",
+            data: merged.global,
+            color: "#f0a202",
+            dashed: true,
+            fill: false,
+            spanGaps: true,
+          },
+        ]
+      : []),
+  ];
 
   return (
     <article className="card station-vtec-plot-card" aria-label={`${series.station} VTEC time series`}>
@@ -35,30 +92,29 @@ function StationChartCard({ series }: { series: LiveStationVtecSeries }) {
           {series.latest_vtec != null ? (
             <>
               <em>{series.latest_vtec.toFixed(1)} TECU</em>
-              <small>latest</small>
+              <small>observed</small>
             </>
           ) : (
             <small>No live VTEC</small>
+          )}
+          {latestGlobal != null && (
+            <>
+              <em style={{ color: "#f0a202" }}>{latestGlobal.toFixed(1)} TECU</em>
+              <small>global</small>
+            </>
           )}
         </div>
       </div>
       {hasData ? (
         <LineChart
-          labels={labels}
-          datasets={[
-            {
-              label: "Observed",
-              data: values,
-              color: "#3d8bfd",
-              fill: true,
-            },
-          ]}
+          labels={merged.labels}
+          datasets={datasets}
           yLabel="VTEC (TECU)"
           height={180}
           compact
         />
       ) : (
-        <div className="station-vtec-plot-empty">No live pipeline VTEC in this window.</div>
+        <div className="station-vtec-plot-empty">No live or Global TEC in this window.</div>
       )}
     </article>
   );
@@ -76,6 +132,8 @@ export default function StationVtecTimePlots({
 }: Props) {
   const [hours, setHours] = useState<(typeof HOUR_OPTIONS)[number]>(6);
   const [series, setSeries] = useState<LiveStationVtecSeries[]>([]);
+  const [globalByStation, setGlobalByStation] = useState<Record<string, GlobalTecStationSeries>>({});
+  const [globalSource, setGlobalSource] = useState<string | null>(null);
   const [status, setStatus] = useState<"pending" | "ok" | "down">("pending");
   const [error, setError] = useState<string | null>(null);
 
@@ -84,15 +142,42 @@ export default function StationVtecTimePlots({
     const load = async (background = false) => {
       if (!background) setStatus("pending");
       try {
-        const rows = await getLiveVtecByStation(hours, hours <= 2 ? 1 : 2);
+        const [rows, globalPayload] = await Promise.all([
+          getLiveVtecByStation(hours, hours <= 2 ? 1 : 2),
+          getGlobalVtecByStation(hours).catch(() => null),
+        ]);
         if (cancelled) return;
         setSeries(rows);
+        if (globalPayload?.available) {
+          const map: Record<string, GlobalTecStationSeries> = {};
+          for (const row of globalPayload.stations ?? []) {
+            map[row.station.toLowerCase().replace(/_+$/, "")] = row;
+          }
+          // If history is empty but we just sampled "latest", seed one-point series.
+          if (Object.keys(map).length === 0 && (globalPayload.latest?.length ?? 0) > 0) {
+            const epoch = globalPayload.epoch ?? new Date().toISOString();
+            for (const row of globalPayload.latest) {
+              const code = row.station.toLowerCase().replace(/_+$/, "");
+              map[code] = {
+                station: code,
+                points: [{ time: epoch, vtec_tecu: row.vtec_tecu }],
+                latest_vtec: row.vtec_tecu,
+              };
+            }
+          }
+          setGlobalByStation(map);
+          setGlobalSource(globalPayload.source);
+        } else {
+          setGlobalByStation({});
+          setGlobalSource(null);
+        }
         setError(null);
         setStatus("ok");
       } catch (err) {
         if (cancelled) return;
         if (!background) {
           setSeries([]);
+          setGlobalByStation({});
           setStatus("down");
           setError(err instanceof Error ? err.message : "Failed to load live VTEC series");
         }
@@ -110,6 +195,7 @@ export default function StationVtecTimePlots({
     () => series.filter((s) => s.points.length > 0).length,
     [series],
   );
+  const globalReporting = useMemo(() => Object.keys(globalByStation).length, [globalByStation]);
 
   return (
     <section className={`station-vtec-plots ${className ?? ""}`.trim()} aria-label={title}>
@@ -117,9 +203,9 @@ export default function StationVtecTimePlots({
         <div>
           <h2 className="home-section-heading">{title}</h2>
           <p className="station-vtec-plots-sub">
-            Absolute code TEC from the live NTRIP pipeline (median per bin). Use these traces to check whether
-            heat-map station values are stable and physically reasonable. EKF predicted lines are omitted until a
-            real per-station EKF series is available.
+            Absolute code TEC from the live NTRIP pipeline (solid) with DLR Global TEC sampled at each station
+            (dashed). Global values are logged whenever the dashboard refreshes so the overlay builds a real
+            history over time. EKF predicted lines are omitted until a real per-station EKF series is available.
           </p>
         </div>
         <div className="station-vtec-plots-controls" role="group" aria-label="VTEC history window">
@@ -146,14 +232,21 @@ export default function StationVtecTimePlots({
       )}
       {status === "ok" && (
         <p className="station-vtec-plots-meta">
-          {reporting} of {series.length || 25} stations reporting in the last {hours} h · auto-refresh every{" "}
-          {REFRESH_MS / 1000}s
+          {reporting} of {series.length || 25} stations reporting in the last {hours} h
+          {globalReporting > 0
+            ? ` · Global TEC overlay on ${globalReporting} sites${globalSource ? ` (${globalSource})` : ""}`
+            : ""}{" "}
+          · auto-refresh every {REFRESH_MS / 1000}s
         </p>
       )}
 
       <div className="station-vtec-plots-grid">
         {series.map((row) => (
-          <StationChartCard key={row.station} series={row} />
+          <StationChartCard
+            key={row.station}
+            series={row}
+            globalSeries={globalByStation[row.station.toLowerCase().replace(/_+$/, "")]}
+          />
         ))}
       </div>
     </section>

@@ -40,7 +40,20 @@ def _runtime_mode() -> str:
     return "vercel-serverless" if os.getenv("VERCEL") else "persistent-process"
 
 
+def _external_collector_running() -> bool:
+    """True when an operator explicitly reserved ingest for the dedicated collector.
+
+    Do not auto-disable API ingest just because ``live_ntrip_collector`` is
+    running — that process often writes Neon for Vercel while local uvicorn
+    uses SQLite for the dashboard. Dual-writing the *same* SQLite file is
+    opted out with ZGIIS_DISABLE_API_INGEST / ZGIIS_EXTERNAL_COLLECTOR.
+    """
+    return _env_enabled("ZGIIS_EXTERNAL_COLLECTOR") or _env_enabled("ZGIIS_DISABLE_API_INGEST")
+
+
 def _ingest_allowed() -> bool:
+    if _external_collector_running():
+        return False
     return not (os.getenv("VERCEL") and not _env_enabled("ENABLE_NTRIP_INGEST"))
 
 
@@ -197,7 +210,7 @@ def is_configured() -> bool:
     return _configured
 
 
-def status() -> dict:
+def status(*, include_record_counts: bool = True) -> dict:
     from zgiis.db.config import configured_database_env_key, database_dsn, database_host_kind
 
     mgr = _ntrip_manager
@@ -209,11 +222,12 @@ def status() -> dict:
         db_backend = db.backend
     except Exception as exc:
         log.debug("Live pipeline DB backend unavailable: %s", exc)
-    try:
-        db = _db or get_db()
-        recent_records = db.record_count(hours=1.0)
-    except Exception as exc:
-        log.debug("Live pipeline recent record count unavailable: %s", exc)
+    if include_record_counts:
+        try:
+            db = _db or get_db()
+            recent_records = db.record_count(hours=1.0)
+        except Exception as exc:
+            log.debug("Live pipeline recent record count unavailable: %s", exc)
     diagnostics = diagnostics_by_station()
     if _nav_cache is not None:
         diagnostics["gps_ephemeris_svs"] = _nav_cache.gps_sv_count()

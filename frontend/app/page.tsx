@@ -31,7 +31,6 @@ import Link from "next/link";
 import Image from "next/image";
 import dynamic from "next/dynamic";
 import { DashboardHeaderClocks } from "@/components/dashboard/DashboardClocks";
-import StationVtecTimePlots from "@/components/charts/StationVtecTimePlots";
 import { PRODUCT_SHORT_NAME, PRODUCT_TAGLINE } from "@/lib/navigationNewsBranding";
 
 const CorsMapWithLayers = dynamic(() => import("@/components/maps/CorsMapWithLayers"), {
@@ -379,8 +378,6 @@ export default function HomePage() {
           heatmap={displayHeatmap}
         />
       </div>
-
-      <StationVtecTimePlots className="home-station-vtec-plots" />
 
       <section className="home-getting-started" aria-label="Getting started">
         <div className="home-getting-started-panel">

@@ -70,13 +70,14 @@ async def live_vtec_by_station(
     resample_minutes: int = Query(2, ge=1, le=30),
     _=Depends(require_api_key),
 ):
-    """Binned mean/median live VTEC vs time for every Zimbabwe CORS station.
+    """Binned live NTRIP VTEC vs time for every Zimbabwe CORS station.
 
     Used by the National Dashboard / TEC heat-map pages so operators can verify
-    station VTEC against the map snapshot. Prefers absolute code TEC when present.
+    station VTEC against the map snapshot. Prefers absolute code TEC
+    (``code_live`` from the NTRIP pipeline). Aggregation stays in SQL so
+    continuous ingest cannot stall the chart endpoint.
     """
     from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
-    from zgiis.maps.heatmap_data import _absolute_vtec_observation_frame
 
     catalog = {
         s.code.lower().rstrip("_"): s
@@ -91,25 +92,26 @@ async def live_vtec_by_station(
     if db is None:
         return empty
     try:
-        df = db.query_recent(hours=hours)
+        df = db.station_vtec_timeseries_binned(
+            hours=hours,
+            resample_minutes=resample_minutes,
+            code_live_only=True,
+        )
         if df is None or getattr(df, "empty", True):
             return empty
-        df = _absolute_vtec_observation_frame(df)
-        if df is None or getattr(df, "empty", True):
-            return empty
-        if "station" not in df.columns or "vtec_tecu" not in df.columns or "time" not in df.columns:
+        if "station" not in df.columns or "bucket" not in df.columns or "vtec_tecu" not in df.columns:
             return empty
 
         work = df.copy()
         work["station"] = work["station"].astype(str).str.lower().str.rstrip("_")
-        work["time"] = pd.to_datetime(work["time"], utc=True, errors="coerce")
+        work["bucket"] = pd.to_datetime(work["bucket"], utc=True, errors="coerce")
         work["vtec_tecu"] = pd.to_numeric(work["vtec_tecu"], errors="coerce")
-        work = work.dropna(subset=["time", "vtec_tecu"])
+        work["obs_count"] = pd.to_numeric(work.get("obs_count"), errors="coerce").fillna(0)
+        work = work.dropna(subset=["bucket", "vtec_tecu"])
         work = work[(work["vtec_tecu"] > 0) & (work["vtec_tecu"] < 200)]
         if work.empty:
             return empty
 
-        rule = f"{int(resample_minutes)}min"
         series_by_code: dict[str, LiveStationVtecSeries] = {
             code: LiveStationVtecSeries(station=code, name=station.name, points=[])
             for code, station in catalog.items()
@@ -119,23 +121,19 @@ async def live_vtec_by_station(
             key = str(code).lower().rstrip("_")
             if key not in series_by_code:
                 continue
-            # Median per bin is less sensitive to PRN/code-TEC spikes than mean.
-            binned = (
-                group.set_index("time")["vtec_tecu"]
-                .resample(rule)
-                .agg(["median", "count"])
-                .dropna(subset=["median"])
-            )
-            if binned.empty:
-                continue
+            group = group.sort_values("bucket")
             points = [
                 LiveStationVtecPoint(
                     time=idx.isoformat().replace("+00:00", "Z"),
-                    vtec_tecu=round(float(row["median"]), 2),
-                    obs_count=int(row["count"]),
+                    vtec_tecu=round(float(vtec), 2),
+                    obs_count=int(obs),
                 )
-                for idx, row in binned.iterrows()
-                if float(row["median"]) > 0
+                for idx, vtec, obs in zip(
+                    group["bucket"],
+                    group["vtec_tecu"],
+                    group["obs_count"],
+                )
+                if float(vtec) > 0
             ]
             values = [p.vtec_tecu for p in points]
             series_by_code[key] = LiveStationVtecSeries(
@@ -165,10 +163,14 @@ async def live_stations(_=Depends(require_api_key)):
     try:
         df = db.query_recent(hours=0.25) if db else None
         if df is not None and not df.empty and "station" in df.columns:
-            latest = df.sort_values("time").groupby("station").tail(1).set_index("station")
-            latest_by_station = latest.to_dict(orient="index")
-            if "vtec_tecu" in df.columns:
-                mean_by_station = df.groupby("station")["vtec_tecu"].mean().to_dict()
+            # Exclude DLR Global TEC reference samples from live CORS status.
+            if "tec_method" in df.columns:
+                df = df[~df["tec_method"].astype(str).str.startswith("dlr_", na=False)]
+            if not df.empty:
+                latest = df.sort_values("time").groupby("station").tail(1).set_index("station")
+                latest_by_station = latest.to_dict(orient="index")
+                if "vtec_tecu" in df.columns:
+                    mean_by_station = df.groupby("station")["vtec_tecu"].mean().to_dict()
     except Exception:
         latest_by_station = {}
         mean_by_station = {}
@@ -212,7 +214,9 @@ async def pipeline_status(_=Depends(require_api_key)):
     import os
 
     from backend.live_manager import status as live_status
-    s = live_status()
+    # Skip full-table COUNT(*) — under continuous NTRIP ingest that scans
+    # millions of SQLite rows and stalls every dashboard poll.
+    s = live_status(include_record_counts=False)
     db = _db()
     record_count = 0
     recent_record_count_1h = int(s.get("recent_vtec_records_1h") or 0)
@@ -222,11 +226,7 @@ async def pipeline_status(_=Depends(require_api_key)):
     try:
         if db:
             db_backend = db.backend
-            record_count = db.record_count()
-            if not recent_record_count_1h:
-                recent_record_count_1h = db.record_count(hours=1.0)
     except Exception:
-        record_count = 0
         if db_backend == "unknown":
             db_backend = "timescaledb" if os.getenv("TSDB_DSN") else "sqlite"
     return LivePipelineStatus(

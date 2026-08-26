@@ -27,9 +27,16 @@ function isInterpolatedSource(source: string | null | undefined): boolean {
 }
 
 function heatmapVtec(station: Station, heatmap?: TecHeatmapResponse | null): number | null {
-  const fromHeatmap = heatmapStationFor(station, heatmap)?.vtec;
-  if (typeof fromHeatmap === "number" && Number.isFinite(fromHeatmap) && fromHeatmap >= 0) {
-    return fromHeatmap;
+  const heatStation = heatmapStationFor(station, heatmap);
+  const measuredLive =
+    heatStation &&
+    (heatStation.obs_count ?? 0) > 0 &&
+    !isInterpolatedSource(heatStation.source);
+  if (measuredLive) {
+    const fromHeatmap = heatStation.vtec;
+    if (typeof fromHeatmap === "number" && Number.isFinite(fromHeatmap) && fromHeatmap > 0) {
+      return fromHeatmap;
+    }
   }
   const liveStatus = getLiveStationStatus(station);
   if (liveStatus === "offline" || liveStatus === "unavailable") return null;

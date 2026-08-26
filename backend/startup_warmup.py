@@ -54,6 +54,12 @@ def _delayed_live_start() -> None:
     try:
         from backend import live_manager
 
+        if not live_manager._ingest_allowed():
+            log.info(
+                "Skipping API live NTRIP ingest — dedicated collector is active "
+                "(or ZGIIS_EXTERNAL_COLLECTOR / ZGIIS_DISABLE_API_INGEST is set)"
+            )
+            return
         live_manager.start()
     except Exception:
         log.exception("Live pipeline start failed")

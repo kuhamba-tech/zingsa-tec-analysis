@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import CorsMap from "./CorsMap";
 import NetworkDistancesPanel from "./NetworkDistancesPanel";
 import TecHeatMapLegend from "./TecHeatMapLegend";
+import StationVtecTimePlots from "@/components/charts/StationVtecTimePlots";
 import { heatmapQualityBanner, icaoTecLabel, icaoTecLevel, inferHeatmapQuality } from "@/lib/icaoTecAdvisory";
 import type { ProposedCorsSite } from "@/lib/corsGeneticOptimizer";
 import type { Station, TecHeatmapResponse } from "@/lib/types";
@@ -318,6 +319,8 @@ export default function CorsMapWithLayers({
       {tecLayerActive && (
         <TecHeatMapLegend className="tec-heatmap-legend-below" maxVtec={maxVtec} />
       )}
+
+      {tecLayerActive && <StationVtecTimePlots className="home-station-vtec-plots" />}
     </div>
   );
 }

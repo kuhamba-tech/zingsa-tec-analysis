@@ -158,9 +158,16 @@ function stationTecValue(station: Station, heatmap: TecHeatmapResponse | null | 
   if (heatStation && /processed_archive/i.test(heatStation.source ?? "")) {
     return null;
   }
-  const fromHeatmap = heatStation?.vtec;
-  if (typeof fromHeatmap === "number" && Number.isFinite(fromHeatmap) && fromHeatmap >= 0) {
-    return fromHeatmap;
+  // Markers show measured live NTRIP VTEC only — never IDW/surface estimates.
+  const measuredLive =
+    heatStation &&
+    (heatStation.obs_count ?? 0) > 0 &&
+    !isInterpolatedSource(heatStation.source);
+  if (measuredLive) {
+    const fromHeatmap = heatStation.vtec;
+    if (typeof fromHeatmap === "number" && Number.isFinite(fromHeatmap) && fromHeatmap > 0) {
+      return fromHeatmap;
+    }
   }
   const liveStatus = getLiveStationStatus(station);
   if (liveStatus === "offline" || liveStatus === "unavailable") return null;
@@ -213,6 +220,7 @@ export default function CorsMap({
   const viewLayerRef = useRef<MapLayer | null>(null);
   const [selected, setSelected] = useState<Station | null>(null);
   const [globalTecSrc, setGlobalTecSrc] = useState<string | null>(null);
+  const [globalTecError, setGlobalTecError] = useState<string | null>(null);
   const scienceMeta = scienceLayerMeta(layer);
   const setSelectedRef = useRef(setSelected);
   setSelectedRef.current = setSelected;
@@ -225,6 +233,7 @@ export default function CorsMap({
 
   useEffect(() => {
     if (layer !== "Global TEC") {
+      setGlobalTecError(null);
       setGlobalTecSrc((prev) => {
         if (prev) URL.revokeObjectURL(prev);
         return null;
@@ -244,8 +253,14 @@ export default function CorsMap({
         if (objectUrl) URL.revokeObjectURL(objectUrl);
         objectUrl = next;
         setGlobalTecSrc(next);
-      } catch {
+        setGlobalTecError(null);
+      } catch (err) {
         // Keep the last good frame if a refresh fails (cold start / DLR blip).
+        if (!cancelled && !objectUrl) {
+          setGlobalTecError(
+            err instanceof Error ? err.message : "Global TEC forecast unavailable",
+          );
+        }
       }
     };
 
@@ -1024,7 +1039,11 @@ export default function CorsMap({
               style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
             />
           ) : (
-            <div style={{ color: "#334", fontSize: 14 }}>Loading Global TEC forecast…</div>
+            <div style={{ color: "#334", fontSize: 14, textAlign: "center", padding: "1rem" }}>
+              {globalTecError
+                ? `Global TEC map failed to load: ${globalTecError}. Check that the API server is running on :8000.`
+                : "Loading Global TEC forecast…"}
+            </div>
           )}
         </div>
       </div>

@@ -31,6 +31,53 @@ _STATIONS_LIVE_CACHE_TTL_SEC = 5.0
 _stations_cache: dict[str, object] = {"rows": None, "ts": 0.0, "key": None}
 
 
+def _safe_query_recent_vtec(hours: float):
+    """Attach live VTEC when DB is free; never block station markers on SQLite locks."""
+    try:
+        from backend.live_manager import get_db
+
+        return get_db().query_recent(hours=hours)
+    except Exception as exc:
+        log.warning("stations VTEC attach skipped: %s", exc)
+        return None
+
+
+def _safe_station_mean_vtec(hours: float = 2.0) -> dict[str, float]:
+    """Lightweight per-station means — avoids loading full raw VTEC frames."""
+    try:
+        from backend.live_manager import get_db
+
+        return get_db().station_mean_vtec(hours=hours)
+    except Exception as exc:
+        log.warning("stations mean VTEC attach skipped: %s", exc)
+        return {}
+
+
+def _safe_station_live_vtec(hours: float = 0.25) -> dict[str, float]:
+    """Recent absolute NTRIP/code VTEC per station (same aggregator as the heat map)."""
+    out: dict[str, float] = {}
+    try:
+        from backend.live_manager import latest_vtec_by_station
+
+        for code, vtec in latest_vtec_by_station().items():
+            value = float(vtec)
+            if value > 0:
+                out[str(code).lower().rstrip("_")] = round(value, 2)
+    except Exception:
+        pass
+    try:
+        from backend.live_manager import get_db
+        from zgiis.maps.heatmap_data import station_vtec_by_code_from_frame
+
+        df = get_db().query_recent(hours=min(float(hours), 0.25))
+        for code, value in station_vtec_by_code_from_frame(df).items():
+            # In-memory NTRIP decode wins over DB window when both exist.
+            out.setdefault(code, value)
+    except Exception as exc:
+        log.warning("stations live NTRIP VTEC attach skipped: %s", exc)
+    return out
+
+
 def _is_serverless_runtime() -> bool:
     """Whether this request is running in deployment compute, not the collector."""
     return any(
@@ -258,85 +305,20 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
             # Keep Spider status overlay, but still attach recent live VTEC from the
             # shared DB so TEC heat-map / station cards are not stuck on zeros.
             stations = _merge_spider_site_statuses(stations, refresh=refresh_ntrip)
-            try:
-                df = get_db().query_recent(hours=2.0)
-            except Exception:
-                df = None
-            if (
-                df is not None
-                and not df.empty
-                and "station" in df.columns
-                and "vtec_tecu" in df.columns
-            ):
-                try:
-                    from zgiis.maps.heatmap_data import (
-                        _consensus_filter_control_rows,
-                        station_vtec_by_code_from_frame,
-                    )
-
-                    vtec_by_station = station_vtec_by_code_from_frame(df)
-                    if len(vtec_by_station) >= 2:
-                        filtered = _consensus_filter_control_rows(
-                            [
-                                {"code": code, "vtec": vtec, "obs_count": 1}
-                                for code, vtec in vtec_by_station.items()
-                            ]
-                        )
-                        vtec_by_station = {
-                            str(row["code"]).lower().rstrip("_"): float(row["vtec"])
-                            for row in filtered
-                        }
-                except Exception:
-                    vtec_by_station = {}
-                for code, mean_vtec in vtec_by_station.items():
-                    stations = [
-                        replace(s, current_tec=round(mean_vtec, 2))
-                        if s.code.lower().rstrip("_") == code
-                        else s
-                        for s in stations
-                    ]
+            vtec_by_station = _safe_station_live_vtec(0.25)
+            for code, mean_vtec in vtec_by_station.items():
+                stations = [
+                    replace(s, current_tec=round(mean_vtec, 2))
+                    if s.code.lower().rstrip("_") == code
+                    else s
+                    for s in stations
+                ]
             return _merge_rover_clients(stations)
 
     probe_payload = None
     probe_by: dict = {}
-    try:
-        df = get_db().query_recent(hours=2.0)
-    except Exception:
-        df = None
-
-    has_recent_vtec = (
-        df is not None
-        and not df.empty
-        and "station" in df.columns
-        and "vtec_tecu" in df.columns
-    )
-    vtec_by_station: dict[str, float] = {}
-    if has_recent_vtec:
-        try:
-            from zgiis.maps.heatmap_data import (
-                _consensus_filter_control_rows,
-                station_vtec_by_code_from_frame,
-            )
-
-            vtec_by_station = station_vtec_by_code_from_frame(df)
-            if len(vtec_by_station) >= 2:
-                filtered = _consensus_filter_control_rows(
-                    [
-                        {"code": code, "vtec": vtec, "obs_count": 1}
-                        for code, vtec in vtec_by_station.items()
-                    ]
-                )
-                vtec_by_station = {
-                    str(row["code"]).lower().rstrip("_"): float(row["vtec"])
-                    for row in filtered
-                }
-        except Exception:
-            grouped = df.groupby("station")["vtec_tecu"]
-            for code_raw, series in grouped:
-                code = str(code_raw).lower().rstrip("_")
-                mean_vtec = float(series.mean())
-                if math.isfinite(mean_vtec) and mean_vtec > 0:
-                    vtec_by_station[code] = mean_vtec
+    vtec_by_station: dict[str, float] = _safe_station_live_vtec(0.25)
+    has_recent_vtec = bool(vtec_by_station)
 
     try:
         from backend.live_manager import latest_vtec_by_station
@@ -466,8 +448,11 @@ def _merge_spider_site_statuses(stations: list, *, refresh: bool = False) -> lis
         return _hold_non_spider_as_unknown(stations)
 
     try:
-        # refresh=True and the default path both require a fresh live pull.
-        payload = ensure_spider_site_statuses(max_age_sec=0.0 if refresh else 15.0)
+        # Prefer cached Spider for map refresh; only wait briefly for a live pull.
+        payload = ensure_spider_site_statuses(
+            max_age_sec=0.0 if refresh else 15.0,
+            wait_sec=8.0 if refresh else 1.5,
+        )
     except Exception:
         log.exception("Failed to load Spider site status")
         return _hold_non_spider_as_unknown(stations)

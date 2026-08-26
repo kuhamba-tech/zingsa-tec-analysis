@@ -30,6 +30,7 @@ import type {
   LiveObservation,
   LivePipelineStatus,
   LiveStationVtecSeries,
+  GlobalTecByStationResponse,
   NavigationNewsBriefApi,
   NavigationNewsBundleApi,
   NavigationNewsScheduleApi,
@@ -794,6 +795,14 @@ export async function fetchGlobalTecForecastObjectUrl(): Promise<string> {
   const blob = await res.blob();
   return URL.createObjectURL(blob);
 }
+
+/** Sample + log DLR Global TEC at each CORS site; return time series for chart overlay. */
+export const getGlobalVtecByStation = (hours = 6) =>
+  get<GlobalTecByStationResponse>(
+    "/tec/global-vtec-by-station",
+    { hours, _ts: Date.now() },
+    Math.max(FETCH_TIMEOUT_MS, 55_000),
+  );
 
 export const getDiurnal = (station?: string) => get<DiurnalPoint[]>("/tec/diurnal", { station });
 export const getSeasonal = (station?: string) => get<SeasonalRow[]>("/tec/seasonal", { station });

@@ -500,17 +500,45 @@ def _row_from_station(station, *, vtec: float, obs_count: int, source: str = "li
     }
 
 
+def _rows_from_station_vtec_summary(df, *, source: str = "live") -> list[dict[str, Any]]:
+    """Build heat-map station rows from SQL-aggregated live NTRIP VTEC."""
+    if df is None or getattr(df, "empty", True):
+        return []
+    if "station" not in df.columns or "mean_vtec" not in df.columns:
+        return []
+    rows: list[dict[str, Any]] = []
+    for _, row in df.iterrows():
+        code = str(row["station"]).lower().rstrip("_")
+        station = _STATION_LOOKUP.get(code)
+        if station is None:
+            continue
+        try:
+            vtec = float(row["mean_vtec"])
+            obs_count = int(row["obs_count"]) if "obs_count" in row and pd.notna(row["obs_count"]) else 1
+        except (TypeError, ValueError):
+            continue
+        if not np.isfinite(vtec) or vtec <= 0 or vtec >= 200:
+            continue
+        rows.append(_row_from_station(station, vtec=vtec, obs_count=max(obs_count, 1), source=source))
+    return rows
+
+
 def _pipeline_station_rows(hours: float = 2.0) -> list[dict[str, Any]]:
-    """Station VTEC from the live ingest DB, using absolute (code) TEC when available."""
+    """Station VTEC from the live NTRIP ingest DB (absolute code TEC when available).
+
+    Aggregates in SQL over the last ~10 minutes so continuous MSM writes cannot
+    stall /tec/heatmap by loading hundreds of thousands of PRN samples.
+    """
     if not _live_db_heatmap_enabled():
         return []
     try:
         from backend.live_manager import get_db
 
-        df = get_db().query_recent(hours=hours)
+        minutes = max(5.0, min(float(hours) * 60.0, float(LIVE_VTEC_RECENT_MINUTES)))
+        df = get_db().recent_station_vtec(minutes=minutes, code_live_only=True)
     except Exception:
         return []
-    return _station_rows_from_observation_frame(df, source="live")
+    return _rows_from_station_vtec_summary(df, source="live")
 
 
 def _recent_pipeline_rows(hours: float = 0.5) -> list[dict[str, Any]]:
@@ -520,10 +548,11 @@ def _recent_pipeline_rows(hours: float = 0.5) -> list[dict[str, Any]]:
             return []
         from backend.live_manager import get_db
 
-        df = get_db().query_recent(hours=hours)
+        minutes = max(3.0, min(float(hours) * 60.0, 5.0))
+        df = get_db().recent_station_vtec(minutes=minutes, code_live_only=True)
     except Exception:
         return []
-    return _station_rows_from_observation_frame(df, source="live")
+    return _rows_from_station_vtec_summary(df, source="live")
 
 
 def _robust_station_vtec(series) -> float | None:
@@ -577,15 +606,47 @@ def _consensus_filter_control_rows(rows: list[dict[str, Any]]) -> list[dict[str,
     return kept if kept else measured
 
 
-def station_vtec_by_code_from_frame(df) -> dict[str, float]:
-    """Shared Neon/local aggregation used by heat-map + CORS station cards."""
+LIVE_VTEC_RECENT_MINUTES = 10.0
+
+
+def station_vtec_by_code_from_frame(
+    df,
+    *,
+    recent_minutes: float | None = LIVE_VTEC_RECENT_MINUTES,
+) -> dict[str, float]:
+    """Shared Neon/local aggregation used by heat-map + CORS station cards.
+
+    When ``recent_minutes`` is set, each station uses only samples from the last
+    N minutes before *that station's* newest observation — so markers track the
+    live NTRIP decode instead of a multi-hour diurnal median.
+    """
     df = _absolute_vtec_observation_frame(df)
     if df is None or not hasattr(df, "empty") or df.empty:
         return {}
     if "station" not in df.columns or "vtec_tecu" not in df.columns:
         return {}
-    out: dict[str, float] = {}
-    for code_raw, series in df.groupby("station")["vtec_tecu"]:
+
+    work = df
+    if recent_minutes and recent_minutes > 0 and "time" in work.columns:
+        work = work.copy()
+        work["time"] = pd.to_datetime(work["time"], utc=True, errors="coerce")
+        work["vtec_tecu"] = pd.to_numeric(work["vtec_tecu"], errors="coerce")
+        work = work.dropna(subset=["time", "vtec_tecu", "station"])
+        if work.empty:
+            return {}
+        out: dict[str, float] = {}
+        window = pd.Timedelta(minutes=float(recent_minutes))
+        for code_raw, group in work.groupby(work["station"].astype(str).str.lower().str.rstrip("_")):
+            latest = group["time"].max()
+            recent = group[group["time"] >= latest - window]
+            vtec = _robust_station_vtec(recent["vtec_tecu"])
+            if vtec is None:
+                continue
+            out[str(code_raw)] = round(vtec, 2)
+        return out
+
+    out = {}
+    for code_raw, series in work.groupby("station")["vtec_tecu"]:
         code = str(code_raw).lower().rstrip("_")
         vtec = _robust_station_vtec(series)
         if vtec is None:
@@ -606,6 +667,11 @@ def _absolute_vtec_observation_frame(df):
     if "tec_method" not in work.columns:
         return work
 
+    method = work["tec_method"].astype(str)
+    # Never treat DLR Global TEC reference samples as live CORS VTEC.
+    work = work.loc[~method.str.startswith("dlr_", na=False)].copy()
+    if work.empty:
+        return work
     method = work["tec_method"].astype(str)
     code_live = method.str.contains("code_live", na=False)
     # Fast path: new collector rows are already absolute code TEC.
@@ -638,21 +704,33 @@ def _station_rows_from_observation_frame(df, *, source: str) -> list[dict[str, A
     df = _absolute_vtec_observation_frame(df)
     if df is None or not hasattr(df, "empty") or df.empty or "station" not in df.columns or "vtec_tecu" not in df.columns:
         return []
+    vtec_by_code = station_vtec_by_code_from_frame(df)
+    if not vtec_by_code:
+        return []
     rows: list[dict[str, Any]] = []
-    grouped = df.groupby("station")["vtec_tecu"]
-    for code_raw, series in grouped:
-        code = str(code_raw).lower().rstrip("_")
+    # obs_count = samples inside each station's recent live window
+    work = df
+    if "time" in work.columns:
+        work = work.copy()
+        work["time"] = pd.to_datetime(work["time"], utc=True, errors="coerce")
+        work["vtec_tecu"] = pd.to_numeric(work["vtec_tecu"], errors="coerce")
+        work = work.dropna(subset=["time", "vtec_tecu", "station"])
+    window = pd.Timedelta(minutes=float(LIVE_VTEC_RECENT_MINUTES))
+    for code, vtec in vtec_by_code.items():
         station = _STATION_LOOKUP.get(code)
         if station is None:
             continue
-        mean_vtec = _robust_station_vtec(series)
-        if mean_vtec is None:
-            continue
+        obs_count = 1
+        if "time" in work.columns and not work.empty:
+            group = work[work["station"].astype(str).str.lower().str.rstrip("_") == code]
+            if not group.empty:
+                latest = group["time"].max()
+                obs_count = int((group["time"] >= latest - window).sum()) or 1
         rows.append(
             _row_from_station(
                 station,
-                vtec=mean_vtec,
-                obs_count=int(pd.to_numeric(series, errors="coerce").dropna().count()),
+                vtec=vtec,
+                obs_count=obs_count,
                 source=source,
             )
         )
@@ -953,12 +1031,24 @@ def _live_surface_station_rows(control_rows: list[dict[str, Any]]) -> list[dict[
 
 
 def _merge_station_rows(*groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Merge station VTEC rows. Later groups are more authoritative.
+
+    Important: do **not** prefer higher ``obs_count``. A 2-hour DB median can have
+    tens of thousands of samples and would permanently override the last-15-min
+    NTRIP decode that operators expect on the local map.
+    """
     merged: dict[str, dict[str, Any]] = {}
     for group in groups:
         for row in group:
-            code = str(row["code"]).lower()
+            code = str(row["code"]).lower().rstrip("_")
             prev = merged.get(code)
-            if prev is None or int(row.get("obs_count") or 0) >= int(prev.get("obs_count") or 0):
+            if prev is None:
+                merged[code] = row
+                continue
+            row_obs = int(row.get("obs_count") or 0)
+            prev_obs = int(prev.get("obs_count") or 0)
+            # Later measured values always win; estimates only fill gaps.
+            if row_obs > 0 or prev_obs <= 0:
                 merged[code] = row
     return list(merged.values())
 
@@ -1101,9 +1191,10 @@ def build_tec_heatmap(*, hours: float = 2.0, refresh_ntrip: bool = False) -> dic
     """Return interpolated grid + heat points for map overlay (live NTRIP only)."""
     live_rows = _merge_station_rows(
         _pipeline_station_rows(hours=hours),
-        _recent_pipeline_rows(hours=min(hours, 0.75)),
-        _live_pipeline_memory_rows(),
+        _recent_pipeline_rows(hours=min(hours, 0.25)),
         _probe_sample_vtec_rows(),
+        # In-memory NTRIP decode wins — this is what the local collector/API just computed.
+        _live_pipeline_memory_rows(),
     )
     if not live_rows or refresh_ntrip:
         live_rows = _merge_station_rows(live_rows, _live_ntrip_heatmap_rows(refresh=refresh_ntrip or not live_rows))

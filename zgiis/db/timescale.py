@@ -9,10 +9,12 @@ If TimescaleDB is available the time-series tables are promoted to hypertables.
 from __future__ import annotations
 
 import logging
+import math
 import os
 import sqlite3
 import tempfile
 import threading
+import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
@@ -25,7 +27,28 @@ log = logging.getLogger(__name__)
 
 _TSDB_DSN = database_dsn()
 _SQLITE_PATH = Path(__file__).resolve().parents[2] / "static" / "data" / "vtec_live.db"
-_SQLITE_WRITE_LOCK = threading.Lock()
+# Serialize SQLite writers inside a process. Cross-process contention (API +
+# live_ntrip_collector) is handled with WAL + busy_timeout + insert retries.
+_SQLITE_WRITE_LOCK = threading.RLock()
+_SHARED_SQLITE_CONN: sqlite3.Connection | None = None
+_SQLITE_BUSY_TIMEOUT_MS = 8_000
+_SQLITE_CONNECT_TIMEOUT_SEC = 15.0
+_SQLITE_INSERT_ATTEMPTS = 6
+
+
+def _sqlite_busy(exc: BaseException) -> bool:
+    msg = str(exc).lower()
+    return "locked" in msg or "busy" in msg
+
+
+def _configure_sqlite(conn: sqlite3.Connection) -> None:
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute(f"PRAGMA busy_timeout={_SQLITE_BUSY_TIMEOUT_MS}")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute("PRAGMA temp_store=MEMORY")
+    except sqlite3.Error as exc:
+        log.debug("SQLite PRAGMA setup skipped: %s", exc)
 
 # Set once the first TecDB() in this process has confirmed the Postgres
 # schema (DDL/audit-columns/hypertable/index) exists, so later instances
@@ -90,10 +113,12 @@ class TecDB:
         TecDB()           # uses SUPABASE_DATABASE_URL/DATABASE_URL, or SQLite fallback
     """
 
-    def __init__(self, dsn: str = _TSDB_DSN):
-        self._dsn    = dsn
-        self._is_pg  = bool(dsn)
-        self._conn   = None
+    def __init__(self, dsn: str | None = None):
+        # Resolve DSN at construction time so env bootstrap in main/collector
+        # is visible (module-level default would freeze a pre-bootstrap empty DSN).
+        self._dsn = database_dsn() if dsn is None else dsn
+        self._is_pg = bool(self._dsn)
+        self._conn = None
         self._init()
 
     # ── Initialisation ────────────────────────────────────────────────────────
@@ -158,31 +183,33 @@ class TecDB:
         return "supabase" if "supabase" in self._dsn.lower() else "postgres"
 
     def _init_sqlite(self) -> None:
-        try:
-            _SQLITE_PATH.parent.mkdir(parents=True, exist_ok=True)
-            self._conn = sqlite3.connect(
-                str(_SQLITE_PATH),
-                check_same_thread=False,
-                timeout=30.0,
-            )
-        except (OSError, sqlite3.OperationalError):
-            # Read-only filesystem (e.g. Vercel) — fall back to an ephemeral
-            # temp-dir database rather than crashing the request.
-            fallback = Path(tempfile.gettempdir()) / _SQLITE_PATH.name
-            self._conn = sqlite3.connect(
-                str(fallback),
-                check_same_thread=False,
-                timeout=30.0,
-            )
-        try:
-            self._conn.execute("PRAGMA journal_mode=WAL")
-            self._conn.execute("PRAGMA busy_timeout=30000")
-            self._conn.execute("PRAGMA synchronous=NORMAL")
-        except sqlite3.Error as exc:
-            log.debug("SQLite PRAGMA setup skipped: %s", exc)
-        self._conn.executescript(_SQLITE_DDL)
-        self._conn.commit()
-        self._ensure_vtec_obs_audit_columns()
+        global _SHARED_SQLITE_CONN
+        with _SQLITE_WRITE_LOCK:
+            if _SHARED_SQLITE_CONN is not None:
+                self._conn = _SHARED_SQLITE_CONN
+                self._ensure_vtec_obs_audit_columns()
+                return
+            try:
+                _SQLITE_PATH.parent.mkdir(parents=True, exist_ok=True)
+                self._conn = sqlite3.connect(
+                    str(_SQLITE_PATH),
+                    check_same_thread=False,
+                    timeout=_SQLITE_CONNECT_TIMEOUT_SEC,
+                )
+            except (OSError, sqlite3.OperationalError):
+                # Read-only filesystem (e.g. Vercel) — fall back to an ephemeral
+                # temp-dir database rather than crashing the request.
+                fallback = Path(tempfile.gettempdir()) / _SQLITE_PATH.name
+                self._conn = sqlite3.connect(
+                    str(fallback),
+                    check_same_thread=False,
+                    timeout=_SQLITE_CONNECT_TIMEOUT_SEC,
+                )
+            _configure_sqlite(self._conn)
+            self._conn.executescript(_SQLITE_DDL)
+            self._conn.commit()
+            self._ensure_vtec_obs_audit_columns()
+            _SHARED_SQLITE_CONN = self._conn
 
     def _ensure_vtec_obs_audit_columns(self) -> None:
         columns = {
@@ -225,6 +252,7 @@ class TecDB:
 
     def insert_vtec(self, records: list[dict]) -> int:
         """Bulk-insert VTEC records. Returns count inserted."""
+        global _SHARED_SQLITE_CONN
         if not records:
             return 0
 
@@ -253,19 +281,15 @@ class TecDB:
              elevation_deg, cnr_dbhz, tec_method, bias_method)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
-        try:
-            if self._is_pg:
-                sql = sql.replace("?", "%s")
+        if self._is_pg:
+            try:
+                pg_sql = sql.replace("?", "%s")
                 with self._conn.cursor() as cur:
-                    cur.executemany(sql, rows)
+                    cur.executemany(pg_sql, rows)
                 self._conn.commit()
-            else:
-                with _SQLITE_WRITE_LOCK:
-                    self._conn.executemany(sql, rows)
-                    self._conn.commit()
-        except Exception as exc:
-            log.warning("insert_vtec failed (%s)", exc)
-            if self._is_pg:
+                return len(rows)
+            except Exception as exc:
+                log.warning("insert_vtec failed (%s)", exc)
                 try:
                     self._conn.rollback()
                 except Exception:
@@ -273,20 +297,56 @@ class TecDB:
                 self._is_pg = False
                 self._init_sqlite()
                 return self.insert_vtec(records)
-            try:
-                self._conn.rollback()
-            except Exception:
-                pass
-            # Recover a corrupted/busy SQLite handle instead of poisoning the API.
+
+        last_exc: Exception | None = None
+        for attempt in range(_SQLITE_INSERT_ATTEMPTS):
             try:
                 with _SQLITE_WRITE_LOCK:
+                    self._conn.execute("BEGIN IMMEDIATE")
+                    try:
+                        self._conn.executemany(sql, rows)
+                        self._conn.commit()
+                    except Exception:
+                        self._conn.rollback()
+                        raise
+                return len(rows)
+            except Exception as exc:
+                last_exc = exc
+                try:
+                    self._conn.rollback()
+                except Exception:
+                    pass
+                if _sqlite_busy(exc) and attempt < _SQLITE_INSERT_ATTEMPTS - 1:
+                    # Collector + API share one SQLite file — brief backoff, no reconnect.
+                    time.sleep(0.05 * (2 ** attempt))
+                    continue
+                log.warning("insert_vtec failed (%s)", exc)
+                break
+
+        # Only reconnect on non-busy corruption; never open extra FDs on lock storms.
+        if last_exc is not None and not _sqlite_busy(last_exc):
+            try:
+                with _SQLITE_WRITE_LOCK:
+                    try:
+                        if self._conn is not None:
+                            self._conn.close()
+                    except Exception:
+                        pass
+                    _SHARED_SQLITE_CONN = None
                     self._init_sqlite()
-                    self._conn.executemany(sql, rows)
-                    self._conn.commit()
+                    self._conn.execute("BEGIN IMMEDIATE")
+                    try:
+                        self._conn.executemany(sql, rows)
+                        self._conn.commit()
+                    except Exception:
+                        self._conn.rollback()
+                        raise
+                return len(rows)
             except Exception as retry_exc:
                 log.warning("insert_vtec retry failed (%s)", retry_exc)
-                return 0
-        return len(rows)
+        elif last_exc is not None:
+            log.warning("insert_vtec gave up after lock contention (%s)", last_exc)
+        return 0
 
     # ── Read ──────────────────────────────────────────────────────────────────
 
@@ -308,10 +368,15 @@ class TecDB:
             params.append(constellation)
 
         sql = f"SELECT * FROM vtec_obs WHERE {' AND '.join(clauses)} ORDER BY time"
-        if self._is_pg:
-            sql = sql.replace("?", "%s")
-            return pd.read_sql(sql, self._conn, params=params)
-        return pd.read_sql_query(sql, self._conn, params=params)
+        try:
+            if self._is_pg:
+                sql = sql.replace("?", "%s")
+                return pd.read_sql(sql, self._conn, params=params)
+            return pd.read_sql_query(sql, self._conn, params=params)
+        except Exception as exc:
+            # Never block map/station endpoints forever on a locked SQLite file.
+            log.warning("query_recent failed (%s)", exc)
+            return pd.DataFrame()
 
     def query_prn_observations(
         self,
@@ -381,15 +446,188 @@ class TecDB:
         )
 
     def station_summary(self, hours: float = 1.0) -> pd.DataFrame:
-        """Mean/max VTEC and observation count per station over last N hours."""
-        df = self.query_recent(hours=hours)
-        if df.empty:
+        """Mean/max VTEC and observation count per station over last N hours.
+
+        Aggregates in SQL so map/station endpoints do not pull hundreds of
+        thousands of raw observation rows into pandas on every refresh.
+        """
+        since = (datetime.now(tz=timezone.utc) - timedelta(hours=hours)).isoformat()
+        sql = """
+        SELECT station,
+               AVG(vtec_tecu) AS mean_vtec,
+               MAX(vtec_tecu) AS max_vtec,
+               COUNT(*) AS obs_count
+        FROM vtec_obs
+        WHERE time >= ?
+          AND vtec_tecu IS NOT NULL
+          AND vtec_tecu > 0
+          AND (tec_method IS NULL OR tec_method NOT LIKE 'dlr_%')
+        GROUP BY station
+        """
+        try:
+            if self._is_pg:
+                sql = sql.replace("?", "%s")
+                return pd.read_sql(sql, self._conn, params=[since])
+            return pd.read_sql_query(sql, self._conn, params=[since])
+        except Exception as exc:
+            log.warning("station_summary failed (%s)", exc)
             return pd.DataFrame(columns=["station", "mean_vtec", "max_vtec", "obs_count"])
-        return (
-            df.groupby("station")["vtec_tecu"]
-            .agg(mean_vtec="mean", max_vtec="max", obs_count="count")
-            .reset_index()
-        )
+
+    def recent_station_vtec(
+        self,
+        *,
+        minutes: float = 10.0,
+        code_live_only: bool = True,
+    ) -> pd.DataFrame:
+        """Latest live NTRIP VTEC per station from a short lookback (SQL aggregate).
+
+        Used by the heat-map so continuous MSM ingest cannot force a multi-minute
+        pandas scan of raw PRN samples on every refresh.
+        """
+        since = (datetime.now(tz=timezone.utc) - timedelta(minutes=max(1.0, float(minutes)))).isoformat()
+        if self._is_pg:
+            method_clause = " AND tec_method LIKE '%%code_live%%'" if code_live_only else ""
+            sql = f"""
+            SELECT station,
+                   AVG(vtec_tecu) AS mean_vtec,
+                   COUNT(*) AS obs_count
+            FROM vtec_obs
+            WHERE time >= %s
+              AND vtec_tecu IS NOT NULL
+              AND vtec_tecu > 0
+              AND vtec_tecu < 200
+              AND (tec_method IS NULL OR tec_method NOT LIKE 'dlr_%%')
+              {method_clause}
+            GROUP BY station
+            """
+            params: list = [since]
+        else:
+            method_clause = " AND tec_method LIKE '%code_live%'" if code_live_only else ""
+            sql = f"""
+            SELECT station,
+                   AVG(vtec_tecu) AS mean_vtec,
+                   COUNT(*) AS obs_count
+            FROM vtec_obs
+            WHERE time >= ?
+              AND vtec_tecu IS NOT NULL
+              AND vtec_tecu > 0
+              AND vtec_tecu < 200
+              AND (tec_method IS NULL OR tec_method NOT LIKE 'dlr_%')
+              {method_clause}
+            GROUP BY station
+            """
+            params = [since]
+        try:
+            if self._is_pg:
+                df = pd.read_sql(sql, self._conn, params=params)
+            else:
+                df = pd.read_sql_query(sql, self._conn, params=params)
+        except Exception as exc:
+            log.warning("recent_station_vtec failed (%s)", exc)
+            return pd.DataFrame(columns=["station", "mean_vtec", "obs_count"])
+        if df.empty and code_live_only:
+            return self.recent_station_vtec(minutes=minutes, code_live_only=False)
+        return df
+
+    def station_mean_vtec(self, hours: float = 2.0) -> dict[str, float]:
+        """Fast station → mean VTEC map for CORS markers / heat-map overlays."""
+        summary = self.station_summary(hours=hours)
+        if summary is None or getattr(summary, "empty", True):
+            return {}
+        out: dict[str, float] = {}
+        for _, row in summary.iterrows():
+            code = str(row["station"]).lower().rstrip("_")
+            try:
+                mean = float(row["mean_vtec"])
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(mean) and mean > 0:
+                out[code] = round(mean, 2)
+        return out
+
+    def station_vtec_timeseries_binned(
+        self,
+        hours: float = 6.0,
+        resample_minutes: int = 2,
+        *,
+        code_live_only: bool = True,
+    ) -> pd.DataFrame:
+        """Per-station live NTRIP VTEC time series, aggregated in SQL.
+
+        Dashboard charts previously called ``query_recent(hours=6)`` and
+        resampled in pandas — with continuous NTRIP ingest that loads
+        hundreds of thousands of PRN samples and stalls the API. Binning in
+        SQL keeps Observed (NTRIP) charts responsive.
+        """
+        since = (datetime.now(tz=timezone.utc) - timedelta(hours=hours)).isoformat()
+        step = max(1, int(resample_minutes))
+        # Absolute code TEC from the live NTRIP pipeline (not DLR/archive).
+        # Postgres uses %s params — escape LIKE wildcards as %%.
+        if self._is_pg:
+            method_clause = (
+                " AND tec_method LIKE '%%code_live%%'" if code_live_only else ""
+            )
+            sql = f"""
+            SELECT station,
+                   to_timestamp(
+                     floor(extract(epoch FROM time) / %s) * %s
+                   ) AT TIME ZONE 'UTC' AS bucket,
+                   AVG(vtec_tecu) AS vtec_tecu,
+                   COUNT(*) AS obs_count
+            FROM vtec_obs
+            WHERE time >= %s
+              AND vtec_tecu IS NOT NULL
+              AND vtec_tecu > 0
+              AND vtec_tecu < 200
+              AND (tec_method IS NULL OR tec_method NOT LIKE 'dlr_%%')
+              {method_clause}
+            GROUP BY station, bucket
+            ORDER BY station, bucket
+            """
+            params = [float(step * 60), float(step * 60), since]
+        else:
+            method_clause = (
+                " AND tec_method LIKE '%code_live%'" if code_live_only else ""
+            )
+            # SQLite stores ISO timestamps; bucket via unix epoch seconds.
+            sql = f"""
+            SELECT station,
+                   strftime(
+                     '%Y-%m-%dT%H:%M:00Z',
+                     (CAST(strftime('%s', time) AS INTEGER) / ?) * ?,
+                     'unixepoch'
+                   ) AS bucket,
+                   AVG(vtec_tecu) AS vtec_tecu,
+                   COUNT(*) AS obs_count
+            FROM vtec_obs
+            WHERE time >= ?
+              AND vtec_tecu IS NOT NULL
+              AND vtec_tecu > 0
+              AND vtec_tecu < 200
+              AND (tec_method IS NULL OR tec_method NOT LIKE 'dlr_%')
+              {method_clause}
+            GROUP BY station, bucket
+            ORDER BY station, bucket
+            """
+            params = [step * 60, step * 60, since]
+
+        try:
+            if self._is_pg:
+                df = pd.read_sql(sql, self._conn, params=params)
+            else:
+                df = pd.read_sql_query(sql, self._conn, params=params)
+        except Exception as exc:
+            log.warning("station_vtec_timeseries_binned failed (%s)", exc)
+            return pd.DataFrame(columns=["station", "bucket", "vtec_tecu", "obs_count"])
+
+        if df.empty and code_live_only:
+            # Fall back once if code TEC has not started yet (elevation/ephemeris warm-up).
+            return self.station_vtec_timeseries_binned(
+                hours=hours,
+                resample_minutes=resample_minutes,
+                code_live_only=False,
+            )
+        return df
 
     def record_count(self, *, hours: float | None = None) -> int:
         """Total rows in the database, optionally limited to the last N hours."""
@@ -424,5 +662,11 @@ class TecDB:
         return deleted
 
     def close(self) -> None:
-        if self._conn:
-            self._conn.close()
+        global _SHARED_SQLITE_CONN
+        if not self._conn:
+            return
+        # Shared SQLite handle is process-wide — do not close it from one client.
+        if not self._is_pg and self._conn is _SHARED_SQLITE_CONN:
+            return
+        self._conn.close()
+        self._conn = None

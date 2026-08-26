@@ -31,47 +31,9 @@ DEFAULT_STATUS_PUSH_URL = (
 
 
 def _load_env() -> None:
-    load_dotenv(ROOT / "backend" / ".env", override=True)
-    vercel_env = dotenv_values(ROOT / ".env.vercel.production")
-    allow_neon = str(vercel_env.get("ALLOW_LEGACY_NEON_DATABASE_URL") or "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
-    if allow_neon:
-        # `vercel env pull` deliberately preserves local-only keys. A removed,
-        # stale SUPABASE_DATABASE_URL can therefore survive in the file and win
-        # database_dsn()'s precedence order. Once the managed Neon connection is
-        # explicitly enabled, discard those obsolete overrides in this process.
-        os.environ.pop("SUPABASE_DATABASE_URL", None)
-        os.environ.pop("TSDB_DSN", None)
-    for key in (
-        "SUPABASE_DATABASE_URL",
-        "TSDB_DSN",
-        "DATABASE_URL",
-        "DATABASE_URL_UNPOOLED",
-        "POSTGRES_URL",
-        "POSTGRES_URL_NON_POOLING",
-        "ALLOW_LEGACY_NEON_DATABASE_URL",
-    ):
-        value = vercel_env.get(key)
-        if allow_neon and key in {"SUPABASE_DATABASE_URL", "TSDB_DSN"}:
-            continue
-        if value:
-            os.environ[key] = value
-    tsdb = (os.getenv("TSDB_DSN") or "").strip().strip('"').strip("'")
-    if not tsdb:
-        for key in (
-            "POSTGRES_URL_NON_POOLING",
-            "DATABASE_URL_UNPOOLED",
-            "POSTGRES_URL",
-            "DATABASE_URL",
-        ):
-            value = (os.getenv(key) or "").strip().strip('"').strip("'")
-            if value:
-                os.environ["TSDB_DSN"] = value
-                break
+    from backend.env_bootstrap import load_runtime_env
+
+    load_runtime_env(prefer_vercel_db=True)
     # The production schema is migration-managed. The collector should only
     # ingest observations, not run DDL each time its supervisor restarts it.
     os.environ["ZGIIS_SKIP_DB_SCHEMA_INIT"] = "1"
@@ -230,7 +192,7 @@ def main() -> int:
 
     db = TecDB()
     nav_cache = LiveNavCache()
-    pipeline = LiveVtecPipeline(db=db, nav_cache=nav_cache, db_flush_n=int(os.getenv("ZGIIS_DB_FLUSH_N", "1")))
+    pipeline = LiveVtecPipeline(db=db, nav_cache=nav_cache, db_flush_n=int(os.getenv("ZGIIS_DB_FLUSH_N", "50")))
     max_concurrent_raw = os.getenv("NTRIP_LIVE_MAX_CONCURRENT", "").strip()
     try:
         max_concurrent = max(1, int(max_concurrent_raw)) if max_concurrent_raw else None

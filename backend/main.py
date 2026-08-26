@@ -21,20 +21,11 @@ def _auto_train_cnn_gru() -> None:
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from dotenv import load_dotenv
+from backend.env_bootstrap import load_runtime_env
 
-for env_file in (
-    PROJECT_ROOT / ".env.local",
-    PROJECT_ROOT / "backend" / ".env",
-):
-    load_dotenv(env_file, override=False)
-
-if os.getenv("ZGIIS_LOAD_VERCEL_ENV", "").strip().lower() in {"1", "true", "yes", "on"}:
-    for env_file in (
-        PROJECT_ROOT / ".env.vercel.production",
-        PROJECT_ROOT / ".vercel" / ".env.production.local",
-    ):
-        load_dotenv(env_file, override=False)
+# Local dashboard reads SQLite by default. Hosted Neon is for Vercel/collector
+# production pushes — forcing it here hung local /cors/stations when Neon was unreachable.
+load_runtime_env(prefer_vercel_db=False)
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse

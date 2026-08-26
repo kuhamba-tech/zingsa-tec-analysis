@@ -1019,6 +1019,27 @@ export interface LiveStationVtecSeries {
   mean_vtec: number | null;
 }
 
+export interface GlobalTecStationPoint {
+  time: string;
+  vtec_tecu: number;
+}
+
+export interface GlobalTecStationSeries {
+  station: string;
+  points: GlobalTecStationPoint[];
+  latest_vtec: number | null;
+}
+
+export interface GlobalTecByStationResponse {
+  available: boolean;
+  epoch: string | null;
+  source: string | null;
+  inserted: number;
+  stations: GlobalTecStationSeries[];
+  latest: Array<{ station: string; lat: number; lon: number; vtec_tecu: number }>;
+  message: string | null;
+}
+
 export interface StationLiveStatus {
   code: string;
   name: string;

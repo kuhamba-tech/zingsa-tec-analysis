@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 
@@ -15,6 +16,61 @@ _DSN_ENV_KEYS = (
     "POSTGRES_URL_NON_POOLING",
     "DATABASE_URL_UNPOOLED",
 )
+
+
+def load_shared_database_env(project_root: str | Path | None = None) -> None:
+    """Load the same hosted-DB env the NTRIP collector uses.
+
+    Local uvicorn previously fell back to SQLite while the collector wrote Neon,
+    so the map showed stale medians instead of live NTRIP VTEC.
+    """
+    try:
+        from dotenv import dotenv_values, load_dotenv
+    except ImportError:
+        return
+
+    root = Path(project_root) if project_root else Path(__file__).resolve().parents[2]
+    load_dotenv(root / "backend" / ".env", override=False)
+
+    vercel_env = dotenv_values(root / ".env.vercel.production")
+    allow_neon = str(vercel_env.get("ALLOW_LEGACY_NEON_DATABASE_URL") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    if allow_neon:
+        # Discard stale local overrides so the managed Neon URL wins.
+        os.environ.pop("SUPABASE_DATABASE_URL", None)
+        os.environ.pop("TSDB_DSN", None)
+    for key in (
+        "SUPABASE_DATABASE_URL",
+        "TSDB_DSN",
+        "DATABASE_URL",
+        "DATABASE_URL_UNPOOLED",
+        "POSTGRES_URL",
+        "POSTGRES_URL_NON_POOLING",
+        "ALLOW_LEGACY_NEON_DATABASE_URL",
+    ):
+        value = vercel_env.get(key)
+        if allow_neon and key in {"SUPABASE_DATABASE_URL", "TSDB_DSN"}:
+            continue
+        if value:
+            os.environ[key] = value
+
+    # Normalize to TSDB_DSN for older call sites.
+    if not (os.getenv("TSDB_DSN") or "").strip():
+        for key in (
+            "POSTGRES_URL_NON_POOLING",
+            "DATABASE_URL_UNPOOLED",
+            "POSTGRES_URL",
+            "DATABASE_URL",
+            "SUPABASE_DATABASE_URL",
+        ):
+            value = (os.getenv(key) or "").strip().strip('"').strip("'")
+            if value:
+                os.environ["TSDB_DSN"] = value
+                break
 
 
 def database_dsn() -> str:
