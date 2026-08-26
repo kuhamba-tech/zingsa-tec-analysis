@@ -71,7 +71,10 @@ export function heatmapQualityBanner(
     return message ?? "Station VTEC available; interpolated grid could not be built — check that at least three stations report live data.";
   }
   if (quality === "processed_archive") {
-    return message ?? "Archive VTEC is disabled on the live TEC heat map — waiting for live NTRIP observations.";
+    return (
+      message ??
+      "Archive RINEX/CMN VTEC is blocked on this live heat map — only live NTRIP MSM decode is shown."
+    );
   }
   if (quality === "none" && message) return message;
   return null;

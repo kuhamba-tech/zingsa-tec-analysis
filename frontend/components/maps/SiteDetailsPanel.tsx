@@ -344,19 +344,19 @@ export default function SiteDetailsPanel({ station, heatmap = null, onClose }: P
         </table>
 
         <div className="site-details-vtec-chart">
-          <div className="site-details-vtec-chart-title">Live VTEC · last 6 h</div>
+          <div className="site-details-vtec-chart-title">Live NTRIP VTEC · last 6 h</div>
           {vtecLoading ? (
-            <div style={{ color: "#94a3b8", fontSize: "0.75rem" }}>Loading VTEC series…</div>
+            <div style={{ color: "#94a3b8", fontSize: "0.75rem" }}>Loading live NTRIP VTEC…</div>
           ) : vtecValues.length > 0 ? (
             <LineChart
               labels={vtecLabels}
-              datasets={[{ label: "Observed", data: vtecValues, color: "#3d8bfd", fill: true }]}
+              datasets={[{ label: "Observed (NTRIP)", data: vtecValues, color: "#3d8bfd", fill: true }]}
               yLabel="TECU"
               height={140}
               compact
             />
           ) : (
-            <div style={{ color: "#94a3b8", fontSize: "0.75rem" }}>No live pipeline VTEC for this station.</div>
+            <div style={{ color: "#94a3b8", fontSize: "0.75rem" }}>No live NTRIP VTEC for this station yet.</div>
           )}
         </div>
 

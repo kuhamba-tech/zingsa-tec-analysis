@@ -41,6 +41,7 @@ async def live_vtec(
     station: str | None = Query(None),
     _=Depends(require_api_key),
 ):
+    """Live NTRIP VTEC only — DLR Global TEC and RINEX archive rows are excluded."""
     db = _db()
     if db is None:
         return []
@@ -48,6 +49,16 @@ async def live_vtec(
         df = db.query_recent(hours=hours, station=station)
         if df.empty:
             return []
+        if "tec_method" in df.columns:
+            method = df["tec_method"].astype(str)
+            # Keep live pipeline decode only (code_live / phase_only_live*).
+            live_mask = method.str.contains("live", case=False, na=False) & ~method.str.startswith("dlr_")
+            # Also drop anything that looks like archive/post-process.
+            live_mask &= ~method.str.contains("archive|rinex|cmn", case=False, na=False)
+            if bool(live_mask.any()):
+                df = df.loc[live_mask]
+            else:
+                return []
         result = []
         for _, row in df.iterrows():
             result.append(LiveObservation(

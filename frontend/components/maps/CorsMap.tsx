@@ -795,8 +795,10 @@ export default function CorsMap({
               : "";
           const tecSourceLine =
             heatmapStation && isInterpolatedSource(heatmapStation.source)
-              ? `<div style="color:#ffffff;font-size:0.68rem">Interpolated TEC estimate</div>`
-              : "";
+              ? `<div style="color:#ffffff;font-size:0.68rem">Interpolated from live NTRIP surface</div>`
+              : tecValue != null
+                ? `<div style="color:#57ff65;font-size:0.68rem">Live NTRIP</div>`
+                : "";
           const sourcetableLine = s.sourcetable_mismatch
             ? `<div style="margin-top:0.2rem;color:#ef9f27;font-weight:700">Warning: Shares caster identity with "${s.sourcetable_identifier}"</div>`
             : "";

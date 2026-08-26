@@ -100,12 +100,13 @@ export default function TecHeatmapPage() {
       )}
       {displayHeatmap?.available && displayHeatmap.updated_at && (
         <div className={`banner ${staleHeatmap ? "banner-warn" : "banner-info"}`}>
-          Live TEC grid from {displayHeatmap.station_count} station{displayHeatmap.station_count === 1 ? "" : "s"} - updated{" "}
+          Live NTRIP TEC grid from {displayHeatmap.station_count} station{displayHeatmap.station_count === 1 ? "" : "s"} - updated{" "}
           {displayHeatmap.updated_at}
           {displayHeatmap.tec_min != null && displayHeatmap.tec_max != null
             ? ` - range ${displayHeatmap.tec_min.toFixed(1)}-${displayHeatmap.tec_max.toFixed(1)} TECU`
             : ""}
           {staleHeatmap ? ` - data is ${ageMinutes} min old - refreshing...` : ` - auto-refresh every ${HEATMAP_REFRESH_MS / 60_000} min`}
+          {" "}(not RINEX archive)
         </div>
       )}
 
@@ -113,9 +114,10 @@ export default function TecHeatmapPage() {
         <div>
           <h1 className="tec-map-title">Zimbabwe TEC Heat Map</h1>
           <p className="tec-map-subtitle">
-            Hybrid satellite base with place names and roads. The TEC grid follows the Matamba and Danskin
-            near-real-time pattern: 5-minute updates from a 15-minute observation window, 1 degree nearest-neighbour
-            gridding, and median filtering. Colours use a fixed 0-200 TECU scale with ICAO Doc 10100 MOD (
+            Live NTRIP MSM VTEC only (no RINEX/CMN archive). Hybrid satellite base with place names and roads.
+            The TEC grid follows the Matamba and Danskin near-real-time pattern: 5-minute updates from a
+            15-minute observation window, 1 degree nearest-neighbour gridding, and median filtering. Colours
+            use a fixed 0-200 TECU scale with ICAO Doc 10100 MOD (
             {heatmap?.icao_mod_tecu ?? 125}) / SEV ({heatmap?.icao_sev_tecu ?? 175}) aviation thresholds.
           </p>
         </div>
@@ -294,7 +296,14 @@ export default function TecHeatmapPage() {
                         <td style={{ padding: "0.4rem", textAlign: "right" }}>
                           {row.difference_from_madimbo_ionosonde_tecu != null ? `${row.difference_from_madimbo_ionosonde_tecu.toFixed(2)} TECU` : "awaiting"}
                         </td>
-                        <td style={{ padding: "0.4rem" }}>{row.source ?? "unknown"} · {row.obs_count} obs</td>
+                        <td style={{ padding: "0.4rem" }}>
+                          {/archive/i.test(row.source ?? "")
+                            ? "blocked archive"
+                            : /estimate|surface/i.test(row.source ?? "")
+                              ? "Interpolated (live NTRIP)"
+                              : "Live NTRIP"}{" "}
+                          · {row.obs_count} obs
+                        </td>
                       </tr>
                     ))}
                   </tbody>

@@ -98,18 +98,25 @@ def _absolute_weight(vtec: float) -> float:
 def _quality_message(quality: str, station_count: int) -> str | None:
     if quality == "regional_mean":
         return (
-            "Showing calculated live VTEC where available, plus interpolated station estimates from the current live surface. "
-            "Sites with no MSM observations are estimates until more CORS streams contribute VTEC."
+            "Live NTRIP VTEC (MSM code TEC) where streams report observations, "
+            "plus interpolated estimates for sites still waiting on MSM. "
+            "RINEX/CMN archive VTEC is never used on this live map."
         )
     if quality == "stations_only":
         return (
-            f"{station_count} CORS site(s) reporting VTEC — interpolated surface could not be built. "
-            "Ensure at least one station has live pipeline observations."
+            f"{station_count} CORS site(s) reporting live NTRIP VTEC — interpolated surface could not be built. "
+            "Ensure MSM4/MSM7 streams and broadcast ephemeris are flowing."
         )
     if quality == "processed_archive":
+        # Live dashboard must never present this quality; kept for the archive-only endpoint.
         return (
-            f"Showing calculated VTEC from the latest processed RINEX/CMN archive for {station_count} CORS site(s). "
-            "Use the archive heat-map endpoint for historical products; the live map uses NTRIP only."
+            f"Processed RINEX/CMN archive VTEC for {station_count} CORS site(s). "
+            "This product is archive-only — the National Dashboard heat map uses live NTRIP exclusively."
+        )
+    if quality == "station":
+        return (
+            f"Live NTRIP VTEC from {station_count} CORS mountpoint(s) — absolute code TEC from MSM decode. "
+            "Not RINEX archive."
         )
     return None
 
@@ -856,15 +863,15 @@ def _empty_heatmap_message() -> str:
 
         if live_ntrip_heatmap_enabled():
             return (
-                "No live NTRIP VTEC yet — the heat map waits for the persistent collector "
-                "or an on-demand NTRIP sample with MSM observations and broadcast ephemeris. "
-                "Processed RINEX archive values are not shown here."
+                "No live NTRIP VTEC yet — waiting for MSM observations and broadcast ephemeris. "
+                "RINEX/CMN archive VTEC is never shown on this live heat map."
             )
 
         if not ntrip_probe_enabled():
             return (
-                "No recent live VTEC observations in the pipeline database. "
-                "Run scripts/live_ntrip_collector.py or enable TEC_HEATMAP_LIVE_NTRIP."
+                "No recent live NTRIP VTEC in the pipeline database. "
+                "Run scripts/live_ntrip_collector.py or enable TEC_HEATMAP_LIVE_NTRIP. "
+                "Archive RINEX/CMN is not used here."
             )
 
         payload = get_cached_ntrip_probe(refresh=False, allow_blocking_refresh=False)

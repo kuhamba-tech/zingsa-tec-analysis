@@ -203,9 +203,10 @@ export default function StationVtecTimePlots({
         <div>
           <h2 className="home-section-heading">{title}</h2>
           <p className="station-vtec-plots-sub">
-            Absolute code TEC from the live NTRIP pipeline (solid) with DLR Global TEC sampled at each station
-            (dashed). Global values are logged whenever the dashboard refreshes so the overlay builds a real
-            history over time. EKF predicted lines are omitted until a real per-station EKF series is available.
+            Absolute code TEC from the live NTRIP pipeline only (solid) — never RINEX/CMN archive.
+            Dashed line is DLR Global TEC sampled at each station for reference. Global values are logged
+            whenever the dashboard refreshes so the overlay builds a real history over time. EKF predicted
+            lines are omitted until a real per-station EKF series is available.
           </p>
         </div>
         <div className="station-vtec-plots-controls" role="group" aria-label="VTEC history window">
