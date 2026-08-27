@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
@@ -172,11 +173,21 @@ async def live_stations(_=Depends(require_api_key)):
     mean_by_station: dict = {}
     db = _db()
     try:
-        df = db.query_recent(hours=0.25) if db else None
+        # Operational station state is live only inside the same 90-second
+        # freshness window used for NTRIP stream status. Older DB rows are
+        # historical data and must not keep a marker/value looking current.
+        df = db.query_recent(hours=90.0 / 3600.0) if db else None
         if df is not None and not df.empty and "station" in df.columns:
-            # Exclude DLR Global TEC reference samples from live CORS status.
+            # Keep only live NTRIP decode; exclude DLR, RINEX, CMN and archive.
             if "tec_method" in df.columns:
-                df = df[~df["tec_method"].astype(str).str.startswith("dlr_", na=False)]
+                method = df["tec_method"].astype(str)
+                live_mask = method.str.contains("live", case=False, na=False)
+                live_mask &= ~method.str.contains("dlr|archive|rinex|cmn", case=False, na=False)
+                df = df[live_mask]
+            if "time" in df.columns:
+                observed_at = pd.to_datetime(df["time"], utc=True, errors="coerce")
+                cutoff = datetime.now(timezone.utc) - timedelta(seconds=90)
+                df = df[observed_at >= cutoff]
             if not df.empty:
                 latest = df.sort_values("time").groupby("station").tail(1).set_index("station")
                 latest_by_station = latest.to_dict(orient="index")
@@ -205,8 +216,10 @@ async def live_stations(_=Depends(require_api_key)):
         if code in latest_by_station:
             stale = False
             last_vtec = float(mean_by_station.get(code, latest_by_station[code].get("vtec_tecu") or 0.0))
-        elif stream and stream.get("connected"):
-            stale = False
+        # A TCP connection without a recent decoded MSM message is not live
+        # station data. Keep it stale and do not expose a cached TEC value.
+        if stale:
+            last_vtec = None
         result.append(StationLiveStatus(
             code=s.code,
             name=s.name,

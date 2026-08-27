@@ -489,33 +489,39 @@ class TecDB:
         one bad PRN cannot push Gokwe/similar sites to 100+ TECU while peers
         stay near 15–25 TECU.
         """
-        since = (datetime.now(tz=timezone.utc) - timedelta(minutes=max(0.25, float(minutes)))).isoformat()
+        now = datetime.now(tz=timezone.utc)
+        since = (now - timedelta(minutes=max(0.25, float(minutes)))).isoformat()
+        # Allow a little GNSS clock skew ahead of wall time; reject far-future
+        # rows that otherwise become the "latest" fresh-slice anchor.
+        until = (now + timedelta(minutes=2)).isoformat()
         if self._is_pg:
             method_clause = " AND tec_method LIKE '%%code_live%%'" if code_live_only else ""
             sql = f"""
             SELECT time, station, prn, vtec_tecu
             FROM vtec_obs
             WHERE time >= %s
+              AND time <= %s
               AND vtec_tecu IS NOT NULL
               AND vtec_tecu > 0
               AND vtec_tecu < 200
               AND (tec_method IS NULL OR tec_method NOT LIKE 'dlr_%%')
               {method_clause}
             """
-            params: list = [since]
+            params: list = [since, until]
         else:
             method_clause = " AND tec_method LIKE '%code_live%'" if code_live_only else ""
             sql = f"""
             SELECT time, station, prn, vtec_tecu
             FROM vtec_obs
             WHERE time >= ?
+              AND time <= ?
               AND vtec_tecu IS NOT NULL
               AND vtec_tecu > 0
               AND vtec_tecu < 200
               AND (tec_method IS NULL OR tec_method NOT LIKE 'dlr_%')
               {method_clause}
             """
-            params = [since]
+            params = [since, until]
         try:
             raw = self._read_sql(sql, params)
         except Exception as exc:

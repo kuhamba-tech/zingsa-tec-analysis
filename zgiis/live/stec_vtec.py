@@ -10,7 +10,7 @@ station and applies the same equations from Gopi (tec_core.py):
 from __future__ import annotations
 
 import logging
-from collections import defaultdict
+from collections import defaultdict, deque
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -27,6 +27,11 @@ _ELEV_MASK  = 30.0           # Elevation mask (degrees)
 # Pair timeout: if we don't see a second signal within this many seconds,
 # discard the buffered first signal to avoid stale pairings.
 _PAIR_TIMEOUT_S = 2.0
+
+# Keep enough recent per-station samples for PRN consensus (TSHO/BEIT often
+# emit hundreds of low-biased G14 samples beside a few good peers).
+_RECENT_VTEC_MAX = 240
+_RECENT_VTEC_WINDOW_S = 120.0
 
 
 def _k_factor(f1: float, f2: float) -> float:
@@ -232,6 +237,7 @@ class LiveVtecPipeline:
         self._pending: list[dict] = []
         self._flush_n = db_flush_n
         self._latest: dict[str, dict] = {}
+        self._recent: dict[str, deque] = defaultdict(lambda: deque(maxlen=_RECENT_VTEC_MAX))
         self._diagnostics: dict[str, dict] = defaultdict(
             lambda: {
                 "observations": 0,
@@ -246,14 +252,66 @@ class LiveVtecPipeline:
         )
 
     def latest_by_station(self, *, max_age_s: float = 180.0) -> dict[str, float]:
-        """Most recent live NTRIP VTEC per station, dropping stale in-memory values.
+        """Fresh live NTRIP VTEC per station using the same PRN consensus as the map.
 
-        ``max_age_s`` is wall-clock age of the observation epoch so the map cannot
-        keep painting a station from a value decoded many minutes earlier.
+        A single latest sample is not enough: mounts like TSHO/BEIT often end on a
+        low-biased PRN (~6 TECU) while peer PRNs sit near the network (~18–25 TECU).
+        Aggregate the recent in-memory window with ``_fresh_station_vtec_from_group``.
         """
         now = datetime.now(timezone.utc)
+        window_s = min(float(max_age_s), _RECENT_VTEC_WINDOW_S)
         out: dict[str, float] = {}
+        try:
+            from zgiis.maps.heatmap_data import _fresh_station_vtec_from_group
+        except Exception:
+            _fresh_station_vtec_from_group = None  # type: ignore[assignment]
+
+        for code, rows in self._recent.items():
+            fresh_rows: list[dict] = []
+            for row in rows:
+                raw = row.get("vtec_tecu")
+                if raw is None:
+                    continue
+                epoch = row.get("epoch")
+                if isinstance(epoch, datetime):
+                    ep = epoch if epoch.tzinfo is not None else epoch.replace(tzinfo=timezone.utc)
+                    age = (now - ep.astimezone(timezone.utc)).total_seconds()
+                    # Allow a little GNSS/clock skew ahead of wall time; reject old cache.
+                    if age > window_s or age < -600.0:
+                        continue
+                fresh_rows.append(
+                    {
+                        "time": epoch if isinstance(epoch, datetime) else now,
+                        "station": code,
+                        "prn": row.get("prn"),
+                        "vtec_tecu": float(raw),
+                    }
+                )
+            if not fresh_rows:
+                continue
+            value: float | None = None
+            if _fresh_station_vtec_from_group is not None:
+                try:
+                    value = _fresh_station_vtec_from_group(pd.DataFrame(fresh_rows))
+                except Exception:
+                    value = None
+            if value is None:
+                # Fallback: last fresh sample (previous behaviour) — but never
+                # publish an extreme single-PRN spike as "live" (VICF G17~135).
+                last = self._latest.get(code) or fresh_rows[-1]
+                raw = last.get("vtec_tecu") if isinstance(last, dict) else None
+                if raw is None:
+                    continue
+                value = float(raw)
+                if value > 55.0 or value < 1.0:
+                    continue
+            if value is not None and 1.0 <= value <= 55.0:
+                out[str(code)] = float(value)
+
+        # Stations that only have a single latest sample (no recent deque yet).
         for code, row in self._latest.items():
+            if code in out:
+                continue
             raw = row.get("vtec_tecu")
             if raw is None:
                 continue
@@ -261,10 +319,11 @@ class LiveVtecPipeline:
             if isinstance(epoch, datetime):
                 ep = epoch if epoch.tzinfo is not None else epoch.replace(tzinfo=timezone.utc)
                 age = (now - ep.astimezone(timezone.utc)).total_seconds()
-                # Allow a little GNSS/clock skew ahead of wall time; reject old cache.
                 if age > float(max_age_s) or age < -600.0:
                     continue
-            out[str(code)] = float(raw)
+            value = float(raw)
+            if 1.0 <= value <= 55.0:
+                out[str(code)] = value
         return out
 
     def diagnostics_by_station(self) -> dict[str, dict]:
@@ -299,6 +358,7 @@ class LiveVtecPipeline:
         code = str(vtec.get("station", "")).lower().rstrip("_")
         if code:
             self._latest[code] = vtec
+            self._recent[code].append(vtec)
             diag = self._diagnostics[code]
             diag["vtec_emitted"] += 1
             epoch = vtec.get("epoch")

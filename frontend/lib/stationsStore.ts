@@ -38,6 +38,7 @@ export function purgeStaleStationsCache(): void {
   clearPersisted();
   latest = null;
   latestSavedAt = 0;
+  listeners.forEach((fn) => fn([]));
 }
 
 export function publishStations(stations: Station[]): Station[] {

@@ -78,8 +78,8 @@ class SpiderSiteStatusTests(unittest.TestCase):
         self.assertEqual(result["by_station"], {})
         self.assertEqual(result["error"], "Spider unreachable")
 
-    def test_live_ensure_serves_durable_spider_when_live_login_fails(self) -> None:
-        """Postgres/disk last-good Spider must win over empty/catalog when live login fails."""
+    def test_live_ensure_does_not_serve_durable_spider_as_current(self) -> None:
+        """Last-good storage must not masquerade as current live status."""
         durable = {
             "fetched_at": "2026-08-24T18:00:00Z",
             "by_station": {
@@ -106,9 +106,31 @@ class SpiderSiteStatusTests(unittest.TestCase):
         ):
             result = ensure_spider_site_statuses(max_age_sec=0.0)
 
+        self.assertEqual(result["by_station"], {})
+        self.assertEqual(result.get("error"), "Spider unreachable")
+
+    def test_historical_caller_can_explicitly_request_durable_fallback(self) -> None:
+        durable = {
+            "fetched_at": "2026-08-24T18:00:00Z",
+            "by_station": {"hara": {"status": "online"}},
+            "disk_saved_at": time.time() - 30,
+            "from_durable_store": True,
+            "error": None,
+        }
+        failed = {"fetched_at": None, "by_station": {}, "error": "Spider unreachable"}
+        with (
+            patch.object(spider_module, "_CACHE", None),
+            patch.object(spider_module, "_CACHE_TS", 0.0),
+            patch.object(spider_module, "_DISK_LOADED", True),
+            patch.object(spider_module, "spider_status_enabled", return_value=True),
+            patch.object(spider_module, "fetch_spider_site_statuses", return_value=failed),
+            patch.object(spider_module, "_read_durable_cache", return_value=durable),
+            patch.object(spider_module, "_read_disk_cache", return_value=None),
+        ):
+            result = ensure_spider_site_statuses(max_age_sec=0.0, allow_stale_fallback=True)
+
         self.assertEqual(result["by_station"]["hara"]["status"], "online")
         self.assertTrue(result.get("served_from_durable"))
-        self.assertEqual(result.get("error"), "Spider unreachable")
 
 
 if __name__ == "__main__":

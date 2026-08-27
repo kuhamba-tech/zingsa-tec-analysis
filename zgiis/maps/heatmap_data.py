@@ -612,12 +612,33 @@ def _prn_consensus_station_vtec(group: pd.DataFrame) -> float | None:
         return None
 
     prn_meds: list[float] = []
-    for _, series in work.groupby("prn")["vtec_tecu"]:
-        if len(series) < 3:
+    for prn, series in work.groupby("prn")["vtec_tecu"]:
+        # Skip model/forecast labels (GIM) — not a live MSM satellite PRN.
+        label = str(prn).strip().upper()
+        if not label or label == "GIM" or label[0] not in "GRECSJ":
             continue
-        med = float(series.median())
-        if np.isfinite(med):
-            prn_meds.append(med)
+        # Allow single-epoch peer PRNs — TSHO often has one good G03/G06
+        # sample beside hundreds of low-biased G14 samples.
+        if len(series) < 1:
+            continue
+        # Robust per-PRN median: CENT G06 often swings 20→100+ TECU inside
+        # one lookback; a plain median then looks like a network spike.
+        med = _robust_station_vtec(series)
+        if med is None:
+            continue
+        # Reject non-physical near-zero code-TEC leftovers.
+        if np.isfinite(med) and med >= 1.0:
+            prn_meds.append(float(med))
+
+    # Drop extreme high-bias PRNs (LUPA/VICF G17 ~90–120 TECU) when peers
+    # sit in the physical daytime band — otherwise markers look like old cache.
+    physical = [m for m in prn_meds if 8.0 <= m <= 45.0]
+    if physical and any(m > 55.0 for m in prn_meds):
+        prn_meds = [m for m in prn_meds if m <= 55.0]
+
+    if len(prn_meds) == 1 and 8.0 <= prn_meds[0] <= 45.0:
+        # KWEK-like: one usable PRN after near-zero G14/G19 are rejected.
+        return float(prn_meds[0])
     if len(prn_meds) < 2:
         return None
 
@@ -630,8 +651,11 @@ def _prn_consensus_station_vtec(group: pd.DataFrame) -> float | None:
             upper = arr[split + 1 :]
             low_med = float(np.median(lower))
             up_med = float(np.median(upper))
-            # Singleton extreme high spike → keep lower cluster.
+            # Singleton extreme high spike → keep lower cluster, but not when
+            # that cluster is only low-biased leftovers (CENT G19~4 vs G06~105).
             if len(upper) == 1 and up_med > low_med + 40.0:
+                if float(np.max(lower)) < 12.0:
+                    return None
                 arr = lower
             # Low-biased PRN pile (BEIT/LUPA G01/G14) → keep higher cluster.
             elif low_med < 12.0 and up_med >= low_med + 8.0:
@@ -665,9 +689,16 @@ def _prn_consensus_station_vtec(group: pd.DataFrame) -> float | None:
 
 
 def _fresh_station_vtec_from_group(group: pd.DataFrame) -> float | None:
-    """Robust VTEC biased to the newest observations in the lookback window."""
+    """Robust VTEC biased to the newest observations in the lookback window.
+
+    Prefer the newest time slice, but if that slice is only a low-biased PRN
+    (common for TSHO/BEIT when G14 dominates the last minute while G03/G30
+    were seen slightly earlier), fall back to PRN consensus on the full
+    lookback so the marker keeps a physical TECU value.
+    """
     if group is None or getattr(group, "empty", True):
         return None
+    full = group
     work = group
     if "time" in work.columns:
         work = work.copy()
@@ -676,15 +707,37 @@ def _fresh_station_vtec_from_group(group: pd.DataFrame) -> float | None:
         work = work.dropna(subset=["time", "vtec_tecu"]).sort_values("time")
         if work.empty:
             return None
+        # Drop far-future GNSS/clock skew so "latest" is not a poisoned epoch
+        # (CENT was anchoring the fresh slice on +40 min samples → G06~100).
+        now = pd.Timestamp.now(tz="UTC")
+        work = work[work["time"] <= now + pd.Timedelta(minutes=2)]
+        if work.empty:
+            return None
+        full = work
         latest = work["time"].iloc[-1]
         slice_s = float(LIVE_VTEC_FRESH_SLICE_SECONDS)
         fresh = work[work["time"] >= latest - pd.Timedelta(seconds=slice_s)]
         if len(fresh) >= 5:
             work = fresh
+
     prn_vtec = _prn_consensus_station_vtec(work)
-    if prn_vtec is not None:
+    if prn_vtec is not None and prn_vtec >= 8.0:
         return prn_vtec
-    return _robust_station_vtec(work["vtec_tecu"], prefer_latest_n=40)
+
+    # Fresh slice looked empty/low-biased — recover from the full lookback.
+    if full is not work:
+        full_prn = _prn_consensus_station_vtec(full)
+        if full_prn is not None and full_prn >= 8.0:
+            return full_prn
+
+    # Never publish a low-biased singleton (~4 TECU) or a spike/low blend
+    # (~50 TECU from G06~105 + G19~4) as live — omit so the surface can fill.
+    if prn_vtec is not None and 8.0 <= prn_vtec <= 45.0:
+        return prn_vtec
+    robust = _robust_station_vtec(work["vtec_tecu"], prefer_latest_n=40)
+    if robust is not None and 8.0 <= robust <= 45.0:
+        return robust
+    return None
 
 
 def _consensus_filter_control_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -717,12 +770,12 @@ def _consensus_filter_control_rows(rows: list[dict[str, Any]]) -> list[dict[str,
     return kept if kept else measured
 
 
-LIVE_VTEC_RECENT_MINUTES = 0.75
-# Hard ceiling for the live map product — keep the window short so markers
-# move when NTRIP recalculates instead of sitting on a multi-minute median.
-LIVE_HEATMAP_MAX_LOOKBACK_MINUTES = 1.0
+LIVE_VTEC_RECENT_MINUTES = 5.0
+# Hard ceiling for the live map product — short enough to track live decode,
+# long enough that low-biased PRN spikes (TSHO G14) do not erase peer PRNs.
+LIVE_HEATMAP_MAX_LOOKBACK_MINUTES = 5.0
 # Prefer the newest slice inside the lookback so ZINH/etc. track live decode.
-LIVE_VTEC_FRESH_SLICE_SECONDS = 45.0
+LIVE_VTEC_FRESH_SLICE_SECONDS = 60.0
 
 
 def station_vtec_by_code_from_frame(

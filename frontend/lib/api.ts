@@ -501,12 +501,13 @@ function refreshStationsNetwork(refreshNtrip: boolean): Promise<Station[]> {
           }
           return Array.isArray(published) && published.length > 0 ? published : rows;
         }
-        const cached = peekStations();
-        return cached.length > 0 ? cached : rows;
+        // An empty live response must clear the last in-memory snapshot. Old
+        // station rows are more dangerous than an explicit unavailable state.
+        purgeStaleStationsCache();
+        return rows;
       })
       .catch((err) => {
-        const cached = peekStations();
-        if (cached.length > 0) return cached;
+        purgeStaleStationsCache();
         throw err;
       }),
   );

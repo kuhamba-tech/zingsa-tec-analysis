@@ -67,7 +67,9 @@ def _safe_station_live_vtec(hours: float = 0.05) -> dict[str, float]:
         for code, vtec in latest_vtec_by_station().items():
             key = str(code).lower().rstrip("_")
             value = float(vtec)
-            if value > 0:
+            # Reject near-zero leftovers and extreme single-PRN spikes so cards
+            # never look like a frozen/wrong cache (KWEK 0.1, VICF 135).
+            if 1.0 <= value <= 55.0:
                 out[key] = round(value, 2)
     except Exception:
         pass
@@ -92,10 +94,13 @@ def _safe_station_live_vtec(hours: float = 0.05) -> dict[str, float]:
                 prior = out.get(code)
                 # Reject DB spikes that disagree with the live in-memory decode.
                 if prior is not None and abs(value - prior) > max(12.0, 0.4 * prior):
-                    continue
-                # In-memory MSM epoch wins when present; DB fills gaps with the
-                # fresh-slice median so non-slot stations still move on refresh.
-                if code not in out:
+                    # Exception: memory can be a single low-biased PRN (~6 TECU on
+                    # TSHO/BEIT) while DB PRN consensus is physical (~18–25 TECU).
+                    if not (prior < 12.0 and value >= 12.0):
+                        continue
+                # Prefer DB PRN consensus when memory looks low-biased, otherwise
+                # keep in-memory when present and fill gaps from DB.
+                if code not in out or (prior is not None and prior < 12.0 and value >= 12.0):
                     out[code] = round(value, 2)
     except Exception as exc:
         log.warning("stations live NTRIP VTEC attach skipped: %s", exc)

@@ -71,12 +71,13 @@ DEFAULT_LIVE_PRIORITY: tuple[str, ...] = (
     "lupa",
     "hara",
     "zinh",
-    "muta",
     "beit",
-    "kwek",
     "tsho",
-    "masv",
+    "cent",
+    "muta",
     "gokw",
+    "kwek",
+    "masv",
     "vicf",
 )
 

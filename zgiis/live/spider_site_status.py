@@ -446,12 +446,15 @@ def ensure_spider_site_statuses(
     *,
     wait_sec: float = 12.0,
     max_age_sec: float = 15.0,
+    allow_stale_fallback: bool = False,
 ) -> dict[str, Any]:
     """Return Spider rows fresh enough for the map.
 
     1. Seed from Postgres/disk (survives Vercel cold starts).
     2. Block for a live Spider login when older than ``max_age_sec``.
-    3. If live login fails, serve durable last-good Spider — never catalog.
+    3. If live login fails, return no rows by default so an old snapshot can
+       never be displayed as current operational state. Durable last-good
+       data is available only to explicitly historical callers.
     """
     if not spider_status_enabled():
         return {
@@ -479,7 +482,13 @@ def ensure_spider_site_statuses(
             time.sleep(0.2)
         acquired = _FETCH_LOCK.acquire(timeout=max(1.0, wait_sec))
         if not acquired:
-            return _durable_spider_fallback("Fresh Spider site status fetch timed out")
+            if allow_stale_fallback:
+                return _durable_spider_fallback("Fresh Spider site status fetch timed out")
+            return {
+                "fetched_at": None,
+                "by_station": {},
+                "error": "Fresh Spider site status fetch timed out",
+            }
     else:
         acquired = True
 
@@ -496,10 +505,14 @@ def ensure_spider_site_statuses(
             _store_cache(payload, keep_existing_on_empty=False)
             return payload
 
-        # Live login failed — serve durable Spider last-good, never catalog.
-        return _durable_spider_fallback(
-            payload.get("error") or "Fresh Spider site status unavailable"
-        )
+        error = payload.get("error") or "Fresh Spider site status unavailable"
+        if allow_stale_fallback:
+            return _durable_spider_fallback(error)
+        return {
+            "fetched_at": payload.get("fetched_at"),
+            "by_station": {},
+            "error": error,
+        }
     finally:
         if acquired:
             _FETCH_LOCK.release()
