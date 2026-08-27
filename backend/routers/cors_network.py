@@ -57,9 +57,20 @@ def _safe_station_live_vtec(hours: float = 0.05) -> dict[str, float]:
     """Fresh absolute NTRIP/code VTEC per station (same short window as the heat map).
 
     Caps lookback to a few minutes so station cards cannot show a 15–60 minute
-    average while MSM streams are still live.
+    average while MSM streams are still live. In-memory NTRIP decode is preferred
+    so a SQLite query glitch cannot blank the live cards.
     """
     out: dict[str, float] = {}
+    try:
+        from backend.live_manager import latest_vtec_by_station
+
+        for code, vtec in latest_vtec_by_station().items():
+            key = str(code).lower().rstrip("_")
+            value = float(vtec)
+            if value > 0:
+                out[key] = round(value, 2)
+    except Exception:
+        pass
     try:
         from backend.live_manager import get_db
         from zgiis.maps.heatmap_data import LIVE_HEATMAP_MAX_LOOKBACK_MINUTES, LIVE_VTEC_RECENT_MINUTES
@@ -76,27 +87,16 @@ def _safe_station_live_vtec(hours: float = 0.05) -> dict[str, float]:
                     value = float(row["mean_vtec"])
                 except (TypeError, ValueError, KeyError):
                     continue
-                if value > 0:
+                if value <= 0:
+                    continue
+                prior = out.get(code)
+                # Reject DB spikes that disagree with the live in-memory decode.
+                if prior is not None and abs(value - prior) > max(12.0, 0.4 * prior):
+                    continue
+                if code not in out:
                     out[code] = round(value, 2)
     except Exception as exc:
         log.warning("stations live NTRIP VTEC attach skipped: %s", exc)
-    try:
-        from backend.live_manager import latest_vtec_by_station
-
-        # In-memory NTRIP decode is freshest, but reject single-PRN spikes that
-        # disagree with the robust short-window station value (Gokwe was ~124
-        # TECU from one bad sample while the median sat near ~20).
-        for code, vtec in latest_vtec_by_station().items():
-            key = str(code).lower().rstrip("_")
-            value = float(vtec)
-            if value <= 0:
-                continue
-            prior = out.get(key)
-            if prior is not None and abs(value - prior) > max(12.0, 0.4 * prior):
-                continue
-            out[key] = round(value, 2)
-    except Exception:
-        pass
     return out
 
 

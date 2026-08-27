@@ -788,7 +788,7 @@ def _live_pipeline_memory_rows() -> list[dict[str, Any]]:
             station = _STATION_LOOKUP.get(code.lower().rstrip("_"))
             if station is None or not np.isfinite(vtec) or vtec <= 0:
                 continue
-            rows.append(_row_from_station(station, vtec=vtec, obs_count=1))
+            rows.append(_row_from_station(station, vtec=vtec, obs_count=1, source="live"))
         return rows
     except Exception:
         return []

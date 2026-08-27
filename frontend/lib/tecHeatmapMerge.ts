@@ -72,21 +72,30 @@ export function mergeTecHeatmapWithStations(
             ? liveStation.current_tec
             : null;
 
-        // Keep cleaned backend surface / measured values.
-        if ((s.obs_count ?? 0) > 0) {
+        // Keep measured live NTRIP as-is — streaming always overrides interpolation.
+        if ((s.obs_count ?? 0) > 0 && !isInterpolatedSource(s.source)) {
           if (!isOfflineStation(s.code)) return s;
-          return { ...s, obs_count: 0, source: "interpolated_offline" };
+          // Offline: demote to estimate so markers can still show a surface value.
+          return { ...s, obs_count: 0, source: "live_surface_estimate" };
         }
 
-        // Interpolated marker: only adopt current_tec when it sits in the
-        // measured consensus band (local-like), otherwise keep surface estimate.
-        if (isInterpolatedSource(s.source)) {
-          if (liveTec != null && withinBand(liveTec)) {
+        // Non-streaming interpolated marker: adopt station current_tec only when it
+        // is a real live decode in the measured band (streaming overrides estimate).
+        if (isInterpolatedSource(s.source) || (s.obs_count ?? 0) <= 0) {
+          if (liveTec != null && withinBand(liveTec) && !isOfflineStation(s.code)) {
             return {
               ...s,
               vtec: liveTec,
-              obs_count: Math.max(1, s.obs_count ?? 0),
+              obs_count: 1,
               source: "live",
+            };
+          }
+          // Keep / restore interpolation for sites that are not streaming.
+          if (typeof s.vtec === "number" && Number.isFinite(s.vtec) && s.vtec > 0) {
+            return {
+              ...s,
+              obs_count: 0,
+              source: isInterpolatedSource(s.source) ? s.source : "live_surface_estimate",
             };
           }
           return s;
@@ -96,7 +105,7 @@ export function mergeTecHeatmapWithStations(
         return {
           ...s,
           obs_count: 0,
-          source: isInterpolatedSource(s.source) ? s.source : "interpolated_offline",
+          source: "live_surface_estimate",
         };
       })
       .filter((s): s is NonNullable<typeof s> => s != null);

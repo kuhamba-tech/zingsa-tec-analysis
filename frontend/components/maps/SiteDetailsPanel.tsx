@@ -28,6 +28,11 @@ function isInterpolatedSource(source: string | null | undefined): boolean {
 
 function heatmapVtec(station: Station, heatmap?: TecHeatmapResponse | null): number | null {
   const heatStation = heatmapStationFor(station, heatmap);
+  if (heatStation && /processed_archive/i.test(heatStation.source ?? "")) {
+    return null;
+  }
+
+  // Streaming measured live NTRIP overrides any surface estimate.
   const measuredLive =
     heatStation &&
     (heatStation.obs_count ?? 0) > 0 &&
@@ -38,6 +43,18 @@ function heatmapVtec(station: Station, heatmap?: TecHeatmapResponse | null): num
       return fromHeatmap;
     }
   }
+
+  // Non-streaming: allow interpolated live-surface VTEC on the card/map.
+  if (
+    heatStation &&
+    isInterpolatedSource(heatStation.source) &&
+    typeof heatStation.vtec === "number" &&
+    Number.isFinite(heatStation.vtec) &&
+    heatStation.vtec > 0
+  ) {
+    return heatStation.vtec;
+  }
+
   const liveStatus = getLiveStationStatus(station);
   if (liveStatus === "offline" || liveStatus === "unavailable") return null;
   return typeof station.current_tec === "number" && Number.isFinite(station.current_tec) && station.current_tec > 0
@@ -117,10 +134,12 @@ export default function SiteDetailsPanel({ station, heatmap = null, onClose }: P
   const vtec = heatmapVtec(station, heatmap);
   const heatmapStation = heatmapStationFor(station, heatmap);
   const tecSource = isInterpolatedSource(heatmapStation?.source)
-    ? "Interpolated TEC estimate"
-    : heatmapStation?.source
-      ? heatmapStation.source
-      : null;
+    ? "Interpolated from live NTRIP surface"
+    : heatmapStation && (heatmapStation.obs_count ?? 0) > 0
+      ? "Live NTRIP"
+      : heatmapStation?.source
+        ? heatmapStation.source
+        : null;
   const statusColor = siteStatusColor(
     rows.find((r) => r.label === "Site Status")?.value ?? station.status,
   );

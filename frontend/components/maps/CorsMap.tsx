@@ -158,7 +158,8 @@ function stationTecValue(station: Station, heatmap: TecHeatmapResponse | null | 
   if (heatStation && /processed_archive/i.test(heatStation.source ?? "")) {
     return null;
   }
-  // Markers show measured live NTRIP VTEC only — never IDW/surface estimates.
+
+  // 1) Streaming measured live NTRIP always overrides interpolation.
   const measuredLive =
     heatStation &&
     (heatStation.obs_count ?? 0) > 0 &&
@@ -169,6 +170,19 @@ function stationTecValue(station: Station, heatmap: TecHeatmapResponse | null | 
       return fromHeatmap;
     }
   }
+
+  // 2) Non-streaming sites: show interpolated live-surface VTEC when available.
+  if (
+    heatStation &&
+    isInterpolatedSource(heatStation.source) &&
+    typeof heatStation.vtec === "number" &&
+    Number.isFinite(heatStation.vtec) &&
+    heatStation.vtec > 0
+  ) {
+    return heatStation.vtec;
+  }
+
+  // 3) Fallback: station-card live decode (online sites only).
   const liveStatus = getLiveStationStatus(station);
   if (liveStatus === "offline" || liveStatus === "unavailable") return null;
   return typeof station.current_tec === "number" && Number.isFinite(station.current_tec) && station.current_tec > 0

@@ -307,6 +307,21 @@ def start(*, priority_codes: list[str] | None = None) -> None:
     monitor = get_monitor()
     nav_cache = get_nav_cache()
 
+    # Seed GPS broadcast ephemeris before opening NTRIP sockets. ZINGSA mounts
+    # never send RTCM 1019; without elevation, MSM streams stay "connected"
+    # but markers show no VTEC (missing_elevation).
+    try:
+        from zgiis.live.broadcast_ephemeris import fetch_gps_nav
+
+        seeded = fetch_gps_nav()
+        if seeded:
+            updated = nav_cache.bulk_update_gps(seeded)
+            log.info("Seeded broadcast ephemeris for %d GPS satellite(s) before NTRIP start", updated)
+        else:
+            log.warning("No broadcast ephemeris available at NTRIP start — live VTEC will wait for refresh")
+    except Exception:
+        log.exception("Broadcast ephemeris seed failed")
+
     def _on_vtec(vtec: dict) -> None:
         epoch = vtec.get("epoch")
         latency_ms = (

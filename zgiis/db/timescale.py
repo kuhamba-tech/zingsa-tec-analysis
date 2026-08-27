@@ -348,6 +348,21 @@ class TecDB:
             log.warning("insert_vtec gave up after lock contention (%s)", last_exc)
         return 0
 
+    def _read_sql(self, sql: str, params: list | tuple) -> pd.DataFrame:
+        """Run a parameterised SELECT without pandas mangling LIKE '%' wildcards.
+
+        ``pd.read_sql_query`` treats ``%code_live%`` as a pyformat specifier
+        (``%c``), which raises SQLite ``bad parameter or other API misuse`` and
+        drops live NTRIP VTEC from the map and station cards.
+        """
+        if self._is_pg:
+            return pd.read_sql(sql, self._conn, params=list(params))
+        cur = self._conn.cursor()
+        cur.execute(sql, tuple(params))
+        cols = [d[0] for d in cur.description] if cur.description else []
+        rows = cur.fetchall()
+        return pd.DataFrame.from_records(rows, columns=cols)
+
     # ── Read ──────────────────────────────────────────────────────────────────
 
     def query_recent(
@@ -371,8 +386,7 @@ class TecDB:
         try:
             if self._is_pg:
                 sql = sql.replace("?", "%s")
-                return pd.read_sql(sql, self._conn, params=params)
-            return pd.read_sql_query(sql, self._conn, params=params)
+            return self._read_sql(sql, params)
         except Exception as exc:
             # Never block map/station endpoints forever on a locked SQLite file.
             log.warning("query_recent failed (%s)", exc)
@@ -415,9 +429,7 @@ class TecDB:
         params.append(int(limit))
         if self._is_pg:
             sql = sql.replace("?", "%s")
-            df = pd.read_sql(sql, self._conn, params=params)
-        else:
-            df = pd.read_sql_query(sql, self._conn, params=params)
+        df = self._read_sql(sql, params)
         if df.empty:
             return df
         return df.sort_values("timestamp").reset_index(drop=True)
@@ -467,8 +479,7 @@ class TecDB:
         try:
             if self._is_pg:
                 sql = sql.replace("?", "%s")
-                return pd.read_sql(sql, self._conn, params=[since])
-            return pd.read_sql_query(sql, self._conn, params=[since])
+            return self._read_sql(sql, [since])
         except Exception as exc:
             log.warning("station_summary failed (%s)", exc)
             return pd.DataFrame(columns=["station", "mean_vtec", "max_vtec", "obs_count"])
@@ -513,10 +524,7 @@ class TecDB:
             """
             params = [since]
         try:
-            if self._is_pg:
-                raw = pd.read_sql(sql, self._conn, params=params)
-            else:
-                raw = pd.read_sql_query(sql, self._conn, params=params)
+            raw = self._read_sql(sql, params)
         except Exception as exc:
             log.warning("recent_station_vtec failed (%s)", exc)
             return pd.DataFrame(columns=["station", "mean_vtec", "obs_count"])
@@ -627,10 +635,7 @@ class TecDB:
             params = [step * 60, step * 60, since]
 
         try:
-            if self._is_pg:
-                df = pd.read_sql(sql, self._conn, params=params)
-            else:
-                df = pd.read_sql_query(sql, self._conn, params=params)
+            df = self._read_sql(sql, params)
         except Exception as exc:
             log.warning("station_vtec_timeseries_binned failed (%s)", exc)
             return pd.DataFrame(columns=["station", "bucket", "vtec_tecu", "obs_count"])

@@ -7,13 +7,11 @@ do not emit RTCM 1019 (GPS broadcast ephemeris) on any mountpoint (confirmed
 by direct capture), so satellite elevation — required before any VTEC value
 can be computed, see zgiis/live/satellite_geometry.py — never resolves from
 the live NTRIP stream alone. This module sources the same ephemeris
-independently from BKG's public combined BRDC mirror (anonymous HTTPS, no
-Earthdata/CDDIS login required), refreshed periodically by
+independently from public IGS / NGS mirrors, refreshed periodically by
 backend/live_manager.py.
 
-Source: https://igs.bkg.bund.de/root_ftp/IGS/BRDC/<year>/<doy>/
-        BRDC00WRD_R_<year><doy>0000_01D_MN.rnx.gz  (mixed-constellation,
-        updated intraday; GPS records extracted via georinex).
+Primary:  BKG combined BRDC (RINEX 3 mixed) when reachable
+Fallback: NOAA NGS daily GPS BRDC (RINEX 2) — used when BKG is down
 """
 from __future__ import annotations
 
@@ -30,9 +28,16 @@ import requests
 
 log = logging.getLogger(__name__)
 
-_BKG_URL = (
-    "https://igs.bkg.bund.de/root_ftp/IGS/BRDC/{year}/{doy:03d}/"
-    "BRDC00WRD_R_{year}{doy:03d}0000_01D_MN.rnx.gz"
+# Tried in order for each candidate UTC day.
+_BRDC_URL_TEMPLATES = (
+    # BKG mixed-constellation RINEX 3 (preferred when the mirror is up).
+    (
+        "https://igs.bkg.bund.de/root_ftp/IGS/BRDC/{year}/{doy:03d}/"
+        "BRDC00WRD_R_{year}{doy:03d}0000_01D_MN.rnx.gz"
+    ),
+    # NOAA NGS GPS-only RINEX 2 — public, no Earthdata login.
+    "https://www.ngs.noaa.gov/corsdata/rinex/{year}/{doy:03d}/brdc{doy:03d}0.{yy}n.gz",
+    "https://geodesy.noaa.gov/corsdata/rinex/{year}/{doy:03d}/brdc{doy:03d}0.{yy}n.gz",
 )
 
 # Matches the nav-row keys LiveNavCache._gps entries already use (from RTCM
@@ -44,27 +49,56 @@ _NAV_FIELDS = [
 ]
 
 
+def _brdc_urls_for_day(day: datetime) -> list[str]:
+    year = day.year
+    doy = day.timetuple().tm_yday
+    yy = f"{year % 100:02d}"
+    return [
+        template.format(year=year, doy=doy, yy=yy)
+        for template in _BRDC_URL_TEMPLATES
+    ]
+
+
 def _download_brdc(day: datetime, *, timeout: int = 60) -> Optional[Path]:
     year = day.year
     doy = day.timetuple().tm_yday
-    url = _BKG_URL.format(year=year, doy=doy)
-    try:
-        resp = requests.get(url, timeout=timeout)
-        resp.raise_for_status()
-    except Exception as exc:
-        log.info("Broadcast ephemeris fetch failed for %s: %s", url, exc)
-        return None
+    last_exc: Exception | None = None
+    for url in _brdc_urls_for_day(day):
+        try:
+            resp = requests.get(url, timeout=timeout)
+            resp.raise_for_status()
+            content_type = (resp.headers.get("content-type") or "").lower()
+            # CDDIS and some mirrors return an HTML login page with HTTP 200.
+            if "html" in content_type or resp.content[:1] == b"<":
+                raise RuntimeError(f"HTML response instead of BRDC file from {url}")
+            if len(resp.content) < 1000:
+                raise RuntimeError(f"BRDC payload too small from {url}")
+        except Exception as exc:
+            last_exc = exc
+            log.info("Broadcast ephemeris fetch failed for %s: %s", url, exc)
+            continue
 
-    try:
-        raw = gzip.decompress(resp.content)
-    except OSError:
-        raw = resp.content  # already uncompressed
+        try:
+            raw = gzip.decompress(resp.content)
+        except OSError:
+            raw = resp.content  # already uncompressed
 
-    fd, tmp_name = tempfile.mkstemp(prefix=f"brdc_{year}{doy:03d}_", suffix=".rnx")
-    tmp_path = Path(tmp_name)
-    with open(fd, "wb") as f:
-        f.write(raw)
-    return tmp_path
+        if not raw.lstrip().startswith((b"     ", b"2.", b"3.", b"4.")):
+            # RINEX nav headers start with version digits / spaces — reject junk.
+            if b"RINEX" not in raw[:200]:
+                log.info("Broadcast ephemeris payload is not RINEX nav from %s", url)
+                continue
+
+        fd, tmp_name = tempfile.mkstemp(prefix=f"brdc_{year}{doy:03d}_", suffix=".rnx")
+        tmp_path = Path(tmp_name)
+        with open(fd, "wb") as f:
+            f.write(raw)
+        log.info("Broadcast ephemeris downloaded from %s (%d bytes)", url, len(raw))
+        return tmp_path
+
+    if last_exc is not None:
+        log.warning("All broadcast ephemeris mirrors failed for DOY %s: %s", doy, last_exc)
+    return None
 
 
 def _load_gps_nav_df(path: Path):
@@ -125,11 +159,11 @@ def _latest_per_sv(df, reference_time: datetime) -> dict[int, dict]:
 def fetch_gps_nav(reference_time: Optional[datetime] = None) -> dict[int, dict]:
     """
     Return {sv_number: nav_dict} — the most recent valid GPS broadcast
-    ephemeris per satellite, as of reference_time (default: now), sourced
-    from BKG's public combined BRDC mirror. Falls back to the previous UTC
-    day's file if today's has no usable records yet (e.g. just after
-    00:00 UTC). Returns {} if unreachable/unparsable — callers should treat
-    that as "no update available", not an error.
+    ephemeris per satellite, as of reference_time (default: now).
+
+    Tries BKG then NOAA NGS mirrors, falling back to the previous UTC day's
+    file if today's has no usable records yet. Returns {} if unreachable /
+    unparsable — callers should treat that as "no update available".
     """
     reference_time = reference_time or datetime.now(tz=timezone.utc)
     for candidate_day in (reference_time, reference_time - timedelta(days=1)):
