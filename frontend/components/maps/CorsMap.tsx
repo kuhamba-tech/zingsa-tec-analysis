@@ -44,7 +44,7 @@ const LABEL_URL =
 const TRANSPORT_URL =
   "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}";
 /** DLR rewrites the same "latest" path; refresh via our no-store API proxy. */
-const GLOBAL_TEC_REFRESH_MS = 2 * 60 * 1000;
+const GLOBAL_TEC_REFRESH_MS = 45_000;
 
 function baseTileUrl(layer: MapLayer): string {
   return layer === "Street" ? STREET_URL : SATELLITE_URL;

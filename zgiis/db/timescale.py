@@ -302,6 +302,12 @@ class TecDB:
         for attempt in range(_SQLITE_INSERT_ATTEMPTS):
             try:
                 with _SQLITE_WRITE_LOCK:
+                    if self._conn is None or (
+                        _SHARED_SQLITE_CONN is not None and self._conn is not _SHARED_SQLITE_CONN
+                    ):
+                        self._conn = _SHARED_SQLITE_CONN
+                    if self._conn is None:
+                        self._init_sqlite()
                     self._conn.execute("BEGIN IMMEDIATE")
                     try:
                         self._conn.executemany(sql, rows)
@@ -313,39 +319,20 @@ class TecDB:
             except Exception as exc:
                 last_exc = exc
                 try:
-                    self._conn.rollback()
+                    if self._conn is not None:
+                        self._conn.rollback()
                 except Exception:
                     pass
-                if _sqlite_busy(exc) and attempt < _SQLITE_INSERT_ATTEMPTS - 1:
-                    # Collector + API share one SQLite file — brief backoff, no reconnect.
+                if attempt < _SQLITE_INSERT_ATTEMPTS - 1:
+                    # Never close the shared SQLite handle on insert errors —
+                    # other NTRIP/API threads still use it (closing caused segfaults).
                     time.sleep(0.05 * (2 ** attempt))
                     continue
                 log.warning("insert_vtec failed (%s)", exc)
                 break
 
-        # Only reconnect on non-busy corruption; never open extra FDs on lock storms.
-        if last_exc is not None and not _sqlite_busy(last_exc):
-            try:
-                with _SQLITE_WRITE_LOCK:
-                    try:
-                        if self._conn is not None:
-                            self._conn.close()
-                    except Exception:
-                        pass
-                    _SHARED_SQLITE_CONN = None
-                    self._init_sqlite()
-                    self._conn.execute("BEGIN IMMEDIATE")
-                    try:
-                        self._conn.executemany(sql, rows)
-                        self._conn.commit()
-                    except Exception:
-                        self._conn.rollback()
-                        raise
-                return len(rows)
-            except Exception as retry_exc:
-                log.warning("insert_vtec retry failed (%s)", retry_exc)
-        elif last_exc is not None:
-            log.warning("insert_vtec gave up after lock contention (%s)", last_exc)
+        if last_exc is not None:
+            log.warning("insert_vtec gave up after %d attempt(s) (%s)", _SQLITE_INSERT_ATTEMPTS, last_exc)
         return 0
 
     def _read_sql(self, sql: str, params: list | tuple) -> pd.DataFrame:
@@ -357,11 +344,17 @@ class TecDB:
         """
         if self._is_pg:
             return pd.read_sql(sql, self._conn, params=list(params))
-        cur = self._conn.cursor()
-        cur.execute(sql, tuple(params))
-        cols = [d[0] for d in cur.description] if cur.description else []
-        rows = cur.fetchall()
-        return pd.DataFrame.from_records(rows, columns=cols)
+        with _SQLITE_WRITE_LOCK:
+            if self._conn is None:
+                self._init_sqlite()
+            elif _SHARED_SQLITE_CONN is not None and self._conn is not _SHARED_SQLITE_CONN:
+                # Prefer the live shared handle after another writer re-bound it.
+                self._conn = _SHARED_SQLITE_CONN
+            cur = self._conn.cursor()
+            cur.execute(sql, tuple(params))
+            cols = [d[0] for d in cur.description] if cur.description else []
+            rows = cur.fetchall()
+            return pd.DataFrame.from_records(rows, columns=cols)
 
     # ── Read ──────────────────────────────────────────────────────────────────
 
@@ -496,11 +489,11 @@ class TecDB:
         one bad PRN cannot push Gokwe/similar sites to 100+ TECU while peers
         stay near 15–25 TECU.
         """
-        since = (datetime.now(tz=timezone.utc) - timedelta(minutes=max(1.0, float(minutes)))).isoformat()
+        since = (datetime.now(tz=timezone.utc) - timedelta(minutes=max(0.25, float(minutes)))).isoformat()
         if self._is_pg:
             method_clause = " AND tec_method LIKE '%%code_live%%'" if code_live_only else ""
             sql = f"""
-            SELECT station, vtec_tecu
+            SELECT time, station, prn, vtec_tecu
             FROM vtec_obs
             WHERE time >= %s
               AND vtec_tecu IS NOT NULL
@@ -513,7 +506,7 @@ class TecDB:
         else:
             method_clause = " AND tec_method LIKE '%code_live%'" if code_live_only else ""
             sql = f"""
-            SELECT station, vtec_tecu
+            SELECT time, station, prn, vtec_tecu
             FROM vtec_obs
             WHERE time >= ?
               AND vtec_tecu IS NOT NULL
@@ -534,13 +527,13 @@ class TecDB:
         if raw.empty:
             return pd.DataFrame(columns=["station", "mean_vtec", "obs_count"])
 
-        from zgiis.maps.heatmap_data import _robust_station_vtec
+        from zgiis.maps.heatmap_data import _fresh_station_vtec_from_group
 
         rows: list[dict] = []
         work = raw.copy()
         work["station"] = work["station"].astype(str).str.lower().str.rstrip("_")
         for code, group in work.groupby("station"):
-            vtec = _robust_station_vtec(group["vtec_tecu"])
+            vtec = _fresh_station_vtec_from_group(group)
             if vtec is None:
                 continue
             rows.append(

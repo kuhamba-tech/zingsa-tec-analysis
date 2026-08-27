@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import io
 import logging
+import os
 import random
 import socket
 import ssl
@@ -184,6 +185,7 @@ class StationStream(threading.Thread):
         connection_slots: Optional[threading.Semaphore] = None,
         start_delay: float = 0.0,
         nav_cache=None,
+        max_session_s: Optional[float] = None,
     ):
         super().__init__(name=f"ntrip-{station}", daemon=True)
         self.station = station
@@ -203,6 +205,9 @@ class StationStream(threading.Thread):
         self._slots = connection_slots
         self._start_delay = start_delay
         self._nav_cache = nav_cache
+        # Voluntary session limit so waiting mounts (e.g. TSHO) can rotate into
+        # the concurrent slot pool instead of being starved forever.
+        self._max_session_s = float(max_session_s) if max_session_s and max_session_s > 0 else None
         self._consecutive_failures = 0
 
         self._stop = threading.Event()
@@ -319,9 +324,20 @@ class StationStream(threading.Thread):
         if not _PYRTCM_OK:
             raise RuntimeError("pyrtcm is required — pip install pyrtcm")
         sock.settimeout(30)
+        session_started = time.monotonic()
         try:
             for _, msg in RTCMReader(sock):
                 if self._stop.is_set():
+                    break
+                if (
+                    self._max_session_s is not None
+                    and (time.monotonic() - session_started) >= self._max_session_s
+                ):
+                    log.info(
+                        "[%s] Releasing NTRIP slot after %.0fs so waiting mounts can rotate in",
+                        self.station,
+                        self._max_session_s,
+                    )
                     break
                 t_recv = datetime.now(tz=timezone.utc)
                 try:
@@ -372,6 +388,7 @@ class LiveNtripManager:
         *,
         max_concurrent: Optional[int] = None,
         nav_cache=None,
+        max_session_s: Optional[float] = None,
     ):
         self._cfg = ntrip_cfg
         self._on_obs = on_observation or (lambda _: None)
@@ -382,6 +399,13 @@ class LiveNtripManager:
         # NTRIP_LIVE_MAX_CONCURRENT) — cap how many stations hold an open
         # session simultaneously; the rest queue and rotate in.
         self._slots = threading.Semaphore(max_concurrent) if max_concurrent else None
+        if max_session_s is None:
+            raw = os.getenv("NTRIP_LIVE_SESSION_S", "600").strip()
+            try:
+                max_session_s = float(raw) if raw else 600.0
+            except ValueError:
+                max_session_s = 600.0
+        self._max_session_s = max_session_s if max_session_s and max_session_s > 0 else None
 
     def start(self, mountpoints: dict[str, str], *, stagger_sec: float = 1.5) -> None:
         """
@@ -409,6 +433,7 @@ class LiveNtripManager:
                 connection_slots=self._slots,
                 start_delay=i * stagger_sec,
                 nav_cache=self._nav_cache,
+                max_session_s=self._max_session_s,
             )
             self._streams[station] = s
             s.start()

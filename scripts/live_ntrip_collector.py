@@ -45,9 +45,10 @@ def _parse_mountpoints() -> dict[str, str]:
         for item in os.getenv("ZGIIS_COLLECTOR_STATIONS", "").split(",")
         if item.strip()
     }
-    from zgiis.live.mountpoints import parse_mountpoints
+    from zgiis.live.mountpoints import live_priority_codes, order_mountpoints, parse_mountpoints
 
-    return parse_mountpoints(station_filter=only or None)
+    mapping = parse_mountpoints(station_filter=only or None)
+    return order_mountpoints(mapping, live_priority_codes())
 
 
 def _status_push_url() -> str:

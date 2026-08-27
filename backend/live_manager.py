@@ -73,10 +73,9 @@ def _db_flush_n() -> int:
 
 
 def _priority_codes_from_env() -> list[str]:
-    raw = os.getenv("NTRIP_LIVE_PRIORITY_STATIONS", "").strip()
-    if not raw:
-        return []
-    return [item.strip().lower() for item in raw.split(",") if item.strip()]
+    from zgiis.live.mountpoints import live_priority_codes
+
+    return live_priority_codes()
 
 
 def _start_flush_thread() -> None:
@@ -173,7 +172,7 @@ def latest_vtec_by_station() -> dict[str, float]:
     if pipeline is None:
         return {}
     try:
-        return pipeline.latest_by_station(max_age_s=180.0)
+        return pipeline.latest_by_station(max_age_s=90.0)
     except TypeError:
         # Older pipeline without max_age_s kwarg.
         return pipeline.latest_by_station()

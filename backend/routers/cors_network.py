@@ -76,7 +76,7 @@ def _safe_station_live_vtec(hours: float = 0.05) -> dict[str, float]:
         from zgiis.maps.heatmap_data import LIVE_HEATMAP_MAX_LOOKBACK_MINUTES, LIVE_VTEC_RECENT_MINUTES
 
         minutes = max(
-            1.0,
+            0.5,
             min(float(hours) * 60.0, float(LIVE_HEATMAP_MAX_LOOKBACK_MINUTES), float(LIVE_VTEC_RECENT_MINUTES)),
         )
         df = get_db().recent_station_vtec(minutes=minutes, code_live_only=True)
@@ -93,6 +93,8 @@ def _safe_station_live_vtec(hours: float = 0.05) -> dict[str, float]:
                 # Reject DB spikes that disagree with the live in-memory decode.
                 if prior is not None and abs(value - prior) > max(12.0, 0.4 * prior):
                     continue
+                # In-memory MSM epoch wins when present; DB fills gaps with the
+                # fresh-slice median so non-slot stations still move on refresh.
                 if code not in out:
                     out[code] = round(value, 2)
     except Exception as exc:

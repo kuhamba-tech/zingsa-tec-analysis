@@ -14,7 +14,7 @@ import StationVtecTimePlots from "@/components/charts/StationVtecTimePlots";
 const CorsMap = dynamic(() => import("@/components/maps/CorsMap"), { ssr: false });
 
 const LAYERS: MapLayer[] = ["Hybrid", "Satellite", "Street", "TEC Heat Map"];
-const HEATMAP_REFRESH_MS = 45_000;
+const HEATMAP_REFRESH_MS = 30_000;
 
 export default function TecHeatmapPage() {
   const [stations, setStations] = useState<Station[]>(() => peekStations());

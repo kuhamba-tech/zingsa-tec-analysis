@@ -63,3 +63,36 @@ def order_mountpoints(
     pri = [code.lower().strip() for code in priority_codes if code.lower().strip() in mountpoints]
     rest = [code for code in mountpoints if code not in pri]
     return {code: mountpoints[code] for code in pri + rest}
+
+
+# Stations that should claim concurrent NTRIP slots first when the caster
+# caps connections (~8–12). Keep border / ops-critical sites ahead of the rest.
+DEFAULT_LIVE_PRIORITY: tuple[str, ...] = (
+    "lupa",
+    "hara",
+    "zinh",
+    "muta",
+    "beit",
+    "kwek",
+    "tsho",
+    "masv",
+    "gokw",
+    "vicf",
+)
+
+
+def live_priority_codes(*, env_var: str = "NTRIP_LIVE_PRIORITY_STATIONS") -> list[str]:
+    """Env codes first, then the built-in default list (deduped).
+
+    A short env override like ``masv,hara,zinh`` must not drop the rest of the
+    ops-critical set (LUPA/BEIT/KWEK/TSHO) from the concurrent slot queue.
+    """
+    raw = os.getenv(env_var, "").strip()
+    ordered: list[str] = []
+    for code in (
+        [item.strip().lower() for item in raw.split(",") if item.strip()]
+        + list(DEFAULT_LIVE_PRIORITY)
+    ):
+        if code and code not in ordered:
+            ordered.append(code)
+    return ordered

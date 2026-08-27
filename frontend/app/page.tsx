@@ -256,7 +256,7 @@ export default function HomePage() {
     }
 
     load(false);
-    const timer = window.setInterval(() => load(true), 45_000);
+    const timer = window.setInterval(() => load(true), 30_000);
     return () => {
       cancelled = true;
       window.clearInterval(timer);

@@ -20,6 +20,11 @@ SERVERLESS_MAX_WORKERS = 4
 # Spread across Zimbabwe so the Matamba surface is not a single-point copy.
 DEFAULT_PRIORITY = (
     "zinh",
+    "hara",
+    "lupa",
+    "beit",
+    "kwek",
+    "tsho",
     "masv",
     "karo",
     "gsu",

@@ -542,7 +542,7 @@ def _pipeline_station_rows(hours: float = 2.0) -> list[dict[str, Any]]:
         from backend.live_manager import get_db
 
         minutes = max(
-            1.5,
+            0.5,
             min(float(hours) * 60.0, float(LIVE_HEATMAP_MAX_LOOKBACK_MINUTES), float(LIVE_VTEC_RECENT_MINUTES)),
         )
         df = get_db().recent_station_vtec(minutes=minutes, code_live_only=True)
@@ -558,23 +558,27 @@ def _recent_pipeline_rows(hours: float = 0.5) -> list[dict[str, Any]]:
             return []
         from backend.live_manager import get_db
 
-        minutes = max(1.0, min(float(hours) * 60.0, 2.0, float(LIVE_HEATMAP_MAX_LOOKBACK_MINUTES)))
+        minutes = max(0.5, min(float(hours) * 60.0, 2.0, float(LIVE_HEATMAP_MAX_LOOKBACK_MINUTES)))
         df = get_db().recent_station_vtec(minutes=minutes, code_live_only=True)
     except Exception:
         return []
     return _rows_from_station_vtec_summary(df, source="live")
 
 
-def _robust_station_vtec(series) -> float | None:
+def _robust_station_vtec(series, *, prefer_latest_n: int | None = None) -> float | None:
     """Median VTEC for one station, with within-station spike clipping.
 
     Code TEC without full DCB can throw large PRN outliers; mean() was
     pulling Neon station cards to ~100 TECU while peer sites stayed ~20.
+    When ``prefer_latest_n`` is set, use only the newest N samples so the
+    map tracks live recalculation instead of a sticky multi-minute median.
     """
     vals = pd.to_numeric(series, errors="coerce").dropna()
     vals = vals[(vals > 0) & (vals < 200)]
     if vals.empty:
         return None
+    if prefer_latest_n is not None and prefer_latest_n > 0 and len(vals) > prefer_latest_n:
+        vals = vals.iloc[-int(prefer_latest_n) :]
     med = float(vals.median())
     mad = float((vals - med).abs().median())
     if mad > 0:
@@ -584,6 +588,103 @@ def _robust_station_vtec(series) -> float | None:
         if not clipped.empty:
             vals = clipped
     return float(vals.median())
+
+
+def _prn_consensus_station_vtec(group: pd.DataFrame) -> float | None:
+    """Median of per-PRN medians after dropping low/high code-TEC bias PRNs.
+
+    Some mounts (e.g. BEIT/LUPA) stream thousands of G01 samples near ~2–4 TECU
+    while G30 on the same site sits near the network (~19–22 TECU). A sample-level
+    median then reports ~8–9 TECU — not a physical ionosphere value.
+
+    Split PRN medians on the largest gap (≥8 TECU), then if the remaining set still
+    looks low-biased prefer the upper half of PRN medians. Singleton extreme highs
+    are treated as spikes and dropped.
+    """
+    if group is None or getattr(group, "empty", True) or "prn" not in group.columns:
+        return None
+    work = group.copy()
+    work["vtec_tecu"] = pd.to_numeric(work["vtec_tecu"], errors="coerce")
+    work["prn"] = work["prn"].astype(str)
+    work = work.dropna(subset=["vtec_tecu", "prn"])
+    work = work[(work["vtec_tecu"] > 0) & (work["vtec_tecu"] < 200)]
+    if work.empty:
+        return None
+
+    prn_meds: list[float] = []
+    for _, series in work.groupby("prn")["vtec_tecu"]:
+        if len(series) < 3:
+            continue
+        med = float(series.median())
+        if np.isfinite(med):
+            prn_meds.append(med)
+    if len(prn_meds) < 2:
+        return None
+
+    arr = np.array(sorted(prn_meds), dtype=float)
+    if len(arr) >= 2:
+        gaps = np.diff(arr)
+        split = int(np.argmax(gaps))
+        if float(gaps[split]) >= 8.0:
+            lower = arr[: split + 1]
+            upper = arr[split + 1 :]
+            low_med = float(np.median(lower))
+            up_med = float(np.median(upper))
+            # Singleton extreme high spike → keep lower cluster.
+            if len(upper) == 1 and up_med > low_med + 40.0:
+                arr = lower
+            # Low-biased PRN pile (BEIT/LUPA G01/G14) → keep higher cluster.
+            elif low_med < 12.0 and up_med >= low_med + 8.0:
+                arr = upper
+            elif len(upper) >= len(lower):
+                arr = upper
+            else:
+                arr = lower
+
+    # Mid-bias case (e.g. LUPA G01/G14/G30 with gaps < 8 after first split):
+    # prefer upper half when the lower half is unphysically low.
+    if len(arr) >= 3:
+        k = max(1, len(arr) // 2)
+        lower = arr[:k]
+        upper = arr[-k:]
+        low_med = float(np.median(lower))
+        up_med = float(np.median(upper))
+        if low_med < 12.0 and (up_med - low_med) >= 8.0:
+            arr = upper
+
+    ref = float(np.median(arr))
+    if len(arr) == 1:
+        return ref
+    sigma = float(np.std(arr)) if len(arr) > 1 else 6.0
+    sigma = max(sigma, 6.0)
+    limit = max(3.0 * sigma, 12.0)
+    kept = [float(m) for m in arr if abs(float(m) - ref) <= limit]
+    if not kept:
+        kept = [float(m) for m in arr]
+    return float(np.median(kept))
+
+
+def _fresh_station_vtec_from_group(group: pd.DataFrame) -> float | None:
+    """Robust VTEC biased to the newest observations in the lookback window."""
+    if group is None or getattr(group, "empty", True):
+        return None
+    work = group
+    if "time" in work.columns:
+        work = work.copy()
+        work["time"] = pd.to_datetime(work["time"], utc=True, errors="coerce")
+        work["vtec_tecu"] = pd.to_numeric(work["vtec_tecu"], errors="coerce")
+        work = work.dropna(subset=["time", "vtec_tecu"]).sort_values("time")
+        if work.empty:
+            return None
+        latest = work["time"].iloc[-1]
+        slice_s = float(LIVE_VTEC_FRESH_SLICE_SECONDS)
+        fresh = work[work["time"] >= latest - pd.Timedelta(seconds=slice_s)]
+        if len(fresh) >= 5:
+            work = fresh
+    prn_vtec = _prn_consensus_station_vtec(work)
+    if prn_vtec is not None:
+        return prn_vtec
+    return _robust_station_vtec(work["vtec_tecu"], prefer_latest_n=40)
 
 
 def _consensus_filter_control_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -616,9 +717,12 @@ def _consensus_filter_control_rows(rows: list[dict[str, Any]]) -> list[dict[str,
     return kept if kept else measured
 
 
-LIVE_VTEC_RECENT_MINUTES = 2.0
-# Hard ceiling for the live map product — never average hours of old NTRIP samples.
-LIVE_HEATMAP_MAX_LOOKBACK_MINUTES = 2.0
+LIVE_VTEC_RECENT_MINUTES = 0.75
+# Hard ceiling for the live map product — keep the window short so markers
+# move when NTRIP recalculates instead of sitting on a multi-minute median.
+LIVE_HEATMAP_MAX_LOOKBACK_MINUTES = 1.0
+# Prefer the newest slice inside the lookback so ZINH/etc. track live decode.
+LIVE_VTEC_FRESH_SLICE_SECONDS = 45.0
 
 
 def station_vtec_by_code_from_frame(
@@ -655,7 +759,7 @@ def station_vtec_by_code_from_frame(
             return {}
         out: dict[str, float] = {}
         for code_raw, group in work.groupby(work["station"].astype(str).str.lower().str.rstrip("_")):
-            vtec = _robust_station_vtec(group["vtec_tecu"])
+            vtec = _fresh_station_vtec_from_group(group)
             if vtec is None:
                 continue
             out[str(code_raw)] = round(vtec, 2)
@@ -664,7 +768,7 @@ def station_vtec_by_code_from_frame(
     out = {}
     for code_raw, series in work.groupby("station")["vtec_tecu"]:
         code = str(code_raw).lower().rstrip("_")
-        vtec = _robust_station_vtec(series)
+        vtec = _robust_station_vtec(series, prefer_latest_n=40)
         if vtec is None:
             continue
         out[code] = round(vtec, 2)
@@ -1221,12 +1325,17 @@ def build_tec_heatmap(*, hours: float = 2.0, refresh_ntrip: bool = False) -> dic
             memory_rows,
         )
     live_rows = _consensus_filter_control_rows(live_rows) if live_rows else []
+    measured_live = [row for row in live_rows if int(row.get("obs_count") or 0) > 0]
     previous_rows = _temporal_reference_pipeline_rows() if live_rows else []
     if previous_rows:
         previous_rows = _consensus_filter_control_rows(previous_rows)
     # Fill every CORS marker from cleaned measured controls (same ~16–30 TECU
     # band local NTRIP decode shows). Spiked Neon mounts are dropped first.
     stations = _live_surface_station_rows(live_rows) if live_rows else []
+    # Streaming measured values must always win over surface interpolation —
+    # otherwise ZINH/etc. can look frozen on a neighbour estimate.
+    if measured_live:
+        stations = _merge_station_rows(stations, measured_live)
     if not stations:
         cors_rows = _cors_current_tec_rows()
         # Ignore zero/placeholder current_tec — only real live values.
