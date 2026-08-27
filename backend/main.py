@@ -94,12 +94,9 @@ def _cors_origins() -> list[str]:
     configured = os.getenv("CORS_ORIGINS", "").strip()
     if configured:
         return [origin.strip().rstrip("/") for origin in configured.split(",") if origin.strip()]
-    # Vercel serves UI + /api same-origin. Render serves a separate static site.
-    if os.getenv("VERCEL") or (
-        (os.getenv("ZGIIS_ENV") or "").strip().lower() in {"production", "prod"}
-        and not os.getenv("RENDER")
-    ):
-        return []
+    # Vercel is normally same-origin, but local development intentionally uses
+    # the production API so localhost and the deployed dashboard render the
+    # same Neon/NTRIP dataset. Only loopback origins are allowed here.
     return [
         "http://localhost:3000",
         "http://localhost:3001",
