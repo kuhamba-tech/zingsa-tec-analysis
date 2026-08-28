@@ -10,6 +10,8 @@ import type { Station, TecHeatmapResponse } from "@/lib/types";
 import type { MapLayer } from "@/components/maps/CorsMapWithLayers";
 import TecHeatMapLegend from "@/components/maps/TecHeatMapLegend";
 import StationVtecTimePlots from "@/components/charts/StationVtecTimePlots";
+import LiveVtecHealthBanner from "@/components/live/LiveVtecHealthBanner";
+import LiveVtecDiagnosticsPanel from "@/components/live/LiveVtecDiagnosticsPanel";
 
 const CorsMap = dynamic(() => import("@/components/maps/CorsMap"), { ssr: false });
 
@@ -80,6 +82,7 @@ export default function TecHeatmapPage() {
 
   return (
     <div className="tec-map-page">
+      <LiveVtecHealthBanner />
       {freshnessMsg && <div className="banner banner-warn">{freshnessMsg}</div>}
       {qualityBanner && (
         <div className="banner banner-warn" role="status">
@@ -159,6 +162,8 @@ export default function TecHeatmapPage() {
       <TecHeatMapLegend className="tec-heatmap-legend-below" maxVtec={maxVtec} />
 
       {mapLayer === "TEC Heat Map" && <StationVtecTimePlots />}
+
+      <LiveVtecDiagnosticsPanel className="tec-map-diagnostics" />
 
       {diagnostics && (
         <section className="tec-map-diagnostics" aria-label="TEC interpolation diagnostics">

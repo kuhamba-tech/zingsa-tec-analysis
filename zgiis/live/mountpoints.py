@@ -68,6 +68,7 @@ def order_mountpoints(
 # Stations that should claim concurrent NTRIP slots first when the caster
 # caps connections (~8–12). Keep border / ops-critical sites ahead of the rest.
 DEFAULT_LIVE_PRIORITY: tuple[str, ...] = (
+    "kwek",
     "lupa",
     "hara",
     "zinh",
@@ -76,7 +77,6 @@ DEFAULT_LIVE_PRIORITY: tuple[str, ...] = (
     "cent",
     "muta",
     "gokw",
-    "kwek",
     "masv",
     "vicf",
 )

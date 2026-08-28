@@ -263,6 +263,19 @@ function DataTable({ headers, rows, emptyMsg }: { headers: string[]; rows: strin
   );
 }
 
+function solarEventFeedLabel(source: string | undefined): string {
+  switch (source) {
+    case "noaa_swpc":
+      return "NOAA SWPC";
+    case "nasa_donki":
+      return "NASA DONKI";
+    case "mixed":
+      return "NASA DONKI + NOAA SWPC";
+    default:
+      return "Solar event feed";
+  }
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function SpaceWeatherPage() {
   const [sw, setSw]         = useState<SpaceWeatherCurrent | null>(null);
@@ -338,7 +351,7 @@ export default function SpaceWeatherPage() {
       .catch(() => null);
 
     if (!background) setSaLoading(true);
-    getSolarActivity()
+    getSolarActivity(!background)
       .then((payload) => {
         setSa(payload);
         setSaError(payload?.error ?? null);
@@ -423,6 +436,10 @@ export default function SpaceWeatherPage() {
     ? "Loading solar data…"
     : solarFeedLive
       ? "Live Data"
+      : sa?.mode === "stale"
+        ? "Cached — live refresh failed"
+        : sa?.mode === "partial"
+          ? "Partial feeds"
       : saError
         ? "Connection issue"
         : "Feed unavailable";
@@ -432,14 +449,18 @@ export default function SpaceWeatherPage() {
     : !flareClassRaw || flareClassRaw.toUpperCase() === "N/A"
       ? "Unavailable"
       : flareClassRaw;
-  const actLabel     = sa?.activity_label ?? "Low";
-  const actColor     = sa?.activity_color ?? "#22c55e";
+  const actLabel     = sa?.activity_label ?? "Unavailable";
+  const actColor     = sa?.activity_color ?? "#ffffff";
   const alerts       = Array.isArray(sa?.alerts) ? sa.alerts : [];
   const donkiFlares  = Array.isArray(sa?.donki_flares) ? sa.donki_flares : [];
   const donkiCmes    = Array.isArray(sa?.donki_cmes) ? sa.donki_cmes : [];
   const donkiStorms  = Array.isArray(sa?.donki_storms) ? sa.donki_storms : [];
   const alertCount   = alerts.length;
   const donkiLive = sa?.donki_status === "live";
+  const eventFeedSource = sa?.event_feed_source;
+  const eventFeedName = solarEventFeedLabel(eventFeedSource);
+  const eventFeedUnavailableMsg =
+    sa?.donki_note || saError || `${eventFeedName} unavailable — check backend on :8000.`;
 
   const flareCountColor = donkiFlareCountColor(donkiFlares.length, donkiFlares);
   const cmeCountColor = donkiCmeCountColor(donkiCmes.length, donkiCmes);
@@ -1052,10 +1073,12 @@ export default function SpaceWeatherPage() {
               <DataTable
                 headers={["REGION", "CLASS", "MAG.TYPE", "SPOTS"]}
                 rows={activeRegionRows}
-                emptyMsg={sa?.donki_status === "unavailable" ? "NASA DONKI unavailable." : "No DONKI flare regions in the last 7 days."}
+                emptyMsg={donkiLive ? "No flare regions in the last 7 days." : eventFeedUnavailableMsg}
               />
               {sa?.donki_date_start && (
-                <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>NASA DONKI Flares · {dateRange}</div>
+                <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>
+                  {eventFeedName} flares · {dateRange}
+                </div>
               )}
             </div>
 
@@ -1064,10 +1087,12 @@ export default function SpaceWeatherPage() {
               <DataTable
                 headers={["DATE (UTC)", "SPEED (KM/S)", "WIDTH", "HALO", "IMPACT"]}
                 rows={cmeTableRows}
-                emptyMsg={sa?.donki_status === "unavailable" ? "NASA DONKI unavailable." : "No DONKI CME events in the last 7 days."}
+                emptyMsg={donkiLive ? "No CME events in the last 7 days." : eventFeedUnavailableMsg}
               />
               {sa?.donki_date_start && (
-                <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>NASA DONKI CME · {dateRange}</div>
+                <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>
+                  {eventFeedName} CME · {dateRange}
+                </div>
               )}
             </div>
           </div>
@@ -1078,9 +1103,11 @@ export default function SpaceWeatherPage() {
             <DataTable
               headers={["TIME (UTC)", "TYPE", "FREQUENCY", "INTENSITY", "LOCATION"]}
               rows={radioBurstRows}
-              emptyMsg={sa?.donki_status === "unavailable" ? "NASA DONKI unavailable." : "No flare-derived radio burst proxies in the last 7 days."}
+              emptyMsg={donkiLive ? "No flare-derived radio burst proxies in the last 7 days." : eventFeedUnavailableMsg}
             />
-            <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>NOAA GOES X-ray · Proxy from DONKI FLR events</div>
+            <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>
+              NOAA GOES X-ray · proxy from {donkiLive ? eventFeedName : "solar flare events"}
+            </div>
           </div>
 
           {/* Solar Cycle Progress */}

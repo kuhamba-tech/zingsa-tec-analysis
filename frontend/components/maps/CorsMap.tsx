@@ -6,6 +6,7 @@ import { buildCorsNetworkEdges, isReferenceCorsStation } from "@/lib/corsNetwork
 import type { ProposedCorsSite } from "@/lib/corsGeneticOptimizer";
 import { isValidProposedCorsSite } from "@/lib/zimbabweBoundary";
 import { icaoTecColor, icaoTecDistanceLabel, icaoTecLabel } from "@/lib/icaoTecAdvisory";
+import { liveVtecSourceFromHeatmap, liveVtecSourceLabel } from "@/lib/liveVtecLabels";
 import { fetchGlobalTecForecastObjectUrl } from "@/lib/api";
 import { vtecToRgba } from "@/lib/tecHeatmapColors";
 import type { MapLayer } from "./CorsMapWithLayers";
@@ -808,11 +809,11 @@ export default function CorsMap({
               ? `<div style="color:#57ff65;font-weight:800">${tecValue.toFixed(1)} TECU</div>`
               : "";
           const tecSourceLine =
-            heatmapStation && isInterpolatedSource(heatmapStation.source)
-              ? `<div style="color:#ffffff;font-size:0.68rem">Interpolated from live NTRIP surface</div>`
-              : tecValue != null
-                ? `<div style="color:#57ff65;font-size:0.68rem">Live NTRIP</div>`
-                : "";
+            heatmapStation
+              ? `<div style="color:#ffffff;font-size:0.68rem">${liveVtecSourceLabel(
+                  liveVtecSourceFromHeatmap(heatmapStation.source, heatmapStation.obs_count),
+                )}</div>`
+              : "";
           const sourcetableLine = s.sourcetable_mismatch
             ? `<div style="margin-top:0.2rem;color:#ef9f27;font-weight:700">Warning: Shares caster identity with "${s.sourcetable_identifier}"</div>`
             : "";

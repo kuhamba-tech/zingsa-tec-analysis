@@ -89,3 +89,20 @@ def start_background_warmup(*, include_live_ingest: bool = True) -> None:
             daemon=True,
             name="zgiis-live-pipeline-start",
         ).start()
+        threading.Thread(
+            target=_warm_vtec_chart_cache,
+            daemon=True,
+            name="zgiis-warm-vtec-charts",
+        ).start()
+
+
+def _warm_vtec_chart_cache() -> None:
+    """Pre-build the 24h station chart cache so the first dashboard load is fast."""
+    time.sleep(20.0)
+    try:
+        from backend.routers import live as live_router
+
+        live_router._build_live_vtec_by_station(hours=24.0, resample_minutes=15)
+        log.info("24h VTEC chart cache warmed")
+    except Exception:
+        log.exception("VTEC chart cache warmup failed")

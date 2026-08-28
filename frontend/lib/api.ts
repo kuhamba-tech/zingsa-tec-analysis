@@ -29,6 +29,7 @@ import type {
   IntermagnetAnalysisResponse,
   LiveObservation,
   LivePipelineStatus,
+  LiveVtecHealth,
   LiveStationVtecSeries,
   GlobalTecByStationResponse,
   NavigationNewsBriefApi,
@@ -81,13 +82,13 @@ import { peekSpaceWeather, publishSpaceWeather } from "./spaceWeatherStore";
 import { peekStations, publishStations, purgeStaleStationsCache, stationsAreSpiderAuthoritative, stationsCacheIsStale } from "./stationsStore";
 
 function apiBase(): string {
-  const configured = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "");
-  if (configured) return configured;
   if (typeof window !== "undefined") {
     const { hostname, port, protocol } = window.location;
     const host =
       hostname === "[::1]" ? "127.0.0.1" : hostname;
-    // Next.js dev (port 3000) — FastAPI is always on 8000 on the same machine.
+    // Next.js dev (port 3000) — always use local FastAPI so live NTRIP/SQLite
+    // ingest from scripts/restart_collector_kwek.sh shows on the heat map.
+    // NEXT_PUBLIC_API_URL (often Vercel) is for deployed builds only.
     if (port === "3000" || port === "3001") {
       return `${protocol}//${host}:8000`;
     }
@@ -97,6 +98,8 @@ function apiBase(): string {
     // Vercel/static export deploy — backend is exposed through /api.
     return `${window.location.origin}/api`;
   }
+  const configured = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "");
+  if (configured) return configured;
   return "http://localhost:8000";
 }
 
@@ -292,11 +295,11 @@ export const getSpaceWeather = () => {
   }
   return pending;
 };
-export const getSolarActivity = () =>
-  dedupeGet("space-weather/solar-activity", () =>
+export const getSolarActivity = (forceRefresh = false) =>
+  dedupeGet(`space-weather/solar-activity${forceRefresh ? ":refresh" : ""}`, () =>
     getWithRetry<SolarActivityFull>(
       "/space-weather/solar-activity",
-      { _ts: Date.now() },
+      { _ts: Date.now(), ...(forceRefresh ? { force_refresh: "true" } : {}) },
       SOLAR_TIMEOUT_MS,
     ),
   );
@@ -883,10 +886,12 @@ export const getLiveVtecByStation = (hours = 6, resampleMinutes = 2) =>
   get<LiveStationVtecSeries[]>(
     "/live/vtec-by-station",
     { hours, resample_minutes: resampleMinutes, _ts: Date.now() },
-    Math.max(FETCH_TIMEOUT_MS, 55_000),
+    hours >= 24 ? 120_000 : hours >= 12 ? 90_000 : Math.max(FETCH_TIMEOUT_MS, 55_000),
   );
 export const getLiveStations = () => get<StationLiveStatus[]>("/live/stations");
 export const getLivePipelineStatus = () => get<LivePipelineStatus>("/live/pipeline-status");
+export const getLiveVtecHealth = () =>
+  get<LiveVtecHealth>("/live/vtec-health", { _ts: Date.now() });
 export const getNtripStatus = (refresh = false, listen_sec = 4) =>
   getWithRetry<NtripProbeResponse>("/live/ntrip-status", {
     _ts: Date.now(),

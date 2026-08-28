@@ -10,8 +10,8 @@ from scripts.live_ntrip_collector import (
 
 
 class LiveNtripCollectorTests(unittest.TestCase):
-    @patch("scripts.live_ntrip_collector.load_dotenv")
-    @patch("scripts.live_ntrip_collector.dotenv_values")
+    @patch("backend.env_bootstrap.load_dotenv")
+    @patch("backend.env_bootstrap.dotenv_values")
     def test_load_env_prefers_explicitly_enabled_neon(self, env_values, load_dotenv) -> None:
         env_values.return_value = {
             "ALLOW_LEGACY_NEON_DATABASE_URL": "1",
@@ -22,7 +22,10 @@ class LiveNtripCollectorTests(unittest.TestCase):
 
         with patch.dict(
             os.environ,
-            {"SUPABASE_DATABASE_URL": "postgresql://stale.example/supabase"},
+            {
+                "SUPABASE_DATABASE_URL": "postgresql://stale.example/supabase",
+                "ZGIIS_LOAD_VERCEL_ENV": "1",
+            },
             clear=True,
         ):
             _load_env()
@@ -31,9 +34,9 @@ class LiveNtripCollectorTests(unittest.TestCase):
             self.assertEqual(os.environ["ALLOW_LEGACY_NEON_DATABASE_URL"], "1")
             self.assertEqual(os.environ["ZGIIS_SKIP_DB_SCHEMA_INIT"], "1")
 
-    @patch("scripts.live_ntrip_collector.load_dotenv")
-    @patch("scripts.live_ntrip_collector.dotenv_values")
-    def test_load_env_prefers_direct_neon_url_for_collector(self, env_values, load_dotenv) -> None:
+    @patch("backend.env_bootstrap.load_dotenv")
+    @patch("backend.env_bootstrap.dotenv_values")
+    def test_load_env_prefers_pooled_neon_url_for_collector(self, env_values, load_dotenv) -> None:
         env_values.return_value = {
             "ALLOW_LEGACY_NEON_DATABASE_URL": "1",
             "POSTGRES_URL": "postgresql://pooled.example/neondb",
@@ -41,9 +44,9 @@ class LiveNtripCollectorTests(unittest.TestCase):
         }
         from scripts.live_ntrip_collector import _load_env
 
-        with patch.dict(os.environ, {}, clear=True):
+        with patch.dict(os.environ, {"ZGIIS_LOAD_VERCEL_ENV": "1"}, clear=True):
             _load_env()
-            self.assertEqual(os.environ["TSDB_DSN"], "postgresql://direct.example/neondb")
+            self.assertEqual(os.environ["TSDB_DSN"], "postgresql://pooled.example/neondb")
 
     def test_default_status_push_uses_named_vercel_dispatcher(self) -> None:
         with patch.dict(os.environ, {}, clear=False):

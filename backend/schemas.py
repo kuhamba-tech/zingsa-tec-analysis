@@ -57,10 +57,12 @@ class SolarActivityFull(BaseModel):
     donki_date_end: str | None = None
     donki_status: str = "unavailable"
     donki_note: str = ""
+    event_feed_source: str = "unavailable"
     activity_label: str = "Low"
     activity_color: str = "#22c55e"
     activity_gnss: str = "Minimal impact"
     api_routes: list[str] = []
+    feed_status: dict[str, Any] = {}
     error: str | None = None
     active_regions: list[dict[str, Any]] = []
     cme_rows: list[dict[str, Any]] = []
@@ -1050,6 +1052,33 @@ class LivePipelineStatus(BaseModel):
     diagnostics: dict[str, Any] = {}
     runtime_mode: str = "persistent-process"
     ingest_enabled: bool = True
+    message: str | None = None
+
+
+class LiveVtecStationHealth(BaseModel):
+    station: str
+    name: str
+    vtec: float | None = None
+    source: str = "none"
+    obs_age_s: float | None = None
+    blocker: str | None = None
+
+
+class LiveVtecHealth(BaseModel):
+    live_available: bool = False
+    degraded: bool = True
+    db_backend: str = "unknown"
+    collector_running: bool = False
+    collector_expected: bool = False
+    stations_with_fresh_vtec: int = 0
+    stations_measured_live: int = 0
+    stations_interpolated: int = 0
+    newest_obs_age_s: float | None = None
+    degraded_reason: str | None = None
+    blockers: list[str] = Field(default_factory=list)
+    stations: list[LiveVtecStationHealth] = Field(default_factory=list)
+    ephemeris_svs: int | None = None
+    heatmap_available: bool = False
     message: str | None = None
 
 

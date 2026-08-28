@@ -28,12 +28,56 @@ DEFAULT_STATUS_PUSH_URL = (
     "https://zingsa-gnss-tec.vercel.app/api/cors-router/"
     "?__zr=%2Fcors%2Fstatus%2Fsnapshots"
 )
+_COLLECTOR_LOCK = ROOT / "static" / "data" / ".live_ntrip_collector.lock"
+
+
+def _acquire_collector_lock() -> bool:
+    """Ensure only one collector holds NTRIP slots and SQLite writes."""
+    import fcntl
+
+    _COLLECTOR_LOCK.parent.mkdir(parents=True, exist_ok=True)
+    handle = open(_COLLECTOR_LOCK, "a+", encoding="utf-8")
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        handle.seek(0)
+        owner = handle.read().strip()
+        log.error(
+            "Another live_ntrip_collector is already running (pid %s). "
+            "Stop it before starting a second instance.",
+            owner or "unknown",
+        )
+        handle.close()
+        return False
+    handle.seek(0)
+    handle.truncate()
+    handle.write(str(os.getpid()))
+    handle.flush()
+    # Keep handle open for process lifetime so the lock is not released early.
+    globals()["_COLLECTOR_LOCK_HANDLE"] = handle
+    return True
 
 
 def _load_env() -> None:
     from backend.env_bootstrap import load_runtime_env
 
-    load_runtime_env(prefer_vercel_db=True)
+    prefer_vercel = os.getenv("ZGIIS_LOAD_VERCEL_ENV", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    load_runtime_env(prefer_vercel_db=prefer_vercel)
+    if os.getenv("ZGIIS_FORCE_SQLITE", "").strip().lower() in {"1", "true", "yes", "on"}:
+        for key in (
+            "SUPABASE_DATABASE_URL",
+            "TSDB_DSN",
+            "DATABASE_URL",
+            "DATABASE_URL_UNPOOLED",
+            "POSTGRES_URL",
+            "POSTGRES_URL_NON_POOLING",
+        ):
+            os.environ.pop(key, None)
     # The production schema is migration-managed. The collector should only
     # ingest observations, not run DDL each time its supervisor restarts it.
     os.environ["ZGIIS_SKIP_DB_SCHEMA_INIT"] = "1"
@@ -157,6 +201,8 @@ def main() -> int:
         level=os.getenv("LOG_LEVEL", "INFO"),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    if not _acquire_collector_lock():
+        return 3
     _load_env()
 
     from zgiis.live.ntrip_config import ntrip_host_from_env
@@ -168,6 +214,9 @@ def main() -> int:
     connection = os.getenv("NTRIP_CONNECTION", "TCP").strip()
     mountpoints = _parse_mountpoints()
 
+    from zgiis.db.config import database_dsn
+
+    db_target = database_dsn()
     missing = [
         name
         for name, value in {
@@ -175,10 +224,11 @@ def main() -> int:
             "NTRIP_USERNAME": username,
             "NTRIP_PASSWORD": password,
             "NTRIP_MOUNTPOINTS or NTRIP_MOUNTPOINT": mountpoints,
-            "TSDB_DSN": os.getenv("TSDB_DSN", "").strip(),
         }.items()
         if not value
     ]
+    if not db_target:
+        log.info("No hosted Postgres DSN — collector will write SQLite (static/data/vtec_live.db)")
     if missing:
         log.error("Missing required configuration: %s", ", ".join(missing))
         return 2
@@ -232,9 +282,32 @@ def main() -> int:
     )
 
     try:
+        prune_every = max(1, int(os.getenv("ZGIIS_SQLITE_PRUNE_EVERY_HEARTBEATS", "20")))
+    except ValueError:
+        prune_every = 20
+    try:
+        prune_days = max(1, int(os.getenv("ZGIIS_SQLITE_PRUNE_DAYS", "7")))
+    except ValueError:
+        prune_days = 7
+    heartbeat_n = 0
+
+    try:
         while not stop:
             time.sleep(30)
             pipeline.flush_db()
+            heartbeat_n += 1
+            if db.backend == "sqlite" and heartbeat_n >= prune_every:
+                heartbeat_n = 0
+                try:
+                    deleted = db.prune_older_than(days=prune_days)
+                    if deleted:
+                        log.info(
+                            "SQLite prune removed %d observation(s) older than %d days",
+                            deleted,
+                            prune_days,
+                        )
+                except Exception as exc:
+                    log.warning("SQLite prune failed: %s", exc)
             status = manager.status()
             fresh = [code for code, row in status.items() if row.get("last_seen")]
             records = sum(

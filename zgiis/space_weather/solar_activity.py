@@ -16,6 +16,8 @@ NOAA_XRAY_1D_URL = "https://services.swpc.noaa.gov/json/goes/primary/xrays-1-day
 NOAA_PLASMA_1D_URL = "https://services.swpc.noaa.gov/json/rtsw/rtsw_wind_1m.json"
 NOAA_MAG_1D_URL = "https://services.swpc.noaa.gov/json/rtsw/rtsw_mag_1m.json"
 NOAA_ALERTS_URL = "https://services.swpc.noaa.gov/products/alerts.json"
+NOAA_FLARES_7D_URL = "https://services.swpc.noaa.gov/json/goes/primary/xray-flares-7-day.json"
+NOAA_KP_FORECAST_URL = "https://services.swpc.noaa.gov/products/noaa-planetary-k-index-forecast.json"
 NASA_DONKI_BASE_URL = "https://api.nasa.gov/DONKI"
 # NASA issues free keys at https://api.nasa.gov/ — DEMO_KEY works for dev (rate-limited).
 NASA_DEMO_KEY = "DEMO_KEY"
@@ -38,6 +40,32 @@ _LAST_GOOD: Dict[str, Any] | None = None
 _LAST_GOOD_TS: float = 0.0
 _LAST_GOOD_MAX_AGE_SECONDS = 3600  # serve stale-but-real solar for up to 1h if refresh fails
 _NOAA_HEADERS = {"Accept": "application/json", "User-Agent": "ZGIIS/1.0 (Zimbabwe space-weather dashboard)"}
+_NOAA_MAX_AGE_MINUTES = 20.0
+
+
+def _utc_age_minutes(value: Any) -> float | None:
+    if not value:
+        return None
+    try:
+        stamp = datetime.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if stamp.tzinfo is None:
+            stamp = stamp.replace(tzinfo=datetime.timezone.utc)
+        now = datetime.datetime.now(datetime.timezone.utc)
+        return max(0.0, (now - stamp.astimezone(datetime.timezone.utc)).total_seconds() / 60.0)
+    except (TypeError, ValueError):
+        return None
+
+
+def _feed_state(*, reachable: bool, timestamp: Any = None, max_age_minutes: float | None = None) -> Dict[str, Any]:
+    age = _utc_age_minutes(timestamp)
+    fresh = reachable and (max_age_minutes is None or (age is not None and age <= max_age_minutes))
+    return {
+        "status": "live" if fresh else "stale" if reachable and timestamp else "available" if reachable else "unavailable",
+        "reachable": reachable,
+        "fresh": fresh,
+        "timestamp": timestamp,
+        "age_minutes": round(age, 1) if age is not None else None,
+    }
 
 
 def _cached(key: str, fetch_fn) -> Dict[str, Any]:
@@ -82,6 +110,175 @@ def _soft_fetch_json(url: str, *, timeout: int | None = None) -> Any | None:
         return None
 
 
+def _donki_list(value: Any) -> list[dict] | None:
+    """Accept a DONKI JSON array; reject error payloads and non-lists."""
+    if isinstance(value, list):
+        return value
+    if isinstance(value, dict) and value.get("error"):
+        return None
+    return None
+
+
+def _noaa_flares_to_donki(rows: Any) -> list[dict]:
+    out: list[dict] = []
+    if not isinstance(rows, list):
+        return out
+    for i, row in enumerate(rows):
+        if not isinstance(row, dict):
+            continue
+        begin = row.get("begin_time") or row.get("time_tag")
+        out.append(
+            {
+                "flrID": f"NOAA-GOES-{begin or i}",
+                "beginTime": begin,
+                "peakTime": row.get("max_time") or begin,
+                "classType": row.get("max_class") or row.get("begin_class") or "A",
+                "sourceLocation": "GOES",
+            }
+        )
+    return out
+
+
+def _noaa_alerts_to_cme(alerts: Any) -> list[dict]:
+    import re
+
+    out: list[dict] = []
+    if not isinstance(alerts, list):
+        return out
+    seen: set[str] = set()
+    for alert in alerts:
+        if not isinstance(alert, dict):
+            continue
+        msg = str(alert.get("message") or "")
+        if not re.search(r"\bCME\b|coronal mass ejection", msg, re.I):
+            continue
+        key = str(alert.get("issue_datetime") or alert.get("product_id") or "")
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        earth = bool(re.search(r"earth[- ]direct|geo-effective|impact", msg, re.I))
+        half = 360.0 if re.search(r"\bhalo\b", msg, re.I) else 120.0 if earth else 60.0
+        out.append(
+            {
+                "activityID": f"NOAA-{alert.get('product_id', 'CME')}-{key[:10]}",
+                "startTime": alert.get("issue_datetime"),
+                "cmeAnalyses": [{"halfAngle": half, "speed": None, "isMostAccurate": True}],
+                "linkedEvents": earth,
+            }
+        )
+    return out
+
+
+def _noaa_kp_to_storms(kp_rows: Any) -> list[dict]:
+    out: list[dict] = []
+    if not isinstance(kp_rows, list):
+        return out
+    for row in kp_rows:
+        if not isinstance(row, dict) or row.get("observed") != "observed":
+            continue
+        try:
+            kp = float(row.get("kp") or 0)
+        except (TypeError, ValueError):
+            continue
+        if kp < 5:
+            continue
+        tag = row.get("time_tag")
+        g = min(5, max(1, int(kp) - 4))
+        out.append(
+            {
+                "gstID": f"NOAA-G{g}-{tag}",
+                "startTime": tag,
+                "allKpIndex": [{"kpIndex": int(round(kp))}],
+            }
+        )
+    return out
+
+
+def _resolve_event_feeds(
+    *,
+    using_demo: bool,
+    results: dict[str, Any],
+    alerts: Any,
+) -> tuple[list[dict], list[dict], list[dict], list[str], str, str]:
+    """Return flares, cmes, storms, sources used, donki_status, donki_note."""
+    sources: list[str] = []
+
+    flares = _donki_list(results.get("flares"))
+    cmes = _donki_list(results.get("cmes"))
+    storms = _donki_list(results.get("storms"))
+
+    if flares is not None:
+        sources.append("nasa_flares")
+    if cmes is not None:
+        sources.append("nasa_cmes")
+    if storms is not None:
+        sources.append("nasa_storms")
+
+    need_noaa = using_demo or flares is None or cmes is None or storms is None
+    noaa_flares_raw = results.get("noaa_flares")
+    noaa_kp_raw = results.get("noaa_kp")
+
+    if need_noaa:
+        if noaa_flares_raw is None and (using_demo or flares is None):
+            noaa_flares_raw = _soft_fetch_json(NOAA_FLARES_7D_URL)
+        if noaa_kp_raw is None and (using_demo or storms is None):
+            noaa_kp_raw = _soft_fetch_json(NOAA_KP_FORECAST_URL)
+
+    if flares is None:
+        flares = _noaa_flares_to_donki(noaa_flares_raw)
+        if flares:
+            sources.append("noaa_flares")
+    if cmes is None:
+        cmes = _noaa_alerts_to_cme(alerts)
+        if cmes:
+            sources.append("noaa_cme_alerts")
+    if storms is None:
+        storms = _noaa_kp_to_storms(noaa_kp_raw)
+        if storms:
+            sources.append("noaa_kp")
+
+    flares = flares or []
+    cmes = cmes or []
+    storms = storms or []
+
+    has_events = bool(flares or cmes or storms)
+    noaa_used = any(s.startswith("noaa_") for s in sources)
+
+    if has_events and not using_demo and not noaa_used:
+        donki_status = "live"
+        donki_note = "NASA DONKI live feed."
+    elif has_events:
+        donki_status = "live"
+        if using_demo or noaa_used:
+            donki_note = (
+                "NOAA SWPC live feed (GOES flares, SWPC alerts, Kp index). "
+                "Set NASA_API_KEY in backend/.env for NASA DONKI catalog — free at https://api.nasa.gov/"
+            )
+        else:
+            donki_note = "NASA DONKI live feed."
+    else:
+        donki_status = "unavailable"
+        donki_note = "Solar event feeds unavailable."
+        if using_demo:
+            donki_note += " Check internet access to services.swpc.noaa.gov."
+
+    return flares, cmes, storms, sources, donki_status, donki_note
+
+
+def _event_feed_source(sources: list[str], donki_status: str) -> str:
+    if donki_status != "live":
+        return "unavailable"
+    nasa = any(s.startswith("nasa_") for s in sources)
+    noaa = any(s.startswith("noaa_") for s in sources)
+    if nasa and noaa:
+        return "mixed"
+    if noaa:
+        return "noaa_swpc"
+    if nasa:
+        return "nasa_donki"
+    return "unavailable"
+
+
 def _remember_good(payload: Dict[str, Any]) -> Dict[str, Any]:
     global _LAST_GOOD, _LAST_GOOD_TS
     import time
@@ -97,6 +294,7 @@ def _stale_good_or_unavailable(error: str) -> Dict[str, Any]:
 
     if _LAST_GOOD and (time.time() - _LAST_GOOD_TS) <= _LAST_GOOD_MAX_AGE_SECONDS:
         stale = dict(_LAST_GOOD)
+        stale["mode"] = "stale"
         stale["error"] = f"Serving last good solar snapshot ({error})"
         note = stale.get("donki_note") or ""
         stale["donki_note"] = f"{note} · refresh failed, showing cached live data".strip(" ·")
@@ -227,6 +425,36 @@ def build_donki_cme_rows(cmes: List[Dict]) -> List[Dict]:
 
 
 def build_donki_active_regions(flares: List[Dict]) -> List[Dict]:
+    if not flares:
+        return []
+    noaa_goes = all(
+        str(f.get("flrID", "")).startswith("NOAA-") or str(f.get("sourceLocation") or "") == "GOES"
+        for f in flares
+    )
+    if noaa_goes:
+        rows: List[Dict] = []
+        ordered = sorted(
+            flares,
+            key=lambda f: str(f.get("peakTime") or f.get("beginTime") or ""),
+            reverse=True,
+        )
+        for flare in ordered[:6]:
+            cls_type = str(flare.get("classType") or "A")
+            letter = cls_type[0]
+            cls = "Beta-Gamma" if letter in ("X", "M") else "Beta" if letter == "C" else "Alpha"
+            mag = "BGD" if letter in ("X", "M") else "B" if letter == "C" else "A"
+            when = format_utc_short(flare.get("beginTime") or flare.get("peakTime"))
+            rows.append(
+                {
+                    "id": f"{cls_type} · {when}",
+                    "cls": cls,
+                    "mag": mag,
+                    "spots": 1,
+                    "latest": cls_type,
+                }
+            )
+        return rows
+
     region_map: Dict[str, Dict] = {}
     for flare in flares or []:
         rid = (
@@ -291,6 +519,7 @@ def get_unavailable_solar_activity(error: str) -> Dict[str, Any]:
             "gnss": "Live solar data unavailable",
         },
         "api_routes": ["Live NOAA/NASA feeds unavailable"],
+        "feed_status": {},
         "error": error,
     }
 
@@ -307,13 +536,16 @@ def fetch_solar_activity() -> Dict[str, Any]:
             "plasma": (NOAA_PLASMA_1D_URL, TIMEOUT_SECONDS),
             "mag": (NOAA_MAG_1D_URL, TIMEOUT_SECONDS),
             "alerts": (NOAA_ALERTS_URL, TIMEOUT_SECONDS),
-            "flares": (_donki_url("FLR"), DONKI_TIMEOUT_SECONDS),
-            "cmes": (_donki_url("CME"), DONKI_TIMEOUT_SECONDS),
-            "storms": (_donki_url("GST"), DONKI_TIMEOUT_SECONDS),
+            "noaa_flares": (NOAA_FLARES_7D_URL, TIMEOUT_SECONDS),
+            "noaa_kp": (NOAA_KP_FORECAST_URL, TIMEOUT_SECONDS),
         }
+        if not using_demo:
+            jobs["flares"] = (_donki_url("FLR"), DONKI_TIMEOUT_SECONDS)
+            jobs["cmes"] = (_donki_url("CME"), DONKI_TIMEOUT_SECONDS)
+            jobs["storms"] = (_donki_url("GST"), DONKI_TIMEOUT_SECONDS)
         results: dict[str, Any] = {name: None for name in jobs}
 
-        with ThreadPoolExecutor(max_workers=7) as pool:
+        with ThreadPoolExecutor(max_workers=max(7, len(jobs))) as pool:
             futures = {
                 pool.submit(_soft_fetch_json, url, timeout=timeout): name
                 for name, (url, timeout) in jobs.items()
@@ -325,44 +557,26 @@ def fetch_solar_activity() -> Dict[str, Any]:
         plasma_rows = results["plasma"]
         mag_rows = results["mag"]
         alerts = results["alerts"]
-        flares_raw = results["flares"]
-        cmes_raw = results["cmes"]
-        storms_raw = results["storms"]
+        flares, cmes, storms, event_sources, donki_status, donki_note = _resolve_event_feeds(
+            using_demo=using_demo,
+            results=results,
+            alerts=alerts,
+        )
+        event_feed_source = _event_feed_source(event_sources, donki_status)
 
         noaa_ok = any(results[k] is not None for k in ("xrays", "plasma", "mag", "alerts"))
-        donki_parts = [
-            name for name in ("flares", "cmes", "storms") if results[name] is not None
-        ]
-        if not noaa_ok and not donki_parts:
+        donki_parts = [name for name in ("flares", "cmes", "storms") if results.get(name) is not None]
+        if not noaa_ok and not event_sources:
             raise RuntimeError("All NOAA/NASA solar feeds failed or timed out")
 
-        flares: list[dict] = flares_raw if isinstance(flares_raw, list) else []
-        cmes: list[dict] = cmes_raw if isinstance(cmes_raw, list) else []
-        storms: list[dict] = storms_raw if isinstance(storms_raw, list) else []
-
-        if len(donki_parts) == 3:
-            donki_status = "live"
-            donki_note = (
-                "NASA DONKI via DEMO_KEY (rate-limited). Set NASA_API_KEY in backend/.env — free at https://api.nasa.gov/"
-                if using_demo
-                else "NASA DONKI live feed."
-            )
-        elif donki_parts:
-            donki_status = "live"
-            missing = [n for n in ("flares", "cmes", "storms") if n not in donki_parts]
-            miss_txt = f" · missing {', '.join(missing)}" if missing else ""
-            donki_note = f"NASA DONKI partial ({', '.join(donki_parts)} ok{miss_txt})."
-            if using_demo:
-                donki_note += " DEMO_KEY is rate-limited — set NASA_API_KEY for reliability."
-        else:
-            donki_status = "unavailable"
-            donki_note = "NASA DONKI unavailable."
-            if using_demo:
-                donki_note += (
-                    " Check internet access to api.nasa.gov or set your own NASA_API_KEY in backend/.env."
-                )
-
-        xray_latest = xrays[-1] if isinstance(xrays, list) and xrays else {}
+        # GOES publishes both X-ray bands interleaved.  The operational flare
+        # class is defined from the 0.1–0.8 nm band, so never use whichever
+        # band happens to be the final array item.
+        long_band_rows = [
+            row for row in (xrays or [])
+            if isinstance(row, dict) and row.get("energy") == "0.1-0.8nm" and row.get("time_tag")
+        ]
+        xray_latest = max(long_band_rows, key=lambda row: str(row["time_tag"])) if long_band_rows else {}
         flux = float(xray_latest.get("flux") or 0) if xray_latest else 0.0
         flare_class = xray_class(flux) if xray_latest else "Unavailable"
         xray_series = [
@@ -383,7 +597,48 @@ def fetch_solar_activity() -> Dict[str, Any]:
         bz = _float_or_zero(_product_value(mag_rows, mag_latest, "bz_gsm", "bz"))
 
         alert_list = list(reversed(alerts[-5:])) if isinstance(alerts, list) else []
-        level = activity_level(flare_class if flare_class != "Unavailable" else "A", len(alert_list))
+
+        xray_time = xray_latest.get("time_tag") if xray_latest else None
+        plasma_time = plasma_latest.get("time_tag") if isinstance(plasma_latest, dict) else None
+        mag_time = mag_latest.get("time_tag") if isinstance(mag_latest, dict) else None
+        feed_status = {
+            "goes_xray": _feed_state(
+                reachable=results["xrays"] is not None,
+                timestamp=xray_time,
+                max_age_minutes=_NOAA_MAX_AGE_MINUTES,
+            ),
+            "solar_wind_plasma": _feed_state(
+                reachable=results["plasma"] is not None,
+                timestamp=plasma_time,
+                max_age_minutes=_NOAA_MAX_AGE_MINUTES,
+            ),
+            "solar_wind_mag": _feed_state(
+                reachable=results["mag"] is not None,
+                timestamp=mag_time,
+                max_age_minutes=_NOAA_MAX_AGE_MINUTES,
+            ),
+            # An empty alerts list is a valid current response.
+            "swpc_alerts": _feed_state(reachable=results["alerts"] is not None),
+            "nasa_donki": _feed_state(reachable=donki_status == "live"),
+        }
+        xray_fresh = bool(feed_status["goes_xray"]["fresh"])
+        plasma_fresh = bool(feed_status["solar_wind_plasma"]["fresh"])
+        mag_fresh = bool(feed_status["solar_wind_mag"]["fresh"])
+        if not xray_fresh:
+            flare_class = "Unavailable"
+            flux = 0.0
+            xray_series = []
+        if not plasma_fresh:
+            speed = density = temperature = 0.0
+            plasma_latest = None
+        if not mag_fresh:
+            bt = bz = 0.0
+            mag_latest = None
+        level = (
+            activity_level(flare_class, len(alert_list))
+            if xray_fresh
+            else {"label": "Unavailable", "color": "#ffffff", "gnss": "Current GOES X-ray data unavailable"}
+        )
 
         routes = []
         if results["xrays"] is not None:
@@ -396,7 +651,7 @@ def fetch_solar_activity() -> Dict[str, Any]:
             routes.append("NASA DONKI FLR / CME / GST")
 
         return {
-            "mode": "live" if noaa_ok or donki_parts else "unavailable",
+            "mode": "live" if xray_fresh else "partial" if noaa_ok or event_sources else "unavailable",
             "updated": (
                 (plasma_latest or {}).get("time_tag")
                 if isinstance(plasma_latest, dict)
@@ -423,8 +678,10 @@ def fetch_solar_activity() -> Dict[str, Any]:
             },
             "donki_status": donki_status,
             "donki_note": donki_note,
+            "event_feed_source": event_feed_source,
             "level": level,
             "api_routes": routes or ["Live NOAA/NASA feeds unavailable"],
+            "feed_status": feed_status,
         }
 
     try:

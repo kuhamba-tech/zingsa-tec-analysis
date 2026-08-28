@@ -162,7 +162,16 @@ def current(_=Depends(require_api_key)):
 
 
 @router.get("/solar-activity", response_model=SolarActivityFull)
-async def solar_activity(_=Depends(require_api_key)):
+def solar_activity(
+    force_refresh: bool = Query(False),
+    _=Depends(require_api_key),
+):
+    """Fetch NOAA/NASA feeds in FastAPI's worker pool.
+
+    The implementation uses the synchronous ``requests`` client.  Keeping
+    this as ``async def`` ran those network waits on the ASGI event loop and
+    could freeze every dashboard API request during a DONKI retry.
+    """
     try:
         from zgiis.space_weather.solar_activity import (
             get_solar_activity,
@@ -173,7 +182,7 @@ async def solar_activity(_=Depends(require_api_key)):
     except ImportError as exc:
         return SolarActivityFull(mode="unavailable", error=f"module not found: {exc}")
 
-    sa = get_solar_activity()
+    sa = get_solar_activity(force_refresh=force_refresh)
 
     donki = sa.get("donki") or {}
     sw_data = sa.get("solarWind") or {}
@@ -204,10 +213,12 @@ async def solar_activity(_=Depends(require_api_key)):
         donki_date_end=date_range.get("end"),
         donki_status=sa.get("donki_status") or "unavailable",
         donki_note=sa.get("donki_note") or "",
+        event_feed_source=sa.get("event_feed_source") or "unavailable",
         activity_label=level.get("label") or "Low",
         activity_color=level.get("color") or "#22c55e",
         activity_gnss=level.get("gnss") or "Minimal impact",
         api_routes=sa.get("api_routes") or [],
+        feed_status=sa.get("feed_status") or {},
         error=sa.get("error"),
         active_regions=build_donki_active_regions(flares),
         cme_rows=build_donki_cme_rows(cmes),

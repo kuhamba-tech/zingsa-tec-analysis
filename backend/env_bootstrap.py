@@ -57,13 +57,30 @@ def load_runtime_env(*, prefer_vercel_db: bool = True) -> None:
 
     tsdb = (os.getenv("TSDB_DSN") or "").strip().strip('"').strip("'")
     if not tsdb:
+        # Serverless functions and the long-running collector must share the
+        # pooled endpoint.  Selecting *_NON_POOLING first made both processes
+        # try Neon's direct host; that host times out on networks where the
+        # pooler is the supported public entry point, so each process silently
+        # fell back to its own private SQLite file.  The result was live TEC
+        # locally and an empty map on Vercel.
         for key in (
-            "POSTGRES_URL_NON_POOLING",
-            "DATABASE_URL_UNPOOLED",
             "POSTGRES_URL",
             "DATABASE_URL",
+            "POSTGRES_URL_NON_POOLING",
+            "DATABASE_URL_UNPOOLED",
         ):
             value = (os.getenv(key) or "").strip().strip('"').strip("'")
             if value:
                 os.environ["TSDB_DSN"] = value
                 break
+
+    if os.getenv("ZGIIS_FORCE_SQLITE", "").strip().lower() in {"1", "true", "yes", "on"}:
+        for key in (
+            "SUPABASE_DATABASE_URL",
+            "TSDB_DSN",
+            "DATABASE_URL",
+            "DATABASE_URL_UNPOOLED",
+            "POSTGRES_URL",
+            "POSTGRES_URL_NON_POOLING",
+        ):
+            os.environ.pop(key, None)

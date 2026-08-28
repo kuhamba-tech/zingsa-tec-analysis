@@ -70,6 +70,8 @@ interface Props {
   xMin?: number;
   xMax?: number;
   xStepSize?: number;
+  /** Format numeric x-axis tick labels (used with `xValues`). */
+  formatXTick?: (value: number) => string;
 }
 
 function DatasetToggleLegend({
@@ -154,6 +156,7 @@ export default function LineChart({
   xMin,
   xMax,
   xStepSize,
+  formatXTick,
 }: Props) {
   const COLORS = ["#168bd2", "#ff8c00", "#00ff88", "#ff4444", "#a78bfa", "#34d399"];
   const useNumericX = !!xValues && xValues.length === labels.length;
@@ -308,7 +311,13 @@ export default function LineChart({
                   min: xMin,
                   max: xMax,
                   title: xLabel ? { display: true, text: xLabel, color: "#ffffff" } : undefined,
-                  ticks: { color: "#ffffff", stepSize: xStepSize },
+                  ticks: {
+                    color: "#ffffff",
+                    stepSize: xStepSize,
+                    callback: formatXTick
+                      ? (value) => formatXTick(typeof value === "number" ? value : Number(value))
+                      : undefined,
+                  },
                   grid: { color: "#244d73" },
                 }
               : { ticks: { color: "#ffffff", maxTicksLimit: 8 }, grid: { color: "#244d73" } },

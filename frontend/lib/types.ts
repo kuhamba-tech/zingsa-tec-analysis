@@ -201,10 +201,18 @@ export interface SolarActivityFull {
   donki_date_end: string | null;
   donki_status: string;
   donki_note: string;
+  event_feed_source?: string;
   activity_label: string;
   activity_color: string;
   activity_gnss: string;
   api_routes: string[];
+  feed_status: Record<string, {
+    status: string;
+    reachable: boolean;
+    fresh: boolean;
+    timestamp: string | null;
+    age_minutes: number | null;
+  }>;
   error: string | null;
   active_regions: Record<string, unknown>[];
   cme_rows: Record<string, unknown>[];
@@ -1076,6 +1084,33 @@ export interface LivePipelineStatus {
   }>;
   runtime_mode: string;
   ingest_enabled: boolean;
+  message: string | null;
+}
+
+export interface LiveVtecStationHealth {
+  station: string;
+  name: string;
+  vtec: number | null;
+  source: string;
+  obs_age_s: number | null;
+  blocker: string | null;
+}
+
+export interface LiveVtecHealth {
+  live_available: boolean;
+  degraded: boolean;
+  db_backend: string;
+  collector_running: boolean;
+  collector_expected: boolean;
+  stations_with_fresh_vtec: number;
+  stations_measured_live: number;
+  stations_interpolated: number;
+  newest_obs_age_s: number | null;
+  degraded_reason: string | null;
+  blockers: string[];
+  stations: LiveVtecStationHealth[];
+  ephemeris_svs: number | null;
+  heatmap_available: boolean;
   message: string | null;
 }
 

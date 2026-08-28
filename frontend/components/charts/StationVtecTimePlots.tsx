@@ -5,8 +5,15 @@ import { getGlobalVtecByStation, getLiveVtecByStation } from "@/lib/api";
 import type { GlobalTecStationSeries, LiveStationVtecSeries } from "@/lib/types";
 import LineChart from "@/components/charts/LineChart";
 
-const HOUR_OPTIONS = [2, 6, 12] as const;
+const HOUR_OPTIONS = [2, 6, 12, 24] as const;
 const REFRESH_MS = 90_000;
+
+function resampleMinutesForHours(hours: number): number {
+  if (hours <= 2) return 1;
+  if (hours <= 6) return 2;
+  if (hours <= 12) return 5;
+  return 15;
+}
 
 function formatTick(iso: string): string {
   const d = new Date(iso);
@@ -19,39 +26,72 @@ function formatTick(iso: string): string {
   });
 }
 
+function formatUtcTick(windowStartMs: number, hourOffset: number): string {
+  const d = new Date(windowStartMs + hourOffset * 3_600_000);
+  return d.toLocaleTimeString("en-GB", {
+    timeZone: "UTC",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
 /** Align observed + global series onto a shared UTC timeline (null where missing). */
 function mergeSeries(
   observed: LiveStationVtecSeries,
   global: GlobalTecStationSeries | undefined,
+  hours: number,
 ): {
   labels: string[];
   observed: (number | null)[];
   global: (number | null)[];
   hasObserved: boolean;
   hasGlobal: boolean;
+  xValues?: number[];
+  xMin?: number;
+  xMax?: number;
+  xStepSize?: number;
+  formatXTick?: (value: number) => string;
+  xLabel?: string;
 } {
   const obsMap = new Map(observed.points.map((p) => [p.time, p.vtec_tecu]));
   const globMap = new Map((global?.points ?? []).map((p) => [p.time, p.vtec_tecu]));
   const times = Array.from(new Set([...obsMap.keys(), ...globMap.keys()])).sort(
     (a, b) => new Date(a).getTime() - new Date(b).getTime(),
   );
+  const useFullWindow = hours >= 12;
+  const windowEndMs = Date.now();
+  const windowStartMs = windowEndMs - hours * 3_600_000;
+  const xValues = useFullWindow
+    ? times.map((t) => (new Date(t).getTime() - windowStartMs) / 3_600_000)
+    : undefined;
   return {
     labels: times.map(formatTick),
     observed: times.map((t) => (obsMap.has(t) ? (obsMap.get(t) as number) : null)),
     global: times.map((t) => (globMap.has(t) ? (globMap.get(t) as number) : null)),
     hasObserved: obsMap.size > 0,
     hasGlobal: globMap.size > 0,
+    xValues,
+    xMin: useFullWindow ? 0 : undefined,
+    xMax: useFullWindow ? hours : undefined,
+    xStepSize: useFullWindow ? (hours >= 24 ? 4 : 2) : undefined,
+    formatXTick: useFullWindow
+      ? (value: number) => formatUtcTick(windowStartMs, value)
+      : undefined,
+    xLabel: useFullWindow ? "Time (UTC)" : undefined,
   };
 }
 
 function StationChartCard({
   series,
   globalSeries,
+  hours,
 }: {
   series: LiveStationVtecSeries;
   globalSeries?: GlobalTecStationSeries;
+  hours: number;
 }) {
-  const merged = mergeSeries(series, globalSeries);
+  const merged = mergeSeries(series, globalSeries, hours);
   const hasData = merged.hasObserved || merged.hasGlobal;
   const latestGlobal = globalSeries?.latest_vtec ?? null;
 
@@ -112,6 +152,12 @@ function StationChartCard({
           yLabel="VTEC (TECU)"
           height={180}
           compact
+          xValues={merged.xValues}
+          xMin={merged.xMin}
+          xMax={merged.xMax}
+          xStepSize={merged.xStepSize}
+          formatXTick={merged.formatXTick}
+          xLabel={merged.xLabel}
         />
       ) : (
         <div className="station-vtec-plot-empty">No live or Global TEC in this window.</div>
@@ -130,7 +176,7 @@ export default function StationVtecTimePlots({
   title = "Live VTEC vs time — every CORS station",
   className,
 }: Props) {
-  const [hours, setHours] = useState<(typeof HOUR_OPTIONS)[number]>(6);
+  const [hours, setHours] = useState<(typeof HOUR_OPTIONS)[number]>(24);
   const [series, setSeries] = useState<LiveStationVtecSeries[]>([]);
   const [globalByStation, setGlobalByStation] = useState<Record<string, GlobalTecStationSeries>>({});
   const [globalSource, setGlobalSource] = useState<string | null>(null);
@@ -143,7 +189,7 @@ export default function StationVtecTimePlots({
       if (!background) setStatus("pending");
       try {
         const [rows, globalPayload] = await Promise.all([
-          getLiveVtecByStation(hours, hours <= 2 ? 1 : 2),
+          getLiveVtecByStation(hours, resampleMinutesForHours(hours)),
           getGlobalVtecByStation(hours).catch(() => null),
         ]);
         if (cancelled) return;
@@ -191,6 +237,8 @@ export default function StationVtecTimePlots({
     };
   }, [hours]);
 
+  const loadingSlow = status === "pending" && hours >= 12;
+
   const reporting = useMemo(
     () => series.filter((s) => s.points.length > 0).length,
     [series],
@@ -217,14 +265,18 @@ export default function StationVtecTimePlots({
               className={hours === h ? "active" : ""}
               onClick={() => setHours(h)}
             >
-              {h}h
+              {h === 24 ? "24h (day)" : `${h}h`}
             </button>
           ))}
         </div>
       </div>
 
       {status === "pending" && series.length === 0 && (
-        <div className="banner banner-info">Loading live VTEC time series…</div>
+        <div className="banner banner-info">
+          {loadingSlow
+            ? "Loading full-day VTEC history from the local database (first load can take up to a minute)…"
+            : "Loading live VTEC time series…"}
+        </div>
       )}
       {status === "down" && (
         <div className="banner banner-warn">
@@ -233,7 +285,8 @@ export default function StationVtecTimePlots({
       )}
       {status === "ok" && (
         <p className="station-vtec-plots-meta">
-          {reporting} of {series.length || 25} stations reporting in the last {hours} h
+          {reporting} of {series.length || 25} stations reporting in the last{" "}
+          {hours === 24 ? "24 h (full-day window, UTC)" : `${hours} h`}
           {globalReporting > 0
             ? ` · Global TEC overlay on ${globalReporting} sites${globalSource ? ` (${globalSource})` : ""}`
             : ""}{" "}
@@ -247,6 +300,7 @@ export default function StationVtecTimePlots({
             key={row.station}
             series={row}
             globalSeries={globalByStation[row.station.toLowerCase().replace(/_+$/, "")]}
+            hours={hours}
           />
         ))}
       </div>

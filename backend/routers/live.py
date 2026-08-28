@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+import time
 from datetime import datetime, timedelta, timezone
 
 import pandas as pd
@@ -13,11 +15,17 @@ from backend.schemas import (
     LivePipelineStatus,
     LiveStationVtecPoint,
     LiveStationVtecSeries,
+    LiveVtecHealth,
+    LiveVtecStationHealth,
     NtripProbeResponse,
     StationLiveStatus,
 )
 
 router = APIRouter(prefix="/live", tags=["live"])
+log = logging.getLogger(__name__)
+
+_VTEC_BY_STATION_CACHE: dict[tuple[float, int], tuple[float, list[LiveStationVtecSeries]]] = {}
+_VTEC_BY_STATION_CACHE_TTL_S = 75.0
 
 
 def _db():
@@ -89,6 +97,26 @@ async def live_vtec_by_station(
     (``code_live`` from the NTRIP pipeline). Aggregation stays in SQL so
     continuous ingest cannot stall the chart endpoint.
     """
+    cache_key = (float(hours), int(resample_minutes))
+    now = time.time()
+    cached = _VTEC_BY_STATION_CACHE.get(cache_key)
+    if cached and (now - cached[0]) < _VTEC_BY_STATION_CACHE_TTL_S:
+        return cached[1]
+
+    result = await asyncio.to_thread(
+        _build_live_vtec_by_station,
+        hours=hours,
+        resample_minutes=resample_minutes,
+    )
+    _VTEC_BY_STATION_CACHE[cache_key] = (now, result)
+    return result
+
+
+def _build_live_vtec_by_station(
+    *,
+    hours: float,
+    resample_minutes: int,
+) -> list[LiveStationVtecSeries]:
     from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
 
     catalog = {
@@ -158,6 +186,7 @@ async def live_vtec_by_station(
 
         return [series_by_code[code] for code in sorted(series_by_code)]
     except Exception:
+        log.exception("live vtec-by-station build failed")
         return empty
 
 
@@ -231,6 +260,20 @@ async def live_stations(_=Depends(require_api_key)):
             last_vtec=last_vtec,
         ))
     return result
+
+
+@router.get("/vtec-health", response_model=LiveVtecHealth)
+async def live_vtec_health(_=Depends(require_api_key)):
+    """Operational live VTEC health for dashboard banners and diagnostics."""
+    from zgiis.live.vtec_health import build_live_vtec_health
+
+    payload = await asyncio.to_thread(build_live_vtec_health)
+    return LiveVtecHealth(
+        **{
+            **payload,
+            "stations": [LiveVtecStationHealth(**row) for row in payload.get("stations") or []],
+        }
+    )
 
 
 @router.get("/pipeline-status", response_model=LivePipelineStatus)

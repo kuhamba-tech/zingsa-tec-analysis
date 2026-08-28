@@ -8,6 +8,6 @@ sleep 2
 export NTRIP_LIVE_MAX_CONCURRENT="${NTRIP_LIVE_MAX_CONCURRENT:-12}"
 export NTRIP_LIVE_SESSION_S="${NTRIP_LIVE_SESSION_S:-300}"
 export ZGIIS_DB_FLUSH_N="${ZGIIS_DB_FLUSH_N:-50}"
-export NTRIP_LIVE_PRIORITY_STATIONS="${NTRIP_LIVE_PRIORITY_STATIONS:-lupa,hara,zinh,beit,tsho,muta,gokw,kwek,masv}"
+export NTRIP_LIVE_PRIORITY_STATIONS="${NTRIP_LIVE_PRIORITY_STATIONS:-kwek,lupa,hara,zinh,beit,tsho,cent,gokw,muta,masv}"
 
 exec .venv/bin/python -u scripts/live_ntrip_collector.py

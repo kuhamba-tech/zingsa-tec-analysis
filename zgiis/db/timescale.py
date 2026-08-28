@@ -188,6 +188,7 @@ class TecDB:
             if _SHARED_SQLITE_CONN is not None:
                 self._conn = _SHARED_SQLITE_CONN
                 self._ensure_vtec_obs_audit_columns()
+                self._ensure_sqlite_chart_indexes()
                 return
             try:
                 _SQLITE_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -209,7 +210,24 @@ class TecDB:
             self._conn.executescript(_SQLITE_DDL)
             self._conn.commit()
             self._ensure_vtec_obs_audit_columns()
+            self._ensure_sqlite_chart_indexes()
             _SHARED_SQLITE_CONN = self._conn
+
+    def _ensure_sqlite_chart_indexes(self) -> None:
+        """Speed up live chart binning over large local SQLite ingest files."""
+        try:
+            self._conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS vtec_obs_code_live_time_station
+                ON vtec_obs (time, station)
+                WHERE tec_method LIKE 'code_live%'
+                  AND vtec_tecu > 0
+                  AND vtec_tecu < 200
+                """
+            )
+            self._conn.commit()
+        except sqlite3.Error as exc:
+            log.debug("SQLite chart index skipped: %s", exc)
 
     def _ensure_vtec_obs_audit_columns(self) -> None:
         columns = {
@@ -611,27 +629,14 @@ class TecDB:
             method_clause = (
                 " AND tec_method LIKE '%code_live%'" if code_live_only else ""
             )
-            # SQLite stores ISO timestamps; bucket via unix epoch seconds.
-            sql = f"""
-            SELECT station,
-                   strftime(
-                     '%Y-%m-%dT%H:%M:00Z',
-                     (CAST(strftime('%s', time) AS INTEGER) / ?) * ?,
-                     'unixepoch'
-                   ) AS bucket,
-                   AVG(vtec_tecu) AS vtec_tecu,
-                   COUNT(*) AS obs_count
-            FROM vtec_obs
-            WHERE time >= ?
-              AND vtec_tecu IS NOT NULL
-              AND vtec_tecu > 0
-              AND vtec_tecu < 200
-              AND (tec_method IS NULL OR tec_method NOT LIKE 'dlr_%')
-              {method_clause}
-            GROUP BY station, bucket
-            ORDER BY station, bucket
-            """
-            params = [step * 60, step * 60, since]
+            return self._sqlite_station_vtec_timeseries_binned(
+                since=since,
+                step=step,
+                method_clause=method_clause,
+                code_live_only=code_live_only,
+                hours=hours,
+                resample_minutes=resample_minutes,
+            )
 
         try:
             df = self._read_sql(sql, params)
@@ -640,13 +645,72 @@ class TecDB:
             return pd.DataFrame(columns=["station", "bucket", "vtec_tecu", "obs_count"])
 
         if df.empty and code_live_only:
-            # Fall back once if code TEC has not started yet (elevation/ephemeris warm-up).
             return self.station_vtec_timeseries_binned(
                 hours=hours,
                 resample_minutes=resample_minutes,
                 code_live_only=False,
             )
         return df
+
+    def _sqlite_station_vtec_timeseries_binned(
+        self,
+        *,
+        since: str,
+        step: int,
+        method_clause: str,
+        code_live_only: bool,
+        hours: float,
+        resample_minutes: int,
+    ) -> pd.DataFrame:
+        """Per-station SQLite binning — uses (station, time) index on large local DBs."""
+        from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
+
+        bucket_sec = step * 60
+        sql = f"""
+        SELECT station,
+               (CAST(strftime('%s', time) AS INTEGER) / ?) * ? AS bucket_epoch,
+               AVG(vtec_tecu) AS vtec_tecu,
+               COUNT(*) AS obs_count
+        FROM vtec_obs
+        WHERE station = ?
+          AND time >= ?
+          AND vtec_tecu IS NOT NULL
+          AND vtec_tecu > 0
+          AND vtec_tecu < 200
+          AND (tec_method IS NULL OR tec_method NOT LIKE 'dlr_%')
+          {method_clause}
+        GROUP BY station, bucket_epoch
+        ORDER BY bucket_epoch
+        """
+        rows: list[tuple] = []
+        try:
+            with _SQLITE_WRITE_LOCK:
+                for station in ZIMBABWE_CORS_STATIONS:
+                    code = station.code.lower().rstrip("_")
+                    cur = self._conn.execute(
+                        sql,
+                        (bucket_sec, bucket_sec, code, since),
+                    )
+                    rows.extend(cur.fetchall())
+        except Exception as exc:
+            log.warning("sqlite station_vtec_timeseries_binned failed (%s)", exc)
+            return pd.DataFrame(columns=["station", "bucket", "vtec_tecu", "obs_count"])
+
+        if not rows and code_live_only:
+            return self.station_vtec_timeseries_binned(
+                hours=hours,
+                resample_minutes=resample_minutes,
+                code_live_only=False,
+            )
+        if not rows:
+            return pd.DataFrame(columns=["station", "bucket", "vtec_tecu", "obs_count"])
+
+        df = pd.DataFrame(
+            rows,
+            columns=["station", "bucket_epoch", "vtec_tecu", "obs_count"],
+        )
+        df["bucket"] = pd.to_datetime(df["bucket_epoch"], unit="s", utc=True)
+        return df.drop(columns=["bucket_epoch"])
 
     def record_count(self, *, hours: float | None = None) -> int:
         """Total rows in the database, optionally limited to the last N hours."""

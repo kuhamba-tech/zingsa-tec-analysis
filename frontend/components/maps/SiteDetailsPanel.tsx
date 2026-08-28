@@ -5,6 +5,7 @@ import type { LiveObservation, Station, StationUptimeAnalysis, TecHeatmapRespons
 import { siteStatusColor, stationDetailRows } from "@/lib/stationDetails";
 import { getLiveStationStatus } from "@/lib/liveStationStatus";
 import { icaoTecColor, icaoTecDistanceLabel, icaoTecLabel } from "@/lib/icaoTecAdvisory";
+import { liveVtecSourceFromHeatmap, liveVtecSourceLabel } from "@/lib/liveVtecLabels";
 import LineChart from "@/components/charts/LineChart";
 
 interface Props {
@@ -133,13 +134,11 @@ export default function SiteDetailsPanel({ station, heatmap = null, onClose }: P
   const rows = stationDetailRows(station);
   const vtec = heatmapVtec(station, heatmap);
   const heatmapStation = heatmapStationFor(station, heatmap);
-  const tecSource = isInterpolatedSource(heatmapStation?.source)
-    ? "Interpolated from live NTRIP surface"
-    : heatmapStation && (heatmapStation.obs_count ?? 0) > 0
-      ? "Live NTRIP"
-      : heatmapStation?.source
-        ? heatmapStation.source
-        : null;
+  const tecSource = heatmapStation
+    ? liveVtecSourceLabel(
+        liveVtecSourceFromHeatmap(heatmapStation.source, heatmapStation.obs_count),
+      )
+    : null;
   const statusColor = siteStatusColor(
     rows.find((r) => r.label === "Site Status")?.value ?? station.status,
   );

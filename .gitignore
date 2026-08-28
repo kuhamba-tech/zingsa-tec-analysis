@@ -71,3 +71,6 @@ Thumbs.db
 
 .vercel
 node_modules/
+
+# NTRIP collector singleton lock (runtime)
+static/data/.live_ntrip_collector.lock
