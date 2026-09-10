@@ -11,6 +11,14 @@
     "api/tec-router.py": {
       "maxDuration": 60,
       "memory": 1024
+    },
+    "api/cors-router.py": {
+      "maxDuration": 60,
+      "memory": 1024
+    },
+    "api/core-router.py": {
+      "maxDuration": 60,
+      "memory": 1024
     }
   },
   "headers": [

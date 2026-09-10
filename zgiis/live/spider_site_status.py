@@ -25,6 +25,7 @@ _DISK_LOADED = False
 _FETCH_LOCK = threading.Lock()
 DEFAULT_TTL_SEC = 60.0
 DEFAULT_TIMEOUT_SEC = 12.0
+SERVERLESS_TIMEOUT_SEC = 20.0
 # Keep last-good Spider rows across Vercel cold starts (catalog is not live).
 DISK_MAX_AGE_SEC = float(os.getenv("SPIDER_STATUS_DISK_MAX_AGE_SEC", str(30 * 60)))
 # Postgres/SQLite last-good may be served when a live Spider login fails.
@@ -265,8 +266,14 @@ def _extract_antiforgery(html: str) -> str | None:
     return match.group(1) if match else None
 
 
-def fetch_spider_site_statuses(*, timeout: float = DEFAULT_TIMEOUT_SEC) -> dict[str, Any]:
+def fetch_spider_site_statuses(*, timeout: float | None = None) -> dict[str, Any]:
     """Return {by_station: {code: {status, spider_status, site_code}}, error}."""
+    if timeout is None:
+        timeout = (
+            SERVERLESS_TIMEOUT_SEC
+            if (os.getenv("VERCEL") or os.getenv("AWS_LAMBDA_FUNCTION_NAME"))
+            else DEFAULT_TIMEOUT_SEC
+        )
     base = _spider_base_url()
     user, password = _spider_credentials()
     if not (base and user and password):
@@ -306,7 +313,10 @@ def fetch_spider_site_statuses(*, timeout: float = DEFAULT_TIMEOUT_SEC) -> dict[
             return {
                 "fetched_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 "by_station": {},
-                "error": "Logged in but SiteMap did not include a Sites array",
+                "error": (
+                    f"Logged in at {base} but SiteMap did not include a Sites array "
+                    f"(HTTP {sitemap.status_code}, url={sitemap.url})"
+                ),
             }
 
         by_station: dict[str, dict[str, Any]] = {}
@@ -330,13 +340,15 @@ def fetch_spider_site_statuses(*, timeout: float = DEFAULT_TIMEOUT_SEC) -> dict[
             "fetched_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "by_station": by_station,
             "error": None,
+            "spider_base_url": base,
         }
     except Exception as exc:
-        log.warning("Spider site status fetch failed: %s", exc)
+        log.warning("Spider site status fetch failed (%s): %s", base, exc)
         return {
             "fetched_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "by_station": {},
-            "error": str(exc),
+            "error": f"{base}: {exc}",
+            "spider_base_url": base,
         }
 
 

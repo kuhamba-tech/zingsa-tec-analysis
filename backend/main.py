@@ -190,18 +190,32 @@ async def health():
     except Exception:
         pass
     try:
-        from zgiis.live.spider_site_status import get_cached_spider_site_statuses, spider_status_enabled
+        from zgiis.live.spider_site_status import (
+            _spider_base_url,
+            ensure_spider_site_statuses,
+            spider_status_enabled,
+        )
 
+        spider_info: dict = {
+            "enabled": spider_status_enabled(),
+            "base_url": _spider_base_url() or None,
+        }
         if spider_status_enabled():
-            payload = get_cached_spider_site_statuses()
+            payload = ensure_spider_site_statuses(wait_sec=0.5, max_age_sec=120.0, allow_stale_fallback=True)
             spider_ready = bool(payload.get("by_station"))
-    except Exception:
-        pass
+            spider_info["stations"] = len(payload.get("by_station") or {})
+            spider_info["error"] = payload.get("error")
+            spider_info["fetched_at"] = payload.get("fetched_at")
+        else:
+            spider_info["error"] = "disabled or missing credentials"
+    except Exception as exc:
+        spider_info = {"enabled": False, "error": str(exc)}
 
     return {
         "status": "ok",
         "service": "ZGIIS API",
         "caches": {"space_weather": sw_ready, "spider_status": spider_ready},
+        "spider": spider_info,
     }
 
 

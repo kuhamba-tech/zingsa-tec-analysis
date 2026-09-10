@@ -578,9 +578,13 @@ def _merge_spider_site_statuses(stations: list, *, refresh: bool = False) -> lis
 
     try:
         # Prefer cached Spider for map refresh; only wait briefly for a live pull.
+        # Serverless cold starts need a longer wait — Spider login from Vercel to
+        # the Zimbabwe SBC often exceeds 1.5s and otherwise leaves the map blank.
+        serverless = _is_serverless_runtime()
         payload = ensure_spider_site_statuses(
             max_age_sec=0.0 if refresh else 15.0,
-            wait_sec=8.0 if refresh else 1.5,
+            wait_sec=(20.0 if refresh else 12.0) if serverless else (8.0 if refresh else 1.5),
+            allow_stale_fallback=serverless,
         )
     except Exception:
         log.exception("Failed to load Spider site status")
