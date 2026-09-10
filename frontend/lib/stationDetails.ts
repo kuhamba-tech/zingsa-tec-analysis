@@ -18,7 +18,57 @@ export function siteStatusColor(label: string | null | undefined): string {
   return "#ffffff";
 }
 
+function ntripVerdictLabel(verdict: string | null | undefined): string | null {
+  switch (verdict) {
+    case "msm_streaming":
+      return "MSM observations streaming";
+    case "rtcm_no_msm":
+      return "Connected — no MSM observations";
+    case "connected_no_data":
+      return "Connected — no RTCM yet";
+    case "offline":
+      return "Mountpoint offline";
+    default:
+      return verdict ? verdict.replace(/_/g, " ") : null;
+  }
+}
+
+/** Plain-language note when map status disagrees with router reachability. */
+export function stationConnectivityExplanation(station: Station): string | null {
+  const live = station.status === "online";
+  if (live) return null;
+
+  const source = station.status_source;
+  const spiderOffline = source === "spider" && station.status === "offline";
+  const ntrip = station.ntrip_verdict;
+
+  if (spiderOffline && ntrip === "rtcm_no_msm") {
+    return "Router/caster may respond, but Leica Spider reports this GNSS site disconnected and the NTRIP mountpoint is not sending MSM — live VTEC will stay unavailable until the receiver is connected in Spider.";
+  }
+  if (spiderOffline) {
+    const when = station.last_update ? ` Last Spider update: ${station.last_update}.` : "";
+    return `Map status follows Leica Spider Site Status (not router login). Spider reports this site disconnected.${when} Check receiver power, antenna, and Spider Site Map.`;
+  }
+  if (ntrip === "rtcm_no_msm") {
+    return "NTRIP mountpoint accepts connections but is not streaming MSM observations required for live VTEC.";
+  }
+  if (source === "catalog") {
+    return "Live Spider status unavailable — showing archive catalog only.";
+  }
+  return null;
+}
+
 export function stationDetailRows(s: Station): { label: string; value: string; highlight?: boolean }[] {
+  const ntripLabel = ntripVerdictLabel(s.ntrip_verdict);
+  const statusAuthority =
+    s.status_source === "spider"
+      ? "Leica Spider Site Status"
+      : s.status_source === "ntrip"
+        ? "NTRIP ingest"
+        : s.status_source === "catalog"
+          ? "Archive catalog"
+          : null;
+
   return [
     { label: "Site code", value: s.code.toUpperCase() },
     { label: "RTCM ID", value: s.rtcm_id ?? "0000" },
@@ -29,6 +79,12 @@ export function stationDetailRows(s: Station): { label: string; value: string; h
       value: s.site_status_label ?? s.status,
       highlight: true,
     },
+    ...(statusAuthority
+      ? [{ label: "Status source", value: statusAuthority }]
+      : []),
+    ...(ntripLabel
+      ? [{ label: "NTRIP stream", value: ntripLabel, highlight: ntripLabel.includes("no MSM") }]
+      : []),
     ...(s.connected_rovers != null
       ? [
           {

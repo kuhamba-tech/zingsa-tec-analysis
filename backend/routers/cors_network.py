@@ -5,6 +5,7 @@ import logging
 import os
 import threading
 import time
+from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
@@ -105,6 +106,76 @@ def _safe_station_live_vtec(hours: float = 0.05) -> dict[str, float]:
     except Exception as exc:
         log.warning("stations live NTRIP VTEC attach skipped: %s", exc)
     return out
+
+
+def _supplement_live_ntrip_vtec(
+    vtec_by_station: dict[str, float],
+    *,
+    refresh: bool = False,
+) -> tuple[dict[str, float], dict[str, dict[str, Any]], str]:
+    """Fill VTEC gaps from on-demand live NTRIP decode (serverless / empty DB)."""
+    out = dict(vtec_by_station)
+    probe_by: dict[str, dict[str, Any]] = {}
+    probed_at = ""
+    try:
+        from zgiis.live.heatmap_live_vtec import rows_by_station, sample_live_ntrip_vtec
+
+        sparse = len(out) < max(4, len(out) // 2 + 1)
+        payload = sample_live_ntrip_vtec(refresh=refresh or (_is_serverless_runtime() and sparse))
+        probed_at = str(payload.get("probed_at") or "")
+        probe_by = rows_by_station(payload)
+        for code, row in probe_by.items():
+            raw = row.get("mean_vtec_tecu")
+            if raw is None:
+                continue
+            try:
+                value = float(raw)
+            except (TypeError, ValueError):
+                continue
+            if value <= 0:
+                continue
+            key = code.lower().rstrip("_")
+            if key not in out:
+                out[key] = round(value, 2)
+    except Exception:
+        log.exception("Failed to supplement live NTRIP VTEC samples")
+    return out, probe_by, probed_at
+
+
+def _overlay_live_ntrip_telemetry(
+    stations: list,
+    probe_by: dict[str, dict[str, Any]],
+    *,
+    probed_at: str = "",
+) -> list:
+    """Attach measured live NTRIP VTEC + probe verdict without overriding Spider status."""
+    from dataclasses import replace
+
+    if not probe_by:
+        return stations
+
+    merged = []
+    for station in stations:
+        code = station.code.lower().rstrip("_")
+        row = probe_by.get(code)
+        if not row:
+            merged.append(station)
+            continue
+        verdict = str(row.get("verdict") or "")
+        updates: dict[str, Any] = {
+            "ntrip_verdict": verdict or getattr(station, "ntrip_verdict", None),
+            "ntrip_probed_at": probed_at or getattr(station, "ntrip_probed_at", None),
+        }
+        raw = row.get("mean_vtec_tecu")
+        if raw is not None:
+            try:
+                vtec = float(raw)
+            except (TypeError, ValueError):
+                vtec = 0.0
+            if vtec > 0:
+                updates["current_tec"] = round(vtec, 2)
+        merged.append(replace(station, **updates))
+    return merged
 
 
 def _is_serverless_runtime() -> bool:
@@ -335,6 +406,10 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
             # shared DB so TEC heat-map / station cards are not stuck on zeros.
             stations = _merge_spider_site_statuses(stations, refresh=refresh_ntrip)
             vtec_by_station = _safe_station_live_vtec(0.25)
+            vtec_by_station, sample_probe, sample_at = _supplement_live_ntrip_vtec(
+                vtec_by_station,
+                refresh=refresh_ntrip,
+            )
             for code, mean_vtec in vtec_by_station.items():
                 stations = [
                     replace(s, current_tec=round(mean_vtec, 2))
@@ -342,10 +417,16 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
                     else s
                     for s in stations
                 ]
-            return _merge_rover_clients(stations)
+            stations = _overlay_live_ntrip_telemetry(
+                _merge_rover_clients(stations),
+                sample_probe,
+                probed_at=sample_at,
+            )
+            return stations
 
     probe_payload = None
     probe_by: dict = {}
+    probed_at = ""
     vtec_by_station: dict[str, float] = _safe_station_live_vtec(0.25)
     has_recent_vtec = bool(vtec_by_station)
 
@@ -358,6 +439,18 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
                 vtec_by_station[key] = float(vtec)
     except Exception:
         pass
+
+    sample_probe_by: dict[str, dict[str, Any]] = {}
+    sample_probed_at = ""
+    if _is_serverless_runtime() or not vtec_by_station:
+        vtec_by_station, sample_probe_by, sample_probed_at = _supplement_live_ntrip_vtec(
+            vtec_by_station,
+            refresh=refresh_ntrip,
+        )
+        if sample_probe_by and not probe_by:
+            probe_by = sample_probe_by
+            if sample_probed_at:
+                probed_at = sample_probed_at
 
     # Vercel functions must never replace persistent-collector snapshots with
     # their own short socket probe. Those one-shot probes often see an accepted
@@ -391,7 +484,7 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
             probe_payload = None
             probe_by = {}
 
-    probed_at = str(probe_payload.get("probed_at") or "") if probe_payload else ""
+    probed_at = str(probe_payload.get("probed_at") or sample_probed_at or "") if probe_payload else (sample_probed_at or "")
     msm_online = [
         code
         for code, row in probe_by.items()
@@ -452,9 +545,16 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
                 sourcetable_note=st_diag.get("note") or "",
             )
         merged.append(s)
-    return _merge_rover_clients(
+    merged = _merge_rover_clients(
         _merge_spider_site_statuses(merged, refresh=refresh_ntrip)
     )
+    if sample_probe_by:
+        merged = _overlay_live_ntrip_telemetry(
+            merged,
+            sample_probe_by,
+            probed_at=sample_probed_at,
+        )
+    return merged
 
 
 def _merge_spider_site_statuses(stations: list, *, refresh: bool = False) -> list:

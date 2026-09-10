@@ -35,13 +35,27 @@ DURABLE_MAX_AGE_SEC = float(os.getenv("SPIDER_STATUS_DURABLE_MAX_AGE_SEC", str(1
 _SPIDER_ONLINE = 3
 
 
+# Public Spider Business Center (web UI). NTRIP caster may still be an IP:2101 host;
+# do not build /sbc from that IP — Leica SBC moved to the public HTTPS domain.
+_DEFAULT_SPIDER_BASE_URL = "https://www.zingsaservices.ac.zw/sbc"
+_LEGACY_CASTER_HOSTS = {
+    "41.174.184.62",
+    "http://41.174.184.62",
+    "https://41.174.184.62",
+}
+
+
 def _spider_base_url() -> str:
     configured = os.getenv("SPIDER_BASE_URL", "").strip().rstrip("/")
     if configured:
         return configured
     host = os.environ.get("NTRIP_HOST", "").strip().strip('"').strip("'").rstrip("/")
     if not host:
-        return ""
+        return _DEFAULT_SPIDER_BASE_URL
+    # NTRIP caster IP is not the Spider web UI — use the public SBC domain.
+    host_key = host.lower().rstrip("/")
+    if host_key in _LEGACY_CASTER_HOSTS or host_key.endswith("41.174.184.62"):
+        return _DEFAULT_SPIDER_BASE_URL
     # NTRIP_HOST is accepted elsewhere as either a bare hostname/IP or a URL.
     # Preserve an existing scheme; prepending ``http://`` to a URL produces
     # ``http://http://...`` and makes requests resolve a host literally named

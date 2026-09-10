@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { getLiveVtec, getStationUptimeAnalysis } from "@/lib/api";
 import type { LiveObservation, Station, StationUptimeAnalysis, TecHeatmapResponse } from "@/lib/types";
-import { siteStatusColor, stationDetailRows } from "@/lib/stationDetails";
+import { siteStatusColor, stationDetailRows, stationConnectivityExplanation } from "@/lib/stationDetails";
 import { getLiveStationStatus } from "@/lib/liveStationStatus";
 import { icaoTecColor, icaoTecDistanceLabel, icaoTecLabel } from "@/lib/icaoTecAdvisory";
 import { liveVtecSourceFromHeatmap, liveVtecSourceLabel } from "@/lib/liveVtecLabels";
@@ -143,6 +143,7 @@ export default function SiteDetailsPanel({ station, heatmap = null, onClose }: P
     rows.find((r) => r.label === "Site Status")?.value ?? station.status,
   );
   const liveStatus = getLiveStationStatus(station);
+  const connectivityNote = stationConnectivityExplanation(station);
   const outageSummary = useMemo(() => {
     const intervals = uptime?.outage_intervals ?? [];
     const ongoing = intervals.find((item) => item.ongoing) ?? null;
@@ -301,6 +302,16 @@ export default function SiteDetailsPanel({ station, heatmap = null, onClose }: P
         <div style={{ color: "#ffffff", fontSize: "0.68rem", marginBottom: "0.65rem" }}>
           {station.code.toUpperCase()} · {station.mountpoint ?? station.marker_name ?? "CORS"}
         </div>
+
+        {connectivityNote && (
+          <div
+            className="banner banner-warn"
+            style={{ marginBottom: "0.65rem", padding: "0.45rem 0.55rem", fontSize: "0.72rem", lineHeight: 1.35 }}
+            role="status"
+          >
+            {connectivityNote}
+          </div>
+        )}
 
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <tbody>

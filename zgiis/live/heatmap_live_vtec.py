@@ -15,7 +15,7 @@ DEFAULT_TTL_SEC = 90.0
 DEFAULT_LISTEN_SEC = 10.0
 DEFAULT_MAX_STATIONS = 8
 SERVERLESS_LISTEN_SEC = 6.0
-SERVERLESS_MAX_STATIONS = 4
+SERVERLESS_MAX_STATIONS = 8
 SERVERLESS_MAX_WORKERS = 4
 # Spread across Zimbabwe so the Matamba surface is not a single-point copy.
 DEFAULT_PRIORITY = (
@@ -26,6 +26,7 @@ DEFAULT_PRIORITY = (
     "kwek",
     "tsho",
     "masv",
+    "kari",
     "karo",
     "gsu",
     "bula",

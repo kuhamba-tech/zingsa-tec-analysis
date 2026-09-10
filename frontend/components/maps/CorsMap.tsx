@@ -160,6 +160,21 @@ function stationTecValue(station: Station, heatmap: TecHeatmapResponse | null | 
     return null;
   }
 
+  const liveStatus = getLiveStationStatus(station);
+  const cardTec =
+    typeof station.current_tec === "number" && Number.isFinite(station.current_tec) && station.current_tec > 0
+      ? station.current_tec
+      : null;
+  const ntripLive =
+    station.ntrip_verdict === "msm_streaming" ||
+    station.status_source === "ntrip" ||
+    (cardTec != null && liveStatus === "online");
+
+  // Measured live NTRIP on the station record (independent of heat-map interpolation).
+  if (cardTec != null && ntripLive) {
+    return cardTec;
+  }
+
   // 1) Streaming measured live NTRIP always overrides interpolation.
   const measuredLive =
     heatStation &&
@@ -184,11 +199,8 @@ function stationTecValue(station: Station, heatmap: TecHeatmapResponse | null | 
   }
 
   // 3) Fallback: station-card live decode (online sites only).
-  const liveStatus = getLiveStationStatus(station);
   if (liveStatus === "offline" || liveStatus === "unavailable") return null;
-  return typeof station.current_tec === "number" && Number.isFinite(station.current_tec) && station.current_tec > 0
-    ? station.current_tec
-    : null;
+  return cardTec;
 }
 
 export default function CorsMap({

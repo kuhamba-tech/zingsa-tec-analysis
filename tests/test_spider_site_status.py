@@ -17,12 +17,20 @@ from zgiis.live.spider_site_status import (
 
 class SpiderSiteStatusTests(unittest.TestCase):
     @patch.dict("os.environ", {"NTRIP_HOST": "http://41.174.184.62"}, clear=True)
-    def test_spider_base_url_preserves_existing_scheme(self) -> None:
-        self.assertEqual(_spider_base_url(), "http://41.174.184.62/sbc")
+    def test_spider_base_url_maps_legacy_caster_ip_to_public_sbc(self) -> None:
+        self.assertEqual(_spider_base_url(), "https://www.zingsaservices.ac.zw/sbc")
 
     @patch.dict("os.environ", {"NTRIP_HOST": "41.174.184.62"}, clear=True)
-    def test_spider_base_url_accepts_bare_host(self) -> None:
-        self.assertEqual(_spider_base_url(), "http://41.174.184.62/sbc")
+    def test_spider_base_url_accepts_bare_legacy_host(self) -> None:
+        self.assertEqual(_spider_base_url(), "https://www.zingsaservices.ac.zw/sbc")
+
+    @patch.dict(
+        "os.environ",
+        {"SPIDER_BASE_URL": "https://www.zingsaservices.ac.zw/sbc", "NTRIP_HOST": "41.174.184.62"},
+        clear=True,
+    )
+    def test_spider_base_url_prefers_explicit_env(self) -> None:
+        self.assertEqual(_spider_base_url(), "https://www.zingsaservices.ac.zw/sbc")
 
     @patch.dict("os.environ", {"NTRIP_HOST": "https://example.test/sbc/"}, clear=True)
     def test_spider_base_url_does_not_duplicate_sbc_path(self) -> None:
