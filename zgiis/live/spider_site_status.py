@@ -284,7 +284,17 @@ def fetch_spider_site_statuses(*, timeout: float | None = None) -> dict[str, Any
         }
 
     session = requests.Session()
-    session.headers.update({"User-Agent": "ZGIIS-SpiderSiteStatus/1.0"})
+    # Datacenter User-Agents are often blocked by the SBC reverse proxy (403).
+    session.headers.update(
+        {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+            ),
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+        }
+    )
     try:
         login_page = session.get(f"{base}/Account/Index", timeout=timeout, allow_redirects=True)
         login_page.raise_for_status()
@@ -301,11 +311,13 @@ def fetch_spider_site_statuses(*, timeout: float | None = None) -> dict[str, Any
             data=payload,
             timeout=timeout,
             allow_redirects=True,
+            headers={"Content-Type": "application/x-www-form-urlencoded", "Referer": f"{base}/Account/Index"},
         )
         sitemap = session.get(
             f"{base}/User/SiteMap/SiteMap",
             timeout=timeout,
             allow_redirects=True,
+            headers={"Referer": f"{base}/Account/Index"},
         )
         sitemap.raise_for_status()
         sites = _parse_sites_json(sitemap.text)

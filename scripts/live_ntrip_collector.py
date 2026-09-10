@@ -143,14 +143,43 @@ def _status_snapshot_rows(streams: dict[str, dict]) -> list[dict]:
         try:
             from zgiis.live.spider_status_store import save_spider_status_payload
 
-            save_spider_status_payload(
-                {
-                    "fetched_at": spider_payload.get("fetched_at"),
-                    "by_station": spider_by_station,
-                    "disk_saved_at": time.time(),
-                    "error": spider_payload.get("error"),
-                }
-            )
+            body = {
+                "fetched_at": spider_payload.get("fetched_at"),
+                "by_station": spider_by_station,
+                "disk_saved_at": time.time(),
+                "error": spider_payload.get("error"),
+            }
+            save_spider_status_payload(body)
+            # Vercel cannot log into the SBC (often HTTP 403 from datacenter IPs).
+            # Mirror Spider into the hosted DB whenever a local fetch succeeds.
+            try:
+                from dotenv import dotenv_values
+
+                vercel = dotenv_values(Path(__file__).resolve().parents[1] / ".env.vercel.production")
+                hosted = (
+                    (vercel.get("POSTGRES_URL") or vercel.get("DATABASE_URL") or vercel.get("TSDB_DSN") or "")
+                    .strip()
+                    .strip('"')
+                    .strip("'")
+                )
+                if hosted and os.getenv("ZGIIS_FORCE_SQLITE", "").strip().lower() in {"1", "true", "yes", "on"}:
+                    prev = {k: os.environ.get(k) for k in ("TSDB_DSN", "DATABASE_URL", "POSTGRES_URL", "ZGIIS_FORCE_SQLITE")}
+                    os.environ["TSDB_DSN"] = hosted
+                    os.environ.pop("ZGIIS_FORCE_SQLITE", None)
+                    import zgiis.live.spider_status_store as store
+
+                    store._conn = None
+                    store._init_attempted = False
+                    save_spider_status_payload(body)
+                    for key, value in prev.items():
+                        if value is None:
+                            os.environ.pop(key, None)
+                        else:
+                            os.environ[key] = value
+                    store._conn = None
+                    store._init_attempted = False
+            except Exception:
+                pass
         except Exception:
             pass
     when = datetime.now(tz=timezone.utc).replace(microsecond=0).isoformat()
