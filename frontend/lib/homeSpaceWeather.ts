@@ -39,6 +39,7 @@ export function mergeSpaceWeatherWithEkf(
     dst: null,
     f107: null,
     s4: null,
+    ap: null,
     gnss_risk: null,
     gnss_risk_color: null,
     stations_online: null,

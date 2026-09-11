@@ -6,6 +6,7 @@ export interface SpaceWeatherCurrent {
   dst: number | null;
   f107: number | null;
   s4: number | null;
+  ap: number | null;
   gnss_risk: string | null;
   gnss_risk_color: string | null;
   stations_online: number | null;

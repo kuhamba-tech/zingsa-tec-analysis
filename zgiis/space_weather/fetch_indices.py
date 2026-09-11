@@ -42,10 +42,43 @@ _GNSS_RISK_COLORS = {
 }
 
 NOAA_KP_URL = "https://services.swpc.noaa.gov/json/planetary_k_index_1m.json"
+NOAA_PLANETARY_K_URL = "https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json"
 NOAA_F107_URL = "https://services.swpc.noaa.gov/json/f107_cm_flux.json"
 NOAA_DST_URL = "https://services.swpc.noaa.gov/products/kyoto-dst.json"
 NOAA_PLASMA_URL = "https://services.swpc.noaa.gov/json/rtsw/rtsw_wind_1m.json"
 NOAA_LEGACY_PLASMA_URL = "https://services.swpc.noaa.gov/products/solar-wind/plasma-1-day.json"
+
+# Bartels equivalent-amplitude (ap) table for mid-scale Kp → ap conversion.
+_KP_TO_AP = (
+    (0.0, 0),
+    (0.33, 2),
+    (0.67, 3),
+    (1.0, 4),
+    (1.33, 5),
+    (1.67, 6),
+    (2.0, 7),
+    (2.33, 9),
+    (2.67, 12),
+    (3.0, 15),
+    (3.33, 18),
+    (3.67, 22),
+    (4.0, 27),
+    (4.33, 32),
+    (4.67, 39),
+    (5.0, 48),
+    (5.33, 56),
+    (5.67, 67),
+    (6.0, 80),
+    (6.33, 94),
+    (6.67, 111),
+    (7.0, 132),
+    (7.33, 154),
+    (7.67, 179),
+    (8.0, 207),
+    (8.33, 236),
+    (8.67, 300),
+    (9.0, 400),
+)
 
 
 def _is_available(data: Any) -> bool:
@@ -53,6 +86,26 @@ def _is_available(data: Any) -> bool:
         isinstance(data, dict)
         and (data.get("mode") == "unavailable" or data.get("kp") is None)
     )
+
+
+def _ap_from_kp(kp: Optional[float]) -> Optional[int]:
+    """Map Kp to the nearest Bartels equivalent-amplitude (ap) value."""
+    if kp is None:
+        return None
+    try:
+        value = float(kp)
+    except (TypeError, ValueError):
+        return None
+    if value < 0:
+        return None
+    best_ap = _KP_TO_AP[0][1]
+    best_delta = abs(value - _KP_TO_AP[0][0])
+    for kp_step, ap_val in _KP_TO_AP[1:]:
+        delta = abs(value - kp_step)
+        if delta < best_delta:
+            best_delta = delta
+            best_ap = ap_val
+    return int(best_ap)
 
 
 def _load_persisted_snapshot() -> Any:
@@ -89,6 +142,7 @@ def _load_persisted_snapshot() -> Any:
             "f107": data.get("f107"),
             "solar_wind_speed": data.get("plasma_speed"),
             "s4": data.get("s4"),
+            "ap": _ap_from_kp(data.get("kp")),
             "gnss_risk": data.get("gnss_risk"),
             "gnss_risk_color": _GNSS_RISK_COLORS.get(data.get("gnss_risk"), "#00ff88"),
             "stations_online": data.get("stations_online"),
@@ -284,6 +338,24 @@ def _fetch_noaa_kp_history() -> list[dict]:
             }
         )
     return history
+
+
+def _fetch_noaa_ap() -> Optional[int]:
+    """Latest NOAA planetary equivalent amplitude (a_running / Ap proxy)."""
+    rows = _request_noaa_json(NOAA_PLANETARY_K_URL)
+    if not isinstance(rows, list):
+        return None
+    for row in reversed(rows):
+        if not isinstance(row, dict):
+            continue
+        a_running = row.get("a_running")
+        if a_running is None:
+            continue
+        try:
+            return int(round(float(a_running)))
+        except (TypeError, ValueError):
+            continue
+    return None
 
 
 def _fetch_noaa_f107() -> Optional[float]:
@@ -528,6 +600,7 @@ def _unavailable_data() -> Dict[str, Any]:
         "station_health": None,
         "api_base": None,
         "s4": None,
+        "ap": None,
         "dst": None,
         "solar_wind_speed": None,
         "solar_wind_density": None,
@@ -614,12 +687,13 @@ def get_space_weather(
     """
 
     def _fetch() -> Dict[str, Any]:
-        with ThreadPoolExecutor(max_workers=7) as executor:
+        with ThreadPoolExecutor(max_workers=8) as executor:
             futures = {
                 "africa": executor.submit(fetch_space_weather_africa) if use_third_party else None,
                 "iono": executor.submit(fetch_ionosphere_status, station="HARA") if fetch_ionosphere else None,
                 "health": executor.submit(fetch_station_health, country="Zimbabwe") if use_third_party else None,
                 "kp_history": executor.submit(_fetch_noaa_kp_history),
+                "ap": executor.submit(_fetch_noaa_ap),
                 "f107_history": executor.submit(_fetch_noaa_f107_history),
                 "dst_history": executor.submit(_fetch_noaa_dst_history),
                 "solar_wind_history": executor.submit(
@@ -639,6 +713,7 @@ def get_space_weather(
         dst_history = fetched["dst_history"] or []
         solar_wind_history = fetched["solar_wind_history"] or []
         noaa_kp = _latest_kp_from_history(noaa_history)
+        noaa_ap = fetched.get("ap")
         f107 = _latest_f107_from_history(f107_history)
         dst = _latest_dst_from_history(dst_history)
         sw_speed, sw_density = _latest_solar_wind_from_history(
@@ -691,6 +766,7 @@ def get_space_weather(
             result = _unavailable_data()
             result["f107"] = f107
             result["dst"] = dst
+            result["ap"] = noaa_ap if noaa_ap is not None else None
             result["solar_wind_speed"] = sw_speed
             result["solar_wind_density"] = sw_density
             result["kp_history"] = noaa_history
@@ -702,6 +778,7 @@ def get_space_weather(
 
         kp = float(kp)
         condition, condition_color = _resolve_kp_level(kp)
+        ap = noaa_ap if noaa_ap is not None else _ap_from_kp(kp)
 
         if not africa and not iono:
             mode = "live"
@@ -811,6 +888,7 @@ def get_space_weather(
             "ionosphere_station": iono.get("station") if iono else None,
             "vtec_tecu": iono.get("vtec_tecu") if iono else None,
             "s4": round(s4, 2) if s4 is not None else None,
+            "ap": int(ap) if ap is not None else None,
             "dst": round(dst, 1) if dst is not None else None,
             "solar_wind_speed": round(sw_speed) if sw_speed is not None else None,
             "solar_wind_density": round(sw_density, 1) if sw_density is not None else None,
@@ -825,7 +903,11 @@ def get_space_weather(
         if use_third_party
         else ("space_weather_live_only" if fetch_ionosphere else "space_weather_fast")
     )
-    return _cached(cache_key, _fetch)
+    result = _cached(cache_key, _fetch)
+    # Backfill Ap for stale cache / persisted rows written before Ap existed.
+    if isinstance(result, dict) and result.get("ap") is None and result.get("kp") is not None:
+        result = {**result, "ap": _ap_from_kp(result.get("kp"))}
+    return result
 
 
 def get_warning_messages(sw: Dict[str, Any]) -> list[str]:

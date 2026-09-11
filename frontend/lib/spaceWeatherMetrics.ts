@@ -9,7 +9,7 @@ export type MetricKey =
   | "dst"
   | "f107"
   | "solar_wind"
-  | "s4"
+  | "ap"
   | "gnss_risk"
   | "stations";
 
@@ -33,8 +33,8 @@ export const METRIC_EXPLANATIONS: Record<MetricKey, string> = {
     "Solar Flux F10.7 measures the radio energy emitted by the Sun at a 10.7 cm wavelength (2.8 GHz). It is a reliable daily proxy for solar ultraviolet radiation, the main driver of ionospheric electron density and TEC. Higher F10.7 means a more ionised, electrically thicker atmosphere above Zimbabwe, which increases GNSS error and signal degradation.",
   solar_wind:
     "The Sun continuously releases a stream of charged particles called the solar wind. Normal speed is about 400 km/s. When a solar eruption reaches Earth, the speed can rise above 700 km/s. High-speed streams compress Earth's magnetosphere and amplify geomagnetic effects, acting as the delivery mechanism for solar storms.",
-  s4:
-    "The S4 scintillation index measures how much a GNSS or radio signal's amplitude fluctuates while passing through irregular ionospheric plasma. S4 = 0 means a steady signal, while S4 = 1 indicates severe fluctuation and possible total fading. Values above 0.5 can cause receivers to lose lock on satellites. This is especially important near Zimbabwe's equatorial region.",
+  ap:
+    "The Ap index is a planetary equivalent-amplitude measure of geomagnetic activity, derived from the same observatory network as Kp. Where Kp is a quasi-logarithmic 0–9 scale, Ap is linear in nanotesla-equivalent disturbance and is useful for comparing storm strength over hours to days. Quiet conditions are typically Ap below about 8; unsettled to active levels sit near 8–30; storm levels rise above ~30 and can exceed 100 in severe events.",
   gnss_risk:
     "GNSS Risk is a combined operational assessment for positioning and navigation users. It considers geomagnetic activity, ionospheric TEC, S4 scintillation and related space-weather indicators. Low risk supports routine CORS and RTK operations; increasing risk means users should verify fixes, use dual-frequency observations and consider post-processing.",
   stations:
@@ -49,11 +49,12 @@ function dstColor(dst: number | null): string {
   return "#00ff88";
 }
 
-function s4Color(s4: number | null): string {
-  if (s4 === null) return "#ffffff";
-  if (s4 >= 0.5) return "#ef4444";
-  if (s4 >= 0.3) return "#f97316";
-  if (s4 >= 0.1) return "#eab308";
+function apColor(ap: number | null): string {
+  if (ap === null) return "#ffffff";
+  if (ap >= 100) return "#ef4444";
+  if (ap >= 50) return "#f97316";
+  if (ap >= 30) return "#eab308";
+  if (ap >= 8) return "#eab308";
   return "#00ff88";
 }
 
@@ -98,6 +99,11 @@ export function formatS4Display(s4: number | null | undefined): string {
   return s4.toFixed(2);
 }
 
+export function formatApDisplay(ap: number | null | undefined): string {
+  if (ap == null || !Number.isFinite(ap)) return "N/A";
+  return String(Math.round(ap));
+}
+
 /** Index detail lines for Navigation News sector cards — must match metric cards exactly. */
 export function formatPowerIndicesDetail(sw: SpaceWeatherCurrent | null): string | undefined {
   if (!sw || sw.kp == null || sw.dst == null) return undefined;
@@ -122,7 +128,7 @@ export function buildMetricCards(
   const kp = sw?.kp ?? null;
   const dst = sw?.dst ?? null;
   const f107 = sw?.f107 ?? null;
-  const s4 = sw?.s4 ?? null;
+  const ap = sw?.ap ?? null;
   const wind = sw?.plasma_speed ?? null;
   const online = sw?.stations_online ?? null;
   const total = sw?.stations_total ?? null;
@@ -190,12 +196,12 @@ export function buildMetricCards(
       valueColor: solarWindColor(wind),
     },
     {
-      key: "s4",
-      icon: "📶",
-      label: "Scintillation S4",
-      value: formatS4Display(s4),
-      note: s4 !== null ? "Observed archive" : "Observed data unavailable",
-      valueColor: s4Color(s4),
+      key: "ap",
+      icon: "📈",
+      label: "Ap Index",
+      value: formatApDisplay(ap),
+      note: ap !== null ? "Planetary amplitude" : "NOAA feed unavailable",
+      valueColor: apColor(ap),
     },
     {
       key: "gnss_risk",
@@ -222,7 +228,7 @@ export function interpretMetric(sw: SpaceWeatherCurrent | null, key: MetricKey):
   const kp = sw.kp;
   const dst = sw.dst;
   const f107 = sw.f107;
-  const s4 = sw.s4;
+  const ap = sw.ap;
   const wind = sw.plasma_speed;
   const online = sw.stations_online;
   const total = sw.stations_total;
@@ -294,18 +300,18 @@ export function interpretMetric(sw: SpaceWeatherCurrent | null, key: MetricKey):
       else windLevel = "storm-level solar wind with elevated geomagnetic risk";
       return `A solar-wind speed of ${wind} km/s represents ${windLevel}.`;
 
-    case "s4":
-      if (s4 === null) {
-        return "No observed S4 measurement is available.";
+    case "ap":
+      if (ap === null) {
+        return "No current Ap measurement is available, so planetary geomagnetic amplitude cannot be interpreted from this indicator at present.";
       }
-      let s4Level: string;
-      if (s4 < 0.1) s4Level = "no significant scintillation and a stable GNSS signal";
-      else if (s4 < 0.2) s4Level = "negligible scintillation";
-      else if (s4 < 0.3) s4Level = "weak scintillation with minor signal fluctuation";
-      else if (s4 < 0.5) s4Level = "moderate scintillation that may reduce positioning quality";
-      else if (s4 < 0.7) s4Level = "strong scintillation with possible satellite lock loss";
-      else s4Level = "severe scintillation and a high risk of signal outage";
-      return `S4 at ${s4.toFixed(2)} indicates ${s4Level}.`;
+      let apLevel: string;
+      if (ap < 8) apLevel = "quiet geomagnetic conditions";
+      else if (ap < 15) apLevel = "unsettled conditions with mild magnetic disturbance";
+      else if (ap < 30) apLevel = "active conditions that may increase ionospheric variability";
+      else if (ap < 50) apLevel = "minor storm levels with elevated GNSS risk";
+      else if (ap < 100) apLevel = "moderate to strong storm activity";
+      else apLevel = "severe geomagnetic storm conditions";
+      return `Ap ${Math.round(ap)} indicates ${apLevel}.`;
 
     case "gnss_risk": {
       const interpretations: Record<string, string> = {

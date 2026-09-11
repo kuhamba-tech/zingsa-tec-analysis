@@ -22,4 +22,9 @@ local_live_load_env() {
   export NTRIP_LIVE_PRIORITY_STATIONS="${NTRIP_LIVE_PRIORITY_STATIONS:-kwek,lupa,hara,zinh,beit,tsho,cent,gokw,muta,masv}"
   export STATUS_SNAPSHOT_PUSH_URL=""
   export ZGIIS_SKIP_DB_SCHEMA_INIT=1
+
+  # Cursor/sandbox sometimes injects a dead local HTTP(S)_PROXY that breaks
+  # Spider SBC and NTRIP. Clear it for the local live stack.
+  unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy ALL_PROXY all_proxy
+  export NO_PROXY="${NO_PROXY:-*}"
 }

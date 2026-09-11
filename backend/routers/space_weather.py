@@ -151,6 +151,7 @@ def current(_=Depends(require_api_key)):
         dst=sw.get("dst"),
         f107=sw.get("f107"),
         s4=sw.get("s4"),
+        ap=sw.get("ap"),
         gnss_risk=sw.get("gnss_risk"),
         gnss_risk_color=sw.get("gnss_risk_color"),
         stations_online=sw.get("stations_online"),

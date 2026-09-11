@@ -14,6 +14,7 @@ class SpaceWeatherCurrent(BaseModel):
     dst: float | None = None
     f107: float | None = None
     s4: float | None = None
+    ap: float | None = None
     gnss_risk: str | None = None
     gnss_risk_color: str | None = None
     stations_online: int | None = None
