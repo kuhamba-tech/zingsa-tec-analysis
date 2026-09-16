@@ -12,8 +12,10 @@ from backend.schemas import (
     EkfPointOut,
     EkfSeriesOut,
     EkfStatusOut,
+    HeliosphericMonitorResponse,
     StormAlertStatus,
     SolarActivityFull,
+    SolarCycleIndicesResponse,
     SolarWindDetail,
     SpaceWeatherCorrelationResponse,
     SpaceWeatherCurrent,
@@ -382,6 +384,44 @@ async def ekf_alert_log(hours: float = 24.0, _=Depends(require_api_key)):
     from zgiis.db.ekf_alert_db import EkfAlertDB
     rows = EkfAlertDB().list_alerts(hours=hours)
     return [EkfAlertOut(**r) for r in rows]
+
+
+@router.get("/solar-cycle-indices", response_model=SolarCycleIndicesResponse)
+def solar_cycle_indices(
+    start_year: int = Query(1965, ge=1749, le=2100),
+    force_refresh: bool = Query(False),
+    _=Depends(require_api_key),
+):
+    """Monthly mean F10.7 and SSN for multi-cycle solar activity charts.
+
+    NOAA SWPC supplies monthly SSN and post-2004 F10.7. Earlier F10.7 months are
+    filled from LISIRD daily radio-flux observations aggregated to month means.
+    """
+    from zgiis.space_weather.solar_cycle_indices import build_solar_cycle_indices
+
+    try:
+        payload = build_solar_cycle_indices(
+            start_year=start_year,
+            force_refresh=force_refresh,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Solar-cycle indices fetch failed: {exc}") from exc
+    return SolarCycleIndicesResponse(**payload)
+
+
+@router.get("/heliospheric-monitor", response_model=HeliosphericMonitorResponse)
+def heliospheric_monitor(
+    force_refresh: bool = Query(False),
+    _=Depends(require_api_key),
+):
+    """KNMI-style stacked heliospheric panels from live NOAA SWPC feeds."""
+    from zgiis.space_weather.heliospheric_monitor import build_heliospheric_monitor
+
+    try:
+        payload = build_heliospheric_monitor(force_refresh=force_refresh)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Heliospheric monitor fetch failed: {exc}") from exc
+    return HeliosphericMonitorResponse(**payload)
 
 
 @router.post("/ekf/alerts/{alert_id}/ack", status_code=204)

@@ -5,6 +5,9 @@ import { peekSpaceWeather, subscribeSpaceWeather } from "@/lib/spaceWeatherStore
 import { peekStations, subscribeStations } from "@/lib/stationsStore";
 import ClickableMetricGrid from "@/components/spaceWeather/ClickableMetricGrid";
 import IndexScaleReference from "@/components/spaceWeather/IndexScaleReference";
+import SolarCycleFullRecordCharts from "@/components/spaceWeather/SolarCycleFullRecordCharts";
+import HeliosphericMonitorStack from "@/components/spaceWeather/HeliosphericMonitorStack";
+import CauseEffectTimelineStack from "@/components/spaceWeather/CauseEffectTimelineStack";
 import AiRecommendationPanel from "@/components/layout/AiRecommendationPanel";
 import HomeStormAlertBanner from "@/components/layout/HomeStormAlertBanner";
 import LineChart from "@/components/charts/LineChart";
@@ -19,6 +22,7 @@ import {
   analyzeSolarWindTimeline,
   analyzeStationsOnlineTimeline,
 } from "@/lib/dashboardChartAnalysis";
+import { analyzeGoesXrayExplanation } from "@/lib/heliosphericChartAnalysis";
 import { alignEkfToPoints } from "@/lib/ekfAlign";
 import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
 import { connectedStreamCount, countSpiderLiveStationStatuses, type LiveStationCounts } from "@/lib/liveStationStatus";
@@ -480,19 +484,17 @@ export default function SpaceWeatherPage() {
     return minsAgo === 0 ? "now" : `-${Math.round(minsAgo / 60)}h`;
   });
   const xrayAnalysis = useMemo<ChartAnalysisBlock>(() => {
-    if (!xraySlice.length) return { lead: "No GOES X-ray samples are available for interpretation.", bullets: [] };
+    if (!xraySlice.length) {
+      return analyzeGoesXrayExplanation({ flareClass });
+    }
     const peak = Math.max(...xraySlice);
     const latest = xraySlice[xraySlice.length - 1];
-    const average = xraySlice.reduce((sum, value) => sum + value, 0) / xraySlice.length;
-    const first = xraySlice[0];
-    return {
-      lead: `GOES soft X-ray emission is currently classified as ${flareClass}; this is the direct radiative signature used to identify solar flares.`,
-      bullets: [
-        `The plotted 0.1–0.8 nm series contains ${xraySlice.length} samples: latest ${latest.toFixed(3)}, mean ${average.toFixed(3)}, and peak ${peak.toFixed(3)} ×10⁻⁷ W/m².`,
-        `Net change across the displayed window is ${(latest - first) >= 0 ? "+" : ""}${(latest - first).toFixed(3)} ×10⁻⁷ W/m². Rapid impulsive rises followed by slower decay are flare-like; isolated single-sample spikes require feed-quality confirmation.`,
-        "X-ray bursts can cause immediate dayside ionospheric ionisation and HF fadeout. GNSS consequences must be verified with TEC gradients, S4/ROTI, tracking loss, and receiver residuals; X-ray class alone does not quantify positioning error.",
-      ],
-    };
+    return analyzeGoesXrayExplanation({
+      flareClass,
+      sampleCount: xraySlice.length,
+      latest,
+      peak,
+    });
   }, [xraySlice, flareClass]);
   const xrayExplanationOpen = selectedGraph === "xray";
 
@@ -650,6 +652,7 @@ export default function SpaceWeatherPage() {
 
       <ClickableMetricGrid sw={sw} updatedUtc={sw?.updated_utc} liveStationCounts={liveStationCounts} />
       <IndexScaleReference />
+      <CauseEffectTimelineStack />
       <AiRecommendationPanel sw={sw} indicesLoading={feedStatus === "pending" && !sw} />
 
       {/* ── Solar Activity Monitor section ── */}
@@ -1056,6 +1059,9 @@ export default function SpaceWeatherPage() {
             )}
           </div>
 
+          {/* KNMI-style heliospheric stack: protons, IMF, solar wind, Kp forecast */}
+          <HeliosphericMonitorStack />
+
           {/* Active Regions + CME table side by side */}
           <div className="sw-double-grid">
             <div className="card">
@@ -1109,6 +1115,9 @@ export default function SpaceWeatherPage() {
               NOAA GOES X-ray · proxy from {donkiLive ? eventFeedName : "solar flare events"}
             </div>
           </div>
+
+          {/* F10.7 & Sunspot Number — full multi-cycle record */}
+          <SolarCycleFullRecordCharts />
 
           {/* Solar Cycle Progress */}
           <div className="card">

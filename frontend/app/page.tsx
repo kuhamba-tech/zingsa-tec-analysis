@@ -19,6 +19,7 @@ import {
 } from "@/lib/liveStationStatus";
 import { mergeTecHeatmapWithStations } from "@/lib/tecHeatmapMerge";
 import AiRecommendationPanel from "@/components/layout/AiRecommendationPanel";
+import CauseEffectTimelineStack from "@/components/spaceWeather/CauseEffectTimelineStack";
 import HomeStormAlertBanner from "@/components/layout/HomeStormAlertBanner";
 import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
 import type {
@@ -360,6 +361,8 @@ export default function HomePage() {
           </div>
         </section>
       </div>
+
+      <CauseEffectTimelineStack />
 
       <AiRecommendationPanel
         sw={displaySw}

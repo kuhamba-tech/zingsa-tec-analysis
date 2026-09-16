@@ -16,6 +16,97 @@ export interface SpaceWeatherCurrent {
   updated_utc: string | null;
 }
 
+export interface SolarCycleIndexPoint {
+  time_tag: string;
+  year_month: string;
+  year_frac: number;
+  f107: number | null;
+  ssn: number | null;
+  f107_source: string | null;
+  ssn_source: string | null;
+}
+
+export interface SolarCycleIndicesResponse {
+  mode: string;
+  source: string;
+  updated_utc: string | null;
+  start_year: number;
+  point_count: number;
+  f107_from: string | null;
+  f107_to: string | null;
+  ssn_from: string | null;
+  ssn_to: string | null;
+  lisird_error: string | null;
+  points: SolarCycleIndexPoint[];
+}
+
+export interface ProtonFluxSeries {
+  labels: string[];
+  times: string[];
+  epoch_ms?: (number | null)[];
+  unit: string;
+  series: Record<string, (number | null)[]>;
+}
+
+export interface XrayFluxSeries {
+  labels: string[];
+  times: string[];
+  epoch_ms?: (number | null)[];
+  unit: string;
+  flux: (number | null)[];
+}
+
+export interface ImfSeries {
+  labels: string[];
+  times: string[];
+  epoch_ms?: (number | null)[];
+  unit: string;
+  bt: (number | null)[];
+  by: (number | null)[];
+  bz: (number | null)[];
+}
+
+export interface SolarWindSpeedSeries {
+  labels: string[];
+  times: string[];
+  epoch_ms?: (number | null)[];
+  unit: string;
+  speed: (number | null)[];
+  density?: (number | null)[];
+}
+
+export interface KpForecastSeries {
+  labels: string[];
+  times: string[];
+  epoch_ms?: (number | null)[];
+  unit: string;
+  kinds: string[];
+  observed: (number | null)[];
+  estimated: (number | null)[];
+  predicted: (number | null)[];
+}
+
+export interface DstSeries {
+  labels: string[];
+  times: string[];
+  epoch_ms?: (number | null)[];
+  unit: string;
+  dst: (number | null)[];
+}
+
+export interface HeliosphericMonitorResponse {
+  mode: string;
+  source: string;
+  updated_utc: string | null;
+  xray?: XrayFluxSeries;
+  protons: ProtonFluxSeries;
+  imf: ImfSeries;
+  solar_wind: SolarWindSpeedSeries;
+  kp: KpForecastSeries;
+  dst?: DstSeries;
+  errors: Record<string, string | null>;
+}
+
 export interface TimelinePoint { t: string; v: number | null; }
 
 export interface SpaceWeatherTimelines {

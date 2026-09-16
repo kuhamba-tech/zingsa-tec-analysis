@@ -24,6 +24,82 @@ class SpaceWeatherCurrent(BaseModel):
     updated_utc: str | None = None
 
 
+class SolarCycleIndexPoint(BaseModel):
+    time_tag: str
+    year_month: str
+    year_frac: float
+    f107: float | None = None
+    ssn: float | None = None
+    f107_source: str | None = None
+    ssn_source: str | None = None
+
+
+class SolarCycleIndicesResponse(BaseModel):
+    mode: str = "unavailable"
+    source: str = ""
+    updated_utc: str | None = None
+    start_year: int = 1965
+    point_count: int = 0
+    f107_from: str | None = None
+    f107_to: str | None = None
+    ssn_from: str | None = None
+    ssn_to: str | None = None
+    lisird_error: str | None = None
+    points: list[SolarCycleIndexPoint] = []
+
+
+class HeliosphericSeriesPoint(BaseModel):
+    """Generic labeled timeline payload used by heliospheric monitor panels."""
+
+    labels: list[str] = []
+    times: list[str] = []
+    epoch_ms: list[int | None] = []
+    unit: str = ""
+
+
+class ProtonFluxSeries(HeliosphericSeriesPoint):
+    series: dict[str, list[float | None]] = {}
+
+
+class XrayFluxSeries(HeliosphericSeriesPoint):
+    flux: list[float | None] = []
+
+
+class ImfSeries(HeliosphericSeriesPoint):
+    bt: list[float | None] = []
+    by: list[float | None] = []
+    bz: list[float | None] = []
+
+
+class SolarWindSpeedSeries(HeliosphericSeriesPoint):
+    speed: list[float | None] = []
+    density: list[float | None] = []
+
+
+class KpForecastSeries(HeliosphericSeriesPoint):
+    kinds: list[str] = []
+    observed: list[float | None] = []
+    estimated: list[float | None] = []
+    predicted: list[float | None] = []
+
+
+class DstSeries(HeliosphericSeriesPoint):
+    dst: list[float | None] = []
+
+
+class HeliosphericMonitorResponse(BaseModel):
+    mode: str = "unavailable"
+    source: str = ""
+    updated_utc: str | None = None
+    xray: XrayFluxSeries = XrayFluxSeries()
+    protons: ProtonFluxSeries = ProtonFluxSeries()
+    imf: ImfSeries = ImfSeries()
+    solar_wind: SolarWindSpeedSeries = SolarWindSpeedSeries()
+    kp: KpForecastSeries = KpForecastSeries()
+    dst: DstSeries = DstSeries()
+    errors: dict[str, str | None] = {}
+
+
 class SolarActivity(BaseModel):
     flare_count: int | None = None
     cme_count: int | None = None

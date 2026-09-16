@@ -52,6 +52,8 @@ import type {
   RinexConvertConfig,
   SeasonalRow,
   SolarActivityFull,
+  SolarCycleIndicesResponse,
+  HeliosphericMonitorResponse,
   SolarCycleRow,
   SpaceWeatherCurrent,
   SpaceWeatherCorrelationResponse,
@@ -301,6 +303,29 @@ export const getSolarActivity = (forceRefresh = false) =>
       "/space-weather/solar-activity",
       { _ts: Date.now(), ...(forceRefresh ? { force_refresh: "true" } : {}) },
       SOLAR_TIMEOUT_MS,
+    ),
+  );
+export const getSolarCycleIndices = (startYear = 1965, forceRefresh = false) =>
+  dedupeGet(`space-weather/solar-cycle-indices:${startYear}${forceRefresh ? ":refresh" : ""}`, () =>
+    get<SolarCycleIndicesResponse>(
+      "/space-weather/solar-cycle-indices",
+      {
+        start_year: startYear,
+        _ts: Date.now(),
+        ...(forceRefresh ? { force_refresh: "true" } : {}),
+      },
+      ANALYSIS_TIMEOUT_MS,
+    ),
+  );
+export const getHeliosphericMonitor = (forceRefresh = false) =>
+  dedupeGet(`space-weather/heliospheric-monitor${forceRefresh ? ":refresh" : ""}`, () =>
+    get<HeliosphericMonitorResponse>(
+      "/space-weather/heliospheric-monitor",
+      {
+        _ts: Date.now(),
+        ...(forceRefresh ? { force_refresh: "true" } : {}),
+      },
+      ANALYSIS_TIMEOUT_MS,
     ),
   );
 export const getTimelines = () =>

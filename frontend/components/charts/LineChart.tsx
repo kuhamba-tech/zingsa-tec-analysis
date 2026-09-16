@@ -1,19 +1,21 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CategoryScale,
   Chart as ChartJS,
   Filler,
   Legend,
   LinearScale,
+  LogarithmicScale,
   LineElement,
   PointElement,
   Title,
   Tooltip,
 } from "chart.js";
 import { Line } from "react-chartjs-2";
+import type { Chart as ChartInstance } from "chart.js";
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler);
+ChartJS.register(CategoryScale, LinearScale, LogarithmicScale, PointElement, LineElement, Title, Tooltip, Legend, Filler);
 
 interface PointMeta {
   error?: number | null;
@@ -72,6 +74,14 @@ interface Props {
   xStepSize?: number;
   /** Format numeric x-axis tick labels (used with `xValues`). */
   formatXTick?: (value: number) => string;
+  /** Epoch milliseconds parallel to labels — enables shared crosshair sync. */
+  epochMs?: (number | null)[];
+  /** Shared hover time (epoch ms) drawn as a vertical cursor across synced charts. */
+  syncHoverMs?: number | null;
+  /** Report hover time so sibling charts can draw the same vertical cursor. */
+  onSyncHoverMs?: (ms: number | null) => void;
+  /** Optional log scale for Y (e.g. GOES X-ray W/m²). */
+  yLogScale?: boolean;
 }
 
 function DatasetToggleLegend({
@@ -157,12 +167,17 @@ export default function LineChart({
   xMax,
   xStepSize,
   formatXTick,
+  epochMs,
+  syncHoverMs = null,
+  onSyncHoverMs,
+  yLogScale = false,
 }: Props) {
   const COLORS = ["#168bd2", "#ff8c00", "#00ff88", "#ff4444", "#a78bfa", "#34d399"];
   const useNumericX = !!xValues && xValues.length === labels.length;
   const useSecondary = datasets.some((ds) => ds.yAxisId === "y2");
   const datasetKey = useMemo(() => datasets.map((d) => d.label).join("\0"), [datasets]);
   const [visible, setVisible] = useState<boolean[]>(() => datasets.map(() => true));
+  const chartRef = useRef<ChartInstance<"line"> | null>(null);
 
   useEffect(() => {
     setVisible((prev) => {
@@ -170,6 +185,11 @@ export default function LineChart({
       return datasets.map((_, i) => prev[i] ?? true);
     });
   }, [datasetKey, datasets.length]);
+
+  // Sibling charts share syncHoverMs — force a redraw so the crosshair plugin re-runs.
+  useEffect(() => {
+    chartRef.current?.update("none");
+  }, [syncHoverMs]);
 
   const toggleDataset = (index: number) => {
     setVisible((prev) => prev.map((on, i) => (i === index ? !on : on)));
@@ -230,6 +250,64 @@ export default function LineChart({
     });
   }
 
+  if (epochMs && epochMs.length === labels.length) {
+    plugins.push({
+      id: "syncCrosshair",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      afterEvent(chart: any, args: any) {
+        if (!onSyncHoverMs) return;
+        const event = args.event;
+        if (!event || args.inChartArea === false) {
+          if (event?.type === "mouseout") onSyncHoverMs(null);
+          return;
+        }
+        if (event.type !== "mousemove" && event.type !== "click") return;
+        const points = chart.getElementsAtEventForMode(event, "index", { intersect: false }, true);
+        const idx = points?.[0]?.index;
+        if (idx == null) return;
+        const ms = epochMs[idx];
+        onSyncHoverMs(ms == null ? null : ms);
+      },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      afterDraw(chart: any) {
+        if (syncHoverMs == null || !epochMs.length) return;
+        const xScale = chart.scales.x;
+        const { ctx, chartArea } = chart;
+        if (!xScale || !chartArea) return;
+
+        let xPx: number;
+        if (useNumericX) {
+          // Shared UTC cursor in absolute time — aligns across differently sampled panels.
+          xPx = xScale.getPixelForValue(syncHoverMs);
+        } else {
+          let bestIdx = -1;
+          let bestDelta = Number.POSITIVE_INFINITY;
+          for (let i = 0; i < epochMs.length; i++) {
+            const ms = epochMs[i];
+            if (ms == null) continue;
+            const delta = Math.abs(ms - syncHoverMs);
+            if (delta < bestDelta) {
+              bestDelta = delta;
+              bestIdx = i;
+            }
+          }
+          if (bestIdx < 0) return;
+          xPx = xScale.getPixelForValue(bestIdx);
+        }
+        if (xPx < chartArea.left || xPx > chartArea.right) return;
+        ctx.save();
+        ctx.strokeStyle = "rgba(56, 189, 248, 0.95)";
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([4, 3]);
+        ctx.beginPath();
+        ctx.moveTo(xPx, chartArea.top);
+        ctx.lineTo(xPx, chartArea.bottom);
+        ctx.stroke();
+        ctx.restore();
+      },
+    });
+  }
+
   return (
     <div>
       {toggleableLegend && (
@@ -242,6 +320,7 @@ export default function LineChart({
       )}
       <div style={{ height, position: "relative" }}>
       <Line
+        ref={chartRef}
         data={{
           labels: useNumericX ? undefined : labels,
           datasets: datasets.map((ds, i) => ({
@@ -282,6 +361,23 @@ export default function LineChart({
               intersect: compact,
               callbacks: {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                title: (items: any[]) => {
+                  if (!items?.length) return "";
+                  if (formatXTick && useNumericX) {
+                    const x = items[0]?.parsed?.x;
+                    if (typeof x === "number" && Number.isFinite(x)) return formatXTick(x);
+                  }
+                  if (epochMs?.length) {
+                    const idx = items[0]?.dataIndex;
+                    const ms = idx != null ? epochMs[idx] : null;
+                    if (ms != null) {
+                      const d = new Date(ms);
+                      return d.toISOString().replace("T", " ").replace(/\.\d{3}Z$/, " UTC");
+                    }
+                  }
+                  return items[0]?.label ?? "";
+                },
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 label: (ctx: any) => {
                   const val = ctx.parsed.y;
                   let line = `${ctx.dataset.label}: ${val ?? "N/A"}`;
@@ -314,6 +410,11 @@ export default function LineChart({
                   ticks: {
                     color: "#ffffff",
                     stepSize: xStepSize,
+                    maxRotation: xStepSize && xStepSize <= 60 * 60 * 1000 ? 45 : 0,
+                    minRotation: xStepSize && xStepSize <= 60 * 60 * 1000 ? 45 : 0,
+                    autoSkip: !(xStepSize && xStepSize <= 60 * 60 * 1000),
+                    autoSkipPadding: 8,
+                    font: { size: xStepSize && xStepSize <= 60 * 60 * 1000 ? 9 : 11 },
                     callback: formatXTick
                       ? (value) => formatXTick(typeof value === "number" ? value : Number(value))
                       : undefined,
@@ -323,6 +424,7 @@ export default function LineChart({
               : { ticks: { color: "#ffffff", maxTicksLimit: 8 }, grid: { color: "#244d73" } },
             y: {
               position: "left",
+              type: yLogScale ? ("logarithmic" as const) : undefined,
               title: { display: true, text: yLabel, color: "#ffffff" },
               ticks: { color: "#ffffff" },
               grid: { color: "#244d73" },
