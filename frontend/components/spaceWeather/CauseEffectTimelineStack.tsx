@@ -97,19 +97,26 @@ function seriesEpochMs(
 }
 
 const ONE_H_MS = 60 * 60 * 1000;
+const SIX_H_MS = 6 * ONE_H_MS;
 
-/** Hourly UTC ticks: `00:00 | 2026-09-16` at midnight, otherwise `HH:mm`. */
+/**
+ * KNMI-style UTC labels (image reference):
+ * - Text labels only at 00:00 / 06:00 / 12:00 / 18:00
+ * - Midnight uses two lines: `00:00` then `| YYYY-MM-DD`
+ * Hourly ticks still exist via stepSize=1h; unlabeled hours return "".
+ */
 function formatKnmiUtcTick(ms: number): string {
   if (!Number.isFinite(ms)) return "";
   const d = new Date(ms);
+  if (d.getUTCMinutes() !== 0 || d.getUTCSeconds() !== 0) return "";
   const hh = d.getUTCHours();
-  const mm = d.getUTCMinutes();
-  const time = `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
-  if (hh === 0 && mm === 0) {
+  if (hh % 6 !== 0) return "";
+  const time = `${String(hh).padStart(2, "0")}:00`;
+  if (hh === 0) {
     const y = d.getUTCFullYear();
     const mo = String(d.getUTCMonth() + 1).padStart(2, "0");
     const day = String(d.getUTCDate()).padStart(2, "0");
-    return `${time} | ${y}-${mo}-${day}`;
+    return `${time}\n| ${y}-${mo}-${day}`;
   }
   return time;
 }
@@ -159,8 +166,8 @@ function sharedTimeDomain(epochLists: number[][]): { min: number; max: number } 
   if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) return null;
   const pad = ONE_H_MS;
   return {
-    min: Math.floor((min - pad) / ONE_H_MS) * ONE_H_MS,
-    max: Math.ceil((max + pad) / ONE_H_MS) * ONE_H_MS,
+    min: Math.floor((min - pad) / SIX_H_MS) * SIX_H_MS,
+    max: Math.ceil((max + pad) / SIX_H_MS) * SIX_H_MS,
   };
 }
 
@@ -320,6 +327,7 @@ export default function CauseEffectTimelineStack() {
       xMin: timeDomain.min,
       xMax: timeDomain.max,
       xStepSize: ONE_H_MS,
+      xMajorStepMs: SIX_H_MS,
       formatXTick: formatKnmiUtcTick,
       xLabel: "UTC",
     };
@@ -379,8 +387,8 @@ export default function CauseEffectTimelineStack() {
           Cause → Effect Timeline · Zimbabwe GNSS
         </div>
         <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", lineHeight: 1.5 }}>
-          Six aligned panels (oldest → newest, left → right). Shared UTC axis with one-hour ticks
-          (`00:00 | YYYY-MM-DD` at midnight). Hover any chart for a shared vertical cursor.
+          Six aligned panels (oldest → newest, left → right). Shared UTC axis: labels every 6 hours,
+          hourly grid ticks, midnight as `00:00` + `| YYYY-MM-DD`. Hover for a shared vertical cursor.
         </div>
         <div style={{ fontSize: "0.72rem", color: "var(--accent)", marginTop: "0.35rem", fontWeight: 700 }}>
           Cursor: {formatHoverUtc(syncHoverMs)}

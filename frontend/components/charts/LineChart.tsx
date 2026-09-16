@@ -74,6 +74,11 @@ interface Props {
   xStepSize?: number;
   /** Format numeric x-axis tick labels (used with `xValues`). */
   formatXTick?: (value: number) => string;
+  /**
+   * When set with hourly `xStepSize`, only these hours get strong grid lines;
+   * other hourly ticks stay as faint demarcations (KNMI-style).
+   */
+  xMajorStepMs?: number;
   /** Epoch milliseconds parallel to labels — enables shared crosshair sync. */
   epochMs?: (number | null)[];
   /** Shared hover time (epoch ms) drawn as a vertical cursor across synced charts. */
@@ -167,6 +172,7 @@ export default function LineChart({
   xMax,
   xStepSize,
   formatXTick,
+  xMajorStepMs,
   epochMs,
   syncHoverMs = null,
   onSyncHoverMs,
@@ -346,6 +352,9 @@ export default function LineChart({
         options={{
           responsive: true,
           maintainAspectRatio: false,
+          layout: formatXTick
+            ? { padding: { bottom: 6 } }
+            : undefined,
           interaction: {
             mode: compact ? "nearest" : "index",
             intersect: compact,
@@ -365,7 +374,10 @@ export default function LineChart({
                   if (!items?.length) return "";
                   if (formatXTick && useNumericX) {
                     const x = items[0]?.parsed?.x;
-                    if (typeof x === "number" && Number.isFinite(x)) return formatXTick(x);
+                    if (typeof x === "number" && Number.isFinite(x)) {
+                      const d = new Date(x);
+                      return d.toISOString().replace("T", " ").replace(/\.\d{3}Z$/, " UTC");
+                    }
                   }
                   if (epochMs?.length) {
                     const idx = items[0]?.dataIndex;
@@ -410,16 +422,37 @@ export default function LineChart({
                   ticks: {
                     color: "#ffffff",
                     stepSize: xStepSize,
-                    maxRotation: xStepSize && xStepSize <= 60 * 60 * 1000 ? 45 : 0,
-                    minRotation: xStepSize && xStepSize <= 60 * 60 * 1000 ? 45 : 0,
-                    autoSkip: !(xStepSize && xStepSize <= 60 * 60 * 1000),
-                    autoSkipPadding: 8,
-                    font: { size: xStepSize && xStepSize <= 60 * 60 * 1000 ? 9 : 11 },
+                    maxRotation: 0,
+                    minRotation: 0,
+                    autoSkip: false,
+                    includeBounds: true,
+                    font: { size: 10 },
                     callback: formatXTick
-                      ? (value) => formatXTick(typeof value === "number" ? value : Number(value))
+                      ? (value) => {
+                          const label = formatXTick(typeof value === "number" ? value : Number(value));
+                          // Chart.js renders "\n" as multi-line tick text.
+                          return label;
+                        }
                       : undefined,
                   },
-                  grid: { color: "#244d73" },
+                  grid: {
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    color: (ctx: any) => {
+                      const raw = ctx?.tick?.value;
+                      if (typeof raw !== "number" || !Number.isFinite(raw)) return "#244d73";
+                      if (!xMajorStepMs || !xStepSize) return "#244d73";
+                      // Stronger line on major (e.g. 6h) ticks; faint hourly demarcations.
+                      const onMajor = Math.abs(raw % xMajorStepMs) < 1 || Math.abs(raw % xMajorStepMs) > xMajorStepMs - 1;
+                      return onMajor ? "rgba(148, 163, 184, 0.45)" : "rgba(36, 77, 115, 0.35)";
+                    },
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    lineWidth: (ctx: any) => {
+                      const raw = ctx?.tick?.value;
+                      if (typeof raw !== "number" || !xMajorStepMs) return 1;
+                      const onMajor = Math.abs(raw % xMajorStepMs) < 1 || Math.abs(raw % xMajorStepMs) > xMajorStepMs - 1;
+                      return onMajor ? 1.25 : 0.75;
+                    },
+                  },
                 }
               : { ticks: { color: "#ffffff", maxTicksLimit: 8 }, grid: { color: "#244d73" } },
             y: {
