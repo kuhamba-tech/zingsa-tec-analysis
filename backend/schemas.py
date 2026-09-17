@@ -74,6 +74,7 @@ class ImfSeries(HeliosphericSeriesPoint):
 class SolarWindSpeedSeries(HeliosphericSeriesPoint):
     speed: list[float | None] = []
     density: list[float | None] = []
+    temperature: list[float | None] = []
 
 
 class KpForecastSeries(HeliosphericSeriesPoint):
@@ -117,6 +118,8 @@ class SolarWindDetail(BaseModel):
     temperature: float | None = None
     bt: float | None = None
     bz: float | None = None
+    dynamic_pressure: float | None = None
+    southward_duration_minutes: int | None = None
 
 
 class SolarActivityFull(BaseModel):

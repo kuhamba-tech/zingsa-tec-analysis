@@ -152,7 +152,7 @@ export default function SolarCycleFullRecordCharts() {
             role="button"
             tabIndex={0}
             aria-expanded={selected === "f107"}
-            aria-label="Solar Flux Index F10.7 graph. Click for scientific explanation."
+            aria-label="Solar Flux Index F10.7 graph"
             onClick={() => toggle("f107")}
             onKeyDown={onKeyToggle("f107")}
             style={{
@@ -189,9 +189,6 @@ export default function SolarCycleFullRecordCharts() {
                 { value: 150, label: "High", color: "#ef4444" },
               ]}
             />
-            <div style={{ fontSize: "0.72rem", color: "var(--accent)", marginTop: "0.45rem", fontWeight: 700 }}>
-              {selected === "f107" ? "Click graph to hide scientific explanation" : "Click graph for scientific explanation"}
-            </div>
             {selected === "f107" && <ChartAnalysisBox block={F107_ANALYSIS} title="Scientific interpretation" />}
           </div>
 
@@ -199,7 +196,7 @@ export default function SolarCycleFullRecordCharts() {
             role="button"
             tabIndex={0}
             aria-expanded={selected === "ssn"}
-            aria-label="Sunspot Number graph. Click for scientific explanation."
+            aria-label="Sunspot Number graph"
             onClick={() => toggle("ssn")}
             onKeyDown={onKeyToggle("ssn")}
             style={{
@@ -236,9 +233,6 @@ export default function SolarCycleFullRecordCharts() {
                 { value: 150, label: "Max cycle", color: "#ef4444" },
               ]}
             />
-            <div style={{ fontSize: "0.72rem", color: "var(--accent)", marginTop: "0.45rem", fontWeight: 700 }}>
-              {selected === "ssn" ? "Click graph to hide scientific explanation" : "Click graph for scientific explanation"}
-            </div>
             {selected === "ssn" && <ChartAnalysisBox block={SSN_ANALYSIS} title="Scientific interpretation" />}
           </div>
 

@@ -360,6 +360,63 @@ def _float_or_zero(value: Any) -> float:
         return 0.0
 
 
+def _float_or_none(value: Any) -> float | None:
+    try:
+        if value is None or value == "":
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _dynamic_pressure_npa(density: float | None, speed: float | None) -> float | None:
+    """Solar-wind dynamic pressure (nPa) from proton density (cm⁻³) and speed (km/s)."""
+    if density is None or speed is None:
+        return None
+    if density < 0 or speed <= 0:
+        return None
+    # P_dyn ≈ 1.6726e-6 · n · v²  (n in cm⁻³, v in km/s → nPa)
+    return round(1.6726e-6 * density * (speed ** 2), 2)
+
+
+def _southward_duration_minutes(mag_rows: Any) -> int | None:
+    """Continuous minutes of Bz < 0 ending at the latest sample.
+
+    Returns 0 when the latest Bz is northward/zero, None when the series is unusable.
+    Does not treat a single brief negative sample as severe — callers show duration only.
+    """
+    if not isinstance(mag_rows, list) or not mag_rows:
+        return None
+    points: list[tuple[datetime.datetime, float]] = []
+    for row in mag_rows:
+        if not isinstance(row, dict) or row.get("active") is False:
+            continue
+        stamp = row.get("time_tag")
+        bz = _float_or_none(row.get("bz_gsm") if row.get("bz_gsm") is not None else row.get("bz"))
+        if stamp is None or bz is None:
+            continue
+        try:
+            dt = datetime.datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=datetime.timezone.utc)
+        except (TypeError, ValueError):
+            continue
+        points.append((dt, bz))
+    if len(points) < 2:
+        return None if not points else (0 if points[-1][1] >= 0 else None)
+    points.sort(key=lambda item: item[0])
+    latest_t, latest_bz = points[-1]
+    if latest_bz >= 0:
+        return 0
+    start = latest_t
+    for i in range(len(points) - 1, -1, -1):
+        t, bz = points[i]
+        if bz >= 0:
+            break
+        start = t
+    return max(0, int((latest_t - start).total_seconds() / 60.0))
+
+
 def _latest_product_row(rows: Any) -> dict | list | None:
     if not isinstance(rows, list) or not rows:
         return None
@@ -505,6 +562,8 @@ def get_unavailable_solar_activity(error: str) -> Dict[str, Any]:
             "temperature": None,
             "bt": None,
             "bz": None,
+            "dynamic_pressure": None,
+            "southward_duration_minutes": None,
         },
         "alerts": [],
         "donki": {
@@ -595,6 +654,10 @@ def fetch_solar_activity() -> Dict[str, Any]:
         mag_latest = _latest_product_row(mag_rows)
         bt = _float_or_zero(_product_value(mag_rows, mag_latest, "bt"))
         bz = _float_or_zero(_product_value(mag_rows, mag_latest, "bz_gsm", "bz"))
+        southward_duration = _southward_duration_minutes(mag_rows)
+        density_for_pdyn = density if plasma_latest is not None else None
+        speed_for_pdyn = speed if plasma_latest is not None else None
+        dynamic_pressure = _dynamic_pressure_npa(density_for_pdyn, speed_for_pdyn)
 
         alert_list = list(reversed(alerts[-5:])) if isinstance(alerts, list) else []
 
@@ -631,9 +694,11 @@ def fetch_solar_activity() -> Dict[str, Any]:
         if not plasma_fresh:
             speed = density = temperature = 0.0
             plasma_latest = None
+            dynamic_pressure = None
         if not mag_fresh:
             bt = bz = 0.0
             mag_latest = None
+            southward_duration = None
         level = (
             activity_level(flare_class, len(alert_list))
             if xray_fresh
@@ -668,6 +733,8 @@ def fetch_solar_activity() -> Dict[str, Any]:
                 "temperature": temperature if plasma_latest is not None else None,
                 "bt": bt if mag_latest is not None else None,
                 "bz": bz if mag_latest is not None else None,
+                "dynamic_pressure": dynamic_pressure,
+                "southward_duration_minutes": southward_duration if mag_latest is not None else None,
             },
             "alerts": alert_list,
             "donki": {

@@ -34,7 +34,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from backend import navigation_broadcast_scheduler, space_weather_logger, station_status_logger
-from backend.startup_warmup import start_background_warmup
+from backend.startup_warmup import start_background_warmup, start_light_cache_warmup
 from backend.routers import (
     chat,
     cors_network,
@@ -60,6 +60,8 @@ def _background_services_enabled() -> bool:
 async def lifespan(app: FastAPI):
     if not _background_services_enabled():
         log.info("Background services disabled. Set ZGIIS_BACKGROUND_SERVICES=1 to start NTRIP/logging schedulers.")
+        # Still warm NOAA read caches so the first dashboard paints quickly.
+        start_light_cache_warmup()
         yield
         return
 
@@ -178,11 +180,12 @@ STATIC_EXPORT_DIR = Path(__file__).resolve().parents[1] / "static_export"
 
 @app.get("/health")
 async def health():
-    """Always fast — used by dev.ps1 and load balancers."""
+    """Always fast — used by watchdog (8s curl) and load balancers."""
     from zgiis.space_weather.fetch_indices import _CACHE, _CACHE_LOCK, _is_available
 
     sw_ready = False
     spider_ready = False
+    spider_info: dict = {"enabled": False}
     try:
         with _CACHE_LOCK:
             entry = _CACHE.get("space_weather") or _CACHE.get("space_weather_fast")
@@ -192,16 +195,17 @@ async def health():
     try:
         from zgiis.live.spider_site_status import (
             _spider_base_url,
-            ensure_spider_site_statuses,
+            get_cached_spider_site_statuses,
             spider_status_enabled,
         )
 
-        spider_info: dict = {
+        spider_info = {
             "enabled": spider_status_enabled(),
             "base_url": _spider_base_url() or None,
         }
         if spider_status_enabled():
-            payload = ensure_spider_site_statuses(wait_sec=0.5, max_age_sec=120.0, allow_stale_fallback=True)
+            # Cache-only — never block /health on outbound Spider I/O.
+            payload = get_cached_spider_site_statuses(refresh=False)
             spider_ready = bool(payload.get("by_station"))
             spider_info["stations"] = len(payload.get("by_station") or {})
             spider_info["error"] = payload.get("error")

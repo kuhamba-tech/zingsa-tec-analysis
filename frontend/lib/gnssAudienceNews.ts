@@ -109,34 +109,37 @@ function fmtNum(value: number | null | undefined, digits = 1): string {
 }
 
 function kpLayman(kp: number | null | undefined): string {
-  if (kp == null) return "Earth's magnetic field: updating";
-  if (kp <= 2) return `Earth's magnetic field is calm (Kp ${fmtNum(kp)})`;
-  if (kp <= 4) return `Earth's magnetic field is a little unsettled (Kp ${fmtNum(kp)})`;
-  if (kp <= 6) return `Mild magnetic storm under way (Kp ${fmtNum(kp)})`;
-  return `Strong magnetic storm under way (Kp ${fmtNum(kp)})`;
+  if (kp == null) return "Geomagnetic storm scale: updating";
+  if (kp < 4) return `No geomagnetic storm — G0 (Kp ${fmtNum(kp)})`;
+  if (kp < 5) return `No NOAA G-storm — G0 Active (Kp ${fmtNum(kp)}, below G1)`;
+  if (kp < 6) return `G1 — Minor geomagnetic storm globally (Kp ${fmtNum(kp)})`;
+  if (kp < 7) return `G2 — Moderate geomagnetic storm globally (Kp ${fmtNum(kp)})`;
+  if (kp < 8) return `G3 — Strong geomagnetic storm globally (Kp ${fmtNum(kp)})`;
+  if (kp < 9) return `G4 — Severe geomagnetic storm globally (Kp ${fmtNum(kp)})`;
+  return `G5 — Extreme geomagnetic storm globally (Kp ${fmtNum(kp)})`;
 }
 
 function s4Layman(s4: number | null | undefined): string {
-  if (s4 == null) return "GPS signal strength: updating";
-  if (s4 < 0.15) return `GPS signals are steady (S4 ${fmtNum(s4, 2)})`;
-  if (s4 < 0.3) return `GPS signals may flicker a little (S4 ${fmtNum(s4, 2)})`;
-  return `GPS signals are disturbed (S4 ${fmtNum(s4, 2)})`;
+  if (s4 == null) return "Scintillation (S4): updating";
+  if (s4 < 0.15) return `Scintillation quiet (S4 ${fmtNum(s4, 2)})`;
+  if (s4 < 0.3) return `Mild scintillation possible (S4 ${fmtNum(s4, 2)})`;
+  return `Elevated scintillation (S4 ${fmtNum(s4, 2)}) — local GNSS impact may rise even if Kp is quiet`;
 }
 
 function dstLayman(dst: number | null | undefined): string {
-  if (dst == null) return "Solar wind pressure: updating";
-  if (dst > -30) return `No strong solar-wind push on Earth (Dst ${fmtNum(dst, 0)} nT)`;
-  if (dst > -50) return `Mild solar-wind pressure on Earth (Dst ${fmtNum(dst, 0)} nT)`;
-  if (dst > -100) return `Magnetic disturbance may affect GPS (Dst ${fmtNum(dst, 0)} nT)`;
-  return `Strong magnetic disturbance (Dst ${fmtNum(dst, 0)} nT)`;
+  if (dst == null) return "Dst / ring current: updating";
+  if (dst > -30) return `Quiet ring current (Dst ${fmtNum(dst, 0)} nT) — magnetospheric context, not G-scale`;
+  if (dst > -50) return `Weak ring-current disturbance (Dst ${fmtNum(dst, 0)} nT)`;
+  if (dst > -100) return `Moderate storm-time Dst depression (Dst ${fmtNum(dst, 0)} nT)`;
+  return `Intense storm-time Dst depression (Dst ${fmtNum(dst, 0)} nT)`;
 }
 
 function riskLayman(risk: string | null | undefined): string {
   const r = (risk ?? "unknown").toLowerCase();
-  if (r === "low") return "GPS risk today: Low — maps should work normally";
-  if (r === "moderate") return "GPS risk today: Moderate — location may be a bit slow or off";
-  if (r === "high" || r === "critical") return "GPS risk today: High — do not trust a map pin alone";
-  return `GPS risk today: ${risk ?? "updating"}`;
+  if (r === "low") return "Zimbabwe GNSS Risk: LOW (provisional — not invented from Kp alone)";
+  if (r === "moderate") return "Zimbabwe GNSS Risk: MODERATE (provisional)";
+  if (r === "high" || r === "critical") return "Zimbabwe GNSS Risk: HIGH (provisional — confirm with local CORS/VTEC)";
+  return `Zimbabwe GNSS Risk: ${risk ?? "updating"}`;
 }
 
 /** Plain-language snapshot of live space weather for all audience briefs. */
@@ -149,46 +152,45 @@ export function buildSpaceWeatherLayman(
   const dst = sw?.dst;
   const wind = sw?.plasma_speed;
   const risk = sw?.gnss_risk;
-  const kpCond = sw?.kp_condition ?? "updating";
+  const vtec = sw?.mean_vtec;
 
   const headlines: Record<ForecastStatus, string> = {
-    excellent: "Calm sky for GPS — maps should work normally",
-    moderate: "Mild space weather — GPS may be a little slow or off",
-    warning: "Active space weather — GPS may show the wrong place",
+    excellent: "Quiet global conditions — Zimbabwe GNSS looking normal so far",
+    moderate: "Watch conditions — separate global storm status from local Zimbabwe GNSS impact",
+    warning: "Elevated caution — confirm Zimbabwe CORS / ionosphere before precision work",
   };
 
   const explainers: Record<ForecastStatus, string> = {
     excellent:
-      "Space weather is activity from the Sun that can affect GPS. Today it is quiet.",
+      "ZINGSA tracks the chain from the Sun to Zimbabwe GNSS. A quiet Kp does not rule out local post-sunset irregularities; validated ΔTEC/ROTI will catch those later.",
     moderate:
-      "The Sun is stirring the air high above us where GPS signals travel. Your phone still works, but the blue dot may drift a few metres.",
+      "Global indices may be unsettled, but geomagnetic storm ≠ automatic Zimbabwe ionospheric disturbance, and ionospheric disturbance ≠ automatic GNSS failure.",
     warning:
-      "Strong activity from the Sun is disturbing GPS over Zimbabwe. Maps and location apps may be wrong until it settles.",
+      "Conditions favour degraded positioning for some users. Treat planetary G-scale as context; decide from Zimbabwe CORS evidence when available.",
   };
 
   const impacts: Record<ForecastStatus, string> = {
-    excellent: "Use maps, taxis, and WhatsApp location as normal.",
-    moderate: "If your pin looks wrong, wait a moment or step outside for a clearer sky view.",
-    warning: `Do not trust a map pin alone. Confirm by phone or street signs. Help: ${ZINGSA_PHONE}.`,
+    excellent: "Routine maps, RTK, and CORS operations can continue — still watch afternoon scintillation seasonally.",
+    moderate: "Precision users should verify fixes; everyday maps usually tolerate mild wobble.",
+    warning: `Do not rely on GNSS alone for critical decisions. Help: ${ZINGSA_PHONE}.`,
   };
 
   const readout: string[] = [
     kpLayman(kp),
-    s4Layman(s4),
     dstLayman(dst),
+    vtec != null
+      ? `Zimbabwe network VTEC ${fmtNum(vtec, 1)} TECU (ΔTEC/ROTI baseline under development)`
+      : "Zimbabwe VTEC: updating — local disturbance not classified from Kp",
+    s4Layman(s4),
     riskLayman(risk),
   ];
 
   if (wind != null) {
     readout.push(
       wind > 500
-        ? `Solar wind is fast (${fmtNum(wind, 0)} km/s — energetic particles reaching Earth)`
-        : `Solar wind speed: ${fmtNum(wind, 0)} km/s (typical background level)`,
+        ? `Solar wind enhanced (${fmtNum(wind, 0)} km/s) — speed alone does not establish a geomagnetic storm`
+        : `Solar wind ${fmtNum(wind, 0)} km/s (near-Earth plasma context)`,
     );
-  }
-
-  if (kpCond && kpCond !== "updating") {
-    readout.push(`NOAA summary: ${kpCond} geomagnetic conditions`);
   }
 
   return {

@@ -81,7 +81,9 @@ import type {
   UnderstandingTecPayload,
 } from "./types";
 import { peekSpaceWeather, publishSpaceWeather } from "./spaceWeatherStore";
-import { peekStations, publishStations, purgeStaleStationsCache, stationsAreSpiderAuthoritative, stationsCacheIsStale } from "./stationsStore";
+import { peekSolarActivity, publishSolarActivity } from "./solarActivityStore";
+import { peekHeliosphericMonitor, rememberHeliosphericMonitor } from "./heliosphericStore";
+import { peekStations, publishStations, purgeStaleStationsCache, stationsAreSpiderAuthoritative } from "./stationsStore";
 
 function apiBase(): string {
   if (typeof window !== "undefined") {
@@ -111,10 +113,13 @@ const ANALYSIS_TIMEOUT_MS = 120_000;
 const SW_FAST_TIMEOUT_MS = 12_000;
 /** Solar monitor hits NOAA + NASA DONKI; allow cold-start headroom + one retry. */
 const SOLAR_TIMEOUT_MS = 55_000;
+const HELIO_TIMEOUT_MS = 45_000;
 const REPORT_TIMEOUT_MS = 60_000;
 const LIVE_REFRESH_MIN_MS = 20_000;
 
 let lastSpaceWeatherNetworkAt = 0;
+let lastSolarNetworkAt = 0;
+let lastHelioNetworkAt = 0;
 let lastStationsNetworkAt = 0;
 
 const inflightGets = new Map<string, Promise<unknown>>();
@@ -286,7 +291,16 @@ function refreshSpaceWeatherNetwork(): Promise<SpaceWeatherCurrent> {
 }
 
 /** Instant last-good snapshot when available; network refresh stays in the background. */
-export const getSpaceWeather = () => {
+export const getSpaceWeather = (requireNetwork = false) => {
+  if (requireNetwork) {
+    return dedupeGet("space-weather/current:verified", () =>
+      getWithRetry<SpaceWeatherCurrent>("/space-weather/current", { _ts: Date.now() })
+        .then((data) => {
+          lastSpaceWeatherNetworkAt = Date.now();
+          return publishSpaceWeather(data);
+        }),
+    );
+  }
   const cached = peekSpaceWeather();
   const recentlyFetched = Date.now() - lastSpaceWeatherNetworkAt < LIVE_REFRESH_MIN_MS;
   if (cached && recentlyFetched) return Promise.resolve(cached);
@@ -297,14 +311,46 @@ export const getSpaceWeather = () => {
   }
   return pending;
 };
-export const getSolarActivity = (forceRefresh = false) =>
-  dedupeGet(`space-weather/solar-activity${forceRefresh ? ":refresh" : ""}`, () =>
+export const getSolarActivity = (forceRefresh = false, requireNetwork = false) => {
+  const cached = peekSolarActivity();
+  if (!forceRefresh && !requireNetwork && cached) {
+    const recentlyFetched = Date.now() - lastSolarNetworkAt < LIVE_REFRESH_MIN_MS;
+    if (recentlyFetched) return Promise.resolve(cached);
+    const pending = dedupeGet("space-weather/solar-activity", () =>
+      getWithRetry<SolarActivityFull>(
+        "/space-weather/solar-activity",
+        { _ts: Date.now() },
+        SW_FAST_TIMEOUT_MS,
+      )
+        .then((data) => {
+          lastSolarNetworkAt = Date.now();
+          return publishSolarActivity(data);
+        })
+        .catch(() => cached),
+    );
+    void pending;
+    return Promise.resolve(cached);
+  }
+
+  return dedupeGet(`space-weather/solar-activity${forceRefresh ? ":refresh" : ""}${requireNetwork ? ":verified" : ""}`, () =>
     getWithRetry<SolarActivityFull>(
       "/space-weather/solar-activity",
       { _ts: Date.now(), ...(forceRefresh ? { force_refresh: "true" } : {}) },
-      SOLAR_TIMEOUT_MS,
-    ),
+      forceRefresh ? SOLAR_TIMEOUT_MS : cached ? SW_FAST_TIMEOUT_MS : SOLAR_TIMEOUT_MS,
+    )
+      .then((data) => {
+        lastSolarNetworkAt = Date.now();
+        return publishSolarActivity(data);
+      })
+      .catch((err) => {
+        if (requireNetwork) throw err;
+        const fallback = peekSolarActivity();
+        if (fallback) return fallback;
+        throw err;
+      }),
   );
+};
+
 export const getSolarCycleIndices = (startYear = 1965, forceRefresh = false) =>
   dedupeGet(`space-weather/solar-cycle-indices:${startYear}${forceRefresh ? ":refresh" : ""}`, () =>
     get<SolarCycleIndicesResponse>(
@@ -317,17 +363,49 @@ export const getSolarCycleIndices = (startYear = 1965, forceRefresh = false) =>
       ANALYSIS_TIMEOUT_MS,
     ),
   );
-export const getHeliosphericMonitor = (forceRefresh = false) =>
-  dedupeGet(`space-weather/heliospheric-monitor${forceRefresh ? ":refresh" : ""}`, () =>
+
+export const getHeliosphericMonitor = (forceRefresh = false, requireNetwork = false) => {
+  const cached = peekHeliosphericMonitor();
+  if (!forceRefresh && !requireNetwork && cached) {
+    const recentlyFetched = Date.now() - lastHelioNetworkAt < LIVE_REFRESH_MIN_MS;
+    if (recentlyFetched) return Promise.resolve(cached);
+    const pending = dedupeGet("space-weather/heliospheric-monitor", () =>
+      get<HeliosphericMonitorResponse>(
+        "/space-weather/heliospheric-monitor",
+        { _ts: Date.now() },
+        HELIO_TIMEOUT_MS,
+      )
+        .then((data) => {
+          lastHelioNetworkAt = Date.now();
+          return rememberHeliosphericMonitor(data);
+        })
+        .catch(() => cached),
+    );
+    void pending;
+    return Promise.resolve(cached);
+  }
+
+  return dedupeGet(`space-weather/heliospheric-monitor${forceRefresh ? ":refresh" : ""}${requireNetwork ? ":verified" : ""}`, () =>
     get<HeliosphericMonitorResponse>(
       "/space-weather/heliospheric-monitor",
       {
         _ts: Date.now(),
         ...(forceRefresh ? { force_refresh: "true" } : {}),
       },
-      ANALYSIS_TIMEOUT_MS,
-    ),
+      HELIO_TIMEOUT_MS,
+    )
+      .then((data) => {
+        lastHelioNetworkAt = Date.now();
+        return rememberHeliosphericMonitor(data);
+      })
+      .catch((err) => {
+        if (requireNetwork) throw err;
+        const fallback = peekHeliosphericMonitor();
+        if (fallback) return fallback;
+        throw err;
+      }),
   );
+};
 export const getTimelines = () =>
   dedupeGet("space-weather/timelines", () =>
     getWithRetry<SpaceWeatherTimelines>("/space-weather/timelines", { _ts: Date.now() }),
@@ -508,7 +586,8 @@ export const testNavigationFacebookPost = async (live = false): Promise<Navigati
 // "Probing..." with a stale 0/25 reading. Give the live-probe call enough
 // room; the default (archived-status) call keeps the normal fast timeout.
 const NTRIP_LIVE_PROBE_TIMEOUT_MS = 90_000;
-const SPIDER_STATIONS_TIMEOUT_MS = 45_000;
+/** Cached stations are SWR from Spider — keep this short so a hung API never stalls the UI. */
+const SPIDER_STATIONS_TIMEOUT_MS = 12_000;
 
 function refreshStationsNetwork(refreshNtrip: boolean): Promise<Station[]> {
   return dedupeGet(`cors/stations:${refreshNtrip ? "live" : "cached"}`, () =>
@@ -535,13 +614,21 @@ function refreshStationsNetwork(refreshNtrip: boolean): Promise<Station[]> {
         return rows;
       })
       .catch((err) => {
+        // Keep last Spider-authoritative snapshot on transient network failure.
+        const cached = peekStations();
+        if (cached.length > 0 && stationsAreSpiderAuthoritative(cached)) {
+          return cached;
+        }
         purgeStaleStationsCache();
         throw err;
       }),
   );
 }
 
-/** Always await the live stations API — never return a browser snapshot as Spider truth. */
+/**
+ * Instant in-memory Spider snapshot when available; network refresh stays in
+ * the background. Never seeds from localStorage catalog greens/reds.
+ */
 export const getStations = (refreshNtrip = false) => {
   // Drop leftover localStorage catalog snapshots from older deploys (once per tab).
   if (typeof window !== "undefined" && !(window as Window & { __zgiisStationsPurged?: boolean }).__zgiisStationsPurged) {
@@ -549,10 +636,11 @@ export const getStations = (refreshNtrip = false) => {
     (window as Window & { __zgiisStationsPurged?: boolean }).__zgiisStationsPurged = true;
   }
   const cached = peekStations();
-  const cacheStale = stationsCacheIsStale();
   const recentlyFetched = Date.now() - lastStationsNetworkAt < LIVE_REFRESH_MIN_MS;
-  // Same-tab soft reuse only within a few seconds of a confirmed Spider pull.
-  if (!refreshNtrip && cached.length > 0 && recentlyFetched && !cacheStale) {
+  if (!refreshNtrip && cached.length > 0 && stationsAreSpiderAuthoritative(cached)) {
+    if (recentlyFetched) return Promise.resolve(cached);
+    const pending = refreshStationsNetwork(false);
+    void pending;
     return Promise.resolve(cached);
   }
   return refreshStationsNetwork(refreshNtrip);

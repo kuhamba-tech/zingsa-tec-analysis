@@ -65,6 +65,27 @@ def _delayed_live_start() -> None:
         log.exception("Live pipeline start failed")
 
 
+def _warm_heliospheric_monitor() -> None:
+    try:
+        from zgiis.space_weather.heliospheric_monitor import build_heliospheric_monitor
+
+        payload = build_heliospheric_monitor(force_refresh=True)
+        mode = payload.get("mode")
+        log.info("Heliospheric monitor cache warmed (mode=%s)", mode)
+    except Exception:
+        log.exception("Heliospheric monitor warmup failed")
+
+
+def _warm_solar_activity() -> None:
+    try:
+        from zgiis.space_weather.solar_activity import get_solar_activity
+
+        payload = get_solar_activity(force_refresh=True)
+        log.info("Solar activity cache warmed (mode=%s)", payload.get("mode"))
+    except Exception:
+        log.exception("Solar activity warmup failed")
+
+
 def start_background_warmup(*, include_live_ingest: bool = True) -> None:
     """Start cache warmup (and optionally delayed live ingest) exactly once."""
     global _WARMUP_STARTED
@@ -77,6 +98,16 @@ def start_background_warmup(*, include_live_ingest: bool = True) -> None:
         target=_warm_space_weather,
         daemon=True,
         name="zgiis-warm-space-weather",
+    ).start()
+    threading.Thread(
+        target=_warm_solar_activity,
+        daemon=True,
+        name="zgiis-warm-solar-activity",
+    ).start()
+    threading.Thread(
+        target=_warm_heliospheric_monitor,
+        daemon=True,
+        name="zgiis-warm-heliospheric",
     ).start()
     threading.Thread(
         target=_warm_spider_status,
@@ -94,6 +125,25 @@ def start_background_warmup(*, include_live_ingest: bool = True) -> None:
             daemon=True,
             name="zgiis-warm-vtec-charts",
         ).start()
+
+
+def start_light_cache_warmup() -> None:
+    """Warm read-mostly NOAA caches even when full background services are off."""
+    threading.Thread(
+        target=_warm_space_weather,
+        daemon=True,
+        name="zgiis-warm-space-weather-light",
+    ).start()
+    threading.Thread(
+        target=_warm_solar_activity,
+        daemon=True,
+        name="zgiis-warm-solar-activity-light",
+    ).start()
+    threading.Thread(
+        target=_warm_heliospheric_monitor,
+        daemon=True,
+        name="zgiis-warm-heliospheric-light",
+    ).start()
 
 
 def _warm_vtec_chart_cache() -> None:

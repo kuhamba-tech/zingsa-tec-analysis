@@ -14,6 +14,7 @@ import { Bar } from "react-chartjs-2";
 import LineChart from "@/components/charts/LineChart";
 import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
 import { getHeliosphericMonitor } from "@/lib/api";
+import { peekHeliosphericMonitor } from "@/lib/heliosphericStore";
 import {
   analyzeHeliosphericOverview,
   analyzeHeliosphericPanel,
@@ -59,7 +60,7 @@ function PanelShell({
       role="button"
       tabIndex={0}
       aria-expanded={selected}
-      aria-label={`${title}. Click for scientific explanation.`}
+      aria-label={title}
       onClick={() => onToggle(panelId)}
       onKeyDown={onKeyDown}
       style={{
@@ -183,7 +184,13 @@ export default function HeliosphericMonitorStack() {
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
+    const cached = peekHeliosphericMonitor();
+    if (cached) {
+      setData(cached);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
     getHeliosphericMonitor()
       .then((payload) => {
         if (!cancelled) setData(payload);
@@ -191,7 +198,7 @@ export default function HeliosphericMonitorStack() {
       .catch((err: unknown) => {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : "Failed to load heliospheric monitor");
-          setData(null);
+          if (!cached) setData(null);
         }
       })
       .finally(() => {
@@ -225,7 +232,7 @@ export default function HeliosphericMonitorStack() {
         role="button"
         tabIndex={0}
         aria-expanded={overviewOpen}
-        aria-label="Heliospheric monitor overview. Click for scientific explanation."
+        aria-label="Heliospheric monitor overview"
         onClick={() => toggle("overview")}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") {
@@ -306,34 +313,61 @@ export default function HeliosphericMonitorStack() {
           </PanelShell>
 
           <PanelShell
-            title="Solar wind speed near Sun–Earth L1"
-            subtitle="RTSW plasma · proton speed · km/s"
+            title="Solar wind near Sun–Earth L1"
+            subtitle="RTSW plasma · proton speed · density · temperature"
             panelId="solar_wind"
             selected={selected === "solar_wind"}
             onToggle={toggle}
             analysis={analyzeHeliosphericPanel("solar_wind", data)}
           >
-            {data.solar_wind.labels.length > 0 ? (
+            {data.solar_wind.labels.length > 0 ? (() => {
+              const speeds = data.solar_wind.speed.filter((v): v is number => v != null && Number.isFinite(v));
+              const dMin = speeds.length ? Math.min(...speeds) : 400;
+              const dMax = speeds.length ? Math.max(...speeds) : 550;
+              return (
               <LineChart
                 labels={data.solar_wind.labels}
                 yLabel="Speed (km/s)"
-                height={200}
+                secondaryYLabel="Density (cm⁻³)"
+                tertiaryYLabel="Proton temp. (K)"
+                height={220}
+                toggleableLegend
+                ySuggestedMin={Math.max(200, Math.floor(Math.min(dMin, 400) / 20) * 20 - 20)}
+                ySuggestedMax={Math.ceil(Math.max(dMax, 600, 500) / 20) * 20}
                 datasets={[
                   {
-                    label: "Solar wind speed",
+                    label: "Speed",
                     data: data.solar_wind.speed,
                     color: "#eab308",
                     fill: true,
+                    yAxisId: "y",
+                  },
+                  {
+                    label: "Density",
+                    data: data.solar_wind.density ?? data.solar_wind.speed.map(() => null),
+                    color: "#38bdf8",
+                    yAxisId: "y2",
+                  },
+                  {
+                    label: "Proton Temp.",
+                    data: data.solar_wind.temperature ?? data.solar_wind.speed.map(() => null),
+                    color: "#f97316",
+                    yAxisId: "y3",
                   },
                 ]}
                 thresholds={[
-                  { value: 400, label: "Typical", color: "#4ade80" },
-                  { value: 600, label: "Fast", color: "#f97316" },
+                  {
+                    value: 500,
+                    label: "Fast stream (500 km/s)",
+                    color: "#ff8c00",
+                    fillAbove: true,
+                  },
                 ]}
               />
-            ) : (
+              );
+            })() : (
               <div className="banner banner-info">
-                Solar-wind speed unavailable
+                Solar-wind plasma unavailable
                 {data.errors?.solar_wind ? `: ${data.errors.solar_wind}` : "."}
               </div>
             )}

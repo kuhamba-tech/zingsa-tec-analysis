@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import LocalIonosphereObservations from "./LocalIonosphereObservations";
 import LineChart from "@/components/charts/LineChart";
 import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
 import { getHeliosphericMonitor, getLiveVtecByStation, getTimelines } from "@/lib/api";
+import { peekHeliosphericMonitor } from "@/lib/heliosphericStore";
 import type { ChartAnalysisBlock } from "@/lib/multiSourceChartAnalysis";
 import type {
   HeliosphericMonitorResponse,
@@ -25,6 +27,22 @@ const FLARE_THRESHOLDS = [
   { value: 1e-5, label: "M", color: "#ef4444" },
   { value: 1e-4, label: "X", color: "#a855f7" },
 ];
+
+const FAST_STREAM_KMS = 500;
+
+/** Match Live NOAA Solar Wind Timeline: keep Fast stream (500) visible with ≥600 headroom. */
+function solarWindSpeedScale(speeds: (number | null)[]): { ySuggestedMin: number; ySuggestedMax: number } {
+  const vals = speeds.filter((v): v is number => v != null && Number.isFinite(v));
+  const dMin = vals.length ? Math.min(...vals) : 400;
+  const dMax = vals.length ? Math.max(...vals) : 550;
+  // Image-1 style: room below ~400–440 and top at least 600 so the Fast stream band reads clearly.
+  const ySuggestedMin = Math.floor(Math.min(dMin, 400) / 20) * 20 - 20;
+  const ySuggestedMax = Math.ceil(Math.max(dMax, 600, FAST_STREAM_KMS) / 20) * 20;
+  return {
+    ySuggestedMin: Math.max(200, ySuggestedMin),
+    ySuggestedMax,
+  };
+}
 
 type GeoTab = "kp" | "dst";
 
@@ -64,13 +82,10 @@ function Panel({
       }}
     >
       <div style={{ fontWeight: 700, fontSize: "0.82rem", marginBottom: 2 }}>{title}</div>
-      <div style={{ fontSize: "0.68rem", color: "var(--text-muted)", marginBottom: "0.45rem" }}>
+      <div style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: "0.45rem" }}>
         {subtitle}
       </div>
       <div onClick={(e) => e.stopPropagation()}>{children}</div>
-      <div style={{ fontSize: "0.7rem", color: "var(--accent)", marginTop: "0.35rem", fontWeight: 700 }}>
-        {open ? "Hide explanation" : "Click for scientific explanation"}
-      </div>
       {open && <ChartAnalysisBox block={analysis} title="Scientific interpretation" />}
     </div>
   );
@@ -99,40 +114,6 @@ function seriesEpochMs(
 const ONE_H_MS = 60 * 60 * 1000;
 const SIX_H_MS = 6 * ONE_H_MS;
 
-/**
- * KNMI-style UTC labels (image reference):
- * - Text labels only at 00:00 / 06:00 / 12:00 / 18:00
- * - Midnight uses two lines: `00:00` then `| YYYY-MM-DD`
- * Hourly ticks still exist via stepSize=1h; unlabeled hours return "".
- */
-function formatKnmiUtcTick(ms: number): string {
-  if (!Number.isFinite(ms)) return "";
-  const d = new Date(ms);
-  if (d.getUTCMinutes() !== 0 || d.getUTCSeconds() !== 0) return "";
-  const hh = d.getUTCHours();
-  if (hh % 6 !== 0) return "";
-  const time = `${String(hh).padStart(2, "0")}:00`;
-  if (hh === 0) {
-    const y = d.getUTCFullYear();
-    const mo = String(d.getUTCMonth() + 1).padStart(2, "0");
-    const day = String(d.getUTCDate()).padStart(2, "0");
-    return `${time}\n| ${y}-${mo}-${day}`;
-  }
-  return time;
-}
-
-function formatHoverUtc(ms: number | null): string {
-  if (ms == null) return "Hover any panel — shared UTC cursor";
-  const d = new Date(ms);
-  const y = d.getUTCFullYear();
-  const mo = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(d.getUTCDate()).padStart(2, "0");
-  const hh = String(d.getUTCHours()).padStart(2, "0");
-  const mi = String(d.getUTCMinutes()).padStart(2, "0");
-  return `${y}-${mo}-${day} ${hh}:${mi} UTC`;
-}
-
-/** Oldest → newest; drop null epochs. Reorders all parallel arrays together. */
 function chronologicalSeries<T extends Record<string, (number | null)[] | string[]>>(
   labels: string[],
   epochs: (number | null)[],
@@ -154,21 +135,37 @@ function chronologicalSeries<T extends Record<string, (number | null)[] | string
   };
 }
 
-function sharedTimeDomain(epochLists: number[][]): { min: number; max: number } | null {
-  let min = Number.POSITIVE_INFINITY;
-  let max = Number.NEGATIVE_INFINITY;
-  for (const list of epochLists) {
-    for (const ms of list) {
-      if (ms < min) min = ms;
-      if (ms > max) max = ms;
-    }
+/** Keep only points inside the shared L1 UTC window so Kp/Dst match wind/IMF. */
+function clipSeriesToDomain<T extends Record<string, (number | null)[] | string[]>>(
+  panel: { labels: string[]; epochs: number[]; series: T } | null,
+  domain: { min: number; max: number } | null,
+): { labels: string[]; epochs: number[]; series: T } | null {
+  if (!panel) return null;
+  if (!domain) return panel;
+  const keep = panel.epochs
+    .map((ms, i) => (ms >= domain.min && ms <= domain.max ? i : -1))
+    .filter((i) => i >= 0);
+  if (keep.length === 0) return null;
+  const outSeries = {} as T;
+  for (const key of Object.keys(panel.series) as (keyof T)[]) {
+    const arr = panel.series[key];
+    outSeries[key] = keep.map((i) => arr[i]) as T[keyof T];
   }
-  if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) return null;
-  const pad = ONE_H_MS;
   return {
-    min: Math.floor((min - pad) / SIX_H_MS) * SIX_H_MS,
-    max: Math.ceil((max + pad) / SIX_H_MS) * SIX_H_MS,
+    labels: keep.map((i) => panel.labels[i]),
+    epochs: keep.map((i) => panel.epochs[i]),
+    series: outSeries,
   };
+}
+
+function timelinePointsToSeries(points: { t: string; v: number | null }[]) {
+  if (!points.length) return null;
+  const labels = points.map((p) => p.t);
+  const epochs = points.map((p) => parseTimelineEpoch(p.t));
+  if (!epochs.some((ms) => ms != null)) return null;
+  return chronologicalSeries(labels, epochs, {
+    values: points.map((p) => p.v),
+  });
 }
 
 export default function CauseEffectTimelineStack() {
@@ -179,48 +176,50 @@ export default function CauseEffectTimelineStack() {
   const [loading, setLoading] = useState(true);
   const [syncHoverMs, setSyncHoverMs] = useState<number | null>(null);
   const [geoTab, setGeoTab] = useState<GeoTab>("kp");
+  const [rangeHours, setRangeHours] = useState<6 | 24 | 72>(24);
+  const [now, setNow] = useState(0);
+  const [vtecRefreshFailed, setVtecRefreshFailed] = useState(false);
   const [openPanel, setOpenPanel] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    Promise.allSettled([
-      getHeliosphericMonitor(true),
-      getTimelines(),
-      getLiveVtecByStation(24, 10),
-    ]).then((results) => {
+    let inFlight = false;
+    const cached = peekHeliosphericMonitor();
+    if (cached) { setHelio(cached); setLoading(false); }
+    const refresh = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      const results = await Promise.allSettled([
+        getHeliosphericMonitor(false, true), getTimelines(), getLiveVtecByStation(Math.min(rangeHours, 48), 2),
+      ]);
+      inFlight = false;
       if (cancelled) return;
       const [h, t, v] = results;
       if (h.status === "fulfilled") setHelio(h.value);
       if (t.status === "fulfilled") setTimelines(t.value);
-      if (v.status === "fulfilled") {
-        const rows = Array.isArray(v.value) ? v.value : [];
-        const preferred = rows.filter((s) =>
-          PRIORITY_STATIONS.includes(
-            s.station.toLowerCase().replace(/_+$/, "") as (typeof PRIORITY_STATIONS)[number],
-          ),
-        );
-        // Prefer Harare/Bulawayo/… when live; otherwise show up to 5 stations that have points.
-        const picked =
-          preferred.length > 0
-            ? preferred
-            : [...rows]
-                .filter((s) => (s.points?.length ?? 0) > 0)
-                .sort((a, b) => (b.points?.length ?? 0) - (a.points?.length ?? 0))
-                .slice(0, 5);
-        setVtec(picked);
-      }
-      const failed = results.filter((r) => r.status === "rejected");
-      if (failed.length === results.length) {
-        setError("Cause→effect timelines unavailable right now.");
-      }
-    }).finally(() => {
-      if (!cancelled) setLoading(false);
-    });
-    return () => {
-      cancelled = true;
+      if (v.status === "fulfilled") setVtec(Array.isArray(v.value) ? v.value : []);
+      setVtecRefreshFailed(v.status === "rejected");
+      const failed = results.filter((result) => result.status === "rejected").length;
+      setError(failed ? `${failed} of 3 timeline feeds could not refresh. Retained observations may lag; check their timestamps.` : null);
+      setLoading(false);
     };
-  }, []);
+    setNow(Date.now());
+    void refresh();
+    const poll = window.setInterval(() => { void refresh(); }, 60_000);
+    const clock = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => { cancelled = true; window.clearInterval(poll); window.clearInterval(clock); };
+  }, [rangeHours]);
+
+  const plottedStations = useMemo(() => {
+    const available = vtec.filter((station) => station.points?.length);
+    return [...available].sort((a, b) => {
+      const rank = (code: string) => {
+        const index = (PRIORITY_STATIONS as readonly string[]).indexOf(code.toLowerCase().replace(/_+$/, ""));
+        return index < 0 ? PRIORITY_STATIONS.length : index;
+      };
+      return rank(a.station) - rank(b.station);
+    }).slice(0, 5);
+  }, [vtec]);
 
   const syncProps = {
     syncHoverMs,
@@ -241,6 +240,7 @@ export default function CauseEffectTimelineStack() {
     return chronologicalSeries(raw.labels, epochs, {
       speed: raw.speed,
       density: raw.density ?? raw.speed.map(() => null),
+      temperature: raw.temperature ?? raw.speed.map(() => null),
     });
   }, [helio]);
 
@@ -251,23 +251,44 @@ export default function CauseEffectTimelineStack() {
     return chronologicalSeries(raw.labels, epochs, { bt: raw.bt, bz: raw.bz });
   }, [helio]);
 
-  const kpPanel = useMemo(() => {
+  const kpPanelRaw = useMemo(() => {
     const raw = helio?.kp;
-    if (!raw?.labels?.length) return null;
-    const epochs = seriesEpochMs(raw.epoch_ms, raw.times, raw.labels);
-    return chronologicalSeries(raw.labels, epochs, {
-      observed: raw.observed,
-      estimated: raw.estimated,
-      predicted: raw.predicted,
-    });
-  }, [helio]);
+    if (raw?.labels?.length) {
+      const epochs = seriesEpochMs(raw.epoch_ms, raw.times, raw.labels);
+      return chronologicalSeries(raw.labels, epochs, {
+        observed: raw.observed,
+        estimated: raw.estimated,
+        predicted: raw.predicted,
+      });
+    }
+    // Fallback: live /space-weather/timelines Kp history
+    const tl = timelinePointsToSeries(timelines?.kp ?? []);
+    if (!tl) return null;
+    return {
+      labels: tl.labels,
+      epochs: tl.epochs,
+      series: {
+        observed: tl.series.values,
+        estimated: tl.series.values.map(() => null),
+        predicted: tl.series.values.map(() => null),
+      },
+    };
+  }, [helio, timelines]);
 
-  const dstPanel = useMemo(() => {
+  const dstPanelRaw = useMemo(() => {
     const raw = helio?.dst;
-    if (!raw?.labels?.length) return null;
-    const epochs = seriesEpochMs(raw.epoch_ms, raw.times, raw.labels);
-    return chronologicalSeries(raw.labels, epochs, { dst: raw.dst });
-  }, [helio]);
+    if (raw?.labels?.length) {
+      const epochs = seriesEpochMs(raw.epoch_ms, raw.times, raw.labels);
+      return chronologicalSeries(raw.labels, epochs, { dst: raw.dst });
+    }
+    const tl = timelinePointsToSeries(timelines?.dst ?? []);
+    if (!tl) return null;
+    return {
+      labels: tl.labels,
+      epochs: tl.epochs,
+      series: { dst: tl.series.values },
+    };
+  }, [helio, timelines]);
 
   const gnssPanel = useMemo(() => {
     const s4 = timelines?.s4 ?? [];
@@ -291,35 +312,30 @@ export default function CauseEffectTimelineStack() {
 
   const vtecPanel = useMemo(() => {
     const set = new Set<string>();
-    for (const s of vtec) for (const p of s.points) set.add(p.time);
+    for (const s of plottedStations) for (const p of s.points) set.add(p.time);
     const times = [...set].sort();
-    if (!times.length || !vtec.length) return null;
+    if (!times.length || !plottedStations.length) return null;
     const labels = times;
     const epochs = times.map((t) => parseTimelineEpoch(t));
     const series: Record<string, (number | null)[]> = {};
-    for (const s of vtec) {
+    for (const s of plottedStations) {
       const byTime = new Map(s.points.map((p) => [p.time, p.vtec_tecu]));
       series[s.station] = times.map((t) => byTime.get(t) ?? null);
     }
     return chronologicalSeries(labels, epochs, series);
-  }, [vtec]);
+  }, [plottedStations]);
 
-  const timeDomain = useMemo(() => {
-    // Prefer high-cadence L1 / ionosphere windows so panels share one readable span.
-    const lists = [
-      xrayPanel?.epochs,
-      windPanel?.epochs,
-      imfPanel?.epochs,
-      vtecPanel?.epochs,
-    ].filter((e): e is number[] => !!e && e.length > 0);
-    if (lists.length === 0) {
-      const fallback = [kpPanel?.epochs, dstPanel?.epochs, gnssPanel?.epochs].filter(
-        (e): e is number[] => !!e && e.length > 0,
-      );
-      return sharedTimeDomain(fallback);
-    }
-    return sharedTimeDomain(lists);
-  }, [xrayPanel, windPanel, imfPanel, vtecPanel, kpPanel, dstPanel, gnssPanel]);
+  const timeDomain = useMemo(() => now ? { min: now - rangeHours * ONE_H_MS, max: now } : null, [now, rangeHours]);
+
+  // Clip Kp/Dst to the same live UTC window as solar wind / IMF.
+  const kpPanel = useMemo(
+    () => clipSeriesToDomain(kpPanelRaw, timeDomain),
+    [kpPanelRaw, timeDomain],
+  );
+  const dstPanel = useMemo(
+    () => clipSeriesToDomain(dstPanelRaw, timeDomain),
+    [dstPanelRaw, timeDomain],
+  );
 
   const timeAxis = useMemo(() => {
     if (!timeDomain) return {};
@@ -327,11 +343,17 @@ export default function CauseEffectTimelineStack() {
       xMin: timeDomain.min,
       xMax: timeDomain.max,
       xStepSize: ONE_H_MS,
-      xMajorStepMs: SIX_H_MS,
-      formatXTick: formatKnmiUtcTick,
+      xMajorStepMs: rangeHours === 6 ? ONE_H_MS : SIX_H_MS,
+      formatXTick: (ms: number) => {
+        const date = new Date(ms);
+        const time = date.toISOString().slice(11, 16);
+        if (rangeHours === 6) return time;
+        if (date.getUTCHours() % 6 !== 0 || date.getUTCMinutes() !== 0) return "";
+        return rangeHours === 72 ? `${date.toISOString().slice(5, 10)} ${time}` : time;
+      },
       xLabel: "UTC",
     };
-  }, [timeDomain]);
+  }, [timeDomain, rangeHours]);
 
   const analyses: Record<string, ChartAnalysisBlock> = {
     xray: {
@@ -342,10 +364,10 @@ export default function CauseEffectTimelineStack() {
       ],
     },
     wind: {
-      lead: "Solar-wind speed and density at L1 show arriving streams/shocks that can precede IMF and geomagnetic changes.",
+      lead: "Solar-wind speed, density and proton temperature at L1 show arriving streams/shocks that can precede IMF and geomagnetic changes.",
       bullets: [
-        "Sudden jumps (e.g. 380→620 km/s with density rising) often mark a shock/CME arrival.",
-        "Speed alone does not make a storm — always read with IMF Bz and Kp/Dst.",
+        "Sudden jumps (e.g. 380→620 km/s with density rising and temperature changing) often mark a shock/CME arrival.",
+        "Speed or temperature alone does not make a storm — always read with IMF Bz and Kp/Dst.",
       ],
     },
     imf: {
@@ -371,31 +393,28 @@ export default function CauseEffectTimelineStack() {
       ],
     },
     gnss: {
-      lead: "GNSS quality proxies show whether the ionosphere actually hurt navigation — not just whether Kp was high.",
+      lead: "Scintillation observations and estimated GNSS risk provide context; they do not verify local positioning performance.",
       bullets: [
-        "S4 is amplitude scintillation (when observed). GNSS risk is the operational navigation impact label from live indices.",
+        "S4 is amplitude scintillation (when observed). GNSS risk is a provisional estimate from indices, not a receiver accuracy measurement.",
         "Live station-mean ROTI timelines are not yet ingested; PRN Explorer provides archive ROTI for research events.",
-        "A strong story is: southward Bz + Kp≥5 + VTEC anomaly + elevated S4/risk at the same UTC time.",
+        "Investigate timing and propagation delays alongside local observations. Correlated signals do not establish causation or a positioning outage.",
       ],
     },
   };
 
   return (
-    <div className="card" style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-      <div>
-        <div className="metric-label" style={{ marginBottom: "0.3rem" }}>
-          Cause → Effect Timeline · Zimbabwe GNSS
-        </div>
-        <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", lineHeight: 1.5 }}>
-          Six aligned panels (oldest → newest, left → right). Shared UTC axis: labels every 6 hours,
-          hourly grid ticks, midnight as `00:00` + `| YYYY-MM-DD`. Hover for a shared vertical cursor.
-        </div>
-        <div style={{ fontSize: "0.72rem", color: "var(--accent)", marginTop: "0.35rem", fontWeight: 700 }}>
-          Cursor: {formatHoverUtc(syncHoverMs)}
+    <>
+    <LocalIonosphereObservations stations={vtec} now={now} refreshFailed={vtecRefreshFailed} loading={loading} />
+    <section className="card sw-driver-timelines" style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }} aria-labelledby="driver-timelines-title">
+      <div className="sw-section-heading">
+        <h2 id="driver-timelines-title">Solar Drivers and Zimbabwe Response</h2>
+        <div className="sw-range-controls" role="group" aria-label="Shared chart time range">
+          {([6, 24, 72] as const).map((hours) => <button type="button" key={hours} aria-pressed={rangeHours === hours} onClick={() => { setRangeHours(hours); setSyncHoverMs(null); }}>{hours === 72 ? "3 days" : `${hours} hours`}</button>)}
         </div>
       </div>
+      <p className="sw-supporting-text">Shared UTC window and synchronized crosshair. Compare observations and propagation delays; alignment alone does not establish cause and effect. Up to five station traces are shown; coverage above includes all returned stations. Local VTEC history is available for up to 48 hours.</p>
 
-      {loading && <div className="banner banner-info">Loading synchronized cause→effect timelines…</div>}
+      {loading && <div className="banner banner-info">Loading synchronized timelines…</div>}
       {error && !loading && <div className="banner banner-warn">{error}</div>}
 
       {!loading && (
@@ -426,8 +445,8 @@ export default function CauseEffectTimelineStack() {
           </Panel>
 
           <Panel
-            title="2 · Solar wind speed + density"
-            subtitle="L1 RTSW · km/s and cm⁻³ · oldest → newest · toggle series in the legend"
+            title="2 · Solar wind speed + density + proton temp."
+            subtitle="L1 RTSW · km/s, cm⁻³ and K · oldest → newest · toggle series in the legend"
             analysis={analyses.wind}
             open={openPanel === "wind"}
             onToggle={() => setOpenPanel((p) => (p === "wind" ? null : "wind"))}
@@ -437,12 +456,22 @@ export default function CauseEffectTimelineStack() {
                 labels={windPanel.labels}
                 toggleableLegend
                 secondaryYLabel="Density (cm⁻³)"
+                tertiaryYLabel="Proton temp. (K)"
                 yLabel="Speed (km/s)"
                 height={180}
                 xValues={windPanel.epochs}
                 epochMs={windPanel.epochs}
                 {...timeAxis}
                 {...syncProps}
+                {...solarWindSpeedScale(windPanel.series.speed)}
+                thresholds={[
+                  {
+                    value: FAST_STREAM_KMS,
+                    label: "Fast stream (500 km/s)",
+                    color: "#ff8c00",
+                    fillAbove: true,
+                  },
+                ]}
                 datasets={[
                   { label: "Speed", data: windPanel.series.speed, color: "#eab308", fill: true, yAxisId: "y" },
                   {
@@ -450,6 +479,12 @@ export default function CauseEffectTimelineStack() {
                     data: windPanel.series.density,
                     color: "#38bdf8",
                     yAxisId: "y2",
+                  },
+                  {
+                    label: "Proton Temp.",
+                    data: windPanel.series.temperature,
+                    color: "#f97316",
+                    yAxisId: "y3",
                   },
                 ]}
               />
@@ -488,7 +523,7 @@ export default function CauseEffectTimelineStack() {
 
           <Panel
             title="4 · Geomagnetic activity"
-            subtitle="Public: Kp · Research: Dst — switch tabs below"
+            subtitle="Live NOAA Kp / Kyoto Dst — same UTC window as solar wind & IMF"
             analysis={analyses.geo}
             open={openPanel === "geo"}
             onToggle={() => setOpenPanel((p) => (p === "geo" ? null : "geo"))}
@@ -501,7 +536,7 @@ export default function CauseEffectTimelineStack() {
                   onClick={() => setGeoTab(tab)}
                   style={{
                     padding: "0.2rem 0.7rem",
-                    fontSize: "0.72rem",
+                    fontSize: "0.85rem",
                     fontWeight: 700,
                     borderRadius: 5,
                     border: `1px solid ${geoTab === tab ? "var(--accent)" : "var(--border)"}`,
@@ -521,6 +556,7 @@ export default function CauseEffectTimelineStack() {
                 yLabel="Kp"
                 height={170}
                 toggleableLegend
+                thresholds={[{ value: 5, label: "Storm threshold (Kp 5)", color: "#ff8c00" }]}
                 xValues={kpPanel.epochs}
                 epochMs={kpPanel.epochs}
                 {...timeAxis}
@@ -537,8 +573,8 @@ export default function CauseEffectTimelineStack() {
                 yLabel="Dst (nT)"
                 height={170}
                 thresholds={[
-                  { value: -50, label: "Moderate", color: "#eab308" },
-                  { value: -100, label: "Intense", color: "#ef4444" },
+                  { value: -50, label: "Storm threshold (−50 nT)", color: "#ff8c00" },
+                  { value: -100, label: "Intense (−100 nT)", color: "#ef4444" },
                 ]}
                 xValues={dstPanel.epochs}
                 epochMs={dstPanel.epochs}
@@ -579,14 +615,14 @@ export default function CauseEffectTimelineStack() {
               />
             ) : (
               <div className="banner banner-info">
-                Live station VTEC not streaming yet — keep the NTRIP collector running.
+                Station VTEC observations are unavailable. Retrying automatically.
               </div>
             )}
           </Panel>
 
           <Panel
-            title="6 · GNSS quality / scintillation proxies"
-            subtitle="S4 + GNSS risk timelines · ROTI map/PRN explorer for research depth"
+            title="6 · Scintillation observations and estimated GNSS risk"
+            subtitle="S4 archive + provisional risk estimate · local positioning impact not verified"
             analysis={analyses.gnss}
             open={openPanel === "gnss"}
             onToggle={() => setOpenPanel((p) => (p === "gnss" ? null : "gnss"))}
@@ -597,7 +633,7 @@ export default function CauseEffectTimelineStack() {
                 yLabel="S4"
                 height={180}
                 toggleableLegend
-                secondaryYLabel="GNSS risk"
+                secondaryYLabel="Estimated risk"
                 xValues={gnssPanel.epochs}
                 epochMs={gnssPanel.epochs}
                 {...timeAxis}
@@ -610,7 +646,7 @@ export default function CauseEffectTimelineStack() {
                     yAxisId: "y",
                   },
                   {
-                    label: "GNSS risk",
+                    label: "Estimated GNSS risk (provisional)",
                     data: gnssPanel.series.risk,
                     color: "#a78bfa",
                     yAxisId: "y2",
@@ -624,15 +660,15 @@ export default function CauseEffectTimelineStack() {
             )}
           </Panel>
 
-          <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", lineHeight: 1.5 }}>
-            Time runs left → right (past → present), UTC. Cause chain uses live NOAA SWPC + Kyoto Dst + Zimbabwe
-            live VTEC. Shared cursor aligns events across panels even when cadences differ.
+          <div style={{ fontSize: "0.85rem", color: "var(--text-muted)", lineHeight: 1.5 }}>
+            Live NOAA SWPC + Kyoto Dst + Zimbabwe VTEC
             {helio?.updated_utc
-              ? ` · Heliospheric update ${helio.updated_utc.replace("T", " ").replace("Z", " UTC")}`
+              ? ` · Updated ${helio.updated_utc.replace("T", " ").replace("Z", " UTC")}`
               : ""}
           </div>
         </>
       )}
-    </div>
+    </section>
+    </>
   );
 }

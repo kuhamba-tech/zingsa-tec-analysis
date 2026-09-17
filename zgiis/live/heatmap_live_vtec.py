@@ -112,8 +112,15 @@ def sample_live_ntrip_vtec(
     listen_sec: float | None = None,
     ttl_sec: float = DEFAULT_TTL_SEC,
     max_stations: int | None = None,
+    allow_blocking_refresh: bool = True,
 ) -> dict[str, Any]:
-    """Probe a geographic subset of CORS mountpoints and return live VTEC samples."""
+    """Probe a geographic subset of CORS mountpoints and return live VTEC samples.
+
+    When ``allow_blocking_refresh`` is False (dashboard /cors/stations page load),
+    return any cached sample immediately and refresh in a background thread.
+    Never open NTRIP sockets or warm NAV on the request path in that mode —
+    that is what made the UI feel stuck on a long "login".
+    """
     global _CACHE, _CACHE_TS
 
     if not live_ntrip_heatmap_enabled():
@@ -126,6 +133,30 @@ def sample_live_ntrip_vtec(
     age = None if _CACHE is None else (time.monotonic() - _CACHE_TS)
     if not refresh and _CACHE is not None and age is not None and age <= ttl_sec:
         return _CACHE
+
+    if not allow_blocking_refresh and not refresh:
+        if _CACHE is not None:
+            import threading
+
+            def _bg() -> None:
+                try:
+                    sample_live_ntrip_vtec(
+                        refresh=True,
+                        listen_sec=listen_sec,
+                        ttl_sec=ttl_sec,
+                        max_stations=max_stations,
+                        allow_blocking_refresh=True,
+                    )
+                except Exception as exc:
+                    log.warning("Background live NTRIP VTEC sample failed: %s", exc)
+
+            threading.Thread(target=_bg, daemon=True, name="heatmap-live-vtec-bg").start()
+            return _CACHE
+        return {
+            "probed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "stations": [],
+            "error": "Live NTRIP VTEC sample warming",
+        }
 
     from zgiis.live.mountpoints import parse_mountpoints
     from zgiis.live.ntrip_config import ntrip_host_from_env

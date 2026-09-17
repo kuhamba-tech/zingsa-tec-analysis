@@ -14,11 +14,14 @@ import {
   getGicLiveModel,
   getGicSeries,
   getGicStatus,
+  getSolarActivity,
 } from "@/lib/api";
 import { peekSpaceWeather, subscribeSpaceWeather } from "@/lib/spaceWeatherStore";
+import { peekSolarActivity, subscribeSolarActivity } from "@/lib/solarActivityStore";
 import { peekStations, subscribeStations } from "@/lib/stationsStore";
 import ClickableMetricGrid from "@/components/spaceWeather/ClickableMetricGrid";
 import IndexScaleReference from "@/components/spaceWeather/IndexScaleReference";
+import AdvancedScientificIndices from "@/components/spaceWeather/AdvancedScientificIndices";
 import StormWatchLog from "@/components/spaceWeather/StormWatchLog";
 import { DashboardHeaderClocks } from "@/components/dashboard/DashboardClocks";
 import type { GicTimelineBundle } from "@/components/dashboard/GicLiveTimelinePanel";
@@ -41,6 +44,7 @@ import type {
   EkfPoint,
   EkfStatus,
   SpaceWeatherCurrent,
+  SolarActivityFull,
   SpaceWeatherTimelines,
   TimelinePoint,
   SpaceWeatherLogStatus,
@@ -205,6 +209,7 @@ export default function DashboardPage() {
   const [ekf, setEkf] = useState<EkfStatus | null>(null);
   const [liveStationCounts, setLiveStationCounts] = useState<LiveStationCounts | null>(null);
   const [gicBundle, setGicBundle] = useState<GicTimelineBundle | null>(null);
+  const [solar, setSolar] = useState<SolarActivityFull | null>(null);
 
   useEffect(() => {
     const cached = peekSpaceWeather();
@@ -213,6 +218,8 @@ export default function DashboardPage() {
       setLoading(false);
       setFeedStatus("stale");
     }
+    const cachedSa = peekSolarActivity();
+    if (cachedSa) setSolar(cachedSa);
     const cachedStations = peekStations();
     if (cachedStations.length) {
       setLiveStationCounts(countSpiderLiveStationStatuses(cachedStations));
@@ -224,6 +231,10 @@ export default function DashboardPage() {
     setFeedStatus("ok");
     setApiStatus("Live");
     setLoading(false);
+  }), []);
+
+  useEffect(() => subscribeSolarActivity((next) => {
+    setSolar(next);
   }), []);
 
   useEffect(() => subscribeStations((next) => {
@@ -252,12 +263,14 @@ export default function DashboardPage() {
       ekfR,
       stationsR,
       gicR,
+      solarR,
     ] = await Promise.allSettled([
       getSpaceWeatherLogStatus(),
       getStationStatusLog(),
       getEkfStatus(),
       getStations(false),
       loadGicBundle(),
+      getSolarActivity(false),
     ]);
 
     if (logR.status === "fulfilled") setLogStatus(logR.value);
@@ -265,6 +278,7 @@ export default function DashboardPage() {
     if (ekfR.status === "fulfilled") setEkf(ekfR.value);
     if (stationsR.status === "fulfilled") setLiveStationCounts(countSpiderLiveStationStatuses(stationsR.value));
     if (gicR.status === "fulfilled" && gicR.value) setGicBundle(gicR.value);
+    if (solarR.status === "fulfilled") setSolar(solarR.value);
     setSourceHealth((previous) => ({
       ...previous,
       ekf: ekfR.status === "fulfilled" ? "ok" : "error",
@@ -442,7 +456,10 @@ export default function DashboardPage() {
         updatedUtc={sw?.updated_utc}
         liveStationCounts={liveStationCounts}
         loading={loading || apiStatus === "Connecting"}
+        solar={solar}
+        solarLoading={!solar && (loading || apiStatus === "Connecting")}
       />
+      <AdvancedScientificIndices sw={sw} solar={solar} />
 
       <IndexScaleReference />
 

@@ -18,7 +18,6 @@ import {
   mergeStationsPreferLive,
 } from "@/lib/liveStationStatus";
 import { mergeTecHeatmapWithStations } from "@/lib/tecHeatmapMerge";
-import AiRecommendationPanel from "@/components/layout/AiRecommendationPanel";
 import CauseEffectTimelineStack from "@/components/spaceWeather/CauseEffectTimelineStack";
 import HomeStormAlertBanner from "@/components/layout/HomeStormAlertBanner";
 import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
@@ -82,10 +81,17 @@ const GETTING_STARTED = [
   },
 ] as const;
 
-const HOME_METRIC_KEYS: MetricKey[] = ["kp", "geomagnetic", "dst", "gnss_risk", "stations"];
+const HOME_METRIC_KEYS: MetricKey[] = [
+  "geomagnetic_storm",
+  "dst",
+  "zimbabwe_iono",
+  "gnss_risk",
+  "stations",
+];
 
 const HOME_LABELS: Partial<Record<MetricKey, string>> = {
-  geomagnetic: "Geomagnetic condition",
+  geomagnetic_storm: "Geomagnetic storm",
+  zimbabwe_iono: "Zimbabwe ionosphere",
   stations: "CORS Connected",
 };
 
@@ -284,7 +290,6 @@ export default function HomePage() {
     .map((card) => ({
       ...card,
       label: HOME_LABELS[card.key] ?? card.label,
-      value: card.key === "kp" && displaySw?.kp != null ? displaySw.kp.toFixed(1) : card.value,
       note:
         card.key === "stations" && spiderLive && liveCounts.total > 0
           ? formatCorsConnectedShort(liveCounts)
@@ -363,12 +368,6 @@ export default function HomePage() {
       </div>
 
       <CauseEffectTimelineStack />
-
-      <AiRecommendationPanel
-        sw={displaySw}
-        stations={stations}
-        indicesLoading={swStatus === "pending"}
-      />
 
       <div id="cors-network" className="home-cors-map-section">
         <CorsMapWithLayers

@@ -86,3 +86,27 @@ def test_event_feed_source_noaa():
     assert len(storms) == 1
     assert "NOAA SWPC" in note
     assert any(s.startswith("noaa_") for s in sources)
+
+
+def test_southward_duration_minutes_continuous():
+    rows = [
+        {"time_tag": "2026-09-17T06:00:00Z", "bz_gsm": 2.0, "active": True},
+        {"time_tag": "2026-09-17T06:10:00Z", "bz_gsm": -1.0, "active": True},
+        {"time_tag": "2026-09-17T06:20:00Z", "bz_gsm": -4.0, "active": True},
+        {"time_tag": "2026-09-17T06:47:00Z", "bz_gsm": -8.0, "active": True},
+    ]
+    assert sa._southward_duration_minutes(rows) == 37
+
+
+def test_southward_duration_northward_is_zero():
+    rows = [
+        {"time_tag": "2026-09-17T06:00:00Z", "bz_gsm": -5.0, "active": True},
+        {"time_tag": "2026-09-17T06:10:00Z", "bz_gsm": 1.5, "active": True},
+    ]
+    assert sa._southward_duration_minutes(rows) == 0
+
+
+def test_dynamic_pressure_npa():
+    assert sa._dynamic_pressure_npa(5.0, 400.0) == round(1.6726e-6 * 5.0 * 400.0 ** 2, 2)
+    assert sa._dynamic_pressure_npa(None, 400.0) is None
+

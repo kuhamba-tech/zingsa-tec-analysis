@@ -54,12 +54,15 @@ def _safe_station_mean_vtec(hours: float = 2.0) -> dict[str, float]:
         return {}
 
 
-def _safe_station_live_vtec(hours: float = 0.05) -> dict[str, float]:
+def _safe_station_live_vtec(hours: float = 0.05, *, allow_db: bool = True) -> dict[str, float]:
     """Fresh absolute NTRIP/code VTEC per station (same short window as the heat map).
 
     Caps lookback to a few minutes so station cards cannot show a 15–60 minute
     average while MSM streams are still live. In-memory NTRIP decode is preferred
     so a SQLite query glitch cannot blank the live cards.
+
+    When ``allow_db`` is False (fast /cors/stations page loads), skip the DB
+    query — Spider online/offline must not wait on TecDB.
     """
     out: dict[str, float] = {}
     try:
@@ -74,6 +77,8 @@ def _safe_station_live_vtec(hours: float = 0.05) -> dict[str, float]:
                 out[key] = round(value, 2)
     except Exception:
         pass
+    if not allow_db:
+        return out
     try:
         from backend.live_manager import get_db
         from zgiis.maps.heatmap_data import LIVE_HEATMAP_MAX_LOOKBACK_MINUTES, LIVE_VTEC_RECENT_MINUTES
@@ -113,15 +118,21 @@ def _supplement_live_ntrip_vtec(
     *,
     refresh: bool = False,
 ) -> tuple[dict[str, float], dict[str, dict[str, Any]], str]:
-    """Fill VTEC gaps from on-demand live NTRIP decode (serverless / empty DB)."""
+    """Fill VTEC gaps from on-demand live NTRIP decode (serverless / empty DB).
+
+    Normal page loads must not block on caster sockets or NAV warm-up — that is
+    what made the dashboard feel stuck on a long Spider/NTRIP "login".
+    """
     out = dict(vtec_by_station)
     probe_by: dict[str, dict[str, Any]] = {}
     probed_at = ""
     try:
         from zgiis.live.heatmap_live_vtec import rows_by_station, sample_live_ntrip_vtec
 
-        sparse = len(out) < max(4, len(out) // 2 + 1)
-        payload = sample_live_ntrip_vtec(refresh=refresh or (_is_serverless_runtime() and sparse))
+        payload = sample_live_ntrip_vtec(
+            refresh=refresh,
+            allow_blocking_refresh=refresh,
+        )
         probed_at = str(payload.get("probed_at") or "")
         probe_by = rows_by_station(payload)
         for code, row in probe_by.items():
@@ -219,10 +230,10 @@ def _hold_non_spider_as_unknown(stations: list) -> list:
 
 def _live_pipeline_can_poll() -> bool:
     try:
-        from backend.live_manager import status as live_status
+        from backend.live_manager import pipeline_map_state
 
-        s = live_status()
-        return bool(s.get("configured") or s.get("active_streams"))
+        configured, streams = pipeline_map_state()
+        return bool(configured or streams)
     except Exception:
         return False
 
@@ -387,9 +398,9 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
     live_streams: dict = {}
     pipeline_configured = False
     try:
-        mgr = live_status()
-        live_streams = mgr.get("streams") or {}
-        pipeline_configured = bool(mgr.get("configured") or live_streams)
+        from backend.live_manager import pipeline_map_state
+
+        pipeline_configured, live_streams = pipeline_map_state()
         if pipeline_configured:
             live = stations_for_map_live(live_streams)
             stations = _merge_live_station_statuses(stations, live)
@@ -397,15 +408,25 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
     except Exception:
         log.exception("Failed to merge live NTRIP station states")
 
+    # Spider Site Status is ground truth for online/offline. Apply the cached
+    # overlay first so a slow archive/Supabase read never stalls the map.
+    stations = _merge_spider_site_statuses(stations, refresh=refresh_ntrip)
+    spider_ready = _stations_are_spider_authoritative(stations)
+
     archive_applied = False
-    if not pipeline_configured:
+    # Archive/Supabase reads can stall for tens of seconds under SQLite locks.
+    # Only use them on an explicit refresh — normal page loads wait for Spider
+    # cache (disk/memory) and never block the map on the status DB.
+    if not pipeline_configured and refresh_ntrip and not spider_ready:
         stations, archive_applied = _merge_archived_live_statuses(stations)
         stations = _hold_non_spider_as_unknown(stations)
+        # Re-apply Spider after archive so catalog/archive greens never win.
+        stations = _merge_spider_site_statuses(stations, refresh=refresh_ntrip)
+        spider_ready = _stations_are_spider_authoritative(stations)
         if archive_applied and _is_serverless_runtime():
             # Keep Spider status overlay, but still attach recent live VTEC from the
             # shared DB so TEC heat-map / station cards are not stuck on zeros.
-            stations = _merge_spider_site_statuses(stations, refresh=refresh_ntrip)
-            vtec_by_station = _safe_station_live_vtec(0.25)
+            vtec_by_station = _safe_station_live_vtec(0.25, allow_db=refresh_ntrip)
             vtec_by_station, sample_probe, sample_at = _supplement_live_ntrip_vtec(
                 vtec_by_station,
                 refresh=refresh_ntrip,
@@ -424,10 +445,39 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
             )
             return stations
 
+    # Fast path for normal page loads: Spider if ready, otherwise unknowns.
+    # Never open NTRIP sockets, TecDB, or archive DB here — that is what made
+    # the dashboard feel stuck on a long "login".
+    if not refresh_ntrip:
+        vtec_by_station = _safe_station_live_vtec(0.25, allow_db=False)
+        try:
+            from backend.live_manager import latest_vtec_by_station
+
+            for code, vtec in latest_vtec_by_station().items():
+                key = code.lower().rstrip("_")
+                if vtec > 0 and key not in vtec_by_station:
+                    vtec_by_station[key] = float(vtec)
+        except Exception:
+            pass
+        merged = []
+        for station in stations:
+            code = station.code.lower()
+            stream = live_streams.get(code) if live_streams else None
+            if stream is None and live_streams:
+                stream = live_streams.get(code.rstrip("_")) or live_streams.get(f"{code.rstrip('_')}_")
+            s = enrich_station(station, stream=stream)
+            vtec = vtec_by_station.get(code.rstrip("_"))
+            if vtec is not None and vtec > 0:
+                s = replace(s, current_tec=round(vtec, 2))
+                s = enrich_station(s, stream=stream)
+            merged.append(s)
+        return _merge_rover_clients(merged)
+
     probe_payload = None
     probe_by: dict = {}
     probed_at = ""
-    vtec_by_station: dict[str, float] = _safe_station_live_vtec(0.25)
+    # Explicit refresh may hit TecDB / live NTRIP.
+    vtec_by_station: dict[str, float] = _safe_station_live_vtec(0.25, allow_db=True)
     has_recent_vtec = bool(vtec_by_station)
 
     try:
@@ -570,6 +620,7 @@ def _merge_spider_site_statuses(stations: list, *, refresh: bool = False) -> lis
     from zgiis.cors.site_details import vendor_status_label
     from zgiis.live.spider_site_status import (
         ensure_spider_site_statuses,
+        get_cached_spider_site_statuses,
         spider_status_enabled,
     )
 
@@ -577,15 +628,18 @@ def _merge_spider_site_statuses(stations: list, *, refresh: bool = False) -> lis
         return _hold_non_spider_as_unknown(stations)
 
     try:
-        # Prefer cached Spider for map refresh; only wait briefly for a live pull.
-        # Serverless cold starts need a longer wait — Spider login from Vercel to
-        # the Zimbabwe SBC often exceeds 1.5s and otherwise leaves the map blank.
+        # Normal reads: never block on Spider SBC login (that is what made the
+        # dashboard feel like it was "logging in"). Serve last-good cache and
+        # refresh in the background. Explicit refresh_ntrip may wait briefly.
         serverless = _is_serverless_runtime()
+        if refresh:
         payload = ensure_spider_site_statuses(
-            max_age_sec=0.0 if refresh else 15.0,
-            wait_sec=(20.0 if refresh else 12.0) if serverless else (8.0 if refresh else 1.5),
-            allow_stale_fallback=serverless,
+                max_age_sec=0.0,
+                wait_sec=20.0 if serverless else 8.0,
+                allow_stale_fallback=serverless,
         )
+        else:
+            payload = get_cached_spider_site_statuses(refresh=False)
     except Exception:
         log.exception("Failed to load Spider site status")
         return _hold_non_spider_as_unknown(stations)
@@ -678,9 +732,10 @@ def _stations(*, refresh_ntrip: bool = False) -> list:
     cache_key = f"ntrip:{refresh_ntrip}"
     ttl = _STATIONS_CACHE_TTL_SEC
     try:
-        from backend.live_manager import status as live_status
+        from backend.live_manager import pipeline_map_state
 
-        if live_status().get("configured") or live_status().get("streams"):
+        configured, streams = pipeline_map_state()
+        if configured or streams:
             ttl = _STATIONS_LIVE_CACHE_TTL_SEC
     except Exception:
         pass

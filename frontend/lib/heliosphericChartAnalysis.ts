@@ -95,18 +95,23 @@ export function analyzeImfPanel(data: HeliosphericMonitorResponse | null): Chart
 
 export function analyzeSolarWindPanel(data: HeliosphericMonitorResponse | null): ChartAnalysisBlock {
   const speeds = (data?.solar_wind.speed ?? []).filter((v): v is number => v != null && Number.isFinite(v));
+  const densities = (data?.solar_wind.density ?? []).filter((v): v is number => v != null && Number.isFinite(v));
+  const temps = (data?.solar_wind.temperature ?? []).filter((v): v is number => v != null && Number.isFinite(v));
   const latest = speeds.length ? speeds[speeds.length - 1] : null;
   const peak = speeds.length ? Math.max(...speeds) : null;
+  const latestN = densities.length ? densities[densities.length - 1] : null;
+  const latestT = temps.length ? temps[temps.length - 1] : null;
 
   return {
-    lead: "Solar-wind speed near L1 (km/s) describes how fast the plasma stream is arriving, but speed alone does not determine storm strength.",
+    lead: "Solar-wind speed, density and proton temperature near L1 describe the plasma stream arriving at Earth — none of them alone determines storm strength.",
     bullets: [
-      "Rough guide: ~300–400 km/s relatively slow/quiet; ~400–500 moderate; ~500–700 enhanced; >700 very fast.",
+      "Rough speed guide: ~300–400 km/s relatively slow/quiet; ~400–500 moderate; ~500–700 enhanced; >700 very fast.",
+      "Density (cm⁻³) and proton temperature (K) help identify shocks/CME sheaths when they jump with speed.",
       "700 km/s with northward Bz may produce much less geomagnetic activity than 600 km/s with sustained Bz ≈ −15 nT.",
-      "Do not raise geomagnetic warnings from solar-wind speed thresholds alone — always cross-check IMF Bz, Kp, and Dst/SYM-H.",
-      latest != null && peak != null
-        ? `In this plot: latest ${Math.round(latest)} km/s, peak ${Math.round(peak)} km/s.`
-        : "No solar-wind speed samples are available in the current RTSW window.",
+      "Do not raise geomagnetic warnings from solar-wind thresholds alone — always cross-check IMF Bz, Kp, and Dst/SYM-H.",
+      latest != null
+        ? `In this plot: latest speed ${Math.round(latest)} km/s${peak != null ? ` (peak ${Math.round(peak)})` : ""}${latestN != null ? `; density ${latestN.toFixed(1)} cm⁻³` : ""}${latestT != null ? `; proton temp. ${Math.round(latestT).toLocaleString()} K` : ""}.`
+        : "No solar-wind plasma samples are available in the current RTSW window.",
     ],
   };
 }

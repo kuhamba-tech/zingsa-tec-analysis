@@ -213,6 +213,17 @@ def is_configured() -> bool:
     return _configured
 
 
+def pipeline_map_state() -> tuple[bool, dict]:
+    """Fast configured flag + stream map for /cors/stations — no DB I/O.
+
+    ``status()`` can stall for seconds on TecDB/SQLite ``record_count`` while the
+    collector holds a lock; the map only needs online stream metadata.
+    """
+    mgr = _ntrip_manager
+    streams = mgr.status() if mgr else {}
+    return bool(_configured or streams), streams
+
+
 def status(*, include_record_counts: bool = True) -> dict:
     from zgiis.db.config import configured_database_env_key, database_dsn, database_host_kind
 
@@ -220,12 +231,12 @@ def status(*, include_record_counts: bool = True) -> dict:
     db_backend = "timescaledb" if os.getenv("TSDB_DSN") else "sqlite"
     dsn = database_dsn()
     recent_records = None
-    try:
-        db = get_db()
-        db_backend = db.backend
-    except Exception as exc:
-        log.debug("Live pipeline DB backend unavailable: %s", exc)
     if include_record_counts:
+        try:
+            db = get_db()
+            db_backend = db.backend
+        except Exception as exc:
+            log.debug("Live pipeline DB backend unavailable: %s", exc)
         try:
             db = _db or get_db()
             recent_records = db.record_count(hours=1.0)

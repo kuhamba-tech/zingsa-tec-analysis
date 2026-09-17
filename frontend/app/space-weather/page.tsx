@@ -2,13 +2,16 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { getSpaceWeather, getSolarActivity, getTimelines, refreshSpaceWeather, getStations, getEkfStatus } from "@/lib/api";
 import { peekSpaceWeather, subscribeSpaceWeather } from "@/lib/spaceWeatherStore";
+import { peekSolarActivity, subscribeSolarActivity } from "@/lib/solarActivityStore";
 import { peekStations, subscribeStations } from "@/lib/stationsStore";
 import ClickableMetricGrid from "@/components/spaceWeather/ClickableMetricGrid";
 import IndexScaleReference from "@/components/spaceWeather/IndexScaleReference";
 import SolarCycleFullRecordCharts from "@/components/spaceWeather/SolarCycleFullRecordCharts";
 import HeliosphericMonitorStack from "@/components/spaceWeather/HeliosphericMonitorStack";
 import CauseEffectTimelineStack from "@/components/spaceWeather/CauseEffectTimelineStack";
-import AiRecommendationPanel from "@/components/layout/AiRecommendationPanel";
+import OperationalAlerts from "@/components/spaceWeather/OperationalAlerts";
+import { monitoringFreshness, observationTime } from "@/lib/monitoringStatus";
+import AdvancedScientificIndices from "@/components/spaceWeather/AdvancedScientificIndices";
 import HomeStormAlertBanner from "@/components/layout/HomeStormAlertBanner";
 import LineChart from "@/components/charts/LineChart";
 import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
@@ -23,6 +26,13 @@ import {
   analyzeStationsOnlineTimeline,
 } from "@/lib/dashboardChartAnalysis";
 import { analyzeGoesXrayExplanation } from "@/lib/heliosphericChartAnalysis";
+import {
+  ONE_H_MS,
+  SIX_H_MS,
+  chronologicalPoints,
+  formatKnmiUtcTick,
+  sharedTimeDomain,
+} from "@/lib/chartTimeAxis";
 import { alignEkfToPoints } from "@/lib/ekfAlign";
 import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
 import { connectedStreamCount, countSpiderLiveStationStatuses, type LiveStationCounts } from "@/lib/liveStationStatus";
@@ -58,23 +68,23 @@ function displayFlux(flux: unknown): string | null {
 }
 
 // Interprets a live GOES flare-class reading (e.g. "B4.3") in plain language:
-// the letter is the logarithmic class (each step ~10x the X-ray flux of the
-// last), the number is a linear multiplier within that class.
+// the letter is the logarithmic X-ray class (each step ~10x flux), not a
+// geomagnetic or GNSS impact rating. Operational radio blackout uses NOAA R-scale separately.
 function interpretFlareClass(cls: string): string | null {
   const match = /^([ABCMX])([\d.]+)$/i.exec((cls || "").trim());
   if (!match) return null;
   const letter = match[1].toUpperCase();
   const multiplier = parseFloat(match[2]);
-  const info: Record<string, { level: string; effect: string }> = {
-    A: { level: "background", effect: "essentially no radio or GNSS impact" },
-    B: { level: "background", effect: "essentially no radio or GNSS impact" },
-    C: { level: "moderate", effect: "minor effects, usually unnoticed operationally" },
-    M: { level: "major", effect: "can cause brief HF radio fades and minor GNSS ranging error on the sunlit side" },
-    X: { level: "extreme", effect: "can cause strong HF radio blackouts and measurable GNSS disturbance on the sunlit side" },
+  const band: Record<string, string> = {
+    A: "10⁻⁸–10⁻⁷ W/m²",
+    B: "10⁻⁷–10⁻⁶ W/m²",
+    C: "10⁻⁶–10⁻⁵ W/m²",
+    M: "10⁻⁵–10⁻⁴ W/m²",
+    X: "≥10⁻⁴ W/m²",
   };
-  const meta = info[letter];
-  if (!meta) return null;
-  return `Right now: ${cls} means a ${letter}-class flare (${meta.level} level) with a multiplier of ${multiplier} within that class — ${meta.effect}.`;
+  const range = band[letter];
+  if (!range) return null;
+  return `Right now: ${cls.toUpperCase()} is a GOES soft X-ray flare class (${range}, 0.1–0.8 nm) with multiplier ${multiplier} within that class. This is not a geomagnetic storm rating — a flare does not necessarily produce a geomagnetic storm.`;
 }
 
 function safePoints(points: TimelinePoint[] | undefined) {
@@ -145,43 +155,59 @@ type SolarInfo = {
 };
 
 // ── GNSS Impact ───────────────────────────────────────────────────────────────
-function getGnssImpact(kp: number | null, s4: number | null, flare: string, level: string) {
-  const k = kp ?? 0;
-  const s = s4 ?? 0;
-  const fl = (flare || "A")[0].toUpperCase();
-  let rtk = "Nominal";
-  let ppp = "Normal";
-  let iono = "Nominal";
-  let hf = "Excellent";
-  const scint = s >= 0.5 ? "Severe" : s >= 0.3 ? "Moderate" : s >= 0.1 ? "Weak" : "Low";
-  if (k >= 7 || fl === "X") {
-    rtk = "Severely degraded"; ppp = "Major delay"; iono = "Major delay"; hf = "Blackout possible";
-  } else if (k >= 5 || fl === "M") {
-    rtk = "Degraded"; ppp = "Delayed"; iono = "Elevated"; hf = "Disrupted";
-  } else if (k >= 3 || fl === "C") {
-    rtk = "Minor impact possible"; ppp = "Slightly delayed"; iono = "Slight elevation"; hf = "Fair";
-  }
-  const cors = level === "Low" && k < 3
-    ? "Nominal — sub-centimetre CORS accuracy achievable across Africa"
-    : level === "Moderate"
-    ? "Minor GNSS impact possible"
-    : "Elevated ionospheric activity — monitor CORS accuracy";
-  return { rtk, ppp, iono, scint, hf, cors };
+function getGnssImpact(kp: number | null, s4: number | null, flare: string) {
+  const hasKp = kp !== null && Number.isFinite(kp);
+  const hasS4 = s4 !== null && Number.isFinite(s4);
+  const hasFlare = /^[ABCMX]\d/i.test(flare);
+  return {
+    rtk: "Local accuracy not verified",
+    ppp: "Convergence not measured",
+    iono: "Compare local VTEC with a quiet reference",
+    scint: hasS4 ? `S4 ${s4.toFixed(2)} — check observation time` : "S4 unavailable",
+    hf: !hasFlare ? "Flare data unavailable" : /^[MX]/i.test(flare) ? "Dayside disruption possible — check NOAA alerts" : "Check NOAA radio-blackout alerts",
+    cors: !hasKp ? "Geomagnetic data unavailable; local impact unverified" : kp >= 5
+      ? "Global storm conditions — verify local receiver performance"
+      : "Below global storm threshold; local accuracy remains unverified",
+  };
 }
 
 function TimelineCard({
   graphId, title, pts, color, yLabel, threshold, source, analysis, expanded, onToggle, emptyMsg, ekfPoints, ekfColor,
+  syncHoverMs = null, onSyncHoverMs, timeDomain,
 }: {
   graphId: string; title: string; pts: TimelinePoint[]; color: string; yLabel: string;
-  threshold?: { value: number; label: string }; source: string;
+  threshold?: { value: number; label: string; color?: string; fillAbove?: boolean }; source: string;
   analysis: ChartAnalysisBlock; expanded: boolean; onToggle: (graphId: string) => void; emptyMsg?: string;
   ekfPoints?: EkfPoint[];
   ekfColor?: string;
+  syncHoverMs?: number | null;
+  onSyncHoverMs?: (ms: number | null) => void;
+  timeDomain?: { min: number; max: number } | null;
 }) {
-  const labels = pts.map((p) => p.t.length >= 16 ? p.t.slice(11, 16) : p.t.slice(0, 13));
-  const data = pts.map((p) => p.v ?? 0);
-  const ekf = alignEkfToPoints(pts, ekfPoints);
+  const chronoAll = chronologicalPoints(pts);
+  const chrono = timeDomain
+    ? chronoAll.filter((p) => p.ms >= timeDomain.min && p.ms <= timeDomain.max)
+    : chronoAll;
+  const labels = chrono.map((p) => p.t);
+  const epochs = chrono.map((p) => p.ms);
+  const data = chrono.map((p) => p.v);
+  const ekf = alignEkfToPoints(
+    chrono.map((p) => ({ t: p.t, v: p.v })),
+    ekfPoints,
+  );
   const hasEkf = ekf.data.some((v) => v !== null);
+  const domain = timeDomain ?? sharedTimeDomain([epochs]);
+  const speedScale = graphId === "solar-wind"
+    ? (() => {
+        const vals = data.filter((v): v is number => v != null && Number.isFinite(v) && v > 0);
+        const dMin = vals.length ? Math.min(...vals) : 400;
+        const dMax = vals.length ? Math.max(...vals) : 550;
+        return {
+          ySuggestedMin: Math.max(200, Math.floor(Math.min(dMin, 400) / 20) * 20 - 20),
+          ySuggestedMax: Math.ceil(Math.max(dMax, 600, 500) / 20) * 20,
+        };
+      })()
+    : {};
   const toggle = () => pts.length > 0 && onToggle(graphId);
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === "Enter" || event.key === " ") {
@@ -195,13 +221,13 @@ function TimelineCard({
       role={pts.length > 0 ? "button" : undefined}
       tabIndex={pts.length > 0 ? 0 : undefined}
       aria-expanded={pts.length > 0 ? expanded : undefined}
-      aria-label={pts.length > 0 ? `${title}. Click for scientific explanation.` : undefined}
+      aria-label={pts.length > 0 ? title : undefined}
       onClick={toggle}
       onKeyDown={onKeyDown}
       style={{ cursor: pts.length > 0 ? "pointer" : "default" }}
     >
       <div className="metric-label" style={{ marginBottom: "0.6rem" }}>{title}</div>
-      {pts.length > 0 ? (
+      {chrono.length > 0 && domain ? (
         <>
           <LineChart
             labels={labels}
@@ -220,12 +246,20 @@ function TimelineCard({
             yLabel={yLabel}
             height={220}
             threshold={threshold}
+            xValues={epochs}
+            epochMs={epochs}
+            xMin={domain.min}
+            xMax={domain.max}
+            xStepSize={ONE_H_MS}
+            xMajorStepMs={SIX_H_MS}
+            formatXTick={formatKnmiUtcTick}
+            xLabel="UTC"
+            syncHoverMs={syncHoverMs}
+            onSyncHoverMs={onSyncHoverMs}
+            {...speedScale}
           />
-          <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>
-            {source} · {pts.length} points{hasEkf ? " · EKF overlay" : ""}.
-          </div>
-          <div style={{ fontSize: "0.72rem", color: "var(--accent)", marginTop: "0.35rem", fontWeight: 700 }}>
-            {expanded ? "Click graph to hide scientific explanation" : "Click graph for scientific explanation"}
+          <div style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>
+            {source} · {chrono.length} points{hasEkf ? " · EKF overlay" : ""} · synced UTC axis.
           </div>
           {expanded && <ChartAnalysisBox block={analysis} title="Scientific interpretation" />}
         </>
@@ -239,11 +273,11 @@ function TimelineCard({
 function DataTable({ headers, rows, emptyMsg }: { headers: string[]; rows: string[][]; emptyMsg?: string }) {
   return (
     <div style={{ overflowX: "auto" }}>
-      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.8rem" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" }}>
         <thead>
           <tr style={{ borderBottom: "1px solid var(--border)" }}>
             {headers.map((h) => (
-              <th key={h} style={{ padding: "0.4rem 0.6rem", textAlign: "left", color: "var(--text-muted)", fontWeight: 700, fontSize: "0.65rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>{h}</th>
+              <th key={h} style={{ padding: "0.4rem 0.6rem", textAlign: "left", color: "var(--text-muted)", fontWeight: 700, fontSize: "0.85rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>{h}</th>
             ))}
           </tr>
         </thead>
@@ -292,10 +326,13 @@ export default function SpaceWeatherPage() {
   const [xrayRange, setXrayRange] = useState<"6H" | "24H">("24H");
   const [refreshing, setRefreshing] = useState(false);
   const [nowCat, setNowCat] = useState("");
+  const [now, setNow] = useState(0);
+  const [lastFetched, setLastFetched] = useState<string | null>(null);
   const [feedStatus, setFeedStatus] = useState<FeedStatus>("pending");
   const [liveStationCounts, setLiveStationCounts] = useState<LiveStationCounts | null>(null);
   const [selectedSolarInfo, setSelectedSolarInfo] = useState<SolarInfoKey>("summary");
   const [selectedGraph, setSelectedGraph] = useState<string | null>(null);
+  const [timelineSyncMs, setTimelineSyncMs] = useState<number | null>(null);
   const toggleGraph = (graphId: string) => setSelectedGraph((current) => current === graphId ? null : graphId);
 
   useEffect(() => {
@@ -305,15 +342,34 @@ export default function SpaceWeatherPage() {
       setTl(snapshotTimelines(cached));
       setFeedStatus("stale");
     }
+    const cachedSa = peekSolarActivity();
+    if (cachedSa) {
+      setSa(cachedSa);
+      setSaLoading(false);
+    }
     const cachedStations = peekStations();
     if (cachedStations.length) {
       setLiveStationCounts(countSpiderLiveStationStatuses(cachedStations));
     }
   }, []);
 
+  useEffect(() => subscribeSpaceWeather((next) => {
+    setSw(next);
+    setTl((prev) => prev ?? snapshotTimelines(next));
+    setFeedStatus("ok");
+    setLastFetched(new Date().toISOString());
+  }), []);
+
+  useEffect(() => subscribeSolarActivity((next) => {
+    setSa(next);
+    setSaLoading(false);
+    setSaError(next?.error ?? null);
+  }), []);
+
   useEffect(() => {
     const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
     const fmt = () => {
+      setNow(Date.now());
       const cat = new Date(Date.now() + 2 * 3600 * 1000);
       const d   = cat.getUTCDate();
       const mon = MONTHS[cat.getUTCMonth()];
@@ -333,11 +389,12 @@ export default function SpaceWeatherPage() {
     }
 
     // Kick off every feed immediately so the page fills as each API returns.
-    getSpaceWeather()
+    getSpaceWeather(true)
       .then((s) => {
         setSw(s);
         setTl((prev) => prev ?? snapshotTimelines(s));
         setFeedStatus("ok");
+        setLastFetched(new Date().toISOString());
       })
       .catch(() => {
         const cached = peekSpaceWeather();
@@ -354,8 +411,8 @@ export default function SpaceWeatherPage() {
       .then((stations) => setLiveStationCounts(countSpiderLiveStationStatuses(stations)))
       .catch(() => null);
 
-    if (!background) setSaLoading(true);
-    getSolarActivity(!background)
+    if (!background) setSaLoading((prev) => (peekSolarActivity() ? false : prev || true));
+    getSolarActivity(false, true)
       .then((payload) => {
         setSa(payload);
         setSaError(payload?.error ?? null);
@@ -380,12 +437,6 @@ export default function SpaceWeatherPage() {
     const id = window.setInterval(() => fetchAll(true), 45_000);
     return () => window.clearInterval(id);
   }, [fetchAll]);
-
-  // Keep in sync when another page (home) publishes a fresh snapshot.
-  useEffect(() => subscribeSpaceWeather((next) => {
-    setSw(next);
-    setFeedStatus("ok");
-  }), []);
 
   useEffect(() => subscribeStations((next) => {
     if (next.length) setLiveStationCounts(countSpiderLiveStationStatuses(next));
@@ -435,7 +486,27 @@ export default function SpaceWeatherPage() {
     stations: analyzeStationsOnlineTimeline(stationsOnlinePoints),
   }), [kpPoints, dstPoints, f107Points, solarWindPoints, s4Points, gnssPoints, stationsOnlinePoints]);
 
-  const solarFeedLive = sa?.mode === "live";
+  /** Prefer solar-wind UTC span so Kp/Dst share the same live window as L1 graphs. */
+  const liveMetricTimeDomain = useMemo(() => {
+    const windEpochs = chronologicalPoints(solarWindPoints).map((p) => p.ms);
+    if (windEpochs.length > 1) return sharedTimeDomain([windEpochs]);
+    const lists = [kpPoints, dstPoints, f107Points, solarWindPoints, s4Points, gnssPoints, stationsOnlinePoints]
+      .map((pts) => chronologicalPoints(pts).map((p) => p.ms))
+      .filter((epochs) => epochs.length > 0);
+    return sharedTimeDomain(lists);
+  }, [kpPoints, dstPoints, f107Points, solarWindPoints, s4Points, gnssPoints, stationsOnlinePoints]);
+
+  const liveMetricSync = {
+    syncHoverMs: timelineSyncMs,
+    onSyncHoverMs: setTimelineSyncMs,
+    timeDomain: liveMetricTimeDomain,
+  };
+
+  const snapshotStatus = monitoringFreshness(sw?.updated_utc, now, Boolean(sw), feedStatus !== "ok");
+  const solarStatus = monitoringFreshness(sa?.updated, now, Boolean(sa && sa.mode !== "unavailable"), Boolean(saError) || sa?.mode !== "live");
+  const overallStatus = snapshotStatus === "LIVE" && solarStatus === "LIVE" ? "LIVE"
+    : snapshotStatus === "UNAVAILABLE" && solarStatus === "UNAVAILABLE" ? "UNAVAILABLE" : "DELAYED";
+  const solarFeedLive = solarStatus === "LIVE";
   const solarFeedLabel = saLoading && !sa
     ? "Loading solar data…"
     : solarFeedLive
@@ -464,13 +535,13 @@ export default function SpaceWeatherPage() {
   const eventFeedSource = sa?.event_feed_source;
   const eventFeedName = solarEventFeedLabel(eventFeedSource);
   const eventFeedUnavailableMsg =
-    sa?.donki_note || saError || `${eventFeedName} unavailable — check backend on :8000.`;
+    sa?.donki_note || saError || `${eventFeedName} unavailable. Retrying automatically.`;
 
   const flareCountColor = donkiFlareCountColor(donkiFlares.length, donkiFlares);
   const cmeCountColor = donkiCmeCountColor(donkiCmes.length, donkiCmes);
   const stormCountColor = donkiStormCountColor(donkiStorms.length, donkiStorms);
 
-  const conditionLabel   = kp !== null && kp >= 5 ? "Storm Active" : kp !== null && kp >= 3 ? "Disturbed" : "Quiet";
+  const conditionLabel   = kp === null ? "Geomagnetic data unavailable" : kp >= 5 ? "Storm Active" : kp !== null && kp >= 3 ? "Disturbed" : "Quiet";
   const conditionVariant = kp !== null && kp >= 5 ? "alert" : kp !== null && kp >= 3 ? "warn" : "info";
 
   // ── X-Ray series for charts ───────────────────────────────────────────────
@@ -499,7 +570,7 @@ export default function SpaceWeatherPage() {
   const xrayExplanationOpen = selectedGraph === "xray";
 
   // ── GNSS Impact ───────────────────────────────────────────────────────────
-  const impact = getGnssImpact(kp, s4, flareClass, actLabel);
+  const impact = getGnssImpact(kp, s4, flareClass);
 
   // ── Solar Cycle 25 ────────────────────────────────────────────────────────
   const sc25Progress = getSC25Progress();
@@ -527,12 +598,11 @@ export default function SpaceWeatherPage() {
     displayText(latestAlert?.message) ??
     displayText(latestAlert?.product_id) ??
     null;
-  const alertTime = displayText(latestAlert?.issue_datetime);
   const fluxLabel = displayFlux(sa?.flux);
   const solarInfo: Record<SolarInfoKey, SolarInfo> = {
     summary: {
       title: "Solar Activity",
-      summary: `Current solar activity level: ${actLabel}. Current flare class: ${flareClass}. SWPC alerts: ${alertCount > 0 ? alertCount : "none"}.`,
+      summary: `Current solar activity level: ${actLabel}. Current flare class: ${flareClass}. SWPC bulletins: ${sa?.feed_status?.swpc_alerts?.reachable ? alertCount : "unavailable"}.`,
       detail: [
         "This card summarises the Sun's present activity for GNSS operations. \"Low\" means background flare levels (A/B class) and a quiet solar wind; \"Moderate\" means C-class flares or elevated solar wind are present; \"High\"/\"Severe\" mean M/X-class flares or active geomagnetic conditions that can raise TEC, scintillation, and radio disturbance risk.",
         `Right now the level is "${actLabel}", driven by a ${flareClass} flare class${alertCount > 0 ? ` and ${alertCount} active NOAA alert(s)` : ""}.`,
@@ -563,7 +633,7 @@ export default function SpaceWeatherPage() {
     },
     alerts: {
       title: "NOAA Alerts / Watches / Warnings",
-      summary: alertMsg ? `Latest alert: ${alertMsg.length > 120 ? `${alertMsg.slice(0, 120)}...` : alertMsg}` : "No current NOAA SWPC alerts.",
+      summary: alertMsg ? `Latest alert: ${alertMsg.length > 120 ? `${alertMsg.slice(0, 120)}...` : alertMsg}` : sa?.feed_status?.swpc_alerts?.reachable ? "No bulletins returned by NOAA." : "NOAA alert status unavailable.",
       detail: "NOAA SWPC alerts are operational warnings for solar radiation storms (S-scale), radio blackouts (R-scale), and geomagnetic storms (G-scale) — each scale runs 1 (minor) to 5 (extreme). These warnings help decide when to monitor GNSS quality more closely; an \"Electron flux exceeded\" alert like the one shown is a radiation-belt enhancement watch, not itself a confirmed storm.",
     },
     flareEvents: {
@@ -582,9 +652,9 @@ export default function SpaceWeatherPage() {
       detail: `Geomagnetic storm events show Earth-side magnetic disturbance (measured via Kp/Dst), and are more directly linked to GNSS degradation than solar flare or CME counts alone. ${donkiStorms.length === 0 ? "Zero here means Earth's magnetic field has stayed quiet over this window." : "Higher Kp during these events means larger positioning error and possible RTK/PPP convergence delay."}`,
     },
     impact: {
-      title: "Impact on GNSS & CORS Networks",
-      summary: `GNSS/CORS: ${impact.rtk}; HF radio: ${impact.hf}; power grids: ${kp !== null && kp >= 7 ? "GIC risk" : "minimal GIC"}.`,
-      detail: "This card translates the solar and geomagnetic readings above into operational effects: \"Nominal\"/\"Excellent\" means no expected disruption; \"Degraded\"/\"Delayed\" means slower RTK/PPP convergence and noisier ranging; \"Severely degraded\"/\"Blackout possible\" means significant positioning error and possible loss of HF radio during the event. It is the practical impact view for Zimbabwe CORS users.",
+      title: "Estimated operational context (provisional)",
+      summary: `GNSS/CORS: ${impact.rtk}; HF radio: ${impact.hf}.`,
+      detail: "Space-weather indicators provide context for monitoring. RTK accuracy, PPP convergence, satellite operations and power-grid effects require local measurements. These estimates do not establish an outage or confirm normal service.",
     },
   };
   const selectedInfo = solarInfo[selectedSolarInfo];
@@ -608,7 +678,7 @@ export default function SpaceWeatherPage() {
   });
 
   return (
-    <div className="page-stack">
+    <div className="page-stack space-weather-page">
 
       {/* ── Title ── */}
       <div className="dashboard-header">
@@ -630,31 +700,29 @@ export default function SpaceWeatherPage() {
         </div>
       </div>
 
-      {/* ── Status bar ── */}
-      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.7rem", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", flexWrap: "wrap" }}>
-        <span className="dot dot-ok" />
-        <span>Live Space Weather</span>
-        <span style={{ color: "var(--border)" }}>·</span>
-        <span>Zimbabwe CORS Network</span>
-        <span style={{ color: "var(--border)" }}>·</span>
-        <span className="dot dot-ok" />
-        <span>Live</span>
-        {sw?.updated_utc && (
-          <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0, marginLeft: "auto", color: "var(--text-muted)", fontSize: "0.72rem" }}>
-            Updated {sw.updated_utc.slice(0, 16).replace("T", " ")} UTC
+      <div className="sw-monitor-status" role="status">
+        <span className={`sw-feed-state sw-feed-state-${overallStatus.toLowerCase()}`}>
+          {feedStatus === "pending" && !sw && !sa ? "Connecting" : overallStatus === "LIVE" ? "Feeds current" : overallStatus === "DELAYED" ? "Partial feeds" : "Feeds unavailable"}
           </span>
-        )}
+        <span>Indices: {snapshotStatus === "DELAYED" ? "partial" : snapshotStatus.toLowerCase()} · Solar: {solarStatus === "DELAYED" ? "partial" : solarStatus.toLowerCase()}</span>
+        <span>Snapshot: {observationTime(sw?.updated_utc)}</span>
+        {lastFetched && <span>Last successful fetch: {observationTime(lastFetched)}</span>}
       </div>
-
+      <p className="sw-supporting-text">Refresh checks run every 45 seconds. Snapshot time is separate from each source’s observation time; check the timestamp on each reading.</p>
       {freshnessMsg && <div className="banner banner-warn">{freshnessMsg}</div>}
-
       <HomeStormAlertBanner sw={sw} />
 
-      <ClickableMetricGrid sw={sw} updatedUtc={sw?.updated_utc} liveStationCounts={liveStationCounts} />
-      <IndexScaleReference />
-      <CauseEffectTimelineStack />
-      <AiRecommendationPanel sw={sw} indicesLoading={feedStatus === "pending" && !sw} />
-
+      <ClickableMetricGrid
+        sw={sw}
+        updatedUtc={sw?.updated_utc}
+        liveStationCounts={liveStationCounts}
+        solar={sa}
+        solarLoading={saLoading}
+        now={now}
+        refreshFailed={feedStatus !== "ok"}
+        solarRefreshFailed={Boolean(saError)}
+        loading={feedStatus === "pending" && !sw}
+      />
       {/* ── Solar Activity Monitor section ── */}
       <div style={{ display: "flex", flexDirection: "column", gap: "0.8rem" }}>
         {/* Section header */}
@@ -663,19 +731,19 @@ export default function SpaceWeatherPage() {
             <span style={{ fontSize: "1rem" }}>⚡</span>
             <span style={{ fontWeight: 800, fontSize: "0.85rem", letterSpacing: "0.1em", textTransform: "uppercase" }}>Solar Activity Monitor</span>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.72rem", color: "var(--text-muted)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.85rem", color: "var(--text-muted)" }}>
             <span className={`dot ${solarFeedLive ? "dot-ok" : "dot-warn"}`} style={{ width: "7px", height: "7px" }} />
             <span>{solarFeedLabel} · NOAA SWPC · {nowCat}</span>
           </div>
         </div>
 
         {saError && !solarFeedLive && (
-          <div className="banner banner-warn" style={{ fontSize: "0.78rem" }} role="status">
-            Solar monitor: {saError}. Retrying automatically — set <code>NASA_API_KEY</code> on the backend for more reliable DONKI.
+          <div className="banner banner-warn" style={{ fontSize: "0.85rem" }} role="status">
+            Some solar feeds are unavailable. Available observations remain visible; retrying automatically.
           </div>
         )}
 
-        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", fontSize: "0.72rem", color: "var(--text-muted)", paddingLeft: "0.2rem" }}>
+        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", fontSize: "0.85rem", color: "var(--text-muted)", paddingLeft: "0.2rem" }}>
           <span style={{ fontWeight: 600, color: "var(--text)" }}>Real-time solar conditions for GNSS, satellites and CORS networks</span>
         </div>
 
@@ -700,30 +768,30 @@ export default function SpaceWeatherPage() {
               </svg>
             </div>
             <div style={{ width: "100%" }}>
-              <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", marginBottom: "0.25rem" }}>Solar Activity</div>
+              <div style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: "0.25rem" }}>Solar Activity</div>
               <div style={{ fontWeight: 800, fontSize: "1.1rem", color: actColor }}>{actLabel}</div>
             </div>
             <div style={{ width: "100%", borderTop: "1px solid var(--border)", paddingTop: "0.6rem", display: "flex", flexDirection: "column", gap: "0.3rem" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.78rem" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem" }}>
                 <span style={{ color: "var(--text-muted)" }}>Current Flare</span>
                 <span style={{ fontWeight: 700, color: flareClassColor(flareClass) }}>{flareClass}</span>
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.78rem" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem" }}>
                 <span style={{ color: "var(--text-muted)" }}>SWPC Alerts</span>
-                <span style={{ fontWeight: 700 }}>{alertCount > 0 ? alertCount : "None"}</span>
+                <span style={{ fontWeight: 700 }}>{sa?.feed_status?.swpc_alerts?.reachable ? alertCount : "Unavailable"}</span>
               </div>
             </div>
           </div>
 
           {/* Solar Flare (GOES X-Ray) */}
           <div className="card" {...solarCardClickProps("flare", { display: "flex", flexDirection: "column", gap: "0.5rem" })}>
-            <div style={{ fontSize: "0.62rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)" }}>Solar Flare (GOES X-Ray)</div>
-            <div style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>Current class:</div>
+            <div style={{ fontSize: "0.85rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)" }}>Solar Flare (GOES X-Ray)</div>
+            <div style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>Current class:</div>
             <div style={{ fontSize: "2.4rem", fontWeight: 900, lineHeight: 1, color: flareClassColor(flareClass), marginBottom: "0.3rem" }}>
               {flareClass}
             </div>
             {fluxLabel && (
-              <div style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
+              <div style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
                 Flux: {fluxLabel}
               </div>
             )}
@@ -733,8 +801,8 @@ export default function SpaceWeatherPage() {
                 {FLARE_SCALE.map((f) => (
                   <div key={f.cls} style={{ flex: 1, minWidth: "40px", textAlign: "center" }}>
                     <div style={{ width: "100%", height: "3px", background: f.color, borderRadius: "2px", marginBottom: "3px" }} />
-                    <div style={{ fontSize: "0.6rem", fontWeight: 700, color: f.color }}>{f.label.split("-")[0]}-</div>
-                    <div style={{ fontSize: "0.58rem", color: "var(--text-muted)" }}>{f.desc}</div>
+                    <div style={{ fontSize: "0.85rem", fontWeight: 700, color: f.color }}>{f.label.split("-")[0]}-</div>
+                    <div style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>{f.desc}</div>
                   </div>
                 ))}
               </div>
@@ -743,7 +811,7 @@ export default function SpaceWeatherPage() {
 
           {/* GOES X-Ray Flux chart */}
           <div className="card" {...solarCardClickProps("xray", { display: "flex", flexDirection: "column", gap: "0.5rem" })}>
-            <div style={{ fontSize: "0.62rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)" }}>GOES X-Ray Flux — Last Day</div>
+            <div style={{ fontSize: "0.85rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)" }}>GOES X-Ray Flux — Last Day</div>
             {xraySlice.length > 0 ? (
               <>
                 <LineChart
@@ -752,12 +820,12 @@ export default function SpaceWeatherPage() {
                   yLabel="Flux ×10⁻⁷"
                   height={150}
                 />
-                <div style={{ fontSize: "0.65rem", color: "var(--text-muted)" }}>
+                <div style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
                   0.1–0.8 nm band · Source: NOAA SWPC GOES primary
                 </div>
               </>
             ) : (
-              <div className="banner banner-info" style={{ fontSize: "0.75rem" }}>X-ray flux data unavailable.</div>
+              <div className="banner banner-info" style={{ fontSize: "0.85rem" }}>X-ray flux data unavailable.</div>
             )}
           </div>
         </div>
@@ -767,7 +835,7 @@ export default function SpaceWeatherPage() {
 
           {/* Solar Wind */}
           <div className="card" {...solarCardClickProps("wind")}>
-            <div style={{ fontSize: "0.62rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "0.8rem" }}>Solar Wind</div>
+            <div style={{ fontSize: "0.85rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "0.8rem" }}>Solar Wind</div>
             {[
               { icon: "🌀", label: "Speed",       val: sa?.solar_wind?.speed,       unit: "km/s",   fmt: (v: number) => v.toFixed(0) },
               { icon: "🔵", label: "Density",     val: sa?.solar_wind?.density,     unit: "p/cm³",  fmt: (v: number) => v.toFixed(1) },
@@ -778,7 +846,7 @@ export default function SpaceWeatherPage() {
               const display = typeof val === "number" && Number.isFinite(val) ? fmt(val) : null;
               const missingLabel = sa ? "Feed unavailable" : "Loading…";
               return (
-                <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.3rem 0", borderBottom: "1px solid #1a2a3a", fontSize: "0.8rem" }}>
+                <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.3rem 0", borderBottom: "1px solid #1a2a3a", fontSize: "0.85rem" }}>
                   <span style={{ color: "var(--text-muted)" }}>{icon} {label}</span>
                   <span style={{ fontWeight: 700 }}>
                     {display !== null ? `${display} ${unit}` : missingLabel}
@@ -788,48 +856,41 @@ export default function SpaceWeatherPage() {
             })}
           </div>
 
-          {/* Alerts / Watches / Warnings */}
-          <div className="card" {...solarCardClickProps("alerts", { display: "flex", flexDirection: "column", gap: "0.5rem" })}>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.2rem" }}>
-              <span className="dot dot-ok" style={{ width: "7px", height: "7px", flexShrink: 0 }} />
-              <span style={{ fontSize: "0.62rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)" }}>
-                Alerts / Watches / Warnings
-              </span>
-            </div>
+          <div className="card" style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+            <div className="metric-label">Alerts / Watches / Warnings</div>
             {alertMsg ? (
               <>
-                {alertTime && (
-                  <div style={{ fontSize: "0.65rem", color: "var(--text-muted)" }}>{alertTime.slice(0, 16).replace("T", " ")} UTC</div>
-                )}
-                <div style={{ fontSize: "0.75rem", lineHeight: 1.5, overflowY: "auto", maxHeight: "140px", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-                  {alertMsg.length > 400 ? alertMsg.slice(0, 400) + "…" : alertMsg}
+                <div style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
+                  Issued {observationTime(displayText(latestAlert?.issue_datetime))}
                 </div>
-                {alertCount > 1 && (
-                  <div style={{ fontSize: "0.65rem", color: "var(--text-muted)" }}>+{alertCount - 1} more alert(s)</div>
-                )}
-                <div style={{ fontSize: "0.62rem", color: "var(--text-muted)", marginTop: "auto" }}>Source: NOAA SWPC alerts.json</div>
+                <div style={{ fontSize: "0.85rem", lineHeight: 1.5, overflowY: "auto", maxHeight: "180px", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+                  {alertMsg}
+                </div>
+                <div style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
+                  Check bulletin validity; a recent listing does not confirm an active warning.
+                </div>
+                {alertCount > 1 && <div style={{ fontSize: "0.85rem" }}>+{alertCount - 1} more bulletin(s)</div>}
               </>
             ) : (
-              <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", fontStyle: "italic" }}>
-                {sa?.mode === "unavailable" ? "NOAA alerts feed unavailable." : "No current NOAA SWPC alerts."}
-              </div>
+              <p>{saLoading && !sa ? "Loading NOAA bulletins…" : sa?.feed_status?.swpc_alerts?.reachable && solarFeedLive ? "No bulletins returned by the current NOAA feed." : "Current NOAA alert status unavailable."}</p>
             )}
+            <a href="#operational-alerts-title" style={{ marginTop: "auto", fontSize: "0.85rem" }}>Source: NOAA SWPC · View all bulletins ↓</a>
           </div>
 
           {/* Solar Flares count */}
           <div className="card" {...solarCardClickProps("flareEvents", { textAlign: "center" })}>
-            <div style={{ fontSize: "0.62rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "0.6rem" }}>Solar Flares</div>
+            <div style={{ fontSize: "0.85rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "0.6rem" }}>Solar Flares</div>
             <div style={{ fontSize: donkiLive ? "3rem" : "1.1rem", fontWeight: 900, lineHeight: 1, marginBottom: "0.4rem", color: donkiLive ? flareCountColor : "var(--text-muted)" }}>
               {saLoading && !sa ? "Loading…" : donkiLive ? donkiFlares.length : "Feed unavailable"}
             </div>
-            <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+            <div style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
               {!donkiLive
                 ? sa?.donki_note || saError || "NASA DONKI flare feed is unavailable."
                 : donkiFlares.length === 0
                 ? `No flare events in the selected 7-day window.`
                 : `Flare event(s) detected.`}
             </div>
-            {dateRange && <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>FLR: {dateRange}</div>}
+            {dateRange && <div style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>FLR: {dateRange}</div>}
           </div>
         </div>
 
@@ -838,45 +899,45 @@ export default function SpaceWeatherPage() {
 
           {/* CME count */}
           <div className="card" {...solarCardClickProps("cme", { textAlign: "center" })}>
-            <div style={{ fontSize: "0.62rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "0.6rem" }}>Coronal Mass Ejections</div>
+            <div style={{ fontSize: "0.85rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "0.6rem" }}>Coronal Mass Ejections</div>
             <div style={{ fontSize: donkiLive ? "3rem" : "1.1rem", fontWeight: 900, lineHeight: 1, marginBottom: "0.4rem", color: donkiLive ? cmeCountColor : "var(--text-muted)" }}>
               {saLoading && !sa ? "Loading…" : donkiLive ? donkiCmes.length : "Feed unavailable"}
             </div>
-            <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+            <div style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
               {!donkiLive
                 ? sa?.donki_note || saError || "NASA DONKI CME feed is unavailable."
                 : donkiCmes.length === 0 ? "No CME events in the selected 7-day window." : "CME event(s) detected."}
             </div>
-            {dateRange && <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>CME event history · {dateRange}</div>}
+            {dateRange && <div style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>CME event history · {dateRange}</div>}
           </div>
 
           {/* Geomagnetic Storms count */}
           <div className="card" {...solarCardClickProps("storms", { textAlign: "center" })}>
-            <div style={{ fontSize: "0.62rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "0.6rem" }}>Geomagnetic Storms</div>
+            <div style={{ fontSize: "0.85rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "0.6rem" }}>Geomagnetic Storms</div>
             <div style={{ fontSize: donkiLive ? "3rem" : "1.1rem", fontWeight: 900, lineHeight: 1, marginBottom: "0.4rem", color: donkiLive ? stormCountColor : "var(--text-muted)" }}>
               {saLoading && !sa ? "Loading…" : donkiLive ? donkiStorms.length : "Feed unavailable"}
             </div>
-            <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+            <div style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
               {!donkiLive
                 ? sa?.donki_note || saError || "NASA DONKI storm feed is unavailable."
                 : donkiStorms.length === 0 ? "No geomagnetic storm events in the selected 7-day window." : "Storm event(s) detected."}
             </div>
-            {dateRange && <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>GST event history · {dateRange}</div>}
+            {dateRange && <div style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>GST event history · {dateRange}</div>}
           </div>
 
           {/* Impact on GNSS & CORS Networks (compact) */}
           <div className="card" {...solarCardClickProps("impact")}>
-            <div style={{ fontSize: "0.62rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "0.7rem" }}>Impact on GNSS &amp; CORS Networks</div>
+            <div style={{ fontSize: "0.85rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "0.7rem" }}>Estimated operational context — provisional</div>
             <div className="sw-double-grid">
               {[
                 { label: "GNSS / CORS",  val: impact.rtk },
                 { label: "HF Radio",     val: impact.hf },
-                { label: "Satellites",   val: "Routine ops" },
-                { label: "Power Grids",  val: kp !== null && kp >= 7 ? "GIC risk" : "Minimal GIC" },
+                { label: "Satellites",   val: "Impact not verified" },
+                { label: "Power Grids",  val: "Check local GIC measurements" },
               ].map(({ label, val }) => (
                 <div key={label} style={{ background: "#0a1929", borderRadius: "6px", padding: "0.4rem 0.6rem" }}>
-                  <div style={{ fontSize: "0.6rem", color: "var(--text-muted)", marginBottom: "2px" }}>{label}</div>
-                  <div style={{ fontSize: "0.72rem", fontWeight: 600 }}>{val}</div>
+                  <div style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: "2px" }}>{label}</div>
+                  <div style={{ fontSize: "0.85rem", fontWeight: 600 }}>{val}</div>
                 </div>
               ))}
             </div>
@@ -887,23 +948,28 @@ export default function SpaceWeatherPage() {
       {/* ── Condition banner ── */}
       <div className={`banner banner-${conditionVariant}`}>
         <strong>{selectedInfo.title}: {selectedInfo.summary}</strong>
-        <div style={{ marginTop: "0.35rem", fontSize: "0.8rem", lineHeight: 1.45 }}>
+        <div style={{ marginTop: "0.35rem", fontSize: "0.85rem", lineHeight: 1.45 }}>
           {selectedInfo.detail}
         </div>
-        <div style={{ marginTop: "0.35rem", fontSize: "0.76rem", color: "var(--text-muted)" }}>
+        <div style={{ marginTop: "0.35rem", fontSize: "0.85rem", color: "var(--text-muted)" }}>
           Current condition: {conditionLabel}
         </div>
         {risk && risk !== "Low" && (
-          <div style={{ marginTop: "0.25rem", fontSize: "0.8rem" }}>
-            GNSS risk is {risk} — ionospheric conditions may affect positioning accuracy over Zimbabwe.
+          <div style={{ marginTop: "0.25rem", fontSize: "0.85rem" }}>
+            Estimated GNSS risk: {risk} (provisional). Local positioning impact has not been verified.
           </div>
         )}
         {!(liveStationCounts?.online || sw?.stations_online) && (
-          <div style={{ marginTop: "0.25rem", fontSize: "0.8rem" }}>
-            Production CORS API reports zero live telemetry; archive/catalog statuses are not presented as live station availability.
+          <div style={{ marginTop: "0.25rem", fontSize: "0.85rem" }}>
+            No live CORS connection count is available here. Check the station observations and network status before drawing conclusions about service availability.
           </div>
         )}
       </div>
+
+      <OperationalAlerts solar={sa} now={now} refreshFailed={Boolean(saError)} />
+      <CauseEffectTimelineStack />
+      <IndexScaleReference />
+      <AdvancedScientificIndices sw={sw} solar={sa} />
 
       {/* ── Tabs ── */}
       <div className="tabs">
@@ -915,7 +981,9 @@ export default function SpaceWeatherPage() {
       {/* ── Tab 0: Timelines ── */}
       {tab === 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-          <p style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>Real-time NOAA feeds and derived indices — last 6 hours (UTC)</p>
+          <p style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>
+            Live NOAA feeds and derived indices — shared UTC axis with solar wind (synced crosshair)
+          </p>
 
           <TimelineCard graphId="kp" title="Live NOAA Kp Timeline"
             pts={kpPoints} color="#168bd2" yLabel="Kp Index"
@@ -925,7 +993,8 @@ export default function SpaceWeatherPage() {
             expanded={selectedGraph === "kp"} onToggle={toggleGraph}
             ekfPoints={ekf?.series.kp?.points}
             ekfColor="#7dd3fc"
-            emptyMsg="Live NOAA Kp feed unavailable." />
+            emptyMsg="Live NOAA Kp feed unavailable."
+            {...liveMetricSync} />
 
           <TimelineCard graphId="dst" title="Live NOAA Dst Timeline"
             pts={dstPoints} color="#a78bfa" yLabel="Dst (nT)"
@@ -935,7 +1004,8 @@ export default function SpaceWeatherPage() {
             expanded={selectedGraph === "dst"} onToggle={toggleGraph}
             ekfPoints={ekf?.series.dst?.points}
             ekfColor="#d8b4fe"
-            emptyMsg="Live NOAA Dst feed unavailable." />
+            emptyMsg="Live NOAA Dst feed unavailable."
+            {...liveMetricSync} />
 
           <TimelineCard graphId="f107" title="Live NOAA F10.7 Solar Flux Timeline"
             pts={f107Points} color="#ffcc00" yLabel="F10.7 (sfu)"
@@ -945,19 +1015,21 @@ export default function SpaceWeatherPage() {
             expanded={selectedGraph === "f107"} onToggle={toggleGraph}
             ekfPoints={ekf?.series.f107?.points}
             ekfColor="#fde68a"
-            emptyMsg="Live NOAA F10.7 feed unavailable." />
+            emptyMsg="Live NOAA F10.7 feed unavailable."
+            {...liveMetricSync} />
 
           <TimelineCard graphId="solar-wind" title="Live NOAA Solar Wind Timeline"
             pts={solarWindPoints} color="#00cc88" yLabel="Speed (km/s)"
-            threshold={{ value: 500, label: "Fast stream (500 km/s)" }}
+            threshold={{ value: 500, label: "Fast stream (500 km/s)", color: "#ff8c00", fillAbove: true }}
             source="NOAA SWPC solar-wind plasma 1-day feed"
             analysis={timelineAnalyses.solarWind}
             expanded={selectedGraph === "solar-wind"} onToggle={toggleGraph}
             ekfPoints={ekf?.series.solar_wind?.points}
             ekfColor="#86efac"
-            emptyMsg="Live solar wind feed unavailable." />
+            emptyMsg="Live solar wind feed unavailable."
+            {...liveMetricSync} />
 
-          <TimelineCard graphId="s4" title="Live Scintillation S4 Timeline"
+          <TimelineCard graphId="s4" title="Archived Scintillation S4 Timeline"
             pts={s4Points} color="#ff8c00" yLabel="S4 Index"
             threshold={{ value: 0.5, label: "Severe scintillation (0.5)" }}
             source="ZINGSA CORS ionosphere archive"
@@ -965,9 +1037,10 @@ export default function SpaceWeatherPage() {
             expanded={selectedGraph === "s4"} onToggle={toggleGraph}
             ekfPoints={ekf?.series.s4?.points}
             ekfColor="#fdba74"
-            emptyMsg="No observed S4 archive value is available for the timeline." />
+            emptyMsg="No observed S4 archive value is available for the timeline."
+            {...liveMetricSync} />
 
-          <TimelineCard graphId="gnss-risk" title="GNSS Risk Level Timeline"
+          <TimelineCard graphId="gnss-risk" title="Estimated GNSS Risk Timeline (provisional)"
             pts={gnssPoints} color="#168bd2" yLabel="Risk level"
             threshold={{ value: 2, label: "High risk (2)" }}
             source="Derived from NOAA Kp — ZINGSA GNSS risk thresholds"
@@ -975,7 +1048,8 @@ export default function SpaceWeatherPage() {
             expanded={selectedGraph === "gnss-risk"} onToggle={toggleGraph}
             ekfPoints={ekf?.series.gnss_risk?.points}
             ekfColor="#7dd3fc"
-            emptyMsg="GNSS risk timeline unavailable." />
+            emptyMsg="GNSS risk timeline unavailable."
+            {...liveMetricSync} />
 
           {stationsOnlinePoints.length > 0 ? (
             <TimelineCard graphId="cors-online" title="Live CORS Stations Online Timeline"
@@ -985,7 +1059,8 @@ export default function SpaceWeatherPage() {
               expanded={selectedGraph === "cors-online"} onToggle={toggleGraph}
               ekfPoints={ekf?.series.stations_online?.points}
               ekfColor="#86efac"
-              emptyMsg="Live CORS telemetry unavailable." />
+              emptyMsg="Live CORS telemetry unavailable."
+              {...liveMetricSync} />
           ) : (
             <div className="card">
               <div className="metric-label" style={{ marginBottom: "0.6rem" }}>Live CORS Stations Online Timeline</div>
@@ -1000,7 +1075,7 @@ export default function SpaceWeatherPage() {
         <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
 
           {/* NOAA SWPC status bar */}
-          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.5rem 0.8rem", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "0.72rem", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.5rem 0.8rem", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "0.85rem", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase" }}>
             <span className={`dot ${solarFeedLive ? "dot-ok" : "dot-warn"}`} style={{ width: "7px", height: "7px" }} />
             <span>NOAA SWPC · {solarFeedLabel}</span>
           </div>
@@ -1011,7 +1086,7 @@ export default function SpaceWeatherPage() {
             role={xraySlice.length > 0 ? "button" : undefined}
             tabIndex={xraySlice.length > 0 ? 0 : undefined}
             aria-expanded={xraySlice.length > 0 ? xrayExplanationOpen : undefined}
-            aria-label={xraySlice.length > 0 ? "GOES X-ray flux graph. Click for scientific explanation." : undefined}
+            aria-label={xraySlice.length > 0 ? "GOES X-ray flux graph" : undefined}
             onClick={() => xraySlice.length > 0 && toggleGraph("xray")}
             onKeyDown={(event) => {
               if (xraySlice.length > 0 && (event.key === "Enter" || event.key === " ")) {
@@ -1026,7 +1101,7 @@ export default function SpaceWeatherPage() {
               <div style={{ display: "flex", gap: "0.4rem" }}>
                 {(["6H", "24H"] as const).map((r) => (
                   <button key={r} onClick={(event) => { event.stopPropagation(); setXrayRange(r); }}
-                    style={{ padding: "0.2rem 0.7rem", fontSize: "0.72rem", fontWeight: 700, borderRadius: "5px", border: `1px solid ${xrayRange === r ? "var(--accent)" : "var(--border)"}`, background: xrayRange === r ? "var(--accent)" : "var(--surface)", color: "#fff", cursor: "pointer" }}>
+                    style={{ padding: "0.2rem 0.7rem", fontSize: "0.85rem", fontWeight: 700, borderRadius: "5px", border: `1px solid ${xrayRange === r ? "var(--accent)" : "var(--border)"}`, background: xrayRange === r ? "var(--accent)" : "var(--surface)", color: "#fff", cursor: "pointer" }}>
                     {r}
                   </button>
                 ))}
@@ -1041,16 +1116,13 @@ export default function SpaceWeatherPage() {
                   height={240}
                 />
                 {/* Flare class reference lines */}
-                <div style={{ display: "flex", gap: "1.5rem", flexWrap: "wrap", marginTop: "0.6rem", fontSize: "0.65rem" }}>
+                <div style={{ display: "flex", gap: "1.5rem", flexWrap: "wrap", marginTop: "0.6rem", fontSize: "0.85rem" }}>
                   {FLARE_SCALE.map((f) => (
                     <span key={f.cls} style={{ display: "flex", alignItems: "center", gap: "3px" }}>
                       <span style={{ display: "inline-block", width: "10px", height: "3px", background: f.color, borderRadius: "2px" }} />
                       {f.label}
                     </span>
                   ))}
-                </div>
-                <div style={{ fontSize: "0.72rem", color: "var(--accent)", marginTop: "0.5rem", fontWeight: 700 }}>
-                  {xrayExplanationOpen ? "Click graph to hide scientific explanation" : "Click graph for scientific explanation"}
                 </div>
                 {xrayExplanationOpen && <ChartAnalysisBox block={xrayAnalysis} title="Scientific interpretation" />}
               </>
@@ -1082,7 +1154,7 @@ export default function SpaceWeatherPage() {
                 emptyMsg={donkiLive ? "No flare regions in the last 7 days." : eventFeedUnavailableMsg}
               />
               {sa?.donki_date_start && (
-                <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>
+                <div style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>
                   {eventFeedName} flares · {dateRange}
                 </div>
               )}
@@ -1096,7 +1168,7 @@ export default function SpaceWeatherPage() {
                 emptyMsg={donkiLive ? "No CME events in the last 7 days." : eventFeedUnavailableMsg}
               />
               {sa?.donki_date_start && (
-                <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>
+                <div style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>
                   {eventFeedName} CME · {dateRange}
                 </div>
               )}
@@ -1111,7 +1183,7 @@ export default function SpaceWeatherPage() {
               rows={radioBurstRows}
               emptyMsg={donkiLive ? "No flare-derived radio burst proxies in the last 7 days." : eventFeedUnavailableMsg}
             />
-            <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>
+            <div style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>
               NOAA GOES X-ray · proxy from {donkiLive ? eventFeedName : "solar flare events"}
             </div>
           </div>
@@ -1124,11 +1196,11 @@ export default function SpaceWeatherPage() {
             <div className="metric-label" style={{ marginBottom: "0.8rem" }}>Solar Cycle Progress</div>
             <div className="sw-double-grid sw-double-grid--center">
               <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.8rem" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem" }}>
                   <span style={{ color: "var(--text-muted)" }}>Solar Cycle</span>
                   <span style={{ fontWeight: 800 }}>25</span>
                 </div>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.8rem" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem" }}>
                   <span style={{ color: "var(--text-muted)" }}>Cycle Progress</span>
                   <span style={{ fontWeight: 800, color: "#f97316" }}>{sc25Progress}%</span>
                 </div>
@@ -1136,9 +1208,9 @@ export default function SpaceWeatherPage() {
                 <div style={{ height: "10px", background: "#1a2a3a", borderRadius: "5px", overflow: "hidden" }}>
                   <div style={{ height: "100%", width: `${sc25Progress}%`, background: "linear-gradient(90deg, #22c55e, #eab308, #f97316)", borderRadius: "5px", transition: "width 0.5s" }} />
                 </div>
-                <div style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>Estimated Peak: 2024–2026 (Cycle 25 maximum window)</div>
+                <div style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>Estimated Peak: 2024–2026 (Cycle 25 maximum window)</div>
               </div>
-              <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", lineHeight: 1.7 }}>
+              <div style={{ fontSize: "0.85rem", color: "var(--text-muted)", lineHeight: 1.7 }}>
                 <div>Start: December 2019</div>
                 <div>Predicted end: ~2031</div>
                 <div style={{ marginTop: "0.4rem", fontStyle: "italic" }}>Reference cycle window; no synthetic observation values are displayed.</div>
@@ -1148,7 +1220,7 @@ export default function SpaceWeatherPage() {
 
           {/* Impact on GNSS & CORS Networks (detailed row) */}
           <div className="card">
-            <div className="metric-label" style={{ marginBottom: "0.8rem" }}>Impact on GNSS &amp; CORS Networks</div>
+            <div className="metric-label" style={{ marginBottom: "0.8rem" }}>Estimated operational context — provisional</div>
             <div className="sw-triple-grid sw-triple-grid--tight">
               {[
                 { label: "RTK Accuracy",        val: impact.rtk },
@@ -1158,15 +1230,15 @@ export default function SpaceWeatherPage() {
                 { label: "HF Communication",    val: impact.hf },
               ].map(({ label, val }) => (
                 <div key={label} style={{ background: "#0a1929", borderRadius: "7px", padding: "0.5rem 0.7rem" }}>
-                  <div style={{ fontSize: "0.6rem", color: "var(--text-muted)", marginBottom: "3px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</div>
-                  <div style={{ fontSize: "0.78rem", fontWeight: 600 }}>{val}</div>
+                  <div style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: "3px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</div>
+                  <div style={{ fontSize: "0.85rem", fontWeight: 600 }}>{val}</div>
                 </div>
               ))}
             </div>
             {/* Africa CORS spanning full row */}
             <div style={{ background: "#0a1929", borderRadius: "7px", padding: "0.5rem 0.7rem" }}>
-              <div style={{ fontSize: "0.6rem", color: "var(--text-muted)", marginBottom: "3px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Africa CORS (ZINGSA API)</div>
-              <div style={{ fontSize: "0.78rem", fontWeight: 600 }}>{impact.cors}</div>
+              <div style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: "3px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Zimbabwe CORS — provisional context</div>
+              <div style={{ fontSize: "0.85rem", fontWeight: 600 }}>{impact.cors}</div>
             </div>
           </div>
 
@@ -1184,8 +1256,8 @@ export default function SpaceWeatherPage() {
                 <div key={label} style={{ display: "flex", alignItems: "center", gap: "0.5rem", background: "#0a1929", borderRadius: "8px", padding: "0.45rem 0.8rem", flex: "1 1 100px" }}>
                   <span style={{ display: "inline-block", width: "10px", height: "10px", borderRadius: "50%", background: color, flexShrink: 0 }} />
                   <div>
-                    <div style={{ fontSize: "0.75rem", fontWeight: 700, color }}>{label}</div>
-                    <div style={{ fontSize: "0.65rem", color: "var(--text-muted)" }}>{desc}</div>
+                    <div style={{ fontSize: "0.85rem", fontWeight: 700, color }}>{label}</div>
+                    <div style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>{desc}</div>
                   </div>
                 </div>
               ))}

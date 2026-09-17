@@ -85,13 +85,6 @@ function StatusBody({ data }: { data: NationalGnssStatusData }) {
         </div>
       </StatusSection>
 
-      <StatusSection title="Current Space Weather">
-        <div className="gnss-status-sw">
-          <div>{data.kp}</div>
-          <div>{data.stormRisk}</div>
-        </div>
-      </StatusSection>
-
       <StatusSection title="National Services">
         <div className="gnss-status-services">
           {data.services.map((service) => (

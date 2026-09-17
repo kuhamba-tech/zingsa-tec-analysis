@@ -5,7 +5,13 @@
 import { effectiveNavigationTone } from "./gnssAudienceNews";
 import type { ForecastStatus, GnssForecastCity } from "./gnssWeatherIntelligence";
 import type { GicStatusResponse, SpaceWeatherCurrent } from "./types";
-import { formatPowerIndicesDetail, formatTelecomIndicesDetail } from "./spaceWeatherMetrics";
+import {
+  formatPowerIndicesDetail,
+  formatTelecomIndicesDetail,
+  noaaGScaleFromKp,
+  formatKpDisplay,
+  formatVtecDisplay,
+} from "./spaceWeatherMetrics";
 
 export type AiRecommendationAudience =
   | "surveyors"
@@ -33,20 +39,23 @@ function field(city: GnssForecastCity | undefined, label: string): string | unde
   return city?.fields.find((f) => f.label === label)?.value;
 }
 
-function surveyorDetail(city: GnssForecastCity | undefined): string | undefined {
-  if (!city) return undefined;
+function surveyorDetail(city: GnssForecastCity | undefined, sw: SpaceWeatherCurrent | null): string | undefined {
+  const g = noaaGScaleFromKp(sw?.kp);
+  const why = `Why this status? ${g.display} globally · Zimbabwe VTEC ${formatVtecDisplay(sw?.mean_vtec)} · ΔTEC/ROTI pending · provisional GNSS risk ${sw?.gnss_risk ?? "N/A"}`;
+  if (!city) return why;
   const accuracy = field(city, "Expected Accuracy");
   const rtk = field(city, "RTK Reliability");
   const window = field(city, "Best Survey Window") ?? "07:00 – 14:00";
   if (!accuracy) {
-    return window ? `Survey window ${window}` : undefined;
+    return `Survey window ${window} · ${why}`;
   }
   if (city.status === "warning") {
-    return `Expected accuracy ${accuracy}`;
+    return `Expected accuracy ${accuracy} · ${why}`;
   }
   const parts = [`Expected accuracy ${accuracy}`];
   if (rtk) parts.push(`RTK ${rtk}`);
   parts.push(`Window ${window}`);
+  parts.push(why);
   return parts.join(" · ");
 }
 
@@ -64,48 +73,50 @@ function scintillationPilotNote(sw: SpaceWeatherCurrent | null, tone: ForecastSt
 function powerGicNote(sw: SpaceWeatherCurrent | null, gic: GicStatusResponse | null): string {
   const kp = sw?.kp;
   const dst = sw?.dst;
+  const g = noaaGScaleFromKp(kp);
   const levels = (gic?.stations ?? [])
     .map((s) => (s.latest_level ?? "").toLowerCase())
     .filter(Boolean);
 
   if (levels.some((l) => l === "severe" || l === "high" || l === "large")) {
-    return "GIC warning: check transformer neutrals and long HV lines.";
+    return "Power utilities — GIC warning: check transformer neutrals and long HV lines.";
   }
   if (
     (kp != null && kp >= 7) ||
     (dst != null && dst <= -100) ||
     levels.some((l) => l === "elevated")
   ) {
-    return "Elevated GIC risk — heighten monitoring on long transmission corridors.";
+    return `Power utilities — elevated GIC watch (${g.display}). Monitor long transmission corridors.`;
   }
-  if ((kp != null && kp >= 5) || (dst != null && dst <= -50)) {
-    return "Minor geomagnetic disturbance — keep routine GIC watch.";
+  if (g.isStorm || (dst != null && dst <= -50)) {
+    return `Power utilities — ${g.display} globally; keep routine GIC watch (geomagnetic ≠ automatic grid fault).`;
   }
-  return "No GIC warning — grid geomagnetic risk low.";
+  return `Power utilities — ${g.display}; no GIC warning from available monitors.`;
 }
 
 function telecomNote(sw: SpaceWeatherCurrent | null, tone: ForecastStatus): string {
   const s4 = sw?.s4;
   const kp = sw?.kp;
+  const g = noaaGScaleFromKp(kp);
   if (tone === "warning" || (s4 != null && s4 >= 0.5) || (kp != null && kp >= 6)) {
-    return "Timing holds may degrade — verify GNSS-disciplined clocks and PTP.";
+    return `Telecommunications — timing holds may degrade (${g.display}). Verify GNSS-disciplined clocks and PTP.`;
   }
   if (tone === "moderate" || (s4 != null && s4 >= 0.25)) {
-    return "Minor timing jitter possible this afternoon on GNSS-linked links.";
+    return `Telecommunications — minor timing jitter possible (${g.display}). GNSS risk remains provisional.`;
   }
-  return "Timing stable.";
+  return `Telecommunications — timing stable (${g.display}).`;
 }
 
 const SURVEYOR_HEADLINE: Record<ForecastStatus, string> = {
-  excellent: "CORS/RTK favourable — proceed.",
-  moderate: "Allow extra RTK occupation time.",
-  warning: "Delay centimetre-critical surveys.",
+  excellent: "Surveying — GNSS NORMAL. RTK conditions favourable.",
+  moderate: "Surveying — GNSS ADVISORY. Allow extra RTK occupation time.",
+  warning: "Surveying — GNSS CAUTION. Delay centimetre-critical work.",
 };
 
 const FARMER_HEADLINE: Record<ForecastStatus, string> = {
-  excellent: "Good day for tractor GPS and planting.",
-  moderate: "Do GPS field work before late morning.",
-  warning: "Check boundaries before legal or payment decisions.",
+  excellent: "Precision agriculture — GNSS NORMAL. Autosteer favourable.",
+  moderate: "Precision agriculture — GNSS ADVISORY. Prefer morning field GPS.",
+  warning: "Precision agriculture — GNSS CAUTION. Verify boundaries before legal decisions.",
 };
 
 export function buildAiRecommendations(
@@ -121,13 +132,15 @@ export function buildAiRecommendations(
   const surveyStatus = surveyCity?.status ?? tone;
   const farmerStatus = harare?.status ?? tone;
 
-  const surveyDetail = surveyorDetail(surveyCity);
+  const surveyDetail = surveyorDetail(surveyCity, sw);
   const farmerWindow = field(harare, "Best Survey Window");
+  const g = noaaGScaleFromKp(sw?.kp);
+  const farmerWhy = `Why this status? ${g.display} · VTEC ${formatVtecDisplay(sw?.mean_vtec)} · provisional GNSS risk ${sw?.gnss_risk ?? "N/A"}`;
 
   const recommendations: AiAudienceRecommendation[] = [
     {
       id: "surveyors",
-      label: "Surveyors",
+      label: "Surveying",
       icon: "📐",
       headline: SURVEYOR_HEADLINE[surveyStatus],
       detail: surveyDetail,
@@ -135,28 +148,28 @@ export function buildAiRecommendations(
     },
     {
       id: "farmers",
-      label: "Farmers",
+      label: "Precision Agriculture",
       icon: "🌾",
       headline: FARMER_HEADLINE[farmerStatus],
       detail:
         farmerStatus === "excellent"
-          ? undefined
+          ? farmerWhy
           : farmerWindow
-            ? `Preferred window ${farmerWindow}`
-            : undefined,
+            ? `Preferred window ${farmerWindow} · ${farmerWhy}`
+            : farmerWhy,
       tone: farmerStatus,
     },
     {
       id: "pilots",
-      label: "Pilots",
+      label: "Aviation & Drones",
       icon: "✈️",
       headline:
         tone === "excellent"
-          ? "Routine GNSS navigation expected."
+          ? "Aviation / drones — GNSS NORMAL. Routine navigation expected."
           : tone === "moderate"
-            ? "Monitor GPS approaches through the afternoon."
-            : "Storm procedures — verify navaid backups.",
-      detail: scintillationPilotNote(sw, tone),
+            ? "Aviation / drones — GNSS ADVISORY. Monitor GPS approaches through the afternoon."
+            : "Aviation / drones — GNSS CAUTION. Verify navaid backups.",
+      detail: `${scintillationPilotNote(sw, tone)} Why this status? ${g.display} (Kp ${formatKpDisplay(sw?.kp)}) · provisional GNSS risk ${sw?.gnss_risk ?? "N/A"} — not automatic from Kp alone.`,
       tone,
     },
     {

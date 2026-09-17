@@ -19,25 +19,25 @@ const STATUS_EMOJI: Record<ForecastStatus, string> = {
 
 const NATIONAL_SERVICES: Record<ForecastStatus, Record<string, string>> = {
   excellent: {
-    Surveying: "Available",
-    Agriculture: "Excellent",
-    Mining: "Good",
-    Aviation: "Normal",
-    "Power Grid": "Low Risk",
+    Surveying: "GNSS NORMAL",
+    Agriculture: "GNSS NORMAL",
+    Mining: "GNSS NORMAL",
+    Aviation: "GNSS NORMAL",
+    "Power Grid": "LOW RISK",
   },
   moderate: {
-    Surveying: "Advisory",
-    Agriculture: "Excellent",
-    Mining: "Good",
-    Aviation: "Advisory",
-    "Power Grid": "Low Risk",
+    Surveying: "GNSS ADVISORY",
+    Agriculture: "GNSS ADVISORY",
+    Mining: "GNSS ADVISORY",
+    Aviation: "GNSS ADVISORY",
+    "Power Grid": "LOW–MODERATE",
   },
   warning: {
-    Surveying: "Limited",
-    Agriculture: "Monitor",
-    Mining: "Caution",
-    Aviation: "Advisory",
-    "Power Grid": "Moderate Risk",
+    Surveying: "GNSS CAUTION",
+    Agriculture: "GNSS CAUTION",
+    Mining: "GNSS CAUTION",
+    Aviation: "GNSS CAUTION",
+    "Power Grid": "MODERATE RISK",
   },
 };
 
@@ -51,9 +51,9 @@ export const AUDIENCE_NATIONAL_SERVICE: Record<string, string> = {
 };
 
 const TELECOM_SERVICE_STATUS: Record<ForecastStatus, string> = {
-  excellent: "Normal",
-  moderate: "Advisory",
-  warning: "Monitor",
+  excellent: "GNSS NORMAL",
+  moderate: "GNSS ADVISORY",
+  warning: "GNSS CAUTION",
 };
 
 const TONE_RANK: Record<ForecastStatus, number> = {
@@ -67,9 +67,16 @@ function worseTone(a: ForecastStatus, b: ForecastStatus): ForecastStatus {
 }
 
 export function nationalServiceStatusColor(label: string, tone: ForecastStatus): string {
-  if (label === "Limited" || label === "Moderate Risk" || label === "Caution") return "#ef4444";
-  if (label === "Monitor") return tone === "warning" ? "#ef4444" : "#eab308";
-  if (label === "Advisory") return "#eab308";
+  if (
+    label === "GNSS CAUTION" ||
+    label === "MODERATE RISK" ||
+    label === "Limited" ||
+    label === "Caution"
+  ) {
+    return "#ef4444";
+  }
+  if (label === "Monitor" || label === "LOW–MODERATE") return tone === "warning" ? "#ef4444" : "#eab308";
+  if (label === "GNSS ADVISORY" || label === "Advisory") return "#eab308";
   if (tone === "warning") return "#ef4444";
   return "#00ff88";
 }
@@ -108,11 +115,13 @@ function cityAccuracyLine(fc: GnssForecastCity): { emoji: string; value: string 
 export function stormRiskLabel(sw: SpaceWeatherCurrent | null): string {
   if (sw?.kp == null) return "Updating";
   const kp = sw.kp;
-  if (kp >= 7) return "Severe";
-  if (kp >= 5) return "High";
-  if (kp >= 4) return "Moderate";
-  if (kp >= 3) return "Unsettled";
-  return "Low";
+  if (kp >= 9) return "G5 Extreme";
+  if (kp >= 8) return "G4 Severe";
+  if (kp >= 7) return "G3 Strong";
+  if (kp >= 6) return "G2 Moderate";
+  if (kp >= 5) return "G1 Minor";
+  if (kp >= 4) return "G0 Active (below G1)";
+  return "G0 No Storm";
 }
 
 export interface NationalGnssStatusData {
@@ -151,7 +160,7 @@ export function buildNationalGnssStatusData(
     title: "🇿🇼 ZIMBABWE NATIONAL GNSS STATUS",
     cities,
     kp,
-    stormRisk: `Storm Risk = ${stormRiskLabel(sw)}`,
+    stormRisk: `Geomagnetic storm = ${stormRiskLabel(sw)}`,
     services,
   };
 }

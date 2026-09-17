@@ -73,6 +73,8 @@ export interface SolarWindSpeedSeries {
   unit: string;
   speed: (number | null)[];
   density?: (number | null)[];
+  /** Proton temperature (K) from RTSW plasma when available. */
+  temperature?: (number | null)[];
 }
 
 export interface KpForecastSeries {
@@ -276,6 +278,10 @@ export interface SolarWindDetail {
   temperature: number | null;
   bt: number | null;
   bz: number | null;
+  /** Dynamic pressure in nPa when density+speed are available. */
+  dynamic_pressure?: number | null;
+  /** Continuous minutes of Bz < 0 ending at the latest RTSW sample. */
+  southward_duration_minutes?: number | null;
 }
 
 export interface SolarActivityFull {

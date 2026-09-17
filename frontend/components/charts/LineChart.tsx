@@ -29,8 +29,8 @@ interface Dataset {
   fill?: boolean;
   dashed?: boolean;
   meta?: (PointMeta | null)[];
-  /** Chart.js y-axis id — use "y2" for secondary scale (dual-axis charts). */
-  yAxisId?: "y" | "y2";
+  /** Chart.js y-axis id — use "y2"/"y3" for secondary/tertiary scales. */
+  yAxisId?: "y" | "y2" | "y3";
   /** Set false for PRN arcs where nulls mark real observation gaps. */
   spanGaps?: boolean;
 }
@@ -39,6 +39,8 @@ interface ThresholdLine {
   value: number;
   label: string;
   color?: string;
+  /** Shade the band above this line (e.g. fast-stream region ≥ 500 km/s). */
+  fillAbove?: boolean;
 }
 
 interface Props {
@@ -56,6 +58,8 @@ interface Props {
   compact?: boolean;
   /** Right-hand Y-axis label when any dataset uses yAxisId "y2". */
   secondaryYLabel?: string;
+  /** Extra right-hand axis for a third scale (e.g. proton temperature in K). */
+  tertiaryYLabel?: string;
   /** Checkbox legend — show/hide individual series. */
   toggleableLegend?: boolean;
   /**
@@ -87,6 +91,11 @@ interface Props {
   onSyncHoverMs?: (ms: number | null) => void;
   /** Optional log scale for Y (e.g. GOES X-ray W/m²). */
   yLogScale?: boolean;
+  /** Hard / suggested primary Y bounds (e.g. solar-wind speed to show Fast stream). */
+  yMin?: number;
+  yMax?: number;
+  ySuggestedMin?: number;
+  ySuggestedMax?: number;
 }
 
 function DatasetToggleLegend({
@@ -165,6 +174,7 @@ export default function LineChart({
   tooltipDetailLabel = "Geomagnetic condition",
   compact = false,
   secondaryYLabel,
+  tertiaryYLabel,
   toggleableLegend = false,
   xValues,
   xLabel,
@@ -177,10 +187,15 @@ export default function LineChart({
   syncHoverMs = null,
   onSyncHoverMs,
   yLogScale = false,
+  yMin,
+  yMax,
+  ySuggestedMin,
+  ySuggestedMax,
 }: Props) {
   const COLORS = ["#168bd2", "#ff8c00", "#00ff88", "#ff4444", "#a78bfa", "#34d399"];
   const useNumericX = !!xValues && xValues.length === labels.length;
   const useSecondary = datasets.some((ds) => ds.yAxisId === "y2");
+  const useTertiary = datasets.some((ds) => ds.yAxisId === "y3");
   const datasetKey = useMemo(() => datasets.map((d) => d.label).join("\0"), [datasets]);
   const [visible, setVisible] = useState<boolean[]>(() => datasets.map(() => true));
   const chartRef = useRef<ChartInstance<"line"> | null>(null);
@@ -212,22 +227,33 @@ export default function LineChart({
       id: "threshold",
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       afterDraw(chart: any) {
-        const { ctx, scales: { y } } = chart;
+        const { ctx, chartArea, scales: { y } } = chart;
+        if (!y || !chartArea) return;
         ctx.save();
         for (const line of thresholdLines) {
           if (line.value < y.min || line.value > y.max) continue;
           const yPx = y.getPixelForValue(line.value);
           const color = line.color ?? "#ff8c00";
+          if (line.fillAbove) {
+            ctx.fillStyle = `${color}22`;
+            ctx.fillRect(
+              chartArea.left,
+              chartArea.top,
+              chartArea.right - chartArea.left,
+              Math.max(0, yPx - chartArea.top),
+            );
+          }
           ctx.strokeStyle = color;
           ctx.lineWidth = 1.5;
           ctx.setLineDash([6, 3]);
           ctx.beginPath();
-          ctx.moveTo(chart.chartArea.left, yPx);
-          ctx.lineTo(chart.chartArea.right, yPx);
+          ctx.moveTo(chartArea.left, yPx);
+          ctx.lineTo(chartArea.right, yPx);
           ctx.stroke();
+          ctx.setLineDash([]);
           ctx.fillStyle = color;
           ctx.font = "11px sans-serif";
-          ctx.fillText(line.label, chart.chartArea.left + 4, yPx - 4);
+          ctx.fillText(line.label, chartArea.left + 4, yPx - 4);
         }
         ctx.restore();
       },
@@ -458,6 +484,10 @@ export default function LineChart({
             y: {
               position: "left",
               type: yLogScale ? ("logarithmic" as const) : undefined,
+              min: yMin,
+              max: yMax,
+              suggestedMin: ySuggestedMin,
+              suggestedMax: ySuggestedMax,
               title: { display: true, text: yLabel, color: "#ffffff" },
               ticks: { color: "#ffffff" },
               grid: { color: "#244d73" },
@@ -465,9 +495,28 @@ export default function LineChart({
             ...(useSecondary
               ? {
                   y2: {
-                    position: "right",
+                    position: "right" as const,
                     title: { display: true, text: secondaryYLabel ?? "", color: "#ffffff" },
                     ticks: { color: "#ffffff" },
+                    grid: { drawOnChartArea: false },
+                  },
+                }
+              : {}),
+            ...(useTertiary
+              ? {
+                  y3: {
+                    position: "right" as const,
+                    offset: true,
+                    title: { display: true, text: tertiaryYLabel ?? "", color: "#ffffff" },
+                    ticks: {
+                      color: "#ffffff",
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                      callback: (value: any) => {
+                        const n = typeof value === "number" ? value : Number(value);
+                        if (!Number.isFinite(n)) return "";
+                        return n >= 1000 ? `${Math.round(n / 1000)}k` : String(Math.round(n));
+                      },
+                    },
                     grid: { drawOnChartArea: false },
                   },
                 }

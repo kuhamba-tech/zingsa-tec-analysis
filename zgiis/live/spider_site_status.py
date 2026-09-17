@@ -216,18 +216,39 @@ def _write_disk_cache(payload: dict[str, Any]) -> None:
 
 
 def _ensure_memory_seeded_from_disk() -> None:
-    """Load last-good Spider rows (Postgres first, then local disk)."""
+    """Load last-good Spider rows from local disk (instant).
+
+    Durable Postgres/SQLite seed can stall under collector locks — run that in
+    the background so /cors/stations never waits on it.
+    """
     global _CACHE, _CACHE_TS, _DISK_LOADED
     if _DISK_LOADED:
         return
     _DISK_LOADED = True
     if _payload_has_rows(_CACHE):
         return
-    seed = _read_durable_cache() or _read_disk_cache()
+    seed = _read_disk_cache()
     if seed:
         _CACHE = seed
-        # Treat durable/disk seed as immediately stale so a live refresh still runs.
+        # Treat disk seed as immediately stale so a live refresh still runs.
         _CACHE_TS = time.monotonic() - DEFAULT_TTL_SEC - 1.0
+        return
+
+    def _bg_durable_seed() -> None:
+        global _CACHE, _CACHE_TS
+        try:
+            durable = _read_durable_cache()
+            if durable and _payload_has_rows(durable) and not _payload_has_rows(_CACHE):
+                _CACHE = durable
+                _CACHE_TS = time.monotonic() - DEFAULT_TTL_SEC - 1.0
+        except Exception as exc:
+            log.debug("Spider durable background seed failed: %s", exc)
+
+    threading.Thread(
+        target=_bg_durable_seed,
+        daemon=True,
+        name="spider-durable-seed",
+    ).start()
 
 
 def _store_cache(payload: dict[str, Any], *, keep_existing_on_empty: bool) -> None:

@@ -14,6 +14,7 @@ import datetime
 import math
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import defaultdict
 from typing import Any
 
@@ -42,6 +43,8 @@ _HEADERS = {"Accept": "application/json", "User-Agent": "ZGIIS/1.0 (Zimbabwe spa
 _CACHE: dict[str, Any] = {}
 _CACHE_LOCK = threading.Lock()
 _CACHE_TTL_SECONDS = 300
+_FETCH_TIMEOUT_SECONDS = 8
+_FETCH_WORKERS = 6
 
 
 def _float_or_none(value: Any) -> float | None:
@@ -189,13 +192,18 @@ def parse_solar_wind_speed_series(rows: list[Any]) -> dict[str, Any]:
         stamp = _parse_utc(row.get("time_tag"))
         speed = _float_or_none(row.get("proton_speed") or row.get("speed"))
         density = _float_or_none(row.get("proton_density") or row.get("density"))
-        if stamp is None or (speed is None and density is None):
+        temperature = _float_or_none(
+            row.get("proton_temperature") or row.get("temperature")
+        )
+        if stamp is None or (speed is None and density is None and temperature is None):
             continue
         if speed is not None and speed <= 0:
             speed = None
         if density is not None and density < 0:
             density = None
-        if speed is None and density is None:
+        if temperature is not None and temperature <= 0:
+            temperature = None
+        if speed is None and density is None and temperature is None:
             continue
         points.append(
             {
@@ -203,6 +211,7 @@ def parse_solar_wind_speed_series(rows: list[Any]) -> dict[str, Any]:
                 "label": _label_hour(stamp),
                 "speed": speed,
                 "density": density,
+                "temperature": temperature,
                 "epoch_ms": int(stamp.timestamp() * 1000),
             }
         )
@@ -213,7 +222,8 @@ def parse_solar_wind_speed_series(rows: list[Any]) -> dict[str, Any]:
         "epoch_ms": [p["epoch_ms"] for p in points],
         "speed": [p["speed"] for p in points],
         "density": [p["density"] for p in points],
-        "unit": "km/s · cm⁻³",
+        "temperature": [p["temperature"] for p in points],
+        "unit": "km/s · cm⁻³ · K",
     }
 
 
@@ -324,7 +334,7 @@ def parse_kp_forecast_series(rows: list[Any]) -> dict[str, Any]:
     }
 
 
-def _fetch_json(url: str, *, timeout: int = 20) -> Any:
+def _fetch_json(url: str, *, timeout: int = _FETCH_TIMEOUT_SECONDS) -> Any:
     if not _REQUESTS_OK:
         raise RuntimeError("requests not installed")
     resp = requests.get(url, timeout=timeout, headers=_HEADERS)
@@ -337,6 +347,30 @@ def _soft_fetch(url: str) -> tuple[Any | None, str | None]:
         return _fetch_json(url), None
     except Exception as exc:  # noqa: BLE001
         return None, str(exc)
+
+
+def _fetch_all_sources() -> dict[str, tuple[Any | None, str | None]]:
+    """Fetch NOAA feeds in parallel — cold load must stay interactive."""
+    jobs = {
+        "protons": NOAA_PROTONS_3D_URL,
+        "xray": NOAA_XRAY_1D_URL,
+        "imf": NOAA_MAG_URL,
+        "solar_wind": NOAA_WIND_URL,
+        "kp": NOAA_KP_FORECAST_URL,
+        "dst": NOAA_DST_URL,
+    }
+    results: dict[str, tuple[Any | None, str | None]] = {
+        key: (None, "not fetched") for key in jobs
+    }
+    with ThreadPoolExecutor(max_workers=_FETCH_WORKERS) as pool:
+        futures = {pool.submit(_soft_fetch, url): key for key, url in jobs.items()}
+        for fut in as_completed(futures):
+            key = futures[fut]
+            try:
+                results[key] = fut.result()
+            except Exception as exc:  # noqa: BLE001
+                results[key] = (None, str(exc))
+    return results
 
 
 def build_heliospheric_monitor(*, force_refresh: bool = False) -> dict[str, Any]:
@@ -352,12 +386,13 @@ def build_heliospheric_monitor(*, force_refresh: bool = False) -> dict[str, Any]
         ):
             return cached["data"]
 
-    protons_raw, protons_err = _soft_fetch(NOAA_PROTONS_3D_URL)
-    xray_raw, xray_err = _soft_fetch(NOAA_XRAY_1D_URL)
-    mag_raw, mag_err = _soft_fetch(NOAA_MAG_URL)
-    wind_raw, wind_err = _soft_fetch(NOAA_WIND_URL)
-    kp_raw, kp_err = _soft_fetch(NOAA_KP_FORECAST_URL)
-    dst_raw, dst_err = _soft_fetch(NOAA_DST_URL)
+    fetched = _fetch_all_sources()
+    protons_raw, protons_err = fetched["protons"]
+    xray_raw, xray_err = fetched["xray"]
+    mag_raw, mag_err = fetched["imf"]
+    wind_raw, wind_err = fetched["solar_wind"]
+    kp_raw, kp_err = fetched["kp"]
+    dst_raw, dst_err = fetched["dst"]
 
     protons = parse_proton_series(protons_raw if isinstance(protons_raw, list) else [])
     xray = parse_xray_series(xray_raw if isinstance(xray_raw, list) else [])

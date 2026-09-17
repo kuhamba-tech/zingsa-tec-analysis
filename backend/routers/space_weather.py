@@ -64,12 +64,13 @@ def _cached_s4() -> tuple[float | None, float, str, str]:
 
 
 def _ntrip_stream_counts() -> tuple[int | None, int | None]:
-    """Station counts — live Spider Site Status first, then archives."""
+    """Station counts from cached Spider (never block page load on SBC login)."""
     try:
-        from zgiis.live.spider_site_status import ensure_spider_site_statuses, spider_status_enabled
+        from zgiis.live.spider_site_status import get_cached_spider_site_statuses, spider_status_enabled
 
         if spider_status_enabled():
-            payload = ensure_spider_site_statuses(max_age_sec=15.0)
+            # Stale-while-revalidate only — /current must not wait on Spider login.
+            payload = get_cached_spider_site_statuses(refresh=False)
             by_station = payload.get("by_station") or {}
             if by_station:
                 online = sum(1 for row in by_station.values() if row.get("status") == "online")
@@ -140,6 +141,42 @@ def current(_=Depends(require_api_key)):
     if ntrip_online is not None and ntrip_total:
         sw["stations_online"] = ntrip_online
         sw["stations_total"] = ntrip_total
+    # Attach live network mean VTEC when available (never invent values).
+    # Prefer in-memory collector samples — TecDB/Supabase must never stall /current.
+    if sw.get("mean_vtec") is None and sw.get("vtec_tecu") is None:
+        try:
+            from backend.live_manager import latest_vtec_by_station
+
+            vals = [
+                float(v)
+                for v in latest_vtec_by_station().values()
+                if v is not None and float(v) > 1.0
+            ]
+            if vals:
+                sw["mean_vtec"] = round(sum(vals) / len(vals), 2)
+        except Exception:
+            pass
+    if sw.get("mean_vtec") is None and sw.get("vtec_tecu") is None:
+        try:
+            from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+            from zgiis.db.timescale import TecDB
+
+            def _mean_from_db() -> float | None:
+                series = TecDB().mean_vtec_timeseries(hours=2.0, resample="15min")
+                if series is not None and not series.empty:
+                    return float(series.iloc[-1])
+                return None
+
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                fut = pool.submit(_mean_from_db)
+                try:
+                    value = fut.result(timeout=0.35)
+                except FuturesTimeout:
+                    value = None
+                if value is not None:
+                    sw["mean_vtec"] = value
+        except Exception:
+            pass
     threading.Thread(
         target=log_snapshot,
         kwargs={"source": "dashboard", "force": False},
@@ -207,6 +244,8 @@ def solar_activity(
             temperature=sw_data.get("temperature"),
             bt=sw_data.get("bt"),
             bz=sw_data.get("bz"),
+            dynamic_pressure=sw_data.get("dynamic_pressure"),
+            southward_duration_minutes=sw_data.get("southward_duration_minutes"),
         ),
         alerts=sa.get("alerts") or [],
         donki_flares=flares,
