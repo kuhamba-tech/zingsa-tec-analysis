@@ -11,6 +11,27 @@ export function snapUtcMinute(ms: number): number {
   return Math.round(ms / 60_000) * 60_000;
 }
 
+const UTC_MONTHS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+] as const;
+
+/** Human-readable UTC calendar day, e.g. `18 Sep 2026`. */
+export function formatUtcDayLabel(ms: number): string {
+  const d = new Date(snapUtcMinute(ms));
+  return `${d.getUTCDate()} ${UTC_MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+}
+
 /**
  * KNMI-style UTC labels for Live Metric Timelines (24–72h windows):
  * text labels only at 00:00 / 06:00 / 12:00 / 18:00, with calendar day.
@@ -22,13 +43,13 @@ export function formatKnmiUtcTick(ms: number): string {
 export interface UtcAxisTickOptions {
   /** Label every N hours (1 for 6h window, 6 for 24h/72h). Default 6. */
   majorHours?: number;
-  /** Include MM-DD before HH:mm so the calendar day is visible. */
+  /** Include the calendar day under HH:mm on major ticks (not only midnight). */
   includeDate?: boolean;
 }
 
 /**
- * Easy-to-follow UTC axis labels: `HH:mm`, with `MM-DD` so the day is clear.
- * Midnight ticks always include the date (`09-18 00:00`).
+ * Easy-to-follow UTC axis labels: `HH:mm` with the day underneath as
+ * `18 Sep 2026` (never opaque `09-18`).
  */
 export function formatUtcAxisTick(ms: number, opts: UtcAxisTickOptions = {}): string {
   if (!Number.isFinite(ms)) return "";
@@ -38,9 +59,10 @@ export function formatUtcAxisTick(ms: number, opts: UtcAxisTickOptions = {}): st
   const hh = d.getUTCHours();
   if (hh % majorHours !== 0) return "";
   const time = `${String(hh).padStart(2, "0")}:00`;
-  const md = d.toISOString().slice(5, 10);
-  // Always stamp midnight — that is how you tell which UTC day the axis covers.
-  if (hh === 0 || opts.includeDate) return `${md} ${time}`;
+  // Midnight always carries the day; multi-day axes also stamp other majors.
+  if (hh === 0 || opts.includeDate) {
+    return `${time}\n${formatUtcDayLabel(ms)}`;
+  }
   return time;
 }
 
@@ -84,7 +106,8 @@ export function alignTimeDomain(
 
 /**
  * Standard numeric UTC axis props for LineChart — matches Live NOAA Kp Timeline,
- * with calendar day (MM-DD) on labels whenever the window spans a day or more.
+ * with the calendar day (`18 Sep 2026`) under HH:mm whenever the window spans
+ * a day or more.
  */
 export function utcTimeAxisProps(
   domain: { min: number; max: number } | null,
@@ -104,10 +127,11 @@ export function utcTimeAxisProps(
   const majorMs = majorHours * ONE_H_MS;
   const crossesUtcDay =
     startOfUtcDay(domain.min) !== startOfUtcDay(Math.max(domain.min, domain.max - 1));
-  // Show MM-DD on every major tick for ≥24h / multi-day axes (GOES Last Day, drivers…).
-  // Midnight ticks still get a date even on short windows (see formatUtcAxisTick).
+  // On long windows only midnight gets the day (via formatUtcAxisTick) to avoid
+  // crowding; on ~24h windows stamp every major tick so the day is obvious.
   const includeDate =
-    opts.includeDate ?? (rangeHours >= 24 || crossesUtcDay);
+    opts.includeDate ??
+    ((rangeHours >= 12 && rangeHours <= 36) || (rangeHours < 12 && crossesUtcDay));
   return {
     xMin: domain.min,
     xMax: domain.max,
