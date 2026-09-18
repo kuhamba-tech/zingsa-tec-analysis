@@ -51,6 +51,10 @@ export interface MetricCardSpec {
   detailRows?: MetricDetailRow[];
   /** Show A–X GOES flare class legend under the card body. */
   showFlareScale?: boolean;
+  /** Show G0–G5 NOAA geomagnetic scale under the card body. */
+  showGScale?: boolean;
+  /** Active G-scale code to emphasize (e.g. "G0"). */
+  activeGCode?: string | null;
 }
 
 export interface MetricCardOptions {
@@ -105,6 +109,24 @@ export interface NoaaGScale {
   note: string;
   color: string;
   isStorm: boolean;
+}
+
+/** NOAA G-scale colour strip — same visual language as the GOES A–X flare scale. */
+export const NOAA_G_SCALE = [
+  { code: "G0", color: "#00ff88", desc: "None" },
+  { code: "G1", color: "#eab308", desc: "Minor" },
+  { code: "G2", color: "#f97316", desc: "Moderate" },
+  { code: "G3", color: "#ef4444", desc: "Strong" },
+  { code: "G4", color: "#dc2626", desc: "Severe" },
+  { code: "G5", color: "#a855f7", desc: "Extreme" },
+] as const;
+
+/** Format Kp for the Geomagnetic Storm card subtitle, e.g. `kP=0`. */
+export function formatKpEqualsDisplay(kp: number | null | undefined, loading = false): string {
+  if (kp == null || !Number.isFinite(kp)) return loading ? "kP=…" : "kP=—";
+  const rounded = Math.round(kp * 10) / 10;
+  const text = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+  return `kP=${text}`;
 }
 
 /** NOAA G-scale from Kp. Kp 4 is active / below G1 — never labelled a G-storm. */
@@ -580,11 +602,14 @@ export function buildMetricCards(
       icon: "🌌",
       label: "Geomagnetic Storm",
       value: g.display,
-      note: g.note,
+      note: "",
+      subtitle: formatKpEqualsDisplay(kp, indicesLoading),
       valueColor: g.color,
       source: "NOAA SWPC Kp → G-scale",
       observedAt: swObserved ? `Snapshot ${swObserved}` : null,
       freshness: kp == null ? (indicesLoading ? "DELAYED" : "UNAVAILABLE") : indicesFresh,
+      showGScale: true,
+      activeGCode: kp == null ? null : g.code,
     },
     {
       key: "dst",

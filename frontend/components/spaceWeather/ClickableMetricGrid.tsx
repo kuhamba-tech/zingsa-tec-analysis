@@ -7,6 +7,7 @@ import type { LiveStationCounts } from "@/lib/liveStationStatus";
 import { FLARE_SCALE } from "@/lib/solarEventColors";
 import {
   METRIC_EXPLANATIONS,
+  NOAA_G_SCALE,
   buildMetricCards,
   interpretMetric,
   type MetricCardSpec,
@@ -70,6 +71,41 @@ function FlareScaleLegend() {
   );
 }
 
+function GScaleLegend({ activeCode }: { activeCode?: string | null }) {
+  return (
+    <div className="sw-metric-flare-scale sw-metric-g-scale" aria-label="NOAA G-scale">
+      {NOAA_G_SCALE.map((g) => {
+        const active = activeCode === g.code;
+        return (
+          <div
+            className={`sw-metric-flare-scale-item${active ? " is-active" : ""}`}
+            key={g.code}
+          >
+            <div
+              className="sw-metric-flare-scale-bar"
+              style={{
+                background: g.color,
+                height: active ? 4 : 2,
+                opacity: active || !activeCode ? 1 : 0.45,
+              }}
+            />
+            <div
+              className="sw-metric-flare-scale-letter"
+              style={{
+                color: g.color,
+                fontWeight: active ? 900 : 800,
+              }}
+            >
+              {g.code}
+            </div>
+            <div className="sw-metric-flare-scale-desc">{g.desc}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function MetricCardButton({
   icon,
   label,
@@ -82,6 +118,8 @@ function MetricCardButton({
   subtitle,
   detailRows,
   showFlareScale,
+  showGScale,
+  activeGCode,
   selected,
   disabled,
   onClick,
@@ -97,6 +135,8 @@ function MetricCardButton({
   subtitle?: string | null;
   detailRows?: MetricDetailRow[];
   showFlareScale?: boolean;
+  showGScale?: boolean;
+  activeGCode?: string | null;
   selected: boolean;
   disabled: boolean;
   onClick: () => void;
@@ -104,12 +144,13 @@ function MetricCardButton({
   const isSummary = Boolean(detailRows?.length) && !detailRows?.some((r) => r.icon);
   const isWindList = Boolean(detailRows?.some((r) => r.icon));
   const isFlare = Boolean(showFlareScale);
+  const isGStorm = Boolean(showGScale);
   const isEventCount = !icon;
 
   return (
     <button
       type="button"
-      className={`sw-metric-card${isSummary ? " sw-metric-card-summary" : ""}${isWindList ? " sw-metric-card-wind" : ""}${isFlare ? " sw-metric-card-flare" : ""}${isEventCount ? " sw-metric-card-events" : ""}${selected ? " sw-metric-card-selected" : ""}${disabled ? " is-loading" : ""}`}
+      className={`sw-metric-card${isSummary ? " sw-metric-card-summary" : ""}${isWindList ? " sw-metric-card-wind" : ""}${isFlare ? " sw-metric-card-flare" : ""}${isGStorm ? " sw-metric-card-gstorm" : ""}${isEventCount ? " sw-metric-card-events" : ""}${selected ? " sw-metric-card-selected" : ""}${disabled ? " is-loading" : ""}`}
       onClick={onClick}
       disabled={disabled}
       aria-pressed={selected}
@@ -124,6 +165,7 @@ function MetricCardButton({
       {subtitle ? <div className="sw-metric-subtitle">{subtitle}</div> : null}
       {detailRows?.length ? <DetailRows rows={detailRows} /> : null}
       {showFlareScale ? <FlareScaleLegend /> : null}
+      {showGScale ? <GScaleLegend activeCode={activeGCode} /> : null}
       {note ? <div className="sw-metric-note">{note}</div> : null}
       <div className="sw-metric-meta">
         {freshness && freshness !== "DELAYED" && (
@@ -333,6 +375,8 @@ export default function ClickableMetricGrid({
             subtitle={card.subtitle}
             detailRows={card.detailRows}
             showFlareScale={card.showFlareScale}
+            showGScale={card.showGScale}
+            activeGCode={card.activeGCode}
             selected={selected === card.key}
             disabled={false}
             onClick={() => setSelected((prev) => (prev === card.key ? null : card.key))}
