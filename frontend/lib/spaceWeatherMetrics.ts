@@ -3,6 +3,11 @@ import type { SolarActivityFull, SpaceWeatherCurrent } from "./types";
 import type { LiveStationCounts } from "./liveStationStatus";
 import { connectedStreamCount, formatCorsConnectedDisplay } from "./liveStationStatus";
 import { kpConditionFromValue } from "./homeSpaceWeather";
+import {
+  donkiCmeCountColor,
+  donkiFlareCountColor,
+  donkiStormCountColor,
+} from "./solarEventColors";
 
 /** Primary Sun→Zimbabwe summary cards (Phase 1 redesign). */
 export type MetricKey =
@@ -14,7 +19,10 @@ export type MetricKey =
   | "dst"
   | "zimbabwe_iono"
   | "gnss_risk"
-  | "stations";
+  | "stations"
+  | "donki_flares"
+  | "donki_cmes"
+  | "donki_storms";
 
 /** Keys kept for Advanced Scientific Indices (not primary cards). */
 export type AdvancedMetricKey = "ap" | "f107" | "kp";
@@ -79,6 +87,12 @@ export const METRIC_EXPLANATIONS: Record<MetricKey, string> = {
     "Operational navigation impact label. Until validated local ΔTEC/ROTI/RTK metrics drive the engine, treat this as provisional space-weather context (Kp, scintillation archive, related indices) — not proof of Zimbabwe GNSS failure.",
   stations:
     "How many Zimbabwe CORS stations are online versus the network total. Online status is not the same as TEC processing availability. Open the CORS map for station-level detail.",
+  donki_flares:
+    "NASA DONKI flare event count over the selected 7-day window. A higher count means more recent solar eruptive activity; storm impact at Earth still depends on direction, timing, and associated CME or solar-wind conditions.",
+  donki_cmes:
+    "NASA DONKI coronal mass ejection count over the selected 7-day window. Earth-directed CMEs can arrive 1–3 days later and drive geomagnetic storms; not every CME is geoeffective.",
+  donki_storms:
+    "NASA DONKI geomagnetic storm event count over the selected 7-day window. These Earth-side disturbances (Kp/Dst context) are more directly linked to GNSS degradation than flare or CME counts alone.",
 };
 
 export interface NoaaGScale {
@@ -469,6 +483,18 @@ export function buildMetricCards(
   const indicesFresh: FeedFreshness = indicesLoading ? "DELAYED" : monitoringFreshness(sw?.updated_utc, now, Boolean(sw), Boolean(opts?.refreshFailed));
   const vtecFresh: FeedFreshness = vtec != null ? indicesFresh : indicesLoading ? "DELAYED" : "UNAVAILABLE";
 
+  const donkiLive = sa?.donki_status === "live";
+  const donkiFlares = Array.isArray(sa?.donki_flares) ? sa.donki_flares : [];
+  const donkiCmes = Array.isArray(sa?.donki_cmes) ? sa.donki_cmes : [];
+  const donkiStorms = Array.isArray(sa?.donki_storms) ? sa.donki_storms : [];
+  const donkiDateRange =
+    sa?.donki_date_start && sa?.donki_date_end
+      ? `${sa.donki_date_start} – ${sa.donki_date_end}`
+      : null;
+  const donkiUnavailableNote =
+    sa?.donki_note?.trim() ||
+    (solarLoading ? "Loading NASA DONKI…" : "NASA DONKI feed is unavailable.");
+
   return [
     {
       key: "solar_activity",
@@ -594,6 +620,51 @@ export function buildMetricCards(
       observedAt: swObserved ? `Snapshot ${swObserved}` : null,
       freshness: stationsOnlineCount != null ? indicesFresh : "UNAVAILABLE",
     },
+    {
+      key: "donki_flares",
+      icon: "",
+      label: "Solar Flares",
+      value: solarLoading && !sa ? "Updating…" : donkiLive ? String(donkiFlares.length) : "Unavailable",
+      note: !donkiLive
+        ? donkiUnavailableNote
+        : donkiFlares.length === 0
+          ? "No flare events in the selected 7-day window."
+          : "Flare event(s) detected.",
+      valueColor: donkiLive
+        ? donkiFlareCountColor(donkiFlares.length, donkiFlares)
+        : "#94a3b8",
+      observedAt: donkiDateRange ? `FLR: ${donkiDateRange}` : null,
+    },
+    {
+      key: "donki_cmes",
+      icon: "",
+      label: "Coronal Mass Ejections",
+      value: solarLoading && !sa ? "Updating…" : donkiLive ? String(donkiCmes.length) : "Unavailable",
+      note: !donkiLive
+        ? donkiUnavailableNote
+        : donkiCmes.length === 0
+          ? "No CME events in the selected 7-day window."
+          : "CME event(s) detected.",
+      valueColor: donkiLive
+        ? donkiCmeCountColor(donkiCmes.length, donkiCmes)
+        : "#94a3b8",
+      observedAt: donkiDateRange ? `CME event history · ${donkiDateRange}` : null,
+    },
+    {
+      key: "donki_storms",
+      icon: "",
+      label: "Geomagnetic Storms",
+      value: solarLoading && !sa ? "Updating…" : donkiLive ? String(donkiStorms.length) : "Unavailable",
+      note: !donkiLive
+        ? donkiUnavailableNote
+        : donkiStorms.length === 0
+          ? "No geomagnetic storm events in the selected 7-day window."
+          : "Storm event(s) detected.",
+      valueColor: donkiLive
+        ? donkiStormCountColor(donkiStorms.length, donkiStorms)
+        : "#94a3b8",
+      observedAt: donkiDateRange ? `GST event history · ${donkiDateRange}` : null,
+    },
   ];
 }
 
@@ -661,7 +732,16 @@ export function interpretMetric(
   key: MetricKey,
   opts?: MetricCardOptions,
 ): string {
-  if (!sw && key !== "solar_activity" && key !== "solar_flare" && key !== "imf_bz" && key !== "solar_wind") {
+  if (
+    !sw &&
+    key !== "solar_activity" &&
+    key !== "solar_flare" &&
+    key !== "imf_bz" &&
+    key !== "solar_wind" &&
+    key !== "donki_flares" &&
+    key !== "donki_cmes" &&
+    key !== "donki_storms"
+  ) {
     return "Live data is unavailable. No interpretation can be issued.";
   }
 
@@ -801,6 +881,36 @@ export function interpretMetric(
         else availLevel = "low availability with significant CORS coverage limitations";
         return `${online} of ${total} CORS stations are reported online (${availability.toFixed(0)}%), indicating ${availLevel}. Online ≠ TEC processing available.`;
       }
+
+    case "donki_flares": {
+      if (sa?.donki_status !== "live") {
+        return sa?.donki_note?.trim() || "NASA DONKI flare feed is unavailable.";
+      }
+      const n = Array.isArray(sa.donki_flares) ? sa.donki_flares.length : 0;
+      return n === 0
+        ? "Zero cataloged flare events in the selected 7-day window — a calm eruptive period for this feed."
+        : `${n} flare event(s) in the selected 7-day window. Check each event’s class (A–X) for strength; storm impact still depends on CME/solar-wind coupling.`;
+    }
+
+    case "donki_cmes": {
+      if (sa?.donki_status !== "live") {
+        return sa?.donki_note?.trim() || "NASA DONKI CME feed is unavailable.";
+      }
+      const n = Array.isArray(sa.donki_cmes) ? sa.donki_cmes.length : 0;
+      return n === 0
+        ? "Zero cataloged CME events in the selected 7-day window."
+        : `${n} CME event(s) in the selected 7-day window. Only Earth-directed (halo / partial-halo) events typically matter for geomagnetic storm risk.`;
+    }
+
+    case "donki_storms": {
+      if (sa?.donki_status !== "live") {
+        return sa?.donki_note?.trim() || "NASA DONKI geomagnetic storm feed is unavailable.";
+      }
+      const n = Array.isArray(sa.donki_storms) ? sa.donki_storms.length : 0;
+      return n === 0
+        ? "Zero geomagnetic storm events in the selected 7-day window — Earth’s magnetic field stayed quiet in this catalog."
+        : `${n} geomagnetic storm event(s) in the selected 7-day window. Higher Kp during these events raises positioning error and RTK/PPP convergence risk.`;
+    }
   }
 }
 

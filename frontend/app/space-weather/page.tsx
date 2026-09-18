@@ -37,12 +37,7 @@ import { alignEkfToPoints } from "@/lib/ekfAlign";
 import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
 import { connectedStreamCount, countSpiderLiveStationStatuses, type LiveStationCounts } from "@/lib/liveStationStatus";
 import type { EkfPoint, EkfStatus, SpaceWeatherCurrent, SolarActivityFull, SpaceWeatherTimelines, TimelinePoint } from "@/lib/types";
-import {
-  FLARE_SCALE,
-  donkiCmeCountColor,
-  donkiFlareCountColor,
-  donkiStormCountColor,
-} from "@/lib/solarEventColors";
+import { FLARE_SCALE } from "@/lib/solarEventColors";
 import { DashboardHeaderClocks } from "@/components/dashboard/DashboardClocks";
 
 // ── Solar Cycle 25 reference ──────────────────────────────────────────────────
@@ -535,10 +530,6 @@ export default function SpaceWeatherPage() {
   const eventFeedUnavailableMsg =
     sa?.donki_note || saError || `${eventFeedName} unavailable. Retrying automatically.`;
 
-  const flareCountColor = donkiFlareCountColor(donkiFlares.length, donkiFlares);
-  const cmeCountColor = donkiCmeCountColor(donkiCmes.length, donkiCmes);
-  const stormCountColor = donkiStormCountColor(donkiStorms.length, donkiStorms);
-
   const conditionLabel   = kp === null ? "Geomagnetic data unavailable" : kp >= 5 ? "Storm Active" : kp !== null && kp >= 3 ? "Disturbed" : "Quiet";
   const conditionVariant = kp !== null && kp >= 5 ? "alert" : kp !== null && kp >= 3 ? "warn" : "info";
 
@@ -816,55 +807,7 @@ export default function SpaceWeatherPage() {
             <a href="#operational-alerts-title" style={{ marginTop: "auto", fontSize: "0.85rem" }}>Source: NOAA SWPC · View all bulletins ↓</a>
           </div>
 
-          {/* Solar Flares count */}
-          <div className="card" {...solarCardClickProps("flareEvents", { textAlign: "center" })}>
-            <div style={{ fontSize: "0.85rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "0.6rem" }}>Solar Flares</div>
-            <div style={{ fontSize: donkiLive ? "3rem" : "1.1rem", fontWeight: 900, lineHeight: 1, marginBottom: "0.4rem", color: donkiLive ? flareCountColor : "var(--text-muted)" }}>
-              {saLoading && !sa ? "Loading…" : donkiLive ? donkiFlares.length : "Feed unavailable"}
-            </div>
-            <div style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
-              {!donkiLive
-                ? sa?.donki_note || saError || "NASA DONKI flare feed is unavailable."
-                : donkiFlares.length === 0
-                ? `No flare events in the selected 7-day window.`
-                : `Flare event(s) detected.`}
-            </div>
-            {dateRange && <div style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>FLR: {dateRange}</div>}
-          </div>
-        </div>
-
-        {/* Row 3: CME | Geomagnetic Storms | GNSS Impact */}
-        <div className="sw-triple-grid">
-
-          {/* CME count */}
-          <div className="card" {...solarCardClickProps("cme", { textAlign: "center" })}>
-            <div style={{ fontSize: "0.85rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "0.6rem" }}>Coronal Mass Ejections</div>
-            <div style={{ fontSize: donkiLive ? "3rem" : "1.1rem", fontWeight: 900, lineHeight: 1, marginBottom: "0.4rem", color: donkiLive ? cmeCountColor : "var(--text-muted)" }}>
-              {saLoading && !sa ? "Loading…" : donkiLive ? donkiCmes.length : "Feed unavailable"}
-            </div>
-            <div style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
-              {!donkiLive
-                ? sa?.donki_note || saError || "NASA DONKI CME feed is unavailable."
-                : donkiCmes.length === 0 ? "No CME events in the selected 7-day window." : "CME event(s) detected."}
-            </div>
-            {dateRange && <div style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>CME event history · {dateRange}</div>}
-          </div>
-
-          {/* Geomagnetic Storms count */}
-          <div className="card" {...solarCardClickProps("storms", { textAlign: "center" })}>
-            <div style={{ fontSize: "0.85rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "0.6rem" }}>Geomagnetic Storms</div>
-            <div style={{ fontSize: donkiLive ? "3rem" : "1.1rem", fontWeight: 900, lineHeight: 1, marginBottom: "0.4rem", color: donkiLive ? stormCountColor : "var(--text-muted)" }}>
-              {saLoading && !sa ? "Loading…" : donkiLive ? donkiStorms.length : "Feed unavailable"}
-            </div>
-            <div style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
-              {!donkiLive
-                ? sa?.donki_note || saError || "NASA DONKI storm feed is unavailable."
-                : donkiStorms.length === 0 ? "No geomagnetic storm events in the selected 7-day window." : "Storm event(s) detected."}
-            </div>
-            {dateRange && <div style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>GST event history · {dateRange}</div>}
-          </div>
-
-          {/* Impact on GNSS & CORS Networks (compact) */}
+          {/* Estimated operational context */}
           <div className="card" {...solarCardClickProps("impact")}>
             <div style={{ fontSize: "0.85rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "0.7rem" }}>Estimated operational context — provisional</div>
             <div className="sw-double-grid">

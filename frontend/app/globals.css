@@ -3222,6 +3222,24 @@ a.home-map-layer-btn {
 .sw-metric-card:hover {
   border-color: #3a7ab5;
 }
+.sw-metric-card-events .sw-metric-label {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+}
+.sw-metric-card-events .sw-metric-value {
+  font-size: 2.6rem;
+  font-weight: 900;
+  line-height: 1;
+  margin: 0.35rem 0 0.45rem;
+}
+.sw-metric-card-events .sw-metric-note {
+  max-width: 18rem;
+}
+.sw-metric-card-events .sw-metric-meta {
+  margin-top: auto;
+  justify-content: center;
+}
 .sw-metric-card-selected {
   border-color: #168bd2;
   box-shadow: 0 0 0 1px #168bd2, 0 0 18px rgba(22, 139, 210, 0.22);
