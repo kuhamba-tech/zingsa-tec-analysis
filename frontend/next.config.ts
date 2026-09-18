@@ -15,11 +15,33 @@ const nextConfig: NextConfig = {
   },
   // OpenLayers modules are large; default webpack chunkLoadTimeout (120s) can
   // still fire under slow HMR / parallel chunk pressure in cloud VMs.
+  // Keep all `ol` package code in one async chunk so CorsMap does not race
+  // a dozen `_app-pages-browser_node_modules_ol_*` loads.
   webpack: (config) => {
     config.output = {
       ...config.output,
       chunkLoadTimeout: 300_000,
     };
+    const split = config.optimization?.splitChunks;
+    if (split && typeof split === "object") {
+      config.optimization = {
+        ...config.optimization,
+        splitChunks: {
+          ...split,
+          cacheGroups: {
+            ...(typeof split.cacheGroups === "object" ? split.cacheGroups : {}),
+            openlayers: {
+              test: /[\\/]node_modules[\\/]ol[\\/]/,
+              name: "openlayers",
+              chunks: "all",
+              priority: 40,
+              enforce: true,
+              reuseExistingChunk: true,
+            },
+          },
+        },
+      };
+    }
     return config;
   },
 };

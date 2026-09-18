@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import type { GicNetwork, GicStationStatus } from "@/lib/types";
+import { loadOpenLayers } from "@/lib/loadOpenLayers";
 
 type MapLayer = "Hybrid" | "Satellite" | "Street";
 
@@ -196,39 +197,31 @@ export default function GicNetworkMap({ network, stationStatus, height = 460, on
     let disposed = false;
 
     (async () => {
-      // Avoid `import("ol")` barrel — it creates a huge chunk that ChunkLoadError-timeouts.
-      const [
-        { default: Map },
-        { fromLonLat },
-        { default: TileLayer },
-        { default: VectorLayer },
-        { default: VectorSource },
-        { default: XYZ },
-        { default: Feature },
-        { default: Point },
-        { default: LineString },
-        { Style, RegularShape, Circle, Fill, Stroke, Text },
-        { default: Overlay },
-        { default: View },
-      ] = await Promise.all([
-        import("ol/Map"),
-        import("ol/proj"),
-        import("ol/layer/Tile"),
-        import("ol/layer/Vector"),
-        import("ol/source/Vector"),
-        import("ol/source/XYZ"),
-        import("ol/Feature"),
-        import("ol/geom/Point"),
-        import("ol/geom/LineString"),
-        import("ol/style"),
-        import("ol/Overlay"),
-        import("ol/View"),
-      ]);
+      const ol = await loadOpenLayers();
+      const {
+        Map,
+        fromLonLat,
+        TileLayer,
+        VectorLayer,
+        VectorSource,
+        XYZ,
+        Feature,
+        Point,
+        LineString,
+        Style,
+        RegularShape,
+        Circle,
+        Fill,
+        Stroke,
+        Text,
+        Overlay,
+        View,
+      } = ol;
 
       if (disposed || olMapRef.current) return;
 
       olHelpersRef.current = {
-        fromLonLat, Feature, Point, LineString, Style, RegularShape, Circle, Fill, Stroke, Text,
+        fromLonLat, Feature, Point, LineString, Style, RegularShape, Circle, Fill, Stroke, Text, XYZ,
       };
 
       const baseTile = new TileLayer({
@@ -338,9 +331,10 @@ export default function GicNetworkMap({ network, stationStatus, height = 460, on
   useEffect(() => {
     if (!baseTileRef.current || !labelTileRef.current) return;
     (async () => {
-      const XYZ = (await import("ol/source/XYZ")).default;
-      baseTileRef.current.setSource(new XYZ({ url: TILE_URLS[layer], attributions: "Esri / OSM" }));
-      labelTileRef.current.setVisible(layer === "Hybrid");
+      const helpers = olHelpersRef.current ?? (await loadOpenLayers());
+      const { XYZ } = helpers;
+      baseTileRef.current?.setSource(new XYZ({ url: TILE_URLS[layer], attributions: "Esri / OSM" }));
+      labelTileRef.current?.setVisible(layer === "Hybrid");
     })();
   }, [layer]);
 

@@ -9,6 +9,7 @@ import { icaoTecColor, icaoTecDistanceLabel, icaoTecLabel } from "@/lib/icaoTecA
 import { liveVtecSourceFromHeatmap, liveVtecSourceLabel } from "@/lib/liveVtecLabels";
 import { fetchGlobalTecForecastObjectUrl } from "@/lib/api";
 import { vtecToRgba } from "@/lib/tecHeatmapColors";
+import { loadOpenLayers } from "@/lib/loadOpenLayers";
 import type { MapLayer } from "./CorsMapWithLayers";
 import SiteDetailsPanel from "./SiteDetailsPanel";
 
@@ -406,10 +407,8 @@ export default function CorsMap({
     const helpers = olHelpersRef.current;
     if (!helpers) return;
 
-    const { fromLonLat, Feature, Style, Stroke, Fill, Text } = helpers;
-    const LineString = (await import("ol/geom/LineString")).default;
-    const VectorSource = (await import("ol/source/Vector")).default;
-    const VectorLayer = (await import("ol/layer/Vector")).default;
+    const { fromLonLat, Feature, Style, Stroke, Fill, Text, LineString, VectorSource, VectorLayer } =
+      helpers;
 
     const edges = buildCorsNetworkEdges(stationsRef.current, 3);
     const source = new VectorSource();
@@ -458,9 +457,8 @@ export default function CorsMap({
     const helpers = olHelpersRef.current;
     if (!helpers) return;
 
-    const { fromLonLat, Feature, Point, Style, Circle, Fill, Stroke, Text } = helpers;
-    const VectorSource = (await import("ol/source/Vector")).default;
-    const VectorLayer = (await import("ol/layer/Vector")).default;
+    const { fromLonLat, Feature, Point, Style, Circle, Fill, Stroke, Text, VectorSource, VectorLayer } =
+      helpers;
 
     const source = new VectorSource();
     for (const site of sites) {
@@ -498,9 +496,8 @@ export default function CorsMap({
     const currentLayer = layerRef.current;
     if (!shouldShowHeatOverlay(currentLayer, data) || !data) return null;
 
-    const { fromLonLat } = await import("ol/proj");
-    const ImageLayer = (await import("ol/layer/Image")).default;
-    const ImageCanvas = (await import("ol/source/ImageCanvas")).default;
+    const helpers = olHelpersRef.current ?? (await loadOpenLayers());
+    const { fromLonLat, ImageLayer, ImageCanvas } = helpers;
     const overlayOpacity = heatOverlayOpacity(currentLayer);
     const grid = data.grid;
     const heatPoints = data.heat_points;
@@ -578,9 +575,8 @@ export default function CorsMap({
     const currentLayer = layerRef.current;
     if (!isZimbabweScienceLayer(currentLayer)) return null;
 
-    const { fromLonLat } = await import("ol/proj");
-    const ImageLayer = (await import("ol/layer/Image")).default;
-    const ImageCanvas = (await import("ol/source/ImageCanvas")).default;
+    const helpers = olHelpersRef.current ?? (await loadOpenLayers());
+    const { fromLonLat, ImageLayer, ImageCanvas } = helpers;
     const meta = scienceLayerMeta(currentLayer);
     const labels = scienceLayerLabelPositions(currentLayer);
 
@@ -727,37 +723,48 @@ export default function CorsMap({
     let disposed = false;
 
     (async () => {
-      // Import Map and submodules only — never the `ol` barrel (pulls the full
-      // library into one ~4MB webpack chunk that often ChunkLoadError-timeouts).
-      const [
-        { default: Map },
-        { fromLonLat },
-        { default: TileLayer },
-        { default: VectorLayer },
-        { default: VectorSource },
-        { default: XYZ },
-        { default: Feature },
-        { default: Point },
-        { Style, Circle, Fill, Stroke, Text },
-        { default: Overlay },
-        { default: View },
-      ] = await Promise.all([
-        import("ol/Map"),
-        import("ol/proj"),
-        import("ol/layer/Tile"),
-        import("ol/layer/Vector"),
-        import("ol/source/Vector"),
-        import("ol/source/XYZ"),
-        import("ol/Feature"),
-        import("ol/geom/Point"),
-        import("ol/style"),
-        import("ol/Overlay"),
-        import("ol/View"),
-      ]);
+      // One consolidated OpenLayers chunk — never parallel import("ol/…") races.
+      const ol = await loadOpenLayers();
+      const {
+        Map,
+        fromLonLat,
+        TileLayer,
+        VectorLayer,
+        VectorSource,
+        XYZ,
+        Feature,
+        Point,
+        Style,
+        Circle,
+        Fill,
+        Stroke,
+        Text,
+        Overlay,
+        View,
+        LineString,
+        ImageLayer,
+        ImageCanvas,
+      } = ol;
 
       if (disposed || olMapRef.current) return;
 
-      olHelpersRef.current = { fromLonLat, Feature, Point, Style, Circle, Fill, Stroke, Text };
+      olHelpersRef.current = {
+        fromLonLat,
+        Feature,
+        Point,
+        Style,
+        Circle,
+        Fill,
+        Stroke,
+        Text,
+        LineString,
+        VectorSource,
+        VectorLayer,
+        XYZ,
+        TileLayer,
+        ImageLayer,
+        ImageCanvas,
+      };
 
       const baseTile = new TileLayer({
         source: new XYZ({ url: baseTileUrl(layerRef.current), attributions: "Esri" }),
@@ -923,8 +930,8 @@ export default function CorsMap({
     if (!baseTileRef.current || !labelTileRef.current || !transportTileRef.current) return;
     let cancelled = false;
     (async () => {
-      const XYZ = (await import("ol/source/XYZ")).default;
-      const { fromLonLat } = await import("ol/proj");
+      const helpers = olHelpersRef.current ?? (await loadOpenLayers());
+      const { XYZ, fromLonLat } = helpers;
       // Refs can be cleared while imports resolve (Strict Mode remount / unmount).
       const baseTile = baseTileRef.current;
       const labelTile = labelTileRef.current;
