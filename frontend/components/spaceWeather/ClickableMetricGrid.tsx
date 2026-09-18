@@ -104,17 +104,18 @@ function MetricCardButton({
   const isSummary = Boolean(detailRows?.length) && !detailRows?.some((r) => r.icon);
   const isWindList = Boolean(detailRows?.some((r) => r.icon));
   const isFlare = Boolean(showFlareScale);
+  const isEventCount = !icon;
 
   return (
     <button
       type="button"
-      className={`sw-metric-card${isSummary ? " sw-metric-card-summary" : ""}${isWindList ? " sw-metric-card-wind" : ""}${isFlare ? " sw-metric-card-flare" : ""}${selected ? " sw-metric-card-selected" : ""}${disabled ? " is-loading" : ""}`}
+      className={`sw-metric-card${isSummary ? " sw-metric-card-summary" : ""}${isWindList ? " sw-metric-card-wind" : ""}${isFlare ? " sw-metric-card-flare" : ""}${isEventCount ? " sw-metric-card-events" : ""}${selected ? " sw-metric-card-selected" : ""}${disabled ? " is-loading" : ""}`}
       onClick={onClick}
       disabled={disabled}
       aria-pressed={selected}
       aria-label={`${label}: ${value}. Click for explanation.`}
     >
-      <span className="sw-metric-icon">{icon}</span>
+      {icon ? <span className="sw-metric-icon">{icon}</span> : null}
       <div className="sw-metric-label">{label}</div>
       {isFlare && <div className="sw-metric-eyebrow">Current class:</div>}
       <div className="sw-metric-value" style={{ color: valueColor }}>
@@ -245,6 +246,33 @@ function ExplanationPanel({
           </ul>
         </div>
       )}
+      {(metricKey === "donki_flares" ||
+        metricKey === "donki_cmes" ||
+        metricKey === "donki_storms") &&
+        solar && (
+          <div className="sw-metric-explain-body" style={{ marginTop: "0.65rem" }}>
+            <div className="sw-metric-explain-heading">Expanded details</div>
+            <ul style={{ margin: "0.35rem 0 0", paddingLeft: "1.1rem" }}>
+              <li>Feed: NASA DONKI ({solar.donki_status || "unknown"})</li>
+              {solar.donki_date_start && solar.donki_date_end ? (
+                <li>
+                  Window: {solar.donki_date_start} – {solar.donki_date_end}
+                </li>
+              ) : null}
+              <li>
+                Flare events:{" "}
+                {Array.isArray(solar.donki_flares) ? solar.donki_flares.length : "—"}
+              </li>
+              <li>
+                CME events: {Array.isArray(solar.donki_cmes) ? solar.donki_cmes.length : "—"}
+              </li>
+              <li>
+                Geomagnetic storm events:{" "}
+                {Array.isArray(solar.donki_storms) ? solar.donki_storms.length : "—"}
+              </li>
+            </ul>
+          </div>
+        )}
     </div>
   );
 }
