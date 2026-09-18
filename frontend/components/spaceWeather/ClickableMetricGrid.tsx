@@ -4,11 +4,13 @@ import Link from "next/link";
 import { useState } from "react";
 import type { SolarActivityFull, SpaceWeatherCurrent } from "@/lib/types";
 import type { LiveStationCounts } from "@/lib/liveStationStatus";
+import { FLARE_SCALE } from "@/lib/solarEventColors";
 import {
   METRIC_EXPLANATIONS,
   buildMetricCards,
   interpretMetric,
   type MetricCardSpec,
+  type MetricDetailRow,
   type MetricKey,
 } from "@/lib/spaceWeatherMetrics";
 
@@ -33,6 +35,37 @@ function freshnessClass(freshness: MetricCardSpec["freshness"]): string {
   return "sw-metric-fresh sw-metric-fresh-unavailable";
 }
 
+function DetailRows({ rows }: { rows: MetricDetailRow[] }) {
+  return (
+    <div className="sw-metric-detail-rows">
+      {rows.map((row) => (
+        <div className="sw-metric-detail-row" key={row.label}>
+          <span className="sw-metric-detail-label">{row.label}</span>
+          <span className="sw-metric-detail-value" style={row.valueColor ? { color: row.valueColor } : undefined}>
+            {row.value}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function FlareScaleLegend() {
+  return (
+    <div className="sw-metric-flare-scale" aria-label="GOES flare class scale">
+      {FLARE_SCALE.map((f) => (
+        <div className="sw-metric-flare-scale-item" key={f.cls}>
+          <div className="sw-metric-flare-scale-bar" style={{ background: f.color }} />
+          <div className="sw-metric-flare-scale-letter" style={{ color: f.color }}>
+            {f.cls}-
+          </div>
+          <div className="sw-metric-flare-scale-desc">{f.desc}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function MetricCardButton({
   icon,
   label,
@@ -42,6 +75,9 @@ function MetricCardButton({
   source,
   observedAt,
   freshness,
+  subtitle,
+  detailRows,
+  showFlareScale,
   selected,
   disabled,
   onClick,
@@ -54,14 +90,20 @@ function MetricCardButton({
   source?: string;
   observedAt?: string | null;
   freshness?: MetricCardSpec["freshness"];
+  subtitle?: string | null;
+  detailRows?: MetricDetailRow[];
+  showFlareScale?: boolean;
   selected: boolean;
   disabled: boolean;
   onClick: () => void;
 }) {
+  const isSummary = Boolean(detailRows?.length);
+  const isFlare = Boolean(showFlareScale);
+
   return (
     <button
       type="button"
-      className={`sw-metric-card${selected ? " sw-metric-card-selected" : ""}${disabled ? " is-loading" : ""}`}
+      className={`sw-metric-card${isSummary ? " sw-metric-card-summary" : ""}${isFlare ? " sw-metric-card-flare" : ""}${selected ? " sw-metric-card-selected" : ""}${disabled ? " is-loading" : ""}`}
       onClick={onClick}
       disabled={disabled}
       aria-pressed={selected}
@@ -69,10 +111,14 @@ function MetricCardButton({
     >
       <span className="sw-metric-icon">{icon}</span>
       <div className="sw-metric-label">{label}</div>
+      {isFlare && <div className="sw-metric-eyebrow">Current class:</div>}
       <div className="sw-metric-value" style={{ color: valueColor }}>
         {value}
       </div>
-      <div className="sw-metric-note">{note}</div>
+      {subtitle ? <div className="sw-metric-subtitle">{subtitle}</div> : null}
+      {detailRows?.length ? <DetailRows rows={detailRows} /> : null}
+      {showFlareScale ? <FlareScaleLegend /> : null}
+      {note ? <div className="sw-metric-note">{note}</div> : null}
       <div className="sw-metric-meta">
         {freshness && freshness !== "DELAYED" && (
           <span className={freshnessClass(freshness)}>{freshness}</span>
@@ -118,13 +164,11 @@ function ExplanationPanel({
           state.
         </p>
       )}
-      {metricKey === "solar_flare" && solar && (
+      {metricKey === "solar_activity" && solar && (
         <div className="sw-metric-explain-body" style={{ marginTop: "0.65rem" }}>
           <div className="sw-metric-explain-heading">Expanded details</div>
           <ul style={{ margin: "0.35rem 0 0", paddingLeft: "1.1rem" }}>
-            <li>
-              Solar activity: {solar.activity_label?.trim() || "Unavailable"}
-            </li>
+            <li>Solar activity: {solar.activity_label?.trim() || "Unavailable"}</li>
             <li>Current flare: {solar.flare_class?.trim() || "Unavailable"}</li>
             <li>
               SWPC alerts:{" "}
@@ -135,6 +179,21 @@ function ExplanationPanel({
                 Open Alerts for NOAA bulletins
               </Link>
             </li>
+          </ul>
+        </div>
+      )}
+      {metricKey === "solar_flare" && solar && (
+        <div className="sw-metric-explain-body" style={{ marginTop: "0.65rem" }}>
+          <div className="sw-metric-explain-heading">Expanded details</div>
+          <ul style={{ margin: "0.35rem 0 0", paddingLeft: "1.1rem" }}>
+            <li>Current class: {solar.flare_class?.trim() || "Unavailable"}</li>
+            <li>
+              Flux:{" "}
+              {solar.flux != null && Number.isFinite(solar.flux)
+                ? `${solar.flux.toExponential(2)} W/m²`
+                : "Unavailable"}
+            </li>
+            <li>Band: GOES soft X-ray 0.1–0.8 nm</li>
           </ul>
         </div>
       )}
@@ -178,37 +237,6 @@ function ExplanationPanel({
                 ? `${solar.solar_wind.dynamic_pressure.toFixed(1)} nPa`
                 : "Updating…"}
             </li>
-          </ul>
-        </div>
-      )}
-      {metricKey === "imf_bz" && solar?.solar_wind && (
-        <div className="sw-metric-explain-body" style={{ marginTop: "0.65rem" }}>
-          <div className="sw-metric-explain-heading">Expanded details</div>
-          <ul style={{ margin: "0.35rem 0 0", paddingLeft: "1.1rem" }}>
-            <li>
-              Bz:{" "}
-              {solar.solar_wind.bz != null ? `${solar.solar_wind.bz.toFixed(1)} nT` : "Updating…"}
-            </li>
-            <li>
-              Bt:{" "}
-              {solar.solar_wind.bt != null ? `${solar.solar_wind.bt.toFixed(1)} nT` : "Updating…"}
-            </li>
-            <li>
-              Southward duration:{" "}
-              {solar.solar_wind.southward_duration_minutes != null
-                ? `${solar.solar_wind.southward_duration_minutes} min`
-                : "Updating…"}
-            </li>
-          </ul>
-        </div>
-      )}
-      {metricKey === "zimbabwe_iono" && (
-        <div className="sw-metric-explain-body" style={{ marginTop: "0.65rem" }}>
-          <div className="sw-metric-explain-heading">Local ionosphere products</div>
-          <ul style={{ margin: "0.35rem 0 0", paddingLeft: "1.1rem" }}>
-            <li>VTEC: live CORS network mean when available</li>
-            <li>ΔTEC: reference baseline under development</li>
-            <li>ROTI: calculating / unavailable until validated sampling window</li>
           </ul>
         </div>
       )}
@@ -260,14 +288,17 @@ export default function ClickableMetricGrid({
             key={card.key}
             icon={card.icon}
             label={card.label}
-            value={loading && !sw ? "Connecting…" : card.value}
-            note={loading && !sw ? "Waiting for live API" : card.note}
+            value={loading && !sw && !solar ? "Connecting…" : card.value}
+            note={loading && !sw && !solar ? "Waiting for live API" : card.note}
             valueColor={card.valueColor}
-            source={loading && !sw ? undefined : card.source}
-            observedAt={loading && !sw ? null : card.observedAt}
-            freshness={loading && !sw ? undefined : card.freshness}
+            source={loading && !sw && !solar ? undefined : card.source}
+            observedAt={loading && !sw && !solar ? null : card.observedAt}
+            freshness={loading && !sw && !solar ? undefined : card.freshness}
+            subtitle={card.subtitle}
+            detailRows={card.detailRows}
+            showFlareScale={card.showFlareScale}
             selected={selected === card.key}
-            disabled={loading && !sw}
+            disabled={loading && !sw && !solar}
             onClick={() => setSelected((prev) => (prev === card.key ? null : card.key))}
           />
         ))}

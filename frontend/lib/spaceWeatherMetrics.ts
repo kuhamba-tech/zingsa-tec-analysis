@@ -6,6 +6,7 @@ import { kpConditionFromValue } from "./homeSpaceWeather";
 
 /** Primary Sun→Zimbabwe summary cards (Phase 1 redesign). */
 export type MetricKey =
+  | "solar_activity"
   | "solar_flare"
   | "solar_wind"
   | "imf_bz"
@@ -18,6 +19,12 @@ export type MetricKey =
 /** Keys kept for Advanced Scientific Indices (not primary cards). */
 export type AdvancedMetricKey = "ap" | "f107" | "kp";
 
+export interface MetricDetailRow {
+  label: string;
+  value: string;
+  valueColor?: string;
+}
+
 export interface MetricCardSpec {
   key: MetricKey;
   icon: string;
@@ -28,6 +35,12 @@ export interface MetricCardSpec {
   source?: string;
   observedAt?: string | null;
   freshness?: "LIVE" | "DELAYED" | "STALE" | "UNAVAILABLE";
+  /** Optional flux / secondary line under the hero value (Solar Flare GOES). */
+  subtitle?: string | null;
+  /** Label/value rows like the Solar Activity summary card. */
+  detailRows?: MetricDetailRow[];
+  /** Show A–X GOES flare class legend under the card body. */
+  showFlareScale?: boolean;
 }
 
 export interface MetricCardOptions {
@@ -46,8 +59,10 @@ export interface MetricCardOptions {
 }
 
 export const METRIC_EXPLANATIONS: Record<MetricKey, string> = {
+  solar_activity:
+    "Derived solar activity level summarises current GOES flare context and NOAA SWPC alert bulletin count. It is an operational snapshot, not a geomagnetic storm rating.",
   solar_flare:
-    "GOES soft X-ray measurements (0.1–0.8 nm) indicate the strength of solar flare emission. Classes A/B/C/M/X describe X-ray flux, not geomagnetic or GNSS impact levels. The card also shows the derived solar activity level and how many NOAA SWPC alert bulletins are currently listed. A solar flare does not necessarily produce a geomagnetic storm.",
+    "GOES soft X-ray measurements (0.1–0.8 nm) indicate the strength of solar flare emission. Classes A/B/C/M/X describe X-ray flux, not geomagnetic or GNSS impact levels. A solar flare does not necessarily produce a geomagnetic storm.",
   solar_wind:
     "Solar wind carries plasma and magnetic fields from the Sun. The primary card value is bulk speed; supporting plasma and IMF fields (density, proton temperature, Bz, Bt, and dynamic pressure when available) appear in the detail line. Increased speed can accompany CMEs and high-speed streams, but high solar-wind speed alone does not establish a geomagnetic storm.",
   imf_bz:
@@ -262,6 +277,11 @@ export function formatFlareClassDisplay(flareClass: string | null | undefined): 
   return flareClass.trim().toUpperCase();
 }
 
+export function formatGoesFluxDisplay(flux: number | null | undefined): string | null {
+  if (flux == null || !Number.isFinite(flux)) return null;
+  return `${flux.toExponential(2)} W/m²`;
+}
+
 export function formatS4Display(s4: number | null | undefined): string {
   if (s4 == null || !Number.isFinite(s4)) return "Updating…";
   return s4.toFixed(2);
@@ -406,15 +426,10 @@ export function buildMetricCards(
       : `ΔTEC / ROTI: reference baseline under development`;
 
   const activityLabel = sa?.activity_label?.trim() || null;
+  const activityColor = sa?.activity_color?.trim() || "#eab308";
   const swpcAlertCount = Array.isArray(sa?.alerts) ? sa.alerts.length : null;
-  const flareNoteParts: string[] = [];
-  if (activityLabel) {
-    flareNoteParts.push(`Activity ${activityLabel}`);
-  }
-  if (swpcAlertCount != null) {
-    flareNoteParts.push(`SWPC Alerts ${swpcAlertCount}`);
-  }
-  flareNoteParts.push(flareMissing ? "GOES X-ray · loading" : "GOES X-ray · 0.1–0.8 nm");
+  const swpcAlertsReachable = Boolean(sa?.feed_status?.swpc_alerts?.reachable);
+  const fluxLabel = formatGoesFluxDisplay(sa?.flux);
 
   const swObserved = formatObservedShort(sw?.updated_utc);
   const xrayFresh = flareMissing ? (solarLoading ? "DELAYED" : freshnessFromFeed(feeds.goes_xray, now, solarRefreshFailed)) : freshnessFromFeed(feeds.goes_xray, now, solarRefreshFailed);
@@ -425,15 +440,49 @@ export function buildMetricCards(
 
   return [
     {
+      key: "solar_activity",
+      icon: "☀️",
+      label: "Solar Activity",
+      value: activityLabel ?? (solarLoading ? "Updating…" : "Unavailable"),
+      note: "",
+      valueColor: activityLabel ? activityColor : "#94a3b8",
+      source: "NOAA SWPC",
+      observedAt: formatObservedShort(sa?.updated),
+      freshness: activityLabel
+        ? solarLoading
+          ? "DELAYED"
+          : xrayFresh
+        : solarLoading
+          ? "DELAYED"
+          : "UNAVAILABLE",
+      detailRows: [
+        {
+          label: "Current Flare",
+          value: flareClass,
+          valueColor: flareColor(sa?.flare_class),
+        },
+        {
+          label: "SWPC Alerts",
+          value: swpcAlertsReachable
+            ? String(swpcAlertCount ?? 0)
+            : solarLoading
+              ? "Updating…"
+              : "Unavailable",
+        },
+      ],
+    },
+    {
       key: "solar_flare",
       icon: "☀️",
-      label: "Solar Flare",
+      label: "Solar Flare (GOES X-Ray)",
       value: flareClass,
-      note: flareNoteParts.join(" · "),
+      note: "",
+      subtitle: fluxLabel ? `Flux: ${fluxLabel}` : flareMissing ? "Flux updating…" : null,
       valueColor: flareColor(sa?.flare_class),
       source: "NOAA SWPC GOES",
       observedAt: formatObservedShort(feeds.goes_xray?.timestamp) ?? formatObservedShort(sa?.updated),
       freshness: flareMissing ? (solarLoading ? "DELAYED" : "UNAVAILABLE") : xrayFresh,
+      showFlareScale: true,
     },
     {
       key: "solar_wind",
@@ -579,7 +628,7 @@ export function interpretMetric(
   key: MetricKey,
   opts?: MetricCardOptions,
 ): string {
-  if (!sw && key !== "solar_flare" && key !== "imf_bz" && key !== "solar_wind") {
+  if (!sw && key !== "solar_activity" && key !== "solar_flare" && key !== "imf_bz" && key !== "solar_wind") {
     return "Live data is unavailable. No interpretation can be issued.";
   }
 
@@ -593,21 +642,29 @@ export function interpretMetric(
   const vtec = sw?.mean_vtec ?? opts?.liveMeanVtec ?? null;
 
   switch (key) {
-    case "solar_flare": {
-      const fc = formatFlareClassDisplay(sa?.flare_class);
+    case "solar_activity": {
       const activity = sa?.activity_label?.trim();
+      const fc = formatFlareClassDisplay(sa?.flare_class);
       const alertN = Array.isArray(sa?.alerts) ? sa.alerts.length : null;
-      if (fc === "N/A") {
-        return "GOES X-ray class is unavailable. No flare interpretation is issued.";
+      if (!activity) {
+        return "Solar activity level is unavailable from the current NOAA feed.";
       }
-      const activityNote = activity ? ` Solar activity level is ${activity}.` : "";
+      const flareNote = fc !== "Updating…" ? ` Current flare class is ${fc}.` : "";
       const alertNote =
         alertN == null
           ? ""
-          : alertN === 0
-            ? " No current SWPC alert bulletins are listed."
-            : ` ${alertN} SWPC alert bulletin(s) are listed (issue time does not prove an alert is still active).`;
-      return `Current GOES long-band class is ${fc}.${activityNote}${alertNote} This is an X-ray flare class, not a geomagnetic or GNSS impact rating. A flare does not necessarily produce a geomagnetic storm.`;
+          : ` ${alertN} SWPC alert bulletin(s) are listed (issue time does not prove an alert is still active).`;
+      return `Solar activity is ${activity}.${flareNote}${alertNote} This summary is not a geomagnetic storm rating.`;
+    }
+
+    case "solar_flare": {
+      const fc = formatFlareClassDisplay(sa?.flare_class);
+      const flux = formatGoesFluxDisplay(sa?.flux);
+      if (fc === "N/A" || fc === "Updating…") {
+        return "GOES X-ray class is unavailable. No flare interpretation is issued.";
+      }
+      const fluxNote = flux ? ` Long-band flux is ${flux}.` : "";
+      return `Current GOES long-band class is ${fc}.${fluxNote} This is an X-ray flare class, not a geomagnetic or GNSS impact rating. A flare does not necessarily produce a geomagnetic storm.`;
     }
 
     case "solar_wind": {
