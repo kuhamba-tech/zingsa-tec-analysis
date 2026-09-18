@@ -525,7 +525,6 @@ export default function SpaceWeatherPage() {
       ? "Unavailable"
       : flareClassRaw;
   const actLabel     = sa?.activity_label ?? "Unavailable";
-  const actColor     = sa?.activity_color ?? "#ffffff";
   const alerts       = Array.isArray(sa?.alerts) ? sa.alerts : [];
   const donkiFlares  = Array.isArray(sa?.donki_flares) ? sa.donki_flares : [];
   const donkiCmes    = Array.isArray(sa?.donki_cmes) ? sa.donki_cmes : [];
