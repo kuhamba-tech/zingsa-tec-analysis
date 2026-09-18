@@ -1,8 +1,12 @@
 import type { NextConfig } from "next";
 import path from "path";
 
+const isDev = process.env.NODE_ENV === "development";
+
 const nextConfig: NextConfig = {
-  output: "export",
+  // Static export for Vercel; keep a real Next server in `next dev` so we can
+  // proxy /backend → FastAPI (needed when only the frontend port is forwarded).
+  ...(isDev ? {} : { output: "export" as const }),
   trailingSlash: true,
   images: {
     unoptimized: true,
@@ -10,6 +14,15 @@ const nextConfig: NextConfig = {
   // Next 16 blocks 127.0.0.1 ↔ localhost as cross-origin for /_next/* in
   // development, which prevents hydration and all client API fetches.
   allowedDevOrigins: ["127.0.0.1", "localhost"],
+  async rewrites() {
+    if (!isDev) return [];
+    return [
+      {
+        source: "/backend/:path*",
+        destination: "http://127.0.0.1:8000/:path*",
+      },
+    ];
+  },
   turbopack: {
     root: path.resolve(__dirname, ".."),
   },

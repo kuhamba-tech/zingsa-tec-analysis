@@ -376,8 +376,10 @@ export default function SpaceWeatherPage() {
       setFeedStatus("pending");
     }
 
-    // Kick off every feed immediately so the page fills as each API returns.
-    getSpaceWeather(true)
+    // Cache-first (requireNetwork=false) so the grid paints immediately.
+    // A hard requireNetwork wait used to leave "Connecting / Updating…" for
+    // up to ~56s when the API was slow or port 8000 was unreachable.
+    getSpaceWeather(false)
       .then((s) => {
         setSw(s);
         setTl((prev) => prev ?? snapshotTimelines(s));
@@ -400,7 +402,7 @@ export default function SpaceWeatherPage() {
       .catch(() => null);
 
     if (!background) setSaLoading((prev) => (peekSolarActivity() ? false : prev || true));
-    getSolarActivity(false, true)
+    getSolarActivity(false, false)
       .then((payload) => {
         setSa(payload);
         setSaError(payload?.error ?? null);
@@ -423,7 +425,16 @@ export default function SpaceWeatherPage() {
   useEffect(() => {
     fetchAll(false);
     const id = window.setInterval(() => fetchAll(true), 45_000);
-    return () => window.clearInterval(id);
+    // Leave "Connecting" within 10s even if a fetch is stuck — show unavailable
+    // rather than an infinite Updating… grid.
+    const watchdog = window.setTimeout(() => {
+      setFeedStatus((prev) => (prev === "pending" ? "down" : prev));
+      setSaLoading(false);
+    }, 10_000);
+    return () => {
+      window.clearInterval(id);
+      window.clearTimeout(watchdog);
+    };
   }, [fetchAll]);
 
   useEffect(() => subscribeStations((next) => {

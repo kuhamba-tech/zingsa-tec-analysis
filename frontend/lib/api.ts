@@ -90,11 +90,17 @@ function apiBase(): string {
     const { hostname, port, protocol } = window.location;
     const host =
       hostname === "[::1]" ? "127.0.0.1" : hostname;
-    // Next.js dev (port 3000) — always use local FastAPI so live NTRIP/SQLite
-    // ingest from scripts/restart_collector_kwek.sh shows on the heat map.
-    // NEXT_PUBLIC_API_URL (often Vercel) is for deployed builds only.
-    if (port === "3000" || port === "3001") {
-      return `${protocol}//${host}:8000`;
+    // Local / cloud-agent Next on :3000 — use same-origin `/backend` proxy
+    // (next.config rewrites → FastAPI :8000). Direct `:8000` fails when only
+    // the frontend port is forwarded, which leaves Space Weather on
+    // "Connecting… / Updating…" until timeouts fire.
+    if (
+      process.env.NODE_ENV === "development" ||
+      port === "3000" ||
+      port === "3001"
+    ) {
+      const originPort = port ? `:${port}` : "";
+      return `${protocol}//${host}${originPort}/backend`;
     }
     if (hostname === "localhost" || hostname === "127.0.0.1") {
       return "http://localhost:8000";
@@ -179,13 +185,26 @@ const GROUP_ROUTERS: [prefix: string, router: string][] = [
  * `baseUrl() + path` should use this instead. */
 function apiUrl(path: string): string {
   const base = baseUrl();
-  if (!base.endsWith("/api")) return base + path;
-  for (const [prefix, router] of GROUP_ROUTERS) {
-    if (path === prefix || path.startsWith(prefix)) {
-      return `${base}${router}?__zr=${encodeURIComponent(path)}`;
+  let url = base + path;
+  if (base.endsWith("/api")) {
+    for (const [prefix, router] of GROUP_ROUTERS) {
+      if (path === prefix || path.startsWith(prefix)) {
+        url = `${base}${router}?__zr=${encodeURIComponent(path)}`;
+        break;
+      }
     }
   }
-  return base + path;
+  // Next `trailingSlash: true` 308s `/backend/foo` → `/backend/foo/`. Prefer the
+  // final URL so Space Weather does not pay an extra RTT on every feed.
+  if (base.includes("/backend")) {
+    const q = url.indexOf("?");
+    if (q === -1) {
+      if (!url.endsWith("/")) url += "/";
+    } else if (url[q - 1] !== "/") {
+      url = `${url.slice(0, q)}/${url.slice(q)}`;
+    }
+  }
+  return url;
 }
 
 function friendlyFetchError(err: unknown, path: string): Error {
