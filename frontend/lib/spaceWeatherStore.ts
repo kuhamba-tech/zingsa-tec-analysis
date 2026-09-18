@@ -7,11 +7,23 @@ const SPACE_WEATHER_CACHE_KEY = "zgiis:last-good:space-weather";
 
 type Listener = (sw: SpaceWeatherCurrent) => void;
 
+function hasFinite(value: unknown): boolean {
+  return value != null && Number.isFinite(Number(value));
+}
+
+/** Accept any live snapshot with at least one usable index / count / stamp. */
 function isUsable(value: unknown): value is SpaceWeatherCurrent {
   if (!value || typeof value !== "object") return false;
   const data = value as Partial<SpaceWeatherCurrent>;
-  // kp can be 0 (quiet) — only reject missing fields.
-  return data.kp != null && Number.isFinite(Number(data.kp)) && Boolean(data.updated_utc);
+  // kp can be 0 (quiet) — Number.isFinite(0) is true.
+  return (
+    hasFinite(data.kp) ||
+    hasFinite(data.dst) ||
+    hasFinite(data.mean_vtec) ||
+    hasFinite(data.stations_online) ||
+    (typeof data.gnss_risk === "string" && data.gnss_risk.length > 0) ||
+    Boolean(data.updated_utc)
+  );
 }
 
 function readPersisted(): SpaceWeatherCurrent | null {
@@ -40,13 +52,30 @@ function ensureSeeded() {
   if (!latest) latest = readPersisted();
 }
 
+/** Null-safe merge so a later partial publish does not wipe EKF-filled fields. */
+export function mergeSpaceWeatherPreferDefined(
+  prev: SpaceWeatherCurrent | null,
+  next: SpaceWeatherCurrent,
+): SpaceWeatherCurrent {
+  if (!prev) return next;
+  const out = { ...prev } as SpaceWeatherCurrent;
+  for (const key of Object.keys(next) as (keyof SpaceWeatherCurrent)[]) {
+    const value = next[key];
+    if (value !== null && value !== undefined) {
+      (out as unknown as Record<string, unknown>)[key as string] = value;
+    }
+  }
+  return out;
+}
+
 /** Publish a fresh space-weather snapshot to all subscribers + localStorage. */
 export function publishSpaceWeather(sw: SpaceWeatherCurrent): SpaceWeatherCurrent {
   if (!isUsable(sw)) return sw;
-  latest = sw;
-  writePersisted(sw);
-  listeners.forEach((fn) => fn(sw));
-  return sw;
+  const merged = mergeSpaceWeatherPreferDefined(latest, sw);
+  latest = merged;
+  writePersisted(merged);
+  listeners.forEach((fn) => fn(merged));
+  return merged;
 }
 
 /** Read the last known snapshot (memory → localStorage). */

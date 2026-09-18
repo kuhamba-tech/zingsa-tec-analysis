@@ -389,8 +389,10 @@ export function buildMetricCards(
 ): MetricCardSpec[] {
   const now = opts?.now ?? Date.now();
   const solarRefreshFailed = Boolean(opts?.solarRefreshFailed || opts?.solar?.mode === "stale");
-  const solarLoading = Boolean(opts?.solarLoading && !opts?.solar);
-  const indicesLoading = Boolean(opts?.indicesLoading && !sw);
+  // Honour caller loading flags. Prefer "Updating…" over "Unavailable" while the
+  // feed is still pending — even if a partial `sw` / `solar` object already exists.
+  const solarLoading = Boolean(opts?.solarLoading);
+  const indicesLoading = Boolean(opts?.indicesLoading);
   const kp = sw?.kp ?? null;
   const dst = sw?.dst ?? null;
   const wind = sw?.plasma_speed ?? opts?.solar?.solar_wind?.speed ?? null;

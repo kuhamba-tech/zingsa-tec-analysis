@@ -14,22 +14,44 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
-/** Runs before React hydrates so National Dashboard metrics can paint from cache. */
+/** Runs before React hydrates so National Dashboard metrics can paint from cache.
+ * URL rules must stay aligned with lib/clientApiBase.ts. */
 const SPACE_WEATHER_BOOT_SCRIPT = `
 (function () {
   try {
     var host = location.hostname;
     var port = location.port;
+    var origin = location.origin;
     var local = host === "localhost" || host === "127.0.0.1" || host === "[::1]";
-    var base = local
-      ? (port === "8000" ? location.origin : location.origin + "/backend")
-      : location.origin + "/api";
-    fetch(base + "/space-weather/current?_ts=" + Date.now(), { cache: "no-store" })
+    var base;
+    if (port === "3000" || port === "3001" || port === "43128") {
+      base = origin + "/backend";
+    } else if (local && port === "8000") {
+      base = origin;
+    } else if (local) {
+      base = origin + "/backend";
+    } else {
+      base = origin + "/api";
+    }
+    var path = "/space-weather/current";
+    var url = base + path;
+    if (base.slice(-4) === "/api") {
+      url = base + "/space-weather-router/?__zr=" + encodeURIComponent(path);
+    }
+    var ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    var timer = ctrl ? setTimeout(function () { try { ctrl.abort(); } catch (e) {} }, 8000) : null;
+    fetch(url + (url.indexOf("?") >= 0 ? "&" : "?") + "_ts=" + Date.now(), {
+      cache: "no-store",
+      signal: ctrl ? ctrl.signal : undefined
+    })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (d) {
-        if (d && d.kp != null) window.__ZGIIS_SW_BOOT = d;
+        if (d && (d.kp != null || d.dst != null || d.gnss_risk || d.mean_vtec != null || d.stations_online != null)) {
+          window.__ZGIIS_SW_BOOT = d;
+        }
       })
-      .catch(function () {});
+      .catch(function () {})
+      .then(function () { if (timer) clearTimeout(timer); });
   } catch (e) {}
 })();
 `;

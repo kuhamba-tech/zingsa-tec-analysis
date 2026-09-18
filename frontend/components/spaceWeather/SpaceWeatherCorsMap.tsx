@@ -83,13 +83,11 @@ export default function SpaceWeatherCorsMap({ height: preferredHeight = 440 }: {
     getStations(false)
       .then((rows) => {
         if (cancelled) return;
-        if (rows.length) {
-          setStations(rows);
-          setStationsLoading(false);
-        }
+        if (rows.length) setStations(rows);
       })
-      .catch(() => {
-        if (!cancelled && peekStations().length === 0) setStationsLoading(false);
+      .catch(() => null)
+      .finally(() => {
+        if (!cancelled) setStationsLoading(false);
       });
 
     // Heatmap is decorative for the Hybrid layer — never block station dots.

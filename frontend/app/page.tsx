@@ -8,7 +8,7 @@ import {
   getStations,
 } from "@/lib/api";
 import { absorbInlineBootPayload, bootSpaceWeather } from "@/lib/bootSpaceWeather";
-import { peekSpaceWeather, subscribeSpaceWeather } from "@/lib/spaceWeatherStore";
+import { mergeSpaceWeatherPreferDefined, peekSpaceWeather, subscribeSpaceWeather } from "@/lib/spaceWeatherStore";
 import { peekStations, subscribeStations, stationsAreSpiderAuthoritative } from "@/lib/stationsStore";
 import { mergeSpaceWeatherWithEkf } from "@/lib/homeSpaceWeather";
 import { buildMetricCards, NOAA_G_SCALE } from "@/lib/spaceWeatherMetrics";
@@ -185,22 +185,28 @@ export default function HomePage() {
       if (cancelled || !sw) return;
       setLiveSw(sw);
       setDisplaySw(sw);
-      setSwStatus(status);
+      setSwStatus((prev) => {
+        // Never downgrade a live ok feed to stale because a cache re-apply raced in.
+        if (prev === "ok" && status === "stale") return prev;
+        return status;
+      });
       if (sw.stations_online != null && sw.stations_total != null) {
         setStationsLoading(false);
       }
     };
 
+    const fromBoot = Boolean(typeof window !== "undefined" && window.__ZGIIS_SW_BOOT);
     const cachedSw = absorbInlineBootPayload() ?? peekSpaceWeather();
-    if (cachedSw) applySw(cachedSw, "stale");
+    if (cachedSw) applySw(cachedSw, fromBoot ? "ok" : "stale");
 
     // Inline boot often lands before React hydrates — poll briefly so metrics
     // paint as soon as window.__ZGIIS_SW_BOOT is set.
     const started = Date.now();
     const poll = window.setInterval(() => {
+      const hadBoot = Boolean(window.__ZGIIS_SW_BOOT);
       const boot = absorbInlineBootPayload();
       if (boot) {
-        applySw(boot, "stale");
+        applySw(boot, hadBoot ? "ok" : "stale");
         window.clearInterval(poll);
       } else if (Date.now() - started > 2500) {
         window.clearInterval(poll);
@@ -221,7 +227,7 @@ export default function HomePage() {
 
   useEffect(() => subscribeSpaceWeather((next) => {
     setLiveSw(next);
-    setDisplaySw((prev) => (prev ? { ...prev, ...next } : next));
+    setDisplaySw((prev) => mergeSpaceWeatherPreferDefined(prev, next));
     setSwStatus("ok");
     setLoadError(null);
     if (next.stations_online != null && next.stations_total != null) {
@@ -230,6 +236,7 @@ export default function HomePage() {
   }), []);
 
   useEffect(() => subscribeStations((next) => {
+    if (next.length === 0) return;
     setStations((prev) => mergeStationsPreferLive(prev, next, { nextIsLiveProbe: false }));
     setStationsLoading(false);
   }), []);
@@ -251,7 +258,7 @@ export default function HomePage() {
         if (cached) {
           setDisplaySw(cached);
           setLiveSw(cached);
-          setSwStatus("stale");
+          setSwStatus((prev) => (prev === "ok" ? "ok" : "stale"));
           if (cached.stations_online != null && cached.stations_total != null) {
             setStationsLoading(false);
           }

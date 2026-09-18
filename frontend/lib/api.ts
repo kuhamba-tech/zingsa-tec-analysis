@@ -84,31 +84,16 @@ import { peekSpaceWeather, publishSpaceWeather } from "./spaceWeatherStore";
 import { peekSolarActivity, publishSolarActivity } from "./solarActivityStore";
 import { peekHeliosphericMonitor, rememberHeliosphericMonitor } from "./heliosphericStore";
 import { peekStations, publishStations, purgeStaleStationsCache, stationsAreSpiderAuthoritative } from "./stationsStore";
+import {
+  getSpaceWeatherNetworkAt,
+  noteSpaceWeatherNetworkOk,
+  resolveClientApiBase,
+  resolveClientApiUrl,
+  spaceWeatherFetchedRecently,
+} from "./clientApiBase";
 
 function apiBase(): string {
-  if (typeof window !== "undefined") {
-    const { hostname, port } = window.location;
-    // Same-origin `/backend` proxy in next dev (rewrites → FastAPI :8000).
-    // Always use window.location.origin so Cursor port-forwards and
-    // 127.0.0.1 vs localhost never open a broken cross-origin :8000 call —
-    // that hang left Space Weather on "Connecting… / Updating…".
-    if (
-      process.env.NODE_ENV === "development" ||
-      port === "3000" ||
-      port === "3001" ||
-      port === "43128"
-    ) {
-      return `${window.location.origin}/backend`;
-    }
-    if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]") {
-      return `${window.location.protocol}//127.0.0.1:8000`;
-    }
-    // Vercel/static export deploy — backend is exposed through /api.
-    return `${window.location.origin}/api`;
-  }
-  const configured = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "");
-  if (configured) return configured;
-  return "http://127.0.0.1:8000";
+  return resolveClientApiBase();
 }
 
 const KEY = process.env.NEXT_PUBLIC_API_KEY ?? "";
@@ -121,7 +106,6 @@ const HELIO_TIMEOUT_MS = 45_000;
 const REPORT_TIMEOUT_MS = 60_000;
 const LIVE_REFRESH_MIN_MS = 20_000;
 
-let lastSpaceWeatherNetworkAt = 0;
 let lastSolarNetworkAt = 0;
 let lastHelioNetworkAt = 0;
 let lastStationsNetworkAt = 0;
@@ -150,61 +134,9 @@ function baseUrl(): string {
   return apiBase();
 }
 
-// Vercel's Hobby plan caps a deployment at 12 serverless functions, so
-// several backend route groups are consolidated into single Vercel
-// functions (tec-router, navigation-news-router, cors-router,
-// space-weather-router, processing-router). A vercel.json `rewrites` entry
-// was tried to keep clean URLs but never fired for this project's static
-// export build (confirmed by live testing) -- so on Vercel, requests for
-// a grouped route are sent to that group's real, named function URL, with
-// the actual backend route encoded as a query parameter
-// (backend/vercel_dispatch.py's make_group_dispatcher reads it back out).
-// Local dev talks straight to the FastAPI backend on :8000, which has no
-// such constraint, so this only rewrites when apiBase() resolves to the
-// Vercel-style "<origin>/api" base.
-const GROUP_ROUTERS: [prefix: string, router: string][] = [
-  ["/tec/", "/tec-router/"],
-  ["/navigation-news", "/navigation-news-router/"],
-  ["/cors/", "/cors-router/"],
-  ["/space-weather/", "/space-weather-router/"],
-  ["/processing/", "/processing-router/"],
-  ["/live/", "/core-router/"],
-  ["/forecast/", "/core-router/"],
-  ["/reports/", "/core-router/"],
-  ["/chat", "/core-router/"],
-  ["/theory/", "/core-router/"],
-  ["/gic/", "/core-router/"],
-  ["/cosmic2/", "/core-router/"],
-];
-
-/** Builds the full request URL for `path`, routing through a consolidated
- * group function (with the real route passed as ?__zr=) when running
- * against the Vercel deployment. Every call site that used to concatenate
- * `baseUrl() + path` should use this instead. */
+/** Builds the full request URL for `path` (shared with boot via clientApiBase). */
 function apiUrl(path: string): string {
-  const base = baseUrl();
-  let url = base + path;
-  if (base.endsWith("/api")) {
-    for (const [prefix, router] of GROUP_ROUTERS) {
-      if (path === prefix || path.startsWith(prefix)) {
-        url = `${base}${router}?__zr=${encodeURIComponent(path)}`;
-        break;
-      }
-    }
-  }
-  // FastAPI routes are registered without a trailing slash (`/space-weather/current`
-  // → 200, `/space-weather/current/` → 404). Do not force a slash onto `/backend`
-  // URLs — Next rewrites the path through to uvicorn as-is when
-  // skipTrailingSlashRedirect is enabled.
-  if (base.includes("/backend")) {
-    const q = url.indexOf("?");
-    const pathPart = q === -1 ? url : url.slice(0, q);
-    const query = q === -1 ? "" : url.slice(q);
-    if (pathPart.endsWith("/") && pathPart !== `${base}/` && pathPart !== base) {
-      url = `${pathPart.replace(/\/+$/, "")}${query}`;
-    }
-  }
-  return url;
+  return resolveClientApiUrl(path);
 }
 
 function friendlyFetchError(err: unknown, path: string): Error {
@@ -298,7 +230,7 @@ function refreshSpaceWeatherNetwork(): Promise<SpaceWeatherCurrent> {
       timeoutMs,
     )
       .then((data) => {
-        lastSpaceWeatherNetworkAt = Date.now();
+        noteSpaceWeatherNetworkOk();
         return publishSpaceWeather(data);
       })
       .catch((err) => {
@@ -315,13 +247,15 @@ export const getSpaceWeather = (requireNetwork = false) => {
     return dedupeGet("space-weather/current:verified", () =>
       getWithRetry<SpaceWeatherCurrent>("/space-weather/current", { _ts: Date.now() })
         .then((data) => {
-          lastSpaceWeatherNetworkAt = Date.now();
+          noteSpaceWeatherNetworkOk();
           return publishSpaceWeather(data);
         }),
     );
   }
   const cached = peekSpaceWeather();
-  const recentlyFetched = Date.now() - lastSpaceWeatherNetworkAt < LIVE_REFRESH_MIN_MS;
+  const recentlyFetched =
+    spaceWeatherFetchedRecently(LIVE_REFRESH_MIN_MS) ||
+    (cached != null && Date.now() - getSpaceWeatherNetworkAt() < LIVE_REFRESH_MIN_MS);
   if (cached && recentlyFetched) return Promise.resolve(cached);
   const pending = refreshSpaceWeatherNetwork();
   if (cached) {

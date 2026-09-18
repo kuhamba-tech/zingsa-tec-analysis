@@ -465,12 +465,15 @@ export default function SpaceWeatherPage() {
   useEffect(() => {
     fetchAll(false);
     const id = window.setInterval(() => fetchAll(true), 45_000);
-    // Leave "Connecting" within 10s even if a fetch is stuck — show unavailable
-    // rather than an infinite Updating… grid.
+    // Leave "Connecting" within 12s even if a fetch is stuck — show unavailable
+    // rather than an infinite Updating… grid (aligned with SW_FAST + retry budget).
     const watchdog = window.setTimeout(() => {
-      setFeedStatus((prev) => (prev === "pending" ? "down" : prev));
+      setFeedStatus((prev) => {
+        if (prev !== "pending") return prev;
+        return peekSpaceWeather() ? "stale" : "down";
+      });
       setSaLoading(false);
-    }, 6_000);
+    }, 12_000);
     return () => {
       window.clearInterval(id);
       window.clearTimeout(watchdog);
@@ -761,7 +764,7 @@ export default function SpaceWeatherPage() {
         solar={sa}
         solarLoading={saLoading}
         now={now}
-        refreshFailed={feedStatus !== "ok"}
+        refreshFailed={feedStatus === "down"}
         solarRefreshFailed={Boolean(saError)}
         loading={feedStatus === "pending" && !sw}
       />

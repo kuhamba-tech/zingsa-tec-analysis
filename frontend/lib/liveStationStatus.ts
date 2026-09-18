@@ -106,7 +106,7 @@ export function mergeStationsPreferLive(
   });
 }
 
-export function countLiveStationStatuses(stations: Station[], expectedTotal = 24): LiveStationCounts {
+export function countLiveStationStatuses(stations: Station[], expectedTotal = 25): LiveStationCounts {
   const counts: LiveStationCounts = {
     online: 0,
     offline: 0,

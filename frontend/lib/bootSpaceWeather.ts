@@ -3,25 +3,15 @@
  * Intentionally avoids `@/lib/api` so layout can fetch before the heavy
  * api.ts chunk downloads.
  */
+import {
+  noteSpaceWeatherNetworkOk,
+  resolveClientApiUrl,
+  spaceWeatherFetchedRecently,
+} from "@/lib/clientApiBase";
 import { peekSpaceWeather, publishSpaceWeather } from "@/lib/spaceWeatherStore";
 import type { SpaceWeatherCurrent } from "@/lib/types";
 
-function bootApiBase(): string {
-  if (typeof window === "undefined") return "";
-  const { hostname, port, origin, protocol } = window.location;
-  if (
-    process.env.NODE_ENV === "development" ||
-    port === "3000" ||
-    port === "3001" ||
-    port === "43128"
-  ) {
-    return `${origin}/backend`;
-  }
-  if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]") {
-    return `${protocol}//127.0.0.1:8000`;
-  }
-  return `${origin}/api`;
-}
+const BOOT_TIMEOUT_MS = 8_000;
 
 declare global {
   interface Window {
@@ -30,32 +20,48 @@ declare global {
   }
 }
 
+function isBootPayload(value: unknown): value is SpaceWeatherCurrent {
+  if (!value || typeof value !== "object") return false;
+  const data = value as Partial<SpaceWeatherCurrent>;
+  return (
+    (data.kp != null && Number.isFinite(Number(data.kp))) ||
+    (data.dst != null && Number.isFinite(Number(data.dst))) ||
+    (typeof data.gnss_risk === "string" && data.gnss_risk.length > 0) ||
+    (data.mean_vtec != null && Number.isFinite(Number(data.mean_vtec))) ||
+    (data.stations_online != null && Number.isFinite(Number(data.stations_online)))
+  );
+}
+
 /** Apply any pre-React inline boot payload into the shared store. */
 export function absorbInlineBootPayload(): SpaceWeatherCurrent | null {
   if (typeof window === "undefined") return null;
   const boot = window.__ZGIIS_SW_BOOT;
-  if (boot && typeof boot === "object" && boot.kp != null) {
+  if (isBootPayload(boot)) {
+    noteSpaceWeatherNetworkOk();
     return publishSpaceWeather(boot);
   }
   return peekSpaceWeather();
 }
 
 /**
- * Fire-and-forget fetch of `/space-weather/current`. Deduped per tab.
- * Returns cached/in-flight data when available.
+ * Fire-and-forget fetch of `/space-weather/current`. Deduped per tab while
+ * in flight; failed attempts clear the promise so a later call can retry.
  */
 export function bootSpaceWeather(): Promise<SpaceWeatherCurrent | null> {
   if (typeof window === "undefined") return Promise.resolve(null);
 
   absorbInlineBootPayload();
   const cached = peekSpaceWeather();
+  if (cached && spaceWeatherFetchedRecently()) return Promise.resolve(cached);
   if (window.__ZGIIS_SW_BOOT_PROMISE) return window.__ZGIIS_SW_BOOT_PROMISE;
 
-  const base = bootApiBase();
-  if (!base) return Promise.resolve(cached);
+  const url = resolveClientApiUrl("/space-weather/current");
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), BOOT_TIMEOUT_MS);
 
-  const pending = fetch(`${base}/space-weather/current?_ts=${Date.now()}`, {
+  const pending = fetch(`${url}${url.includes("?") ? "&" : "?"}_ts=${Date.now()}`, {
     cache: "no-store",
+    signal: controller.signal,
     headers: process.env.NEXT_PUBLIC_API_KEY
       ? { "X-API-Key": process.env.NEXT_PUBLIC_API_KEY }
       : undefined,
@@ -63,12 +69,18 @@ export function bootSpaceWeather(): Promise<SpaceWeatherCurrent | null> {
     .then(async (res) => {
       if (!res.ok) throw new Error(`boot SW ${res.status}`);
       const data = (await res.json()) as SpaceWeatherCurrent;
+      if (!isBootPayload(data)) throw new Error("boot SW unusable payload");
       window.__ZGIIS_SW_BOOT = data;
+      noteSpaceWeatherNetworkOk();
       return publishSpaceWeather(data);
     })
     .catch(() => peekSpaceWeather())
     .finally(() => {
-      /* keep promise for dedupe during this page life */
+      window.clearTimeout(timer);
+      // Drop failed/null so a later call can retry; keep success via clock.
+      if (!peekSpaceWeather()) {
+        delete window.__ZGIIS_SW_BOOT_PROMISE;
+      }
     });
 
   window.__ZGIIS_SW_BOOT_PROMISE = pending;
