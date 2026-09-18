@@ -1,22 +1,19 @@
 "use client";
 
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { getSpaceWeather, getSolarActivity, getTimelines, refreshSpaceWeather, getStations, getEkfStatus } from "@/lib/api";
 import { peekSpaceWeather, subscribeSpaceWeather } from "@/lib/spaceWeatherStore";
 import { peekSolarActivity, subscribeSolarActivity } from "@/lib/solarActivityStore";
 import { peekStations, subscribeStations } from "@/lib/stationsStore";
 import ClickableMetricGrid from "@/components/spaceWeather/ClickableMetricGrid";
+import DeferredMount from "@/components/spaceWeather/DeferredMount";
 import IndexScaleReference from "@/components/spaceWeather/IndexScaleReference";
-import SolarCycleFullRecordCharts from "@/components/spaceWeather/SolarCycleFullRecordCharts";
-import HeliosphericMonitorStack from "@/components/spaceWeather/HeliosphericMonitorStack";
-import CauseEffectTimelineStack from "@/components/spaceWeather/CauseEffectTimelineStack";
 import SwSectionBanner from "@/components/spaceWeather/SwSectionBanner";
 import { monitoringFreshness, observationTime } from "@/lib/monitoringStatus";
 import AdvancedScientificIndices from "@/components/spaceWeather/AdvancedScientificIndices";
 import HomeStormAlertBanner from "@/components/layout/HomeStormAlertBanner";
-import LineChart from "@/components/charts/LineChart";
-import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
 import type { ChartAnalysisBlock } from "@/lib/multiSourceChartAnalysis";
 import {
   analyzeDstTimeline,
@@ -45,6 +42,31 @@ import type { EkfPoint, EkfStatus, SpaceWeatherCurrent, SolarActivityFull, Space
 import { FLARE_SCALE } from "@/lib/solarEventColors";
 import { DashboardHeaderClocks } from "@/components/dashboard/DashboardClocks";
 
+const sectionFallback = (
+  <div className="banner banner-info" role="status" style={{ margin: "0.75rem 0" }}>
+    Loading section…
+  </div>
+);
+
+const CauseEffectTimelineStack = dynamic(
+  () => import("@/components/spaceWeather/CauseEffectTimelineStack"),
+  { ssr: false, loading: () => sectionFallback },
+);
+const HeliosphericMonitorStack = dynamic(
+  () => import("@/components/spaceWeather/HeliosphericMonitorStack"),
+  { ssr: false, loading: () => sectionFallback },
+);
+const SolarCycleFullRecordCharts = dynamic(
+  () => import("@/components/spaceWeather/SolarCycleFullRecordCharts"),
+  { ssr: false, loading: () => sectionFallback },
+);
+const LineChart = dynamic(() => import("@/components/charts/LineChart"), {
+  ssr: false,
+  loading: () => <div className="banner banner-info" role="status">Loading chart…</div>,
+});
+const ChartAnalysisBox = dynamic(() => import("@/components/dashboard/ChartAnalysisBox"), {
+  ssr: false,
+});
 // ── Solar Cycle 25 reference ──────────────────────────────────────────────────
 const SC25_START = new Date("2019-12-01").getTime();
 const SC25_END_EST = new Date("2031-03-01").getTime();
@@ -187,15 +209,23 @@ function TimelineCard({
   const chrono = timeDomain
     ? chronoAll.filter((p) => p.ms >= timeDomain.min && p.ms <= timeDomain.max)
     : chronoAll;
-  const labels = chrono.map((p) => p.t);
-  const epochs = chrono.map((p) => p.ms);
-  const data = chrono.map((p) => p.v);
+  // If a shared domain clipped everything (e.g. timelines still loading), fall
+  // back to the raw series so we never flash "feed unavailable" with live points.
+  const plot = chrono.length > 0 ? chrono : chronoAll;
+  const labels = plot.map((p) => p.t);
+  const epochs = plot.map((p) => p.ms);
+  const data = plot.map((p) => p.v);
   const ekf = alignEkfToPoints(
-    chrono.map((p) => ({ t: p.t, v: p.v })),
+    plot.map((p) => ({ t: p.t, v: p.v })),
     ekfPoints,
   );
   const hasEkf = ekf.data.some((v) => v !== null);
-  const domain = timeDomain ?? sharedTimeDomain([epochs]);
+  const domain =
+    (chrono.length > 0 ? timeDomain : null) ??
+    sharedTimeDomain([epochs]) ??
+    (epochs.length
+      ? alignTimeDomain(epochs[0] - ONE_H_MS, epochs[epochs.length - 1] + ONE_H_MS)
+      : null);
   const speedScale = graphId === "solar-wind"
     ? (() => {
         const vals = data.filter((v): v is number => v != null && Number.isFinite(v) && v > 0);
@@ -226,7 +256,7 @@ function TimelineCard({
       style={{ cursor: pts.length > 0 ? "pointer" : "default" }}
     >
       <div className="metric-label" style={{ marginBottom: "0.6rem" }}>{title}</div>
-      {chrono.length > 0 && domain ? (
+      {plot.length > 0 && domain ? (
         <>
           <LineChart
             labels={labels}
@@ -258,7 +288,7 @@ function TimelineCard({
             {...speedScale}
           />
           <div style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>
-            {source} · {chrono.length} points{hasEkf ? " · EKF overlay" : ""} · synced UTC axis.
+            {source} · {plot.length} points{hasEkf ? " · EKF overlay" : ""} · synced UTC axis.
           </div>
           {expanded && <ChartAnalysisBox block={analysis} title="Scientific interpretation" />}
         </>
@@ -376,8 +406,9 @@ export default function SpaceWeatherPage() {
       setFeedStatus("pending");
     }
 
-    // Kick off every feed immediately so the page fills as each API returns.
-    getSpaceWeather(true)
+    // Critical path: paint metric cards + warm the shared Spider stations store
+    // so the CORS map can draw markers without waiting on heatmap / idle work.
+    getSpaceWeather(false)
       .then((s) => {
         setSw(s);
         setTl((prev) => prev ?? snapshotTimelines(s));
@@ -399,31 +430,51 @@ export default function SpaceWeatherPage() {
       .then((stations) => setLiveStationCounts(countSpiderLiveStationStatuses(stations)))
       .catch(() => null);
 
+    // Timelines power the default Live Metric Timelines tab — fetch with the
+    // critical path so charts are not stuck on "feed unavailable".
+    getTimelines()
+      .then(setTl)
+      .catch(() => null);
+
     if (!background) setSaLoading((prev) => (peekSolarActivity() ? false : prev || true));
-    getSolarActivity(false, true)
+    getSolarActivity(false, false)
       .then((payload) => {
         setSa(payload);
         setSaError(payload?.error ?? null);
       })
       .catch((error: unknown) => {
-        // Keep any previous payload so the monitor doesn't blank out on a transient failure.
         setSaError(error instanceof Error ? error.message : "Solar monitor API unreachable");
       })
       .finally(() => setSaLoading(false));
 
-    getTimelines()
-      .then(setTl)
-      .catch(() => null);
-
-    getEkfStatus()
-      .then(setEkf)
-      .catch(() => null);
+    // Secondary feed after first paint.
+    const runSecondary = () => {
+      getEkfStatus()
+        .then(setEkf)
+        .catch(() => null);
+    };
+    if (background) {
+      runSecondary();
+    } else if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+      window.requestIdleCallback(() => runSecondary(), { timeout: 1500 });
+    } else {
+      window.setTimeout(runSecondary, 120);
+    }
   }, []);
 
   useEffect(() => {
     fetchAll(false);
     const id = window.setInterval(() => fetchAll(true), 45_000);
-    return () => window.clearInterval(id);
+    // Leave "Connecting" within 10s even if a fetch is stuck — show unavailable
+    // rather than an infinite Updating… grid.
+    const watchdog = window.setTimeout(() => {
+      setFeedStatus((prev) => (prev === "pending" ? "down" : prev));
+      setSaLoading(false);
+    }, 10_000);
+    return () => {
+      window.clearInterval(id);
+      window.clearTimeout(watchdog);
+    };
   }, [fetchAll]);
 
   useEffect(() => subscribeStations((next) => {
@@ -747,9 +798,23 @@ export default function SpaceWeatherPage() {
           Recent SWPC bulletins and feed status are listed on the Alerts page with storm watches.
         </p>
       </section>
-      <CauseEffectTimelineStack />
-      <IndexScaleReference />
-      <AdvancedScientificIndices sw={sw} solar={sa} />
+      <DeferredMount
+        className="sw-deferred-block"
+        minHeight={320}
+        rootMargin="180px 0px"
+        fallback={sectionFallback}
+      >
+        <CauseEffectTimelineStack />
+      </DeferredMount>
+      <DeferredMount
+        className="sw-deferred-block"
+        minHeight={120}
+        rootMargin="160px 0px"
+        fallback={sectionFallback}
+      >
+        <IndexScaleReference />
+        <AdvancedScientificIndices sw={sw} solar={sa} />
+      </DeferredMount>
 
       {/* ── Tabs ── */}
       <div className="tabs">
@@ -915,7 +980,14 @@ export default function SpaceWeatherPage() {
           </div>
 
           {/* KNMI-style heliospheric stack: protons, IMF, solar wind, Kp forecast */}
-          <HeliosphericMonitorStack />
+          <DeferredMount
+            className="sw-deferred-block"
+            minHeight={280}
+            rootMargin="200px 0px"
+            fallback={sectionFallback}
+          >
+            <HeliosphericMonitorStack />
+          </DeferredMount>
 
           {/* Active Regions + CME table side by side */}
           <div className="sw-double-grid">
@@ -972,7 +1044,14 @@ export default function SpaceWeatherPage() {
           </div>
 
           {/* F10.7 & Sunspot Number — full multi-cycle record */}
-          <SolarCycleFullRecordCharts />
+          <DeferredMount
+            className="sw-deferred-block"
+            minHeight={240}
+            rootMargin="200px 0px"
+            fallback={sectionFallback}
+          >
+            <SolarCycleFullRecordCharts />
+          </DeferredMount>
 
           {/* Solar Cycle Progress */}
           <div className="card">
