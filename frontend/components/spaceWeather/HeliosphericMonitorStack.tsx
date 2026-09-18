@@ -13,6 +13,7 @@ import {
 import { Bar } from "react-chartjs-2";
 import LineChart from "@/components/charts/LineChart";
 import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
+import SwSectionBanner from "@/components/spaceWeather/SwSectionBanner";
 import { getHeliosphericMonitor } from "@/lib/api";
 import { peekHeliosphericMonitor } from "@/lib/heliosphericStore";
 import {
@@ -242,16 +243,28 @@ export default function HeliosphericMonitorStack() {
         }}
         style={{ cursor: "pointer" }}
       >
-        <div className="metric-label" style={{ marginBottom: "0.3rem" }}>
-          Heliospheric Monitor · L1 &amp; GOES
-        </div>
-        <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", lineHeight: 1.5 }}>
+        <SwSectionBanner
+          icon="🛰️"
+          title="Heliospheric Monitor · L1 & GOES"
+          tone={error ? "warn" : loading ? "warn" : data ? "ok" : "off"}
+          meta={
+            <span>
+              {error
+                ? "Feed issue"
+                : loading
+                  ? "Loading"
+                  : data
+                    ? "Live Data · NOAA SWPC"
+                    : "Unavailable"}
+              {" · "}
+              {overviewOpen ? "Hide chain explanation" : "Click for Sun→Earth chain"}
+            </span>
+          }
+        />
+        <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", lineHeight: 1.5, marginTop: "0.55rem" }}>
           KNMI-style stack: GOES proton flux, IMF at Sun–Earth L1, solar-wind speed, and NOAA Kp
           observed / forecast — live NOAA SWPC only. Click any panel (or this title) for the scientific
           explanation of how it links Sun → solar wind → IMF → magnetosphere → Zimbabwe TEC/GNSS.
-        </div>
-        <div style={{ fontSize: "0.72rem", color: "var(--accent)", marginTop: "0.4rem", fontWeight: 700 }}>
-          {overviewOpen ? "Click to hide chain explanation" : "Click for Sun→Earth chain explanation"}
         </div>
         {overviewOpen && <ChartAnalysisBox block={overview} title="How to read this timeline stack" />}
       </div>

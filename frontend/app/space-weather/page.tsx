@@ -1,6 +1,7 @@
 "use client";
-import { useCallback, useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent } from "react";
+
 import Link from "next/link";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { getSpaceWeather, getSolarActivity, getTimelines, refreshSpaceWeather, getStations, getEkfStatus } from "@/lib/api";
 import { peekSpaceWeather, subscribeSpaceWeather } from "@/lib/spaceWeatherStore";
 import { peekSolarActivity, subscribeSolarActivity } from "@/lib/solarActivityStore";
@@ -10,6 +11,7 @@ import IndexScaleReference from "@/components/spaceWeather/IndexScaleReference";
 import SolarCycleFullRecordCharts from "@/components/spaceWeather/SolarCycleFullRecordCharts";
 import HeliosphericMonitorStack from "@/components/spaceWeather/HeliosphericMonitorStack";
 import CauseEffectTimelineStack from "@/components/spaceWeather/CauseEffectTimelineStack";
+import SwSectionBanner from "@/components/spaceWeather/SwSectionBanner";
 import { monitoringFreshness, observationTime } from "@/lib/monitoringStatus";
 import AdvancedScientificIndices from "@/components/spaceWeather/AdvancedScientificIndices";
 import HomeStormAlertBanner from "@/components/layout/HomeStormAlertBanner";
@@ -714,17 +716,12 @@ export default function SpaceWeatherPage() {
       />
       {/* ── Solar Activity Monitor section ── */}
       <div style={{ display: "flex", flexDirection: "column", gap: "0.8rem" }}>
-        {/* Section header */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "10px", padding: "0.7rem 1.1rem" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-            <span style={{ fontSize: "1rem" }}>⚡</span>
-            <span style={{ fontWeight: 800, fontSize: "0.85rem", letterSpacing: "0.1em", textTransform: "uppercase" }}>Solar Activity Monitor</span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.85rem", color: "var(--text-muted)" }}>
-            <span className={`dot ${solarFeedLive ? "dot-ok" : "dot-warn"}`} style={{ width: "7px", height: "7px" }} />
-            <span>{solarFeedLabel} · NOAA SWPC · {nowCat}</span>
-          </div>
-        </div>
+        <SwSectionBanner
+          icon="⚡"
+          title="Solar Activity Monitor"
+          tone={solarFeedLive ? "ok" : "warn"}
+          meta={<span>{solarFeedLabel} · NOAA SWPC · {nowCat}</span>}
+        />
 
         {saError && !solarFeedLive && (
           <div className="banner banner-warn" style={{ fontSize: "0.85rem" }} role="status">
@@ -740,7 +737,18 @@ export default function SpaceWeatherPage() {
         <div>
           {/* GOES X-Ray Flux chart */}
           <div className="card" {...solarCardClickProps("xray", { display: "flex", flexDirection: "column", gap: "0.5rem" })}>
-            <div style={{ fontSize: "0.85rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)" }}>GOES X-Ray Flux — Last Day</div>
+            <SwSectionBanner
+              icon="☀️"
+              title="GOES X-Ray Flux — Last Day"
+              as="h3"
+              tone={xraySlice.length > 0 ? "ok" : "warn"}
+              meta={
+                <span>
+                  NOAA SWPC GOES · class {flareClass}
+                  {fluxLabel ? ` · ${fluxLabel}` : ""}
+                </span>
+              }
+            />
             {xraySlice.length > 0 ? (
               <>
                 <LineChart
@@ -784,15 +792,14 @@ export default function SpaceWeatherPage() {
 
       {/* NOAA bulletins live on Alerts (/storm-watch); keep a short pointer here. */}
       <section className="card" aria-label="NOAA alerts shortcut">
-        <div className="sw-section-heading">
-          <h2 style={{ margin: 0, fontSize: "1.05rem" }}>NOAA alerts, watches and warnings</h2>
-        </div>
-        <p className="sw-supporting-text" style={{ marginBottom: "0.65rem" }}>
+        <SwSectionBanner
+          icon="🔔"
+          title="NOAA alerts, watches and warnings"
+          meta={<Link href="/storm-watch/">Open Alerts →</Link>}
+        />
+        <p className="sw-supporting-text" style={{ margin: "0.75rem 0 0" }}>
           Recent SWPC bulletins and feed status are listed on the Alerts page with storm watches.
         </p>
-        <Link href="/storm-watch/" style={{ fontSize: "0.88rem", fontWeight: 600 }}>
-          Open Alerts for NOAA bulletins →
-        </Link>
       </section>
       <CauseEffectTimelineStack />
       <IndexScaleReference />

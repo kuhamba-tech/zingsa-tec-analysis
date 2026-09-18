@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { SolarActivityFull } from "@/lib/types";
 import { monitoringFreshness, observationEpoch, observationTime } from "@/lib/monitoringStatus";
+import SwSectionBanner from "./SwSectionBanner";
 
 function text(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
@@ -30,24 +31,26 @@ export default function OperationalAlerts({
   const latest = alerts[0];
   const latestMessage = text(latest?.message) ?? text(latest?.product_id) ?? null;
   const loading = !solar && !refreshFailed;
+  const tone = status === "LIVE" ? "ok" : status === "DELAYED" ? "warn" : "off";
+  const statusLabel =
+    status === "LIVE" ? "Feed current" : status === "DELAYED" ? "Partial feed" : "Feed unavailable";
 
   return (
     <section className="card sw-operational-alerts" aria-labelledby="operational-alerts-title">
-      <div className="sw-alerts-watch-card">
-        <h2 id="operational-alerts-title" className="sw-alerts-watch-title">
-          Alerts / Watches / Warnings
-        </h2>
-        <span
-          className={`sw-feed-state sw-feed-state-${status.toLowerCase()}`}
-          style={{ alignSelf: "flex-start" }}
-        >
-          {status === "LIVE"
-            ? "Feed current"
-            : status === "DELAYED"
-              ? "Partial feed"
-              : "Feed unavailable"}
-        </span>
+      <SwSectionBanner
+        icon="🔔"
+        title="Alerts / Watches / Warnings"
+        titleId="operational-alerts-title"
+        tone={tone}
+        meta={
+          <span>
+            {statusLabel}
+            {alerts.length ? ` · ${alerts.length} bulletin(s)` : ""}
+          </span>
+        }
+      />
 
+      <div className="sw-alerts-watch-card">
         {latestMessage ? (
           <>
             <div className="sw-alerts-watch-issued">
