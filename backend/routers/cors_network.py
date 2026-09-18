@@ -205,16 +205,23 @@ def _stations_are_spider_authoritative(stations: list) -> bool:
 
 
 def _hold_non_spider_as_unknown(stations: list) -> list:
-    """Never paint catalog/archive online-offline as live Spider Site Status."""
+    """Never paint catalog greens/reds as live Spider Site Status.
+
+    Preserve Spider rows and live NTRIP pipeline rows. When Spider SBC is
+    unreachable (e.g. Cloudflare 403 from a cloud IP), NTRIP stream state is
+    the only honest online/offline signal — blanking it made the map look
+    like stations were not loading.
+    """
     from dataclasses import replace
 
     held = []
     for station in stations:
-        if getattr(station, "status_source", "") == "spider":
+        source = getattr(station, "status_source", "") or ""
+        if source in {"spider", "ntrip"}:
             held.append(station)
             continue
         catalog = getattr(station, "catalog_status", "") or ""
-        if getattr(station, "status_source", "") == "catalog" and not catalog:
+        if source == "catalog" and not catalog:
             catalog = station.status
         held.append(
             replace(
@@ -612,8 +619,8 @@ def _merge_spider_site_statuses(stations: list, *, refresh: bool = False) -> lis
 
     Prefer cached Spider rows and refresh them in the background for normal
     reads. An explicit refresh may block for a live pull. If Spider is
-    unreachable, leave stations as unknown — never fall back to catalog
-    greens/reds.
+    unreachable, keep live NTRIP statuses and blank only catalog rows —
+    never invent catalog greens/reds.
     """
     from dataclasses import replace
 
@@ -648,6 +655,7 @@ def _merge_spider_site_statuses(stations: list, *, refresh: bool = False) -> lis
     if not by_station:
         if payload.get("error"):
             log.warning("Spider site status unavailable: %s", payload.get("error"))
+        # Spider down (often Cloudflare 403 from datacenter IPs). Keep NTRIP.
         return _hold_non_spider_as_unknown(stations)
 
     merged = []
