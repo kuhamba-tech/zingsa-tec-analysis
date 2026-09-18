@@ -31,9 +31,12 @@ import { analyzeGoesXrayExplanation } from "@/lib/heliosphericChartAnalysis";
 import {
   ONE_H_MS,
   SIX_H_MS,
+  alignTimeDomain,
   chronologicalPoints,
   formatKnmiUtcTick,
+  parseTimelineEpoch,
   sharedTimeDomain,
+  utcTimeAxisProps,
 } from "@/lib/chartTimeAxis";
 import { alignEkfToPoints } from "@/lib/ekfAlign";
 import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
@@ -529,10 +532,18 @@ export default function SpaceWeatherPage() {
   // multiply by 1e7 for readability (so "0" becomes 0.00 not "5e-8")
   const xrayScaled = xrayRaw.map((v) => parseFloat((v * 1e7).toFixed(3)));
   const xraySlice = xrayRange === "6H" ? xrayScaled.slice(-9) : xrayScaled;
-  const xrayLabelCount = xraySlice.length;
-  const xrayLabels = Array.from({ length: xrayLabelCount }, (_, i) => {
-    const minsAgo = (xrayLabelCount - 1 - i) * (xrayRange === "6H" ? 40 : 40);
-    return minsAgo === 0 ? "now" : `-${Math.round(minsAgo / 60)}h`;
+  const xraySampleStepMs = 40 * 60 * 1000;
+  const xrayEndMs = parseTimelineEpoch(sa?.updated ?? "") ?? Date.now();
+  const xrayEpochs = xraySlice.map(
+    (_, i) => xrayEndMs - (xraySlice.length - 1 - i) * xraySampleStepMs,
+  );
+  const xrayLabels = xrayEpochs.map((ms) => new Date(ms).toISOString());
+  const xrayDomain =
+    xrayEpochs.length > 1
+      ? alignTimeDomain(xrayEpochs[0], xrayEpochs[xrayEpochs.length - 1])
+      : null;
+  const xrayAxis = utcTimeAxisProps(xrayDomain, {
+    rangeHours: xrayRange === "6H" ? 6 : 24,
   });
   const xrayAnalysis = useMemo<ChartAnalysisBlock>(() => {
     if (!xraySlice.length) {
@@ -883,6 +894,9 @@ export default function SpaceWeatherPage() {
                   datasets={[{ label: "0.1–0.8 nm X-Ray Flux (×10⁻⁷ W/m²)", data: xraySlice, color: "#60a5fa" }]}
                   yLabel="Flux ×10⁻⁷ W/m²"
                   height={240}
+                  xValues={xrayEpochs}
+                  epochMs={xrayEpochs}
+                  {...xrayAxis}
                 />
                 {/* Flare class reference lines */}
                 <div style={{ display: "flex", gap: "1.5rem", flexWrap: "wrap", marginTop: "0.6rem", fontSize: "0.85rem" }}>
