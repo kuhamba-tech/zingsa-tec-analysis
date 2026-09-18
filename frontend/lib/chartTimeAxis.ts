@@ -157,7 +157,12 @@ export function sharedTimeDomain(epochLists: number[][]): { min: number; max: nu
       if (ms > max) max = ms;
     }
   }
-  if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) return null;
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return null;
+  // Single sample (or identical timestamps) — still provide a UTC day axis so
+  // Live Metric Timelines do not show "feed unavailable".
+  if (max <= min) {
+    return alignTimeDomain(min - ONE_H_MS, max + ONE_H_MS, SIX_H_MS);
+  }
   return alignTimeDomain(min, max, SIX_H_MS);
 }
 

@@ -208,15 +208,23 @@ function TimelineCard({
   const chrono = timeDomain
     ? chronoAll.filter((p) => p.ms >= timeDomain.min && p.ms <= timeDomain.max)
     : chronoAll;
-  const labels = chrono.map((p) => p.t);
-  const epochs = chrono.map((p) => p.ms);
-  const data = chrono.map((p) => p.v);
+  // If a shared domain clipped everything (e.g. timelines still loading), fall
+  // back to the raw series so we never flash "feed unavailable" with live points.
+  const plot = chrono.length > 0 ? chrono : chronoAll;
+  const labels = plot.map((p) => p.t);
+  const epochs = plot.map((p) => p.ms);
+  const data = plot.map((p) => p.v);
   const ekf = alignEkfToPoints(
-    chrono.map((p) => ({ t: p.t, v: p.v })),
+    plot.map((p) => ({ t: p.t, v: p.v })),
     ekfPoints,
   );
   const hasEkf = ekf.data.some((v) => v !== null);
-  const domain = timeDomain ?? sharedTimeDomain([epochs]);
+  const domain =
+    (chrono.length > 0 ? timeDomain : null) ??
+    sharedTimeDomain([epochs]) ??
+    (epochs.length
+      ? alignTimeDomain(epochs[0] - ONE_H_MS, epochs[epochs.length - 1] + ONE_H_MS)
+      : null);
   const speedScale = graphId === "solar-wind"
     ? (() => {
         const vals = data.filter((v): v is number => v != null && Number.isFinite(v) && v > 0);
@@ -247,7 +255,7 @@ function TimelineCard({
       style={{ cursor: pts.length > 0 ? "pointer" : "default" }}
     >
       <div className="metric-label" style={{ marginBottom: "0.6rem" }}>{title}</div>
-      {chrono.length > 0 && domain ? (
+      {plot.length > 0 && domain ? (
         <>
           <LineChart
             labels={labels}
@@ -421,6 +429,12 @@ export default function SpaceWeatherPage() {
       .then((stations) => setLiveStationCounts(countSpiderLiveStationStatuses(stations)))
       .catch(() => null);
 
+    // Timelines power the default Live Metric Timelines tab — fetch with the
+    // critical path so charts are not stuck on "feed unavailable".
+    getTimelines()
+      .then(setTl)
+      .catch(() => null);
+
     if (!background) setSaLoading((prev) => (peekSolarActivity() ? false : prev || true));
     getSolarActivity(false, false)
       .then((payload) => {
@@ -432,11 +446,8 @@ export default function SpaceWeatherPage() {
       })
       .finally(() => setSaLoading(false));
 
-    // Secondary feeds after first paint — reduces connection contention.
+    // Secondary feed after first paint.
     const runSecondary = () => {
-      getTimelines()
-        .then(setTl)
-        .catch(() => null);
       getEkfStatus()
         .then(setEkf)
         .catch(() => null);
