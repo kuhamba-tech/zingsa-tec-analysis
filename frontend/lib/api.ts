@@ -1018,7 +1018,9 @@ export const getLiveVtecByStation = (hours = 6, resampleMinutes = 2) =>
   get<LiveStationVtecSeries[]>(
     "/live/vtec-by-station",
     { hours, resample_minutes: resampleMinutes, _ts: Date.now() },
-    hours >= 24 ? 120_000 : hours >= 12 ? 90_000 : Math.max(FETCH_TIMEOUT_MS, 55_000),
+    // Endpoint is usually <100ms; keep a short budget so CauseEffect panels
+    // never sit on "Retrying automatically" for up to two minutes.
+    hours >= 24 ? 20_000 : hours >= 12 ? 15_000 : Math.max(FETCH_TIMEOUT_MS, 12_000),
   );
 export const getLiveStations = () => get<StationLiveStatus[]>("/live/stations");
 export const getLivePipelineStatus = () => get<LivePipelineStatus>("/live/pipeline-status");

@@ -196,16 +196,31 @@ export default function CauseEffectTimelineStack() {
     const refresh = async () => {
       if (inFlight) return;
       inFlight = true;
-      const results = await Promise.allSettled([
-        getHeliosphericMonitor(false, true), getTimelines(), getLiveVtecByStation(Math.min(rangeHours, 48), 2),
-      ]);
+      // Resolve each feed independently so Zimbabwe VTEC / GNSS panels paint
+      // as soon as their JSON arrives instead of waiting on the slowest of 3.
+      const tasks: Promise<void>[] = [
+        getHeliosphericMonitor(false, false)
+          .then((h) => { if (!cancelled) setHelio(h); })
+          .catch(() => null)
+          .then(() => undefined),
+        getTimelines()
+          .then((t) => { if (!cancelled) setTimelines(t); })
+          .catch(() => null)
+          .then(() => undefined),
+        getLiveVtecByStation(Math.min(rangeHours, 48), 2)
+          .then((v) => {
+            if (cancelled) return;
+            setVtec(Array.isArray(v) ? v : []);
+            setVtecRefreshFailed(false);
+          })
+          .catch(() => {
+            if (!cancelled) setVtecRefreshFailed(true);
+          })
+          .then(() => undefined),
+      ];
+      const results = await Promise.allSettled(tasks);
       inFlight = false;
       if (cancelled) return;
-      const [h, t, v] = results;
-      if (h.status === "fulfilled") setHelio(h.value);
-      if (t.status === "fulfilled") setTimelines(t.value);
-      if (v.status === "fulfilled") setVtec(Array.isArray(v.value) ? v.value : []);
-      setVtecRefreshFailed(v.status === "rejected");
       const failed = results.filter((result) => result.status === "rejected").length;
       setError(failed ? `${failed} of 3 timeline feeds could not refresh. Retained observations may lag; check their timestamps.` : null);
       setLoading(false);
@@ -317,7 +332,7 @@ export default function CauseEffectTimelineStack() {
     });
   }, [timelines]);
 
-  const vtecPanel = useMemo(() => {
+  const vtecPanelRaw = useMemo(() => {
     const set = new Set<string>();
     for (const s of plottedStations) for (const p of s.points) set.add(p.time);
     const times = [...set].sort();
@@ -337,7 +352,7 @@ export default function CauseEffectTimelineStack() {
     return alignTimeDomain(now - rangeHours * ONE_H_MS, now, rangeHours <= 8 ? ONE_H_MS : SIX_H_MS);
   }, [now, rangeHours]);
 
-  // Clip Kp/Dst to the same live UTC window as solar wind / IMF.
+  // Clip Kp/Dst/VTEC/GNSS to the same live UTC window as solar wind / IMF.
   const kpPanel = useMemo(
     () => clipSeriesToDomain(kpPanelRaw, timeDomain),
     [kpPanelRaw, timeDomain],
@@ -345,6 +360,14 @@ export default function CauseEffectTimelineStack() {
   const dstPanel = useMemo(
     () => clipSeriesToDomain(dstPanelRaw, timeDomain),
     [dstPanelRaw, timeDomain],
+  );
+  const vtecPanel = useMemo(
+    () => clipSeriesToDomain(vtecPanelRaw, timeDomain),
+    [vtecPanelRaw, timeDomain],
+  );
+  const gnssPanelClipped = useMemo(
+    () => clipSeriesToDomain(gnssPanel, timeDomain),
+    [gnssPanel, timeDomain],
   );
 
   const timeAxis = useMemo(
@@ -645,7 +668,11 @@ export default function CauseEffectTimelineStack() {
               />
             ) : (
               <div className="banner banner-info">
-                Station VTEC observations are unavailable. Retrying automatically.
+                {loading
+                  ? "Loading station VTEC…"
+                  : vtecRefreshFailed
+                    ? "Station VTEC observations are unavailable. Retrying automatically."
+                    : "No station VTEC points in the selected time range yet."}
               </div>
             )}
           </Panel>
@@ -657,27 +684,27 @@ export default function CauseEffectTimelineStack() {
             open={openPanel === "gnss"}
             onToggle={() => setOpenPanel((p) => (p === "gnss" ? null : "gnss"))}
           >
-            {gnssPanel ? (
+            {gnssPanelClipped ? (
               <LineChart
-                labels={gnssPanel.labels}
+                labels={gnssPanelClipped.labels}
                 yLabel="S4"
                 height={180}
                 toggleableLegend
                 secondaryYLabel="Estimated risk"
-                xValues={gnssPanel.epochs}
-                epochMs={gnssPanel.epochs}
+                xValues={gnssPanelClipped.epochs}
+                epochMs={gnssPanelClipped.epochs}
                 {...timeAxis}
                 {...syncProps}
                 datasets={[
                   {
                     label: "S4",
-                    data: gnssPanel.series.s4,
+                    data: gnssPanelClipped.series.s4,
                     color: "#f97316",
                     yAxisId: "y",
                   },
                   {
                     label: "Estimated GNSS risk (provisional)",
-                    data: gnssPanel.series.risk,
+                    data: gnssPanelClipped.series.risk,
                     color: "#a78bfa",
                     yAxisId: "y2",
                   },
@@ -685,7 +712,9 @@ export default function CauseEffectTimelineStack() {
               />
             ) : (
               <div className="banner banner-info">
-                S4/GNSS-risk timelines unavailable. S4 stays empty until archive-backed scintillation is observed.
+                {loading
+                  ? "Loading GNSS risk timelines…"
+                  : "S4 archive is empty for this window. Estimated GNSS risk still updates from indices when available."}
               </div>
             )}
           </Panel>
