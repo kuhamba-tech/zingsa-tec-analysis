@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { DASHBOARD_SCALE_ROWS } from "@/lib/geomagneticScales";
+import SwSectionBanner from "./SwSectionBanner";
 
 export default function IndexScaleReference() {
   const [open, setOpen] = useState(false);
@@ -10,15 +11,26 @@ export default function IndexScaleReference() {
     <div className="card scale-reference">
       <button
         type="button"
-        className="operations-chart-title"
-        style={{ background: "none", border: "none", cursor: "pointer", width: "100%", textAlign: "left", padding: 0 }}
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
+        style={{
+          width: "100%",
+          background: "none",
+          border: "none",
+          padding: 0,
+          cursor: "pointer",
+          textAlign: "left",
+          color: "inherit",
+        }}
       >
-        Index Scale Reference {open ? "▾" : "▸"}
+        <SwSectionBanner
+          icon="📐"
+          title="Index Scale Reference"
+          meta={<span>{open ? "Hide ▾" : "Show ▸"} · Kp, Dst, S4, TEC, F10.7, solar wind</span>}
+        />
       </button>
       {!open && (
-        <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", margin: "0.35rem 0 0" }}>
+        <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", margin: "0.55rem 0 0" }}>
           Click to expand Kp, Dst, S4, TEC, F10.7 and solar-wind colour scales.
         </p>
       )}

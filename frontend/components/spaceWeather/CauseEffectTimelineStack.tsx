@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import LocalIonosphereObservations from "./LocalIonosphereObservations";
+import SwSectionBanner from "./SwSectionBanner";
 import LineChart from "@/components/charts/LineChart";
 import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
 import { getHeliosphericMonitor, getLiveVtecByStation, getTimelines } from "@/lib/api";
@@ -406,12 +407,29 @@ export default function CauseEffectTimelineStack() {
     <>
     <LocalIonosphereObservations stations={vtec} now={now} refreshFailed={vtecRefreshFailed} loading={loading} />
     <section className="card sw-driver-timelines" style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }} aria-labelledby="driver-timelines-title">
-      <div className="sw-section-heading">
-        <h2 id="driver-timelines-title">Solar Drivers and Zimbabwe Response</h2>
-        <div className="sw-range-controls" role="group" aria-label="Shared chart time range">
-          {([6, 24, 72] as const).map((hours) => <button type="button" key={hours} aria-pressed={rangeHours === hours} onClick={() => { setRangeHours(hours); setSyncHoverMs(null); }}>{hours === 72 ? "3 days" : `${hours} hours`}</button>)}
-        </div>
-      </div>
+      <SwSectionBanner
+        icon="🔗"
+        title="Solar Drivers and Zimbabwe Response"
+        titleId="driver-timelines-title"
+        tone={error ? "warn" : loading ? "warn" : "ok"}
+        meta={
+          <div className="sw-range-controls" role="group" aria-label="Shared chart time range">
+            {([6, 24, 72] as const).map((hours) => (
+              <button
+                type="button"
+                key={hours}
+                aria-pressed={rangeHours === hours}
+                onClick={() => {
+                  setRangeHours(hours);
+                  setSyncHoverMs(null);
+                }}
+              >
+                {hours === 72 ? "3 days" : `${hours} hours`}
+              </button>
+            ))}
+          </div>
+        }
+      />
       <p className="sw-supporting-text">Shared UTC window and synchronized crosshair. Compare observations and propagation delays; alignment alone does not establish cause and effect. Up to five station traces are shown; coverage above includes all returned stations. Local VTEC history is available for up to 48 hours.</p>
 
       {loading && <div className="banner banner-info">Loading synchronized timelines…</div>}

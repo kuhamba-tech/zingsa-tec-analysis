@@ -1,3 +1,4 @@
+import SwSectionBanner from "./SwSectionBanner";
 import type { LiveStationVtecSeries } from "@/lib/types";
 import { monitoringFreshness, observationEpoch, observationTime } from "@/lib/monitoringStatus";
 
@@ -17,12 +18,33 @@ export default function LocalIonosphereObservations({ stations, now, refreshFail
   const fresh = rows.filter((row) => row.status === "LIVE" && row.latest);
   const values = fresh.map((row) => row.latest!.vtec_tecu);
   const mean = values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+  const anyLive = fresh.length > 0;
+  const tone = refreshFailed ? "warn" : anyLive ? "ok" : loading ? "warn" : "off";
+  const statusLabel = refreshFailed
+    ? "Refresh failed"
+    : anyLive
+      ? "Live Data"
+      : loading
+        ? "Loading"
+        : "Unavailable";
+
   return (
     <section className="card" aria-labelledby="local-ionosphere-title">
-      <div className="sw-section-heading">
-        <h2 id="local-ionosphere-title">Zimbabwe ionosphere observations</h2>
-        <a href="/tec-heatmap">View TEC map →</a>
-      </div>
+      <SwSectionBanner
+        icon="🇿🇼"
+        title="Zimbabwe ionosphere observations"
+        titleId="local-ionosphere-title"
+        tone={tone}
+        meta={
+          <>
+            <span>
+              {statusLabel} · ZINGSA CORS
+              {mean != null ? ` · ${mean.toFixed(1)} TECU mean` : ""}
+            </span>
+            <a href="/tec-heatmap/">View TEC map →</a>
+          </>
+        }
+      />
       <div className="sw-local-readings">
         <div><span>Mean of fresh station readings</span><strong>{mean === null ? "Unavailable" : `${mean.toFixed(1)} TECU`}</strong></div>
         <div><span>Stations contributing</span><strong>{loading ? "Loading…" : `${fresh.length} of ${rows.length} returned`}</strong></div>

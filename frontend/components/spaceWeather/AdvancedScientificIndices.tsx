@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { SolarActivityFull, SpaceWeatherCurrent } from "@/lib/types";
 import { buildAdvancedIndexRows } from "@/lib/spaceWeatherMetrics";
+import SwSectionBanner from "./SwSectionBanner";
 
 interface Props {
   sw: SpaceWeatherCurrent | null;
@@ -32,10 +33,6 @@ export default function AdvancedScientificIndices({ sw, solar = null }: Props) {
         aria-expanded={open}
         style={{
           width: "100%",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: "0.75rem",
           background: "transparent",
           border: "none",
           color: "#fff",
@@ -44,33 +41,28 @@ export default function AdvancedScientificIndices({ sw, solar = null }: Props) {
           textAlign: "left",
         }}
       >
-        <div>
-          <div
-            style={{
-              fontWeight: 800,
-              fontSize: "0.78rem",
-              letterSpacing: "0.08em",
-              textTransform: "uppercase",
-            }}
-          >
-            Advanced scientific indices
-          </div>
-          <div style={{ fontSize: "0.68rem", color: "var(--text-muted)", marginTop: 2 }}>
-            Ap, F10.7, Kp detail, IMF Bt, solar-wind density/temperature — research context, not the primary chain.
-          </div>
-        </div>
-        <span style={{ color: "var(--accent)", fontWeight: 700, fontSize: "0.75rem" }}>
-          {open ? "Hide ▾" : "Show ▸"}
-        </span>
+        <SwSectionBanner
+          icon="🔬"
+          title="Advanced scientific indices"
+          meta={
+            <span>
+              {open ? "Hide ▾" : "Show ▸"} · Ap, F10.7, Kp, IMF Bt, density / temperature
+            </span>
+          }
+        />
       </button>
-
+      {!open && (
+        <p style={{ fontSize: "0.68rem", color: "var(--text-muted)", margin: "0.45rem 0 0" }}>
+          Research context for the primary Sun→Zimbabwe chain — values are never invented.
+        </p>
+      )}
       {open && (
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))",
-            gap: "0.65rem",
-            marginTop: "0.85rem",
+            gridTemplateColumns: "repeat(auto-fill, minmax(9.5rem, 1fr))",
+            gap: "0.55rem",
+            marginTop: "0.75rem",
           }}
         >
           {rows.map((row) => (
@@ -95,8 +87,12 @@ export default function AdvancedScientificIndices({ sw, solar = null }: Props) {
               >
                 {row.label}
               </div>
-              <div style={{ fontSize: "1.05rem", fontWeight: 800, color: row.valueColor }}>{row.value}</div>
-              <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", marginTop: 2 }}>{row.note}</div>
+              <div style={{ fontWeight: 800, fontSize: "1.05rem", color: row.valueColor }}>
+                {row.value}
+              </div>
+              <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", marginTop: 2 }}>
+                {row.note}
+              </div>
             </div>
           ))}
           <div
@@ -107,8 +103,8 @@ export default function AdvancedScientificIndices({ sw, solar = null }: Props) {
               lineHeight: 1.45,
             }}
           >
-            ΔTEC and ROTI structures will appear here once a validated quiet-time reference and sampling window exist.
-            Values are never fabricated.
+            ΔTEC and ROTI structures will appear here once a validated quiet-time reference and sampling
+            window exist. Values are never fabricated.
           </div>
         </div>
       )}

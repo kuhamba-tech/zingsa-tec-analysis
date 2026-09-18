@@ -2696,6 +2696,7 @@ a.home-map-layer-btn {
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 .dot-ok    { background: var(--accent-ok); }
 .dot-warn  { background: var(--accent-warn); }
+.dot-off   { background: #64748b; }
 .dot-alert { background: var(--accent-alert); }
 .dot-muted { background: #444; }
 
@@ -7090,6 +7091,59 @@ a.home-map-layer-btn {
 }
 
 /* Space Weather: readable operational overview and optional research detail. */
+.sw-section-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.7rem 1.1rem;
+}
+.sw-section-banner-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.sw-section-banner-icon {
+  font-size: 1rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.sw-section-banner-title {
+  margin: 0;
+  font-weight: 800;
+  font-size: 0.85rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text);
+  line-height: 1.35;
+}
+.sw-section-banner-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.sw-section-banner-meta .dot {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+}
+.sw-section-banner-meta a {
+  color: var(--text);
+  font-weight: 600;
+  text-decoration: none;
+}
+.sw-section-banner-meta a:hover {
+  color: var(--accent, #38bdf8);
+}
 .space-weather-page .sw-section-heading {
   display: flex;
   align-items: center;
