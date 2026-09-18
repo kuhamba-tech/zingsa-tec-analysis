@@ -161,6 +161,18 @@ function ExplanationPanel({
                 : "Updating…"}
             </li>
             <li>
+              IMF Bz:{" "}
+              {solar.solar_wind.bz != null
+                ? `${solar.solar_wind.bz >= 0 ? "+" : ""}${solar.solar_wind.bz.toFixed(1)} nT`
+                : "Updating…"}
+            </li>
+            <li>
+              IMF Bt:{" "}
+              {solar.solar_wind.bt != null
+                ? `${solar.solar_wind.bt.toFixed(1)} nT`
+                : "Updating…"}
+            </li>
+            <li>
               Dynamic pressure:{" "}
               {solar.solar_wind.dynamic_pressure != null
                 ? `${solar.solar_wind.dynamic_pressure.toFixed(1)} nPa`

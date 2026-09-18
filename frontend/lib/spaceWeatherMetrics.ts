@@ -49,7 +49,7 @@ export const METRIC_EXPLANATIONS: Record<MetricKey, string> = {
   solar_flare:
     "GOES soft X-ray measurements (0.1–0.8 nm) indicate the strength of solar flare emission. Classes A/B/C/M/X describe X-ray flux, not geomagnetic or GNSS impact levels. The card also shows the derived solar activity level and how many NOAA SWPC alert bulletins are currently listed. A solar flare does not necessarily produce a geomagnetic storm.",
   solar_wind:
-    "Solar wind carries plasma and magnetic fields from the Sun. Increased speed can accompany CMEs and high-speed streams, but high solar-wind speed alone does not establish a geomagnetic storm.",
+    "Solar wind carries plasma and magnetic fields from the Sun. The primary card value is bulk speed; supporting plasma and IMF fields (density, proton temperature, Bz, Bt, and dynamic pressure when available) appear in the detail line. Increased speed can accompany CMEs and high-speed streams, but high solar-wind speed alone does not establish a geomagnetic storm.",
   imf_bz:
     "Southward IMF Bz favours magnetic reconnection and energy transfer from the solar wind into Earth's magnetosphere. Magnitude and duration are both important. A brief negative spike is not the same as sustained southward Bz.",
   geomagnetic_storm:
@@ -377,10 +377,23 @@ export function buildMetricCards(
   const southNote = formatSouthwardDuration(southMin);
   const bzNote = [bzOrientation, southNote].filter(Boolean).join(" · ");
 
+  const temp = sa?.solar_wind?.temperature ?? null;
+  const bt = sa?.solar_wind?.bt ?? null;
+
   const windNoteParts = [wind == null ? "Loading…" : solarWindInterpretation(wind)];
   if (density != null && Number.isFinite(density)) {
     windNoteParts.push(`${density.toFixed(1)} p/cm³`);
   }
+  if (temp != null && Number.isFinite(temp)) {
+    windNoteParts.push(`${Math.round(temp).toLocaleString()} K`);
+  }
+  if (bz != null && Number.isFinite(bz)) {
+    windNoteParts.push(`Bz ${formatBzDisplay(bz)}`);
+  }
+  if (bt != null && Number.isFinite(bt)) {
+    windNoteParts.push(`Bt ${bt.toFixed(1)} nT`);
+  }
+  // Keep dynamic pressure when present — useful plasma context beyond image-1 fields.
   if (pdyn != null && Number.isFinite(pdyn)) {
     windNoteParts.push(`${pdyn.toFixed(1)} nPa`);
   }
@@ -601,12 +614,25 @@ export function interpretMetric(
       if (wind === null) {
         return "No current solar-wind speed is available.";
       }
-      const density = sa?.solar_wind?.density;
-      const densNote =
-        density != null && Number.isFinite(density)
-          ? ` Proton density is ${density.toFixed(1)} p/cm³.`
-          : "";
-      return `Solar-wind speed is ${Math.round(wind)} km/s (${solarWindInterpretation(wind).toLowerCase()}).${densNote} High speed alone does not establish a geomagnetic storm — read with IMF Bz and Kp/Dst.`;
+      const dens = sa?.solar_wind?.density;
+      const temperature = sa?.solar_wind?.temperature;
+      const imfBz = sa?.solar_wind?.bz;
+      const imfBt = sa?.solar_wind?.bt;
+      const parts: string[] = [];
+      if (dens != null && Number.isFinite(dens)) {
+        parts.push(`density ${dens.toFixed(1)} p/cm³`);
+      }
+      if (temperature != null && Number.isFinite(temperature)) {
+        parts.push(`proton temperature ${Math.round(temperature).toLocaleString()} K`);
+      }
+      if (imfBz != null && Number.isFinite(imfBz)) {
+        parts.push(`IMF Bz ${formatBzDisplay(imfBz)}`);
+      }
+      if (imfBt != null && Number.isFinite(imfBt)) {
+        parts.push(`IMF Bt ${imfBt.toFixed(1)} nT`);
+      }
+      const plasmaNote = parts.length ? ` Accompanying fields: ${parts.join("; ")}.` : "";
+      return `Solar-wind speed is ${Math.round(wind)} km/s (${solarWindInterpretation(wind).toLowerCase()}).${plasmaNote} High speed alone does not establish a geomagnetic storm — read with IMF Bz and Kp/Dst.`;
     }
 
     case "imf_bz": {
