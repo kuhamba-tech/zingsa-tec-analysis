@@ -280,11 +280,14 @@ export default function ClickableMetricGrid({
 
   const selectedCard = selected ? cards.find((c) => c.key === selected) : null;
 
+  const bootstrapping = loading && !sw && !solar;
+
   return (
     <div className="sw-metric-section">
       {showHint && (
         <p className="sw-metric-hint">
           What is happening now — click a card for the scientific explanation.{updatedNote}
+          {bootstrapping ? " · Connecting to live feeds…" : ""}
         </p>
       )}
       <div className="dashboard-metric-grid sw-metric-grid">
@@ -293,17 +296,17 @@ export default function ClickableMetricGrid({
             key={card.key}
             icon={card.icon}
             label={card.label}
-            value={loading && !sw && !solar ? "Connecting…" : card.value}
-            note={loading && !sw && !solar ? "Waiting for live API" : card.note}
+            value={card.value}
+            note={card.note}
             valueColor={card.valueColor}
-            source={loading && !sw && !solar ? undefined : card.source}
-            observedAt={loading && !sw && !solar ? null : card.observedAt}
-            freshness={loading && !sw && !solar ? undefined : card.freshness}
+            source={card.source}
+            observedAt={card.observedAt}
+            freshness={card.freshness}
             subtitle={card.subtitle}
             detailRows={card.detailRows}
             showFlareScale={card.showFlareScale}
             selected={selected === card.key}
-            disabled={loading && !sw && !solar}
+            disabled={false}
             onClick={() => setSelected((prev) => (prev === card.key ? null : card.key))}
           />
         ))}
