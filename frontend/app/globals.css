@@ -7191,7 +7191,9 @@ a.home-map-layer-btn {
 .sw-range-controls button { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 6px; min-height: 44px; padding: .4rem .8rem; font-size: .85rem; cursor: pointer; }
 .sw-range-controls button[aria-pressed="true"] { background: #163c58; border-color: #38bdf8; }
 .space-weather-page :is(button, a, summary):focus-visible { outline: 2px solid #7dd3fc; outline-offset: 4px; }
-.sw-local-readings { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; margin: 1rem 0; }
+.sw-cors-map-section {
+  margin: 0.85rem 0 1rem;
+}
 .sw-local-readings > div { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; }
 .sw-local-readings span { display: block; font-size: .85rem; color: var(--text-muted); margin-bottom: .5rem; }
 /* Match .sw-metric-value weight; colour is set inline via vtecColor / corsCountColor. */

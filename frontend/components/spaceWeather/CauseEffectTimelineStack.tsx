@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import LocalIonosphereObservations from "./LocalIonosphereObservations";
+import SpaceWeatherCorsMap from "./SpaceWeatherCorsMap";
 import GoesXrayLastDayChart from "./GoesXrayLastDayChart";
 import SwSectionBanner from "./SwSectionBanner";
 import LineChart from "@/components/charts/LineChart";
@@ -400,6 +401,8 @@ export default function CauseEffectTimelineStack() {
   return (
     <>
     <LocalIonosphereObservations stations={vtec} now={now} refreshFailed={vtecRefreshFailed} loading={loading} />
+    {/* CORS network map sits between local ionosphere readings and solar-driver timelines. */}
+    <SpaceWeatherCorsMap />
     <section className="card sw-driver-timelines" style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }} aria-labelledby="driver-timelines-title">
       <SwSectionBanner
         icon="🔗"

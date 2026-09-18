@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   getEkfStatus,
   getLivePipelineStatus,
   getSpaceWeather,
   getStations,
-  getTecHeatmap,
 } from "@/lib/api";
 import { peekSpaceWeather, subscribeSpaceWeather } from "@/lib/spaceWeatherStore";
 import { peekStations, subscribeStations, stationsAreSpiderAuthoritative } from "@/lib/stationsStore";
@@ -17,32 +16,18 @@ import {
   formatCorsConnectedShort,
   mergeStationsPreferLive,
 } from "@/lib/liveStationStatus";
-import { mergeTecHeatmapWithStations } from "@/lib/tecHeatmapMerge";
 import CauseEffectTimelineStack from "@/components/spaceWeather/CauseEffectTimelineStack";
 import HomeStormAlertBanner from "@/components/layout/HomeStormAlertBanner";
 import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
 import type {
   Station,
   SpaceWeatherCurrent,
-  TecHeatmapResponse,
 } from "@/lib/types";
 import type { MetricKey } from "@/lib/spaceWeatherMetrics";
 import Link from "next/link";
 import Image from "next/image";
-import dynamic from "next/dynamic";
 import { DashboardHeaderClocks } from "@/components/dashboard/DashboardClocks";
 import { PRODUCT_SHORT_NAME, PRODUCT_TAGLINE } from "@/lib/navigationNewsBranding";
-
-const CorsMapWithLayers = dynamic(() => import("@/components/maps/CorsMapWithLayers"), {
-  ssr: false,
-  loading: () => (
-    <div className="home-map-loading" role="status" aria-live="polite">
-      <span className="home-map-loading-spinner" aria-hidden="true" />
-      <span>Loading interactive CORS map…</span>
-    </div>
-  ),
-});
-
 const MODULES = [
   { href: "/processing",       icon: "⚙️",  title: "Processing",        desc: "Upload RINEX/CMN, download CORS RINEX for post-processing, or convert files" },
   { href: "/time-series",       icon: "📈",  title: "Time Series",       desc: "VTEC trends over time" },
@@ -131,7 +116,6 @@ export default function HomePage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [ntripProbedAt, setNtripProbedAt] = useState<string | null>(null);
   const [pipelineNote, setPipelineNote] = useState<string | null>(null);
-  const [tecHeatmap, setTecHeatmap] = useState<TecHeatmapResponse | null>(null);
   const [stationsLoading, setStationsLoading] = useState(true);
   const [ntripRefreshing, setNtripRefreshing] = useState(false);
   const [gettingStartedOpen, setGettingStartedOpen] = useState(true);
@@ -252,11 +236,6 @@ export default function HomePage() {
             }
           },
         );
-        void getTecHeatmap(0.05, !background)
-          .then((heatmap) => {
-            if (!cancelled && heatmap) setTecHeatmap(heatmap);
-          })
-          .catch(() => null);
       });
 
       await Promise.allSettled([swPromise, stationsPromise]);
@@ -272,14 +251,9 @@ export default function HomePage() {
 
   const freshnessMsg = useFeedFreshness("space-weather", swStatus);
   const loading = swStatus === "pending" && !displaySw;
-  const gnssRisk = displaySw?.gnss_risk ?? (loading ? "…" : "N/A");
 
   const liveCounts = countLiveStationStatuses(stations);
   const spiderLive = stationsAreSpiderAuthoritative(stations);
-  const displayHeatmap = useMemo(
-    () => mergeTecHeatmapWithStations(tecHeatmap, stations),
-    [tecHeatmap, stations],
-  );
 
   const homeCards = buildMetricCards(displaySw, {
     // Catalog-only snapshots (cold Vercel) must not override Spider/SW counts.
@@ -368,18 +342,6 @@ export default function HomePage() {
       </div>
 
       <CauseEffectTimelineStack />
-
-      <div id="cors-network" className="home-cors-map-section">
-        <CorsMapWithLayers
-          stations={stations}
-          height={480}
-          riskLevel={gnssRisk}
-          liveCounts={liveCounts}
-          ntripProbedAt={ntripProbedAt}
-          stationsLoading={stationsLoading}
-          heatmap={displayHeatmap}
-        />
-      </div>
 
       <section className="home-getting-started" aria-label="Getting started">
         <div className="home-getting-started-panel">
