@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import LocalIonosphereObservations from "./LocalIonosphereObservations";
+import GoesXrayLastDayChart from "./GoesXrayLastDayChart";
 import SwSectionBanner from "./SwSectionBanner";
 import LineChart from "@/components/charts/LineChart";
 import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
@@ -461,6 +462,8 @@ export default function CauseEffectTimelineStack() {
               <div className="banner banner-info">X-ray series unavailable.</div>
             )}
           </Panel>
+
+          <GoesXrayLastDayChart />
 
           <Panel
             title="2 · Solar wind speed + density + proton temp."

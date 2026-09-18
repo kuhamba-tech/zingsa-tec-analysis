@@ -321,7 +321,6 @@ export default function SpaceWeatherPage() {
   const [tab, setTab]       = useState(0);
   const [xrayRange, setXrayRange] = useState<"6H" | "24H">("24H");
   const [refreshing, setRefreshing] = useState(false);
-  const [nowCat, setNowCat] = useState("");
   const [now, setNow] = useState(0);
   const [lastFetched, setLastFetched] = useState<string | null>(null);
   const [feedStatus, setFeedStatus] = useState<FeedStatus>("pending");
@@ -363,19 +362,9 @@ export default function SpaceWeatherPage() {
   }), []);
 
   useEffect(() => {
-    const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-    const fmt = () => {
-      setNow(Date.now());
-      const cat = new Date(Date.now() + 2 * 3600 * 1000);
-      const d   = cat.getUTCDate();
-      const mon = MONTHS[cat.getUTCMonth()];
-      const yr  = cat.getUTCFullYear();
-      const hh  = String(cat.getUTCHours()).padStart(2, "0");
-      const mm  = String(cat.getUTCMinutes()).padStart(2, "0");
-      setNowCat(`${d} ${mon} ${yr}, ${hh}:${mm} CAT (UTC+2)`);
-    };
-    fmt();
-    const id = setInterval(fmt, 30000);
+    const tick = () => setNow(Date.now());
+    tick();
+    const id = setInterval(tick, 30000);
     return () => clearInterval(id);
   }, []);
 
@@ -714,60 +703,6 @@ export default function SpaceWeatherPage() {
         solarRefreshFailed={Boolean(saError)}
         loading={feedStatus === "pending" && !sw}
       />
-      {/* ── Solar Activity Monitor section ── */}
-      <div style={{ display: "flex", flexDirection: "column", gap: "0.8rem" }}>
-        <SwSectionBanner
-          icon="⚡"
-          title="Solar Activity Monitor"
-          tone={solarFeedLive ? "ok" : "warn"}
-          meta={<span>{solarFeedLabel} · NOAA SWPC · {nowCat}</span>}
-        />
-
-        {saError && !solarFeedLive && (
-          <div className="banner banner-warn" style={{ fontSize: "0.85rem" }} role="status">
-            Some solar feeds are unavailable. Available observations remain visible; retrying automatically.
-          </div>
-        )}
-
-        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", fontSize: "0.85rem", color: "var(--text-muted)", paddingLeft: "0.2rem" }}>
-          <span style={{ fontWeight: 600, color: "var(--text)" }}>Real-time solar conditions for GNSS, satellites and CORS networks</span>
-        </div>
-
-        {/* Row 1: GOES X-Ray chart (Solar Activity + Flare cards live in the metric grid above) */}
-        <div>
-          {/* GOES X-Ray Flux chart */}
-          <div className="card" {...solarCardClickProps("xray", { display: "flex", flexDirection: "column", gap: "0.5rem" })}>
-            <SwSectionBanner
-              icon="☀️"
-              title="GOES X-Ray Flux — Last Day"
-              as="h3"
-              tone={xraySlice.length > 0 ? "ok" : "warn"}
-              meta={
-                <span>
-                  NOAA SWPC GOES · class {flareClass}
-                  {fluxLabel ? ` · ${fluxLabel}` : ""}
-                </span>
-              }
-            />
-            {xraySlice.length > 0 ? (
-              <>
-                <LineChart
-                  labels={xrayLabels}
-                  datasets={[{ label: "X-Ray Flux (×10⁻⁷ W/m²)", data: xraySlice, color: "#f97316" }]}
-                  yLabel="Flux ×10⁻⁷"
-                  height={150}
-                />
-                <div style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
-                  0.1–0.8 nm band · Source: NOAA SWPC GOES primary · Current class {flareClass}
-                  {fluxLabel ? ` · ${fluxLabel}` : ""}
-                </div>
-              </>
-            ) : (
-              <div className="banner banner-info" style={{ fontSize: "0.85rem" }}>X-ray flux data unavailable.</div>
-            )}
-          </div>
-        </div>
-      </div>
 
       {/* ── Condition banner ── */}
       <div className={`banner banner-${conditionVariant}`}>
