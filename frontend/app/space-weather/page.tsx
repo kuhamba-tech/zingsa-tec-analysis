@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent } from "react";
+import Link from "next/link";
 import { getSpaceWeather, getSolarActivity, getTimelines, refreshSpaceWeather, getStations, getEkfStatus } from "@/lib/api";
 import { peekSpaceWeather, subscribeSpaceWeather } from "@/lib/spaceWeatherStore";
 import { peekSolarActivity, subscribeSolarActivity } from "@/lib/solarActivityStore";
@@ -746,68 +747,8 @@ export default function SpaceWeatherPage() {
           <span style={{ fontWeight: 600, color: "var(--text)" }}>Real-time solar conditions for GNSS, satellites and CORS networks</span>
         </div>
 
-        {/* Row 1: Solar Summary | Flare card | X-Ray chart */}
-        <div className="grid-3">
-
-          {/* Solar Activity Summary */}
-          <div className="card" {...solarCardClickProps("summary", { textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.7rem" })}>
-            {/* Sun SVG */}
-            <div style={{ position: "relative", width: "70px", height: "70px", marginTop: "0.2rem" }}>
-              <svg viewBox="0 0 70 70" style={{ width: "70px", height: "70px" }}>
-                {/* Rays */}
-                {Array.from({ length: 8 }, (_, i) => {
-                  const angle = (i * 45 * Math.PI) / 180;
-                  const x1 = 35 + 26 * Math.cos(angle);
-                  const y1 = 35 + 26 * Math.sin(angle);
-                  const x2 = 35 + 32 * Math.cos(angle);
-                  const y2 = 35 + 32 * Math.sin(angle);
-                  return <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#ffcc00" strokeWidth="2.5" strokeLinecap="round" />;
-                })}
-                <circle cx="35" cy="35" r="20" fill="#ffcc00" opacity="0.95" />
-              </svg>
-            </div>
-            <div style={{ width: "100%" }}>
-              <div style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: "0.25rem" }}>Solar Activity</div>
-              <div style={{ fontWeight: 800, fontSize: "1.1rem", color: actColor }}>{actLabel}</div>
-            </div>
-            <div style={{ width: "100%", borderTop: "1px solid var(--border)", paddingTop: "0.6rem", display: "flex", flexDirection: "column", gap: "0.3rem" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem" }}>
-                <span style={{ color: "var(--text-muted)" }}>Current Flare</span>
-                <span style={{ fontWeight: 700, color: flareClassColor(flareClass) }}>{flareClass}</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem" }}>
-                <span style={{ color: "var(--text-muted)" }}>SWPC Alerts</span>
-                <span style={{ fontWeight: 700 }}>{sa?.feed_status?.swpc_alerts?.reachable ? alertCount : "Unavailable"}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Solar Flare (GOES X-Ray) */}
-          <div className="card" {...solarCardClickProps("flare", { display: "flex", flexDirection: "column", gap: "0.5rem" })}>
-            <div style={{ fontSize: "0.85rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)" }}>Solar Flare (GOES X-Ray)</div>
-            <div style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>Current class:</div>
-            <div style={{ fontSize: "2.4rem", fontWeight: 900, lineHeight: 1, color: flareClassColor(flareClass), marginBottom: "0.3rem" }}>
-              {flareClass}
-            </div>
-            {fluxLabel && (
-              <div style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
-                Flux: {fluxLabel}
-              </div>
-            )}
-            {/* Flare class scale */}
-            <div style={{ marginTop: "auto", borderTop: "1px solid var(--border)", paddingTop: "0.6rem" }}>
-              <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap" }}>
-                {FLARE_SCALE.map((f) => (
-                  <div key={f.cls} style={{ flex: 1, minWidth: "40px", textAlign: "center" }}>
-                    <div style={{ width: "100%", height: "3px", background: f.color, borderRadius: "2px", marginBottom: "3px" }} />
-                    <div style={{ fontSize: "0.85rem", fontWeight: 700, color: f.color }}>{f.label.split("-")[0]}-</div>
-                    <div style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>{f.desc}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
+        {/* Row 1: GOES X-Ray chart (Solar Activity + Flare cards live in the metric grid above) */}
+        <div>
           {/* GOES X-Ray Flux chart */}
           <div className="card" {...solarCardClickProps("xray", { display: "flex", flexDirection: "column", gap: "0.5rem" })}>
             <div style={{ fontSize: "0.85rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)" }}>GOES X-Ray Flux — Last Day</div>
@@ -820,7 +761,8 @@ export default function SpaceWeatherPage() {
                   height={150}
                 />
                 <div style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
-                  0.1–0.8 nm band · Source: NOAA SWPC GOES primary
+                  0.1–0.8 nm band · Source: NOAA SWPC GOES primary · Current class {flareClass}
+                  {fluxLabel ? ` · ${fluxLabel}` : ""}
                 </div>
               </>
             ) : (
@@ -973,9 +915,9 @@ export default function SpaceWeatherPage() {
         <p className="sw-supporting-text" style={{ marginBottom: "0.65rem" }}>
           Recent SWPC bulletins and feed status are listed on the Alerts page with storm watches.
         </p>
-        <a href="/storm-watch/" style={{ fontSize: "0.88rem", fontWeight: 600 }}>
+        <Link href="/storm-watch/" style={{ fontSize: "0.88rem", fontWeight: 600 }}>
           Open Alerts for NOAA bulletins →
-        </a>
+        </Link>
       </section>
       <CauseEffectTimelineStack />
       <IndexScaleReference />
