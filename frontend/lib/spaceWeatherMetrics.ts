@@ -47,7 +47,7 @@ export interface MetricCardOptions {
 
 export const METRIC_EXPLANATIONS: Record<MetricKey, string> = {
   solar_flare:
-    "GOES soft X-ray measurements (0.1–0.8 nm) indicate the strength of solar flare emission. Classes A/B/C/M/X describe X-ray flux, not geomagnetic or GNSS impact levels. A solar flare does not necessarily produce a geomagnetic storm.",
+    "GOES soft X-ray measurements (0.1–0.8 nm) indicate the strength of solar flare emission. Classes A/B/C/M/X describe X-ray flux, not geomagnetic or GNSS impact levels. The card also shows the derived solar activity level and how many NOAA SWPC alert bulletins are currently listed. A solar flare does not necessarily produce a geomagnetic storm.",
   solar_wind:
     "Solar wind carries plasma and magnetic fields from the Sun. Increased speed can accompany CMEs and high-speed streams, but high solar-wind speed alone does not establish a geomagnetic storm.",
   imf_bz:
@@ -392,6 +392,17 @@ export function buildMetricCards(
         : "Awaiting live CORS VTEC"
       : `ΔTEC / ROTI: reference baseline under development`;
 
+  const activityLabel = sa?.activity_label?.trim() || null;
+  const swpcAlertCount = Array.isArray(sa?.alerts) ? sa.alerts.length : null;
+  const flareNoteParts: string[] = [];
+  if (activityLabel) {
+    flareNoteParts.push(`Activity ${activityLabel}`);
+  }
+  if (swpcAlertCount != null) {
+    flareNoteParts.push(`SWPC Alerts ${swpcAlertCount}`);
+  }
+  flareNoteParts.push(flareMissing ? "GOES X-ray · loading" : "GOES X-ray · 0.1–0.8 nm");
+
   const swObserved = formatObservedShort(sw?.updated_utc);
   const xrayFresh = flareMissing ? (solarLoading ? "DELAYED" : freshnessFromFeed(feeds.goes_xray, now, solarRefreshFailed)) : freshnessFromFeed(feeds.goes_xray, now, solarRefreshFailed);
   const plasmaFresh = wind == null ? (solarLoading || indicesLoading ? "DELAYED" : freshnessFromFeed(feeds.solar_wind_plasma, now, solarRefreshFailed)) : freshnessFromFeed(feeds.solar_wind_plasma, now, solarRefreshFailed);
@@ -405,7 +416,7 @@ export function buildMetricCards(
       icon: "☀️",
       label: "Solar Flare",
       value: flareClass,
-      note: flareMissing ? "GOES X-ray · loading" : "GOES X-ray · 0.1–0.8 nm",
+      note: flareNoteParts.join(" · "),
       valueColor: flareColor(sa?.flare_class),
       source: "NOAA SWPC GOES",
       observedAt: formatObservedShort(feeds.goes_xray?.timestamp) ?? formatObservedShort(sa?.updated),
@@ -571,10 +582,19 @@ export function interpretMetric(
   switch (key) {
     case "solar_flare": {
       const fc = formatFlareClassDisplay(sa?.flare_class);
+      const activity = sa?.activity_label?.trim();
+      const alertN = Array.isArray(sa?.alerts) ? sa.alerts.length : null;
       if (fc === "N/A") {
         return "GOES X-ray class is unavailable. No flare interpretation is issued.";
       }
-      return `Current GOES long-band class is ${fc}. This is an X-ray flare class, not a geomagnetic or GNSS impact rating. A flare does not necessarily produce a geomagnetic storm.`;
+      const activityNote = activity ? ` Solar activity level is ${activity}.` : "";
+      const alertNote =
+        alertN == null
+          ? ""
+          : alertN === 0
+            ? " No current SWPC alert bulletins are listed."
+            : ` ${alertN} SWPC alert bulletin(s) are listed (issue time does not prove an alert is still active).`;
+      return `Current GOES long-band class is ${fc}.${activityNote}${alertNote} This is an X-ray flare class, not a geomagnetic or GNSS impact rating. A flare does not necessarily produce a geomagnetic storm.`;
     }
 
     case "solar_wind": {

@@ -118,6 +118,26 @@ function ExplanationPanel({
           state.
         </p>
       )}
+      {metricKey === "solar_flare" && solar && (
+        <div className="sw-metric-explain-body" style={{ marginTop: "0.65rem" }}>
+          <div className="sw-metric-explain-heading">Expanded details</div>
+          <ul style={{ margin: "0.35rem 0 0", paddingLeft: "1.1rem" }}>
+            <li>
+              Solar activity: {solar.activity_label?.trim() || "Unavailable"}
+            </li>
+            <li>Current flare: {solar.flare_class?.trim() || "Unavailable"}</li>
+            <li>
+              SWPC alerts:{" "}
+              {Array.isArray(solar.alerts) ? solar.alerts.length : "Unavailable"}
+            </li>
+            <li>
+              <Link href="/storm-watch/" className="link-inline">
+                Open Alerts for NOAA bulletins
+              </Link>
+            </li>
+          </ul>
+        </div>
+      )}
       {metricKey === "solar_wind" && solar?.solar_wind && (
         <div className="sw-metric-explain-body" style={{ marginTop: "0.65rem" }}>
           <div className="sw-metric-explain-heading">Expanded details</div>
