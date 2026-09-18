@@ -379,7 +379,7 @@ export default function LineChart({
           responsive: true,
           maintainAspectRatio: false,
           layout: formatXTick
-            ? { padding: { bottom: 6 } }
+            ? { padding: { bottom: 14 } }
             : undefined,
           interaction: {
             mode: compact ? "nearest" : "index",
