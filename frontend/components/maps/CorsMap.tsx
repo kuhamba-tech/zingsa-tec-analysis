@@ -508,7 +508,7 @@ export default function CorsMap({
 
     const source = new ImageCanvas({
       projection: "EPSG:3857",
-      canvasFunction: (extent, _resolution, _pixelRatio, size) => {
+      canvasFunction: (extent: number[], _resolution: number, _pixelRatio: number, size: number[]) => {
         const canvas = document.createElement("canvas");
         canvas.width = size[0];
         canvas.height = size[1];
@@ -582,7 +582,7 @@ export default function CorsMap({
 
     const source = new ImageCanvas({
       projection: "EPSG:3857",
-      canvasFunction: (extent, _resolution, _pixelRatio, size) => {
+      canvasFunction: (extent: number[], _resolution: number, _pixelRatio: number, size: number[]) => {
         const canvas = document.createElement("canvas");
         canvas.width = size[0];
         canvas.height = size[1];
