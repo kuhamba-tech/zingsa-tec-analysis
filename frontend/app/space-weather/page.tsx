@@ -9,7 +9,6 @@ import IndexScaleReference from "@/components/spaceWeather/IndexScaleReference";
 import SolarCycleFullRecordCharts from "@/components/spaceWeather/SolarCycleFullRecordCharts";
 import HeliosphericMonitorStack from "@/components/spaceWeather/HeliosphericMonitorStack";
 import CauseEffectTimelineStack from "@/components/spaceWeather/CauseEffectTimelineStack";
-import OperationalAlerts from "@/components/spaceWeather/OperationalAlerts";
 import { monitoringFreshness, observationTime } from "@/lib/monitoringStatus";
 import AdvancedScientificIndices from "@/components/spaceWeather/AdvancedScientificIndices";
 import HomeStormAlertBanner from "@/components/layout/HomeStormAlertBanner";
@@ -966,7 +965,18 @@ export default function SpaceWeatherPage() {
         )}
       </div>
 
-      <OperationalAlerts solar={sa} now={now} refreshFailed={Boolean(saError)} />
+      {/* NOAA bulletins live on Alerts (/storm-watch); keep a short pointer here. */}
+      <section className="card" aria-label="NOAA alerts shortcut">
+        <div className="sw-section-heading">
+          <h2 style={{ margin: 0, fontSize: "1.05rem" }}>NOAA alerts, watches and warnings</h2>
+        </div>
+        <p className="sw-supporting-text" style={{ marginBottom: "0.65rem" }}>
+          Recent SWPC bulletins and feed status are listed on the Alerts page with storm watches.
+        </p>
+        <a href="/storm-watch/" style={{ fontSize: "0.88rem", fontWeight: 600 }}>
+          Open Alerts for NOAA bulletins →
+        </a>
+      </section>
       <CauseEffectTimelineStack />
       <IndexScaleReference />
       <AdvancedScientificIndices sw={sw} solar={sa} />
