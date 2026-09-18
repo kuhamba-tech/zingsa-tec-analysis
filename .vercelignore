@@ -1,0 +1,42 @@
+.git/
+.agents/
+.claude/
+.devcontainer/
+.pytest_cache/
+.ruff_cache/
+.streamlit/
+.venv/
+.vscode/
+__pycache__/
+
+*.log
+*.tmp
+*.bak
+*.py[cod]
+Thumbs.db
+.DS_Store
+
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/*.log
+frontend/tsconfig.tsbuildinfo
+
+# Runtime databases, caches, credentials, and the large trained model must not
+# enter the serverless bundle. The statistical forecast does require the small,
+# committed historical archive.
+static/data/*
+!static/data/tec_archive_hourly.csv
+
+*.24o
+*.24n
+*.24g
+*.obs
+*.nav
+*.CMN
+*.Cmn
+*.cmn
+*.Std
+*.Bias
+*_page?.png
+*-wbias.png

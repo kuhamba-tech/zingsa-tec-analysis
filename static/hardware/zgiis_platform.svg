@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img" aria-label="ZGIIS monitoring platform">
+  <defs>
+    <linearGradient id="screen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0d1b2a"/>
+      <stop offset="100%" stop-color="#060d1a"/>
+    </linearGradient>
+  </defs>
+  <ellipse cx="100" cy="178" rx="78" ry="10" fill="#0b1220" opacity="0.35"/>
+  <rect x="30" y="36" width="140" height="96" rx="10" fill="#111827" stroke="#334155" stroke-width="2"/>
+  <rect x="38" y="44" width="124" height="72" rx="6" fill="url(#screen)" stroke="#1e3a5f"/>
+  <rect x="48" y="56" width="28" height="18" rx="3" fill="#0a1628" stroke="#00d4ff" stroke-width="1"/>
+  <rect x="82" y="56" width="28" height="18" rx="3" fill="#0a1628" stroke="#00d4ff" stroke-width="1"/>
+  <rect x="116" y="56" width="28" height="18" rx="3" fill="#0a1628" stroke="#00d4ff" stroke-width="1"/>
+  <rect x="48" y="82" width="96" height="24" rx="3" fill="#071020" stroke="#1e3a5f"/>
+  <path d="M52 98 L68 88 L84 94 L108 78 L132 92" fill="none" stroke="#00d4ff" stroke-width="2"/>
+  <rect x="70" y="140" width="60" height="8" rx="4" fill="#334155"/>
+  <rect x="82" y="148" width="36" height="20" rx="4" fill="#1f2937"/>
+</svg>

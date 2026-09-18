@@ -1,0 +1,14 @@
+{
+  "updated_at": "2026-08-08T01:00:00Z",
+  "source": "spider_business_center_export",
+  "stations": [
+    {
+      "code": "hara",
+      "mountpoint": "HARA",
+      "name": "Harare",
+      "connected_rovers": 0,
+      "peak_24h": 0
+    }
+  ],
+  "_comment": "Replace this example with a real Spider Business Center / caster client export. ZGIIS never invents rover counts — leave connected_rovers as real live values only. Copy to static/data/rover_clients.json or set ROVER_CLIENTS_URL / ROVER_CLIENTS_CSV_PATH."
+}

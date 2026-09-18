@@ -1,0 +1,389 @@
+"""
+Real-time STEC → VTEC pipeline.
+
+Pairs L1/L2 carrier-phase observations (from RTCM MSM) per satellite per
+station and applies the same equations from Gopi (tec_core.py):
+  - STEC = K × (L1_m − L2_m)          Book Eq 4.12
+  - S(E) = 1/sqrt(1 − (Re cosE / (Re+H))²)   Book Eq 4.17
+  - VTEC = STEC / S(E)
+"""
+from __future__ import annotations
+
+import logging
+from collections import defaultdict, deque
+from datetime import datetime, timezone
+from typing import Optional
+
+import numpy as np
+import pandas as pd
+
+from tec_core import _C_LIGHT, _F1, _F2, _mapping_function
+
+log = logging.getLogger(__name__)
+
+_IPP_KM     = 350.0          # Ionospheric Pierce Point height (default)
+_ELEV_MASK  = 30.0           # Elevation mask (degrees)
+
+# Pair timeout: if we don't see a second signal within this many seconds,
+# discard the buffered first signal to avoid stale pairings.
+_PAIR_TIMEOUT_S = 2.0
+
+# Keep enough recent per-station samples for PRN consensus (TSHO/BEIT often
+# emit hundreds of low-biased G14 samples beside a few good peers).
+_RECENT_VTEC_MAX = 240
+_RECENT_VTEC_WINDOW_S = 120.0
+
+
+def _k_factor(f1: float, f2: float) -> float:
+    """TEC conversion constant K — Gopi Book Eq 4.7. Matches tec_core.py's
+    `_K`; the electrons/m² → TECU scaling (/1e16) is applied separately at
+    the point of use, not baked in here (see stec_from_phase)."""
+    return (f1 ** 2 * f2 ** 2) / (40.3 * (f1 ** 2 - f2 ** 2))
+
+
+def mapping_function(elevation_deg: float, ipp_height_km: float = _IPP_KM) -> float:
+    """
+    Obliquity mapping function S(E) — Gopi Book Eq 4.17.
+    Re = 6378 km, H_ipp = 350–400 km.
+    VTEC = STEC / S(E)
+    """
+    mapped = _mapping_function(pd.Series([float(elevation_deg)]), ipp_height_km)
+    return float(mapped[0])
+
+
+def tecg_from_pseudorange(
+    p1_m: float,
+    p2_m: float,
+    freq1_hz: float = _F1,
+    freq2_hz: float = _F2,
+) -> float:
+    """
+    Code TEC from dual-frequency pseudorange (Gopi Book Eq 4.11).
+    TECG = K x (P2 - P1), returned in TECU.
+    """
+    return _k_factor(freq1_hz, freq2_hz) * (p2_m - p1_m) / 1e16
+
+
+def stec_from_phase(
+    l1_cycles: float,
+    l2_cycles: float,
+    freq1_hz: float,
+    freq2_hz: float,
+) -> float:
+    """
+    STEC from L1/L2 carrier phase (Gopi Book Eq 4.12).
+    L_m = L_cycles × c / f    (convert cycles to metres)
+    STEC = K × (L1_m − L2_m)
+    Returns STEC in TECU.
+    """
+    l1_m = l1_cycles * _C_LIGHT / freq1_hz
+    l2_m = l2_cycles * _C_LIGHT / freq2_hz
+    k = _k_factor(freq1_hz, freq2_hz)
+    return k * (l1_m - l2_m) / 1e16
+
+
+def vtec_from_stec(
+    stec: float,
+    elevation_deg: float,
+    ipp_height_km: float = _IPP_KM,
+) -> float:
+    """VTEC = STEC / S(elevation)."""
+    return stec / mapping_function(elevation_deg, ipp_height_km)
+
+
+class LiveVtecAccumulator:
+    """
+    Buffers raw MSM observation records per (station, PRN) and emits a VTEC
+    record whenever a complete L1 + L2 pair arrives.
+
+    Each record from ntrip_stream has:
+        station, prn, constellation, sig_idx (1=L1, 2=L2),
+        carrier_phase_cycles, freq1_hz, freq2_hz, epoch, cnr_dbhz
+    """
+
+    def __init__(
+        self,
+        ipp_height_km: float = _IPP_KM,
+        elevation_mask_deg: float = _ELEV_MASK,
+    ):
+        self.ipp_height_km = ipp_height_km
+        self.elevation_mask = elevation_mask_deg
+        # buf[(station, prn)] = {sig_idx: obs_record}
+        self._buf: dict[tuple, dict[int, dict]] = defaultdict(dict)
+
+    def ingest(self, obs: dict) -> Optional[dict]:
+        """Accept one raw observation. Returns a VTEC dict if the L1+L2 pair
+        for this PRN is now complete, otherwise returns None. See
+        `ingest_with_reason` for why a given observation didn't emit."""
+        vtec, _reason = self.ingest_with_reason(obs)
+        return vtec
+
+    def ingest_with_reason(self, obs: dict) -> tuple[Optional[dict], str]:
+        """
+        Same as `ingest`, but also returns a reason code explaining why no
+        VTEC was emitted (or "ok" when one was): "unpaired", "no_phase",
+        "no_elevation", "below_mask", "sanity_fail", "ok".
+        """
+        key     = (obs["station"], obs["prn"])
+        sig_idx = int(obs.get("sig_idx", 0))
+        epoch   = obs.get("epoch") or datetime.now(tz=timezone.utc)
+
+        # Expire stale buffer entries
+        existing = self._buf.get(key, {})
+        for si, prev in list(existing.items()):
+            age = (epoch - prev["epoch"]).total_seconds()
+            if age > _PAIR_TIMEOUT_S:
+                del self._buf[key][si]
+
+        self._buf[key][sig_idx] = obs
+
+        paired = self._buf[key]
+        if len(paired) < 2:
+            return None, "unpaired"
+
+        sigs = sorted(paired.keys())
+        obs1 = paired[sigs[0]]   # lower sig_idx → L1
+        obs2 = paired[sigs[1]]   # higher sig_idx → L2
+
+        cp1 = obs1.get("carrier_phase_cycles") or 0.0
+        cp2 = obs2.get("carrier_phase_cycles") or 0.0
+        if not cp1 or not cp2:
+            return None, "no_phase"
+
+        freq1 = obs1.get("freq1_hz") or obs.get("freq1_hz", _F1)
+        freq2 = obs2.get("freq2_hz") or obs.get("freq2_hz", _F2)
+
+        # Elevation must come from nav-derived geometry (RTCM 1019 + station coords).
+        elevation = obs.get("elevation_deg")
+        if elevation is None:
+            return None, "no_elevation"
+        if elevation < self.elevation_mask:
+            self._buf[key].clear()
+            return None, "below_mask"
+
+        tecp = stec_from_phase(cp1, cp2, freq1, freq2)
+        tecg = None
+        p1 = obs1.get("pseudorange_m")
+        p2 = obs2.get("pseudorange_m")
+        if p1 is not None and p2 is not None:
+            try:
+                tecg = tecg_from_pseudorange(float(p1), float(p2), freq1, freq2)
+            except (TypeError, ValueError, FloatingPointError):
+                tecg = None
+
+        # Prefer dual-frequency CODE TEC for absolute VTEC (comparable to Global TEC).
+        # Unleveled carrier-phase TEC has an unknown ambiguity and is only relative —
+        # using it as "live VTEC" produced ~0.3 TECU while Global TEC over Zimbabwe
+        # was ~28 TECU at the same epoch.
+        if tecg is not None and np.isfinite(tecg):
+            stec = float(tecg)
+            tec_method = "gopi_eq_4_11_code_live"
+        else:
+            stec = float(tecp)
+            tec_method = "gopi_eq_4_12_phase_only_live_unleveled"
+        vtec = vtec_from_stec(stec, elevation, self.ipp_height_km)
+
+        # Sanity-check (ionospheric VTEC is 0–150 TECU under normal conditions)
+        if not (0.0 < vtec < 200.0):
+            self._buf[key].clear()
+            return None, "sanity_fail"
+
+        self._buf[key].clear()
+
+        return {
+            "epoch":         epoch,
+            "station":       obs["station"],
+            "constellation": obs.get("constellation", "GPS"),
+            "prn":           obs["prn"],
+            "tecg_tecu":     round(tecg, 4) if tecg is not None and np.isfinite(tecg) else None,
+            "tecp_tecu":     round(tecp, 4),
+            "stec_tecu":     round(stec, 4),
+            "vtec_tecu":     round(vtec, 4),
+            "elevation_deg": round(elevation, 2),
+            "cnr_dbhz":      obs1.get("cnr_dbhz"),
+            "tec_method":    tec_method,
+            "bias_method":   "none_live_no_dcb",
+        }, "ok"
+
+    def flush(self) -> None:
+        """Clear all buffers (e.g. on reconnect)."""
+        self._buf.clear()
+
+
+class LiveVtecPipeline:
+    """
+    End-to-end live pipeline:
+      RTCM obs → LiveVtecAccumulator → optional DB insert → on_vtec callback.
+
+    Usage:
+        pipeline = LiveVtecPipeline(db=tec_db, on_vtec=my_callback)
+        # feed raw obs records from LiveNtripManager:
+        pipeline.ingest(obs_record)
+    """
+
+    def __init__(
+        self,
+        db=None,
+        on_vtec=None,
+        nav_cache=None,
+        ipp_height_km: float = _IPP_KM,
+        elevation_mask_deg: float = _ELEV_MASK,
+        db_flush_n: int = 50,
+    ):
+        self._acc = LiveVtecAccumulator(ipp_height_km, elevation_mask_deg)
+        self._db = db
+        self._on_vtec = on_vtec
+        self._nav_cache = nav_cache
+        self._pending: list[dict] = []
+        self._flush_n = db_flush_n
+        self._latest: dict[str, dict] = {}
+        self._recent: dict[str, deque] = defaultdict(lambda: deque(maxlen=_RECENT_VTEC_MAX))
+        self._diagnostics: dict[str, dict] = defaultdict(
+            lambda: {
+                "observations": 0,
+                "missing_elevation": 0,
+                "vtec_emitted": 0,
+                "unpaired": 0,
+                "below_mask": 0,
+                "sanity_fail": 0,
+                "last_observation_at": None,
+                "last_vtec_at": None,
+            }
+        )
+
+    def latest_by_station(self, *, max_age_s: float = 180.0) -> dict[str, float]:
+        """Fresh live NTRIP VTEC per station using the same PRN consensus as the map.
+
+        A single latest sample is not enough: mounts like TSHO/BEIT often end on a
+        low-biased PRN (~6 TECU) while peer PRNs sit near the network (~18–25 TECU).
+        Aggregate the recent in-memory window with ``_fresh_station_vtec_from_group``.
+        """
+        now = datetime.now(timezone.utc)
+        window_s = min(float(max_age_s), _RECENT_VTEC_WINDOW_S)
+        out: dict[str, float] = {}
+        try:
+            from zgiis.maps.heatmap_data import _fresh_station_vtec_from_group
+        except Exception:
+            _fresh_station_vtec_from_group = None  # type: ignore[assignment]
+
+        for code, rows in self._recent.items():
+            fresh_rows: list[dict] = []
+            for row in rows:
+                raw = row.get("vtec_tecu")
+                if raw is None:
+                    continue
+                epoch = row.get("epoch")
+                if isinstance(epoch, datetime):
+                    ep = epoch if epoch.tzinfo is not None else epoch.replace(tzinfo=timezone.utc)
+                    age = (now - ep.astimezone(timezone.utc)).total_seconds()
+                    # Allow a little GNSS/clock skew ahead of wall time; reject old cache.
+                    if age > window_s or age < -600.0:
+                        continue
+                fresh_rows.append(
+                    {
+                        "time": epoch if isinstance(epoch, datetime) else now,
+                        "station": code,
+                        "prn": row.get("prn"),
+                        "vtec_tecu": float(raw),
+                    }
+                )
+            if not fresh_rows:
+                continue
+            value: float | None = None
+            if _fresh_station_vtec_from_group is not None:
+                try:
+                    value = _fresh_station_vtec_from_group(pd.DataFrame(fresh_rows))
+                except Exception:
+                    value = None
+            if value is None:
+                # Fallback: last fresh sample (previous behaviour) — but never
+                # publish an extreme single-PRN spike as "live" (VICF G17~135).
+                last = self._latest.get(code) or fresh_rows[-1]
+                raw = last.get("vtec_tecu") if isinstance(last, dict) else None
+                if raw is None:
+                    continue
+                value = float(raw)
+                if value > 55.0 or value < 1.0:
+                    continue
+            if value is not None and 1.0 <= value <= 55.0:
+                out[str(code)] = float(value)
+
+        # Stations that only have a single latest sample (no recent deque yet).
+        for code, row in self._latest.items():
+            if code in out:
+                continue
+            raw = row.get("vtec_tecu")
+            if raw is None:
+                continue
+            epoch = row.get("epoch")
+            if isinstance(epoch, datetime):
+                ep = epoch if epoch.tzinfo is not None else epoch.replace(tzinfo=timezone.utc)
+                age = (now - ep.astimezone(timezone.utc)).total_seconds()
+                if age > float(max_age_s) or age < -600.0:
+                    continue
+            value = float(raw)
+            if 1.0 <= value <= 55.0:
+                out[str(code)] = value
+        return out
+
+    def diagnostics_by_station(self) -> dict[str, dict]:
+        """Per-station ingest counters for explaining connected-but-no-VTEC states."""
+        return {code: dict(row) for code, row in self._diagnostics.items()}
+
+    def ingest(self, obs: dict) -> None:
+        code = str(obs.get("station", "")).lower().rstrip("_")
+        diag = self._diagnostics[code] if code else None
+        if diag is not None:
+            diag["observations"] += 1
+            epoch = obs.get("epoch")
+            diag["last_observation_at"] = epoch.isoformat() if hasattr(epoch, "isoformat") else str(epoch or "")
+
+        if self._nav_cache is not None and obs.get("elevation_deg") is None:
+            elev = self._nav_cache.elevation_deg(
+                obs.get("station", ""),
+                obs.get("prn", ""),
+                obs.get("epoch"),
+            )
+            if elev is not None:
+                obs = {**obs, "elevation_deg": elev}
+        if diag is not None and obs.get("elevation_deg") is None:
+            diag["missing_elevation"] += 1
+
+        vtec, reason = self._acc.ingest_with_reason(obs)
+        if diag is not None and reason in ("unpaired", "below_mask", "sanity_fail"):
+            diag[reason] += 1
+        if vtec is None:
+            return
+
+        code = str(vtec.get("station", "")).lower().rstrip("_")
+        if code:
+            self._latest[code] = vtec
+            self._recent[code].append(vtec)
+            diag = self._diagnostics[code]
+            diag["vtec_emitted"] += 1
+            epoch = vtec.get("epoch")
+            diag["last_vtec_at"] = epoch.isoformat() if hasattr(epoch, "isoformat") else str(epoch or "")
+
+        if self._on_vtec:
+            try:
+                self._on_vtec(vtec)
+            except Exception as exc:
+                log.debug("on_vtec callback error: %s", exc)
+
+        if self._db is not None:
+            self._pending.append(vtec)
+            if len(self._pending) >= self._flush_n:
+                try:
+                    self._db.insert_vtec(self._pending)
+                    self._pending.clear()
+                except Exception as exc:
+                    log.warning("DB flush error: %s", exc)
+
+    def flush_db(self) -> None:
+        """Force-flush any remaining records to the database."""
+        if self._db and self._pending:
+            try:
+                self._db.insert_vtec(self._pending)
+                self._pending.clear()
+            except Exception as exc:
+                log.warning("DB flush error: %s", exc)

@@ -1,0 +1,721 @@
+import { monitoringFreshness } from "./monitoringStatus";
+import type { SolarActivityFull, SpaceWeatherCurrent } from "./types";
+import type { LiveStationCounts } from "./liveStationStatus";
+import { connectedStreamCount, formatCorsConnectedDisplay } from "./liveStationStatus";
+import { kpConditionFromValue } from "./homeSpaceWeather";
+
+/** Primary Sun→Zimbabwe summary cards (Phase 1 redesign). */
+export type MetricKey =
+  | "solar_flare"
+  | "solar_wind"
+  | "imf_bz"
+  | "geomagnetic_storm"
+  | "dst"
+  | "zimbabwe_iono"
+  | "gnss_risk"
+  | "stations";
+
+/** Keys kept for Advanced Scientific Indices (not primary cards). */
+export type AdvancedMetricKey = "ap" | "f107" | "kp";
+
+export interface MetricCardSpec {
+  key: MetricKey;
+  icon: string;
+  label: string;
+  value: string;
+  note: string;
+  valueColor: string;
+  source?: string;
+  observedAt?: string | null;
+  freshness?: "LIVE" | "DELAYED" | "STALE" | "UNAVAILABLE";
+}
+
+export interface MetricCardOptions {
+  now?: number;
+  refreshFailed?: boolean;
+  solarRefreshFailed?: boolean;
+  liveStationCounts?: LiveStationCounts | null;
+  ekfFilled?: Set<string>;
+  solar?: SolarActivityFull | null;
+  /** Optional live network mean when /current mean_vtec is empty. */
+  liveMeanVtec?: number | null;
+  /** True while solar-activity feed is still resolving (avoid N/A flash). */
+  solarLoading?: boolean;
+  /** True while /current indices are still resolving. */
+  indicesLoading?: boolean;
+}
+
+export const METRIC_EXPLANATIONS: Record<MetricKey, string> = {
+  solar_flare:
+    "GOES soft X-ray measurements (0.1–0.8 nm) indicate the strength of solar flare emission. Classes A/B/C/M/X describe X-ray flux, not geomagnetic or GNSS impact levels. A solar flare does not necessarily produce a geomagnetic storm.",
+  solar_wind:
+    "Solar wind carries plasma and magnetic fields from the Sun. Increased speed can accompany CMEs and high-speed streams, but high solar-wind speed alone does not establish a geomagnetic storm.",
+  imf_bz:
+    "Southward IMF Bz favours magnetic reconnection and energy transfer from the solar wind into Earth's magnetosphere. Magnitude and duration are both important. A brief negative spike is not the same as sustained southward Bz.",
+  geomagnetic_storm:
+    "NOAA G-scale geomagnetic storm levels are assigned from planetary Kp. Kp 0–4 is not a G1–G5 storm (Kp 4 is active but below the G1 threshold). Storm conditions begin at Kp ≥ 5 (G1). A geomagnetic storm does not automatically mean Zimbabwe's ionosphere or GNSS is degraded.",
+  dst:
+    "Dst and SYM-H measure storm-time changes in Earth's magnetic field, particularly ring-current development. They support magnetospheric context and must not be converted directly into NOAA G1–G5 labels.",
+  zimbabwe_iono:
+    "Zimbabwe network VTEC from live CORS/GNSS observations. High VTEC alone is not ionospheric disturbance — ΔTEC relative to a quiet reference and ROTI are under development. Do not classify local disturbance solely from Kp.",
+  gnss_risk:
+    "Operational navigation impact label. Until validated local ΔTEC/ROTI/RTK metrics drive the engine, treat this as provisional space-weather context (Kp, scintillation archive, related indices) — not proof of Zimbabwe GNSS failure.",
+  stations:
+    "How many Zimbabwe CORS stations are online versus the network total. Online status is not the same as TEC processing availability. Open the CORS map for station-level detail.",
+};
+
+export interface NoaaGScale {
+  /** G0 … G5 */
+  code: string;
+  /** e.g. "No Storm", "Minor" */
+  title: string;
+  /** Primary card value line */
+  display: string;
+  note: string;
+  color: string;
+  isStorm: boolean;
+}
+
+/** NOAA G-scale from Kp. Kp 4 is active / below G1 — never labelled a G-storm. */
+export function noaaGScaleFromKp(kp: number | null | undefined): NoaaGScale {
+  if (kp == null || !Number.isFinite(kp)) {
+    return {
+      code: "—",
+      title: "Updating",
+      display: "Updating…",
+      note: "Kp loading",
+      color: "#94a3b8",
+      isStorm: false,
+    };
+  }
+  if (kp < 4) {
+    return {
+      code: "G0",
+      title: "No Storm",
+      display: `G0 — No Storm`,
+      note: `Kp ${formatKpDisplay(kp)}`,
+      color: "#00ff88",
+      isStorm: false,
+    };
+  }
+  if (kp < 5) {
+    return {
+      code: "G0",
+      title: "Active",
+      display: `G0 — Active`,
+      note: `Kp ${formatKpDisplay(kp)} · Below G1 storm threshold`,
+      color: "#eab308",
+      isStorm: false,
+    };
+  }
+  if (kp < 6) {
+    return {
+      code: "G1",
+      title: "Minor",
+      display: `G1 — Minor`,
+      note: `Kp ${formatKpDisplay(kp)}`,
+      color: "#eab308",
+      isStorm: true,
+    };
+  }
+  if (kp < 7) {
+    return {
+      code: "G2",
+      title: "Moderate",
+      display: `G2 — Moderate`,
+      note: `Kp ${formatKpDisplay(kp)}`,
+      color: "#f97316",
+      isStorm: true,
+    };
+  }
+  if (kp < 8) {
+    return {
+      code: "G3",
+      title: "Strong",
+      display: `G3 — Strong`,
+      note: `Kp ${formatKpDisplay(kp)}`,
+      color: "#ef4444",
+      isStorm: true,
+    };
+  }
+  if (kp < 9) {
+    return {
+      code: "G4",
+      title: "Severe",
+      display: `G4 — Severe`,
+      note: `Kp ${formatKpDisplay(kp)}`,
+      color: "#ef4444",
+      isStorm: true,
+    };
+  }
+  return {
+    code: "G5",
+    title: "Extreme",
+    display: `G5 — Extreme`,
+    note: `Kp ${formatKpDisplay(kp)}`,
+    color: "#a855f7",
+    isStorm: true,
+  };
+}
+
+function dstColor(dst: number | null): string {
+  if (dst === null) return "#ffffff";
+  if (dst < -100) return "#ef4444";
+  if (dst < -50) return "#f97316";
+  if (dst < -20) return "#eab308";
+  return "#00ff88";
+}
+
+function apColor(ap: number | null): string {
+  if (ap === null) return "#ffffff";
+  if (ap >= 100) return "#ef4444";
+  if (ap >= 50) return "#f97316";
+  if (ap >= 30) return "#eab308";
+  if (ap >= 8) return "#eab308";
+  return "#00ff88";
+}
+
+function solarWindColor(speed: number | null): string {
+  if (speed === null) return "#ffffff";
+  if (speed > 700) return "#f97316";
+  if (speed > 500) return "#eab308";
+  return "#38bdf8";
+}
+
+function solarWindInterpretation(speed: number | null): string {
+  if (speed == null) return "Feed unavailable";
+  if (speed < 350) return "Slow";
+  if (speed < 450) return "Typical";
+  if (speed < 550) return "Enhanced";
+  if (speed < 700) return "Fast";
+  return "Very fast";
+}
+
+function imfBzColor(bz: number | null): string {
+  if (bz === null) return "#ffffff";
+  if (bz <= -10) return "#ef4444";
+  if (bz < 0) return "#f97316";
+  if (bz < 5) return "#eab308";
+  return "#00ff88";
+}
+
+function flareColor(flareClass: string | null | undefined): string {
+  if (!flareClass || flareClass === "Unavailable" || flareClass === "N/A") return "#94a3b8";
+  const letter = flareClass.trim().charAt(0).toUpperCase();
+  if (letter === "X") return "#a855f7";
+  if (letter === "M") return "#ef4444";
+  if (letter === "C") return "#f97316";
+  if (letter === "B") return "#eab308";
+  return "#38bdf8";
+}
+
+function vtecColor(tec: number | null): string {
+  if (tec === null) return "#94a3b8";
+  if (tec >= 60) return "#f97316";
+  if (tec >= 40) return "#eab308";
+  return "#38bdf8";
+}
+
+/** Single display rules for every dashboard surface (cards, Navigation News, briefs). */
+export function formatSolarWindDisplay(speed: number | null | undefined): string {
+  if (speed == null || !Number.isFinite(speed)) return "Updating…";
+  return `${Math.round(speed)} km/s`;
+}
+
+export function formatF107Display(f107: number | null | undefined): string {
+  if (f107 == null || !Number.isFinite(f107)) return "Updating…";
+  return String(Math.round(f107 * 10) / 10);
+}
+
+export function formatKpDisplay(kp: number | null | undefined): string {
+  if (kp == null || !Number.isFinite(kp)) return "Updating…";
+  const rounded = Math.round(kp * 10) / 10;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+}
+
+export function formatDstDisplay(dst: number | null | undefined): string {
+  if (dst == null || !Number.isFinite(dst)) return "Updating…";
+  const rounded = Math.round(dst * 10) / 10;
+  const sign = rounded >= 0 ? "+" : "";
+  return `${sign}${rounded} nT`;
+}
+
+export function formatApDisplay(ap: number | null | undefined): string {
+  if (ap == null || !Number.isFinite(ap)) return "Updating…";
+  return String(Math.round(ap));
+}
+
+export function formatBzDisplay(bz: number | null | undefined): string {
+  if (bz == null || !Number.isFinite(bz)) return "Updating…";
+  const rounded = Math.round(bz * 10) / 10;
+  const sign = rounded > 0 ? "+" : "";
+  return `${sign}${rounded} nT`;
+}
+
+export function formatVtecDisplay(tec: number | null | undefined): string {
+  if (tec == null || !Number.isFinite(tec)) return "Updating…";
+  return `${tec.toFixed(1)} TECU`;
+}
+
+export function formatFlareClassDisplay(flareClass: string | null | undefined): string {
+  if (!flareClass || flareClass === "Unavailable") return "Updating…";
+  return flareClass.trim().toUpperCase();
+}
+
+export function formatS4Display(s4: number | null | undefined): string {
+  if (s4 == null || !Number.isFinite(s4)) return "Updating…";
+  return s4.toFixed(2);
+}
+
+export function formatSouthwardDuration(minutes: number | null | undefined): string | null {
+  if (minutes == null || !Number.isFinite(minutes)) return null;
+  if (minutes <= 0) return "Southward duration: 0 min";
+  if (minutes < 60) return `Southward duration: ${Math.round(minutes)} min`;
+  const h = Math.floor(minutes / 60);
+  const m = Math.round(minutes % 60);
+  return m > 0 ? `Southward duration: ${h}h ${m}m` : `Southward duration: ${h}h`;
+}
+
+type FeedFreshness = "LIVE" | "DELAYED" | "STALE" | "UNAVAILABLE";
+
+function freshnessFromFeed(
+  feed: SolarActivityFull["feed_status"][string] | undefined,
+  now: number,
+  refreshFailed = false,
+): FeedFreshness {
+  if (!feed || !feed.reachable) return "UNAVAILABLE";
+  if (refreshFailed) return "DELAYED";
+  if (feed.fresh) return monitoringFreshness(feed.timestamp, now, true);
+  const age = feed.age_minutes;
+  if (age != null && age <= 60) return "DELAYED";
+  return "STALE";
+}
+
+function formatObservedShort(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const slice = iso.replace("T", " ").replace("Z", "").slice(0, 16);
+  return slice ? `${slice} UTC` : null;
+}
+
+/** Index detail lines for Navigation News sector cards — must match metric cards exactly. */
+export function formatPowerIndicesDetail(sw: SpaceWeatherCurrent | null): string | undefined {
+  if (!sw || sw.kp == null || sw.dst == null) return undefined;
+  const g = noaaGScaleFromKp(sw.kp);
+  return `${g.code} · Kp ${formatKpDisplay(sw.kp)} · Dst ${formatDstDisplay(sw.dst)}`;
+}
+
+export function formatTelecomIndicesDetail(sw: SpaceWeatherCurrent | null): string | undefined {
+  if (!sw || sw.s4 == null) return undefined;
+  return `S4 ${formatS4Display(sw.s4)} · ionospheric amplitude scintillation index`;
+}
+
+export function formatIndicesUpdatedLabel(sw: SpaceWeatherCurrent | null): string | null {
+  const raw = sw?.updated_utc;
+  if (!raw) return null;
+  return raw.replace("T", " ").replace("Z", " UTC").slice(0, 19);
+}
+
+export function buildMetricCards(
+  sw: SpaceWeatherCurrent | null,
+  opts?: MetricCardOptions,
+): MetricCardSpec[] {
+  const now = opts?.now ?? Date.now();
+  const solarRefreshFailed = Boolean(opts?.solarRefreshFailed || opts?.solar?.mode === "stale");
+  const solarLoading = Boolean(opts?.solarLoading && !opts?.solar);
+  const indicesLoading = Boolean(opts?.indicesLoading && !sw);
+  const kp = sw?.kp ?? null;
+  const dst = sw?.dst ?? null;
+  const wind = sw?.plasma_speed ?? opts?.solar?.solar_wind?.speed ?? null;
+  const online = sw?.stations_online ?? null;
+  const total = sw?.stations_total ?? null;
+  const riskColor = sw?.gnss_risk_color ?? "#94a3b8";
+  const liveCounts = opts?.liveStationCounts;
+  const sa = opts?.solar;
+  const feeds = sa?.feed_status ?? {};
+  const flareRaw = sa?.flare_class;
+  const flareMissing = !flareRaw || flareRaw === "Unavailable";
+  const flareClass = flareMissing
+    ? solarLoading
+      ? "Updating…"
+      : "Updating…"
+    : formatFlareClassDisplay(flareRaw);
+  const bz = sa?.solar_wind?.bz ?? null;
+  const density = sa?.solar_wind?.density ?? null;
+  const pdyn = sa?.solar_wind?.dynamic_pressure ?? null;
+  const southMin = sa?.solar_wind?.southward_duration_minutes ?? null;
+  const vtec = sw?.mean_vtec ?? opts?.liveMeanVtec ?? null;
+  const g = noaaGScaleFromKp(kp);
+
+  const stationsOnlineCount = liveCounts ? connectedStreamCount(liveCounts) : online;
+  const stationsTotal = liveCounts?.total ?? total;
+  const corsDisplay = liveCounts ? formatCorsConnectedDisplay(liveCounts) : null;
+  const stationsLabel =
+    corsDisplay?.value ??
+    (stationsOnlineCount !== null && stationsTotal
+      ? `${stationsOnlineCount}/${stationsTotal}`
+      : indicesLoading || !sw
+        ? "Updating…"
+        : "Updating…");
+
+  const stationsNote =
+    corsDisplay?.note ??
+    (stationsOnlineCount !== null && stationsTotal
+      ? `${stationsOnlineCount}/${stationsTotal} from live network status`
+      : "Awaiting Spider Site Status");
+
+  const bzArrow = bz == null ? "" : bz < 0 ? " ↓" : bz > 0 ? " ↑" : "";
+  const bzOrientation =
+    bz == null
+      ? solarLoading || !sa
+        ? "Loading RTSW…"
+        : "Orientation updating"
+      : bz < 0
+        ? "SOUTHWARD"
+        : bz > 0
+          ? "NORTHWARD"
+          : "Bz ≈ 0";
+  const southNote = formatSouthwardDuration(southMin);
+  const bzNote = [bzOrientation, southNote].filter(Boolean).join(" · ");
+
+  const windNoteParts = [wind == null ? "Loading…" : solarWindInterpretation(wind)];
+  if (density != null && Number.isFinite(density)) {
+    windNoteParts.push(`${density.toFixed(1)} p/cm³`);
+  }
+  if (pdyn != null && Number.isFinite(pdyn)) {
+    windNoteParts.push(`${pdyn.toFixed(1)} nPa`);
+  }
+
+  const ionoNote =
+    vtec == null
+      ? indicesLoading
+        ? "Loading live CORS VTEC…"
+        : "Awaiting live CORS VTEC"
+      : `ΔTEC / ROTI: reference baseline under development`;
+
+  const swObserved = formatObservedShort(sw?.updated_utc);
+  const xrayFresh = flareMissing ? (solarLoading ? "DELAYED" : freshnessFromFeed(feeds.goes_xray, now, solarRefreshFailed)) : freshnessFromFeed(feeds.goes_xray, now, solarRefreshFailed);
+  const plasmaFresh = wind == null ? (solarLoading || indicesLoading ? "DELAYED" : freshnessFromFeed(feeds.solar_wind_plasma, now, solarRefreshFailed)) : freshnessFromFeed(feeds.solar_wind_plasma, now, solarRefreshFailed);
+  const magFresh = bz == null ? (solarLoading ? "DELAYED" : freshnessFromFeed(feeds.solar_wind_mag, now, solarRefreshFailed)) : freshnessFromFeed(feeds.solar_wind_mag, now, solarRefreshFailed);
+  const indicesFresh: FeedFreshness = indicesLoading ? "DELAYED" : monitoringFreshness(sw?.updated_utc, now, Boolean(sw), Boolean(opts?.refreshFailed));
+  const vtecFresh: FeedFreshness = vtec != null ? indicesFresh : indicesLoading ? "DELAYED" : "UNAVAILABLE";
+
+  return [
+    {
+      key: "solar_flare",
+      icon: "☀️",
+      label: "Solar Flare",
+      value: flareClass,
+      note: flareMissing ? "GOES X-ray · loading" : "GOES X-ray · 0.1–0.8 nm",
+      valueColor: flareColor(sa?.flare_class),
+      source: "NOAA SWPC GOES",
+      observedAt: formatObservedShort(feeds.goes_xray?.timestamp) ?? formatObservedShort(sa?.updated),
+      freshness: flareMissing ? (solarLoading ? "DELAYED" : "UNAVAILABLE") : xrayFresh,
+    },
+    {
+      key: "solar_wind",
+      icon: "🌬️",
+      label: "Solar Wind",
+      value: formatSolarWindDisplay(wind),
+      note: windNoteParts.join(" · "),
+      valueColor: solarWindColor(wind),
+      source: "NOAA SWPC RTSW",
+      observedAt: formatObservedShort(feeds.solar_wind_plasma?.timestamp) ?? formatObservedShort(sa?.updated) ?? swObserved,
+      freshness: wind == null ? (solarLoading || indicesLoading ? "DELAYED" : "UNAVAILABLE") : sa?.solar_wind?.speed != null ? plasmaFresh : indicesFresh,
+    },
+    {
+      key: "imf_bz",
+      icon: "🧲",
+      label: "IMF Bz",
+      value: bz == null ? "Updating…" : `${formatBzDisplay(bz)}${bzArrow}`,
+      note: bzNote,
+      valueColor: imfBzColor(bz),
+      source: "NOAA SWPC RTSW",
+      observedAt: formatObservedShort(feeds.solar_wind_mag?.timestamp) ?? formatObservedShort(sa?.updated),
+      freshness: bz == null ? (solarLoading ? "DELAYED" : "UNAVAILABLE") : magFresh,
+    },
+    {
+      key: "geomagnetic_storm",
+      icon: "🌌",
+      label: "Geomagnetic Storm",
+      value: g.display,
+      note: g.note,
+      valueColor: g.color,
+      source: "NOAA SWPC Kp → G-scale",
+      observedAt: swObserved ? `Snapshot ${swObserved}` : null,
+      freshness: kp == null ? (indicesLoading ? "DELAYED" : "UNAVAILABLE") : indicesFresh,
+    },
+    {
+      key: "dst",
+      icon: "🌡️",
+      label: "Dst / SYM-H",
+      value: formatDstDisplay(dst),
+      note: "Ring current · SYM-H when available",
+      valueColor: dstColor(dst),
+      source: "NOAA / Kyoto Dst",
+      observedAt: swObserved ? `Snapshot ${swObserved}` : null,
+      freshness: dst == null ? (indicesLoading ? "DELAYED" : "UNAVAILABLE") : indicesFresh,
+    },
+    {
+      key: "zimbabwe_iono",
+      icon: "🇿🇼",
+      label: "Zimbabwe Ionosphere",
+      value: formatVtecDisplay(vtec),
+      note: ionoNote,
+      valueColor: vtecColor(vtec),
+      source: "ZINGSA CORS live VTEC",
+      observedAt: swObserved ? `Snapshot ${swObserved}` : null,
+      freshness: vtecFresh,
+    },
+    {
+      key: "gnss_risk",
+      icon: "🛰️",
+      label: "Estimated GNSS Risk",
+      value: sw?.gnss_risk ?? (indicesLoading ? "Updating…" : "Unavailable"),
+      note: "Provisional · local impact not verified",
+      valueColor: riskColor,
+      source: "ZGIIS risk label",
+      observedAt: swObserved ? `Snapshot ${swObserved}` : null,
+      freshness: sw?.gnss_risk ? indicesFresh : "UNAVAILABLE",
+    },
+    {
+      key: "stations",
+      icon: "📡",
+      label: "CORS Connected",
+      value: stationsLabel,
+      note: stationsNote,
+      valueColor: "#168bd2",
+      source: "Spider / NTRIP",
+      observedAt: swObserved ? `Snapshot ${swObserved}` : null,
+      freshness: stationsOnlineCount != null ? indicesFresh : "UNAVAILABLE",
+    },
+  ];
+}
+
+/** Advanced indices moved out of the primary 8-card row. */
+export function buildAdvancedIndexRows(sw: SpaceWeatherCurrent | null, solar?: SolarActivityFull | null) {
+  const density = solar?.solar_wind?.density ?? null;
+  const bt = solar?.solar_wind?.bt ?? null;
+  const temp = solar?.solar_wind?.temperature ?? null;
+  const pdyn = solar?.solar_wind?.dynamic_pressure ?? null;
+  return [
+    {
+      key: "kp" as const,
+      label: "Kp Index",
+      value: formatKpDisplay(sw?.kp),
+      note: "Planetary 0–9 (feeds G-scale)",
+      valueColor: "#168bd2",
+    },
+    {
+      key: "ap" as const,
+      label: "Ap Index",
+      value: formatApDisplay(sw?.ap),
+      note: sw?.ap != null ? "Planetary amplitude" : "NOAA feed unavailable",
+      valueColor: apColor(sw?.ap ?? null),
+    },
+    {
+      key: "f107" as const,
+      label: "F10.7 Solar Flux",
+      value: formatF107Display(sw?.f107),
+      note: "Solar flux units (SFU)",
+      valueColor: sw?.f107 != null ? "#168bd2" : "#ffffff",
+    },
+    {
+      key: "bt" as const,
+      label: "IMF Bt",
+      value: bt != null && Number.isFinite(bt) ? `${bt.toFixed(1)} nT` : "Updating…",
+      note: "Total IMF magnitude",
+      valueColor: "#f8fafc",
+    },
+    {
+      key: "density" as const,
+      label: "Solar-wind density",
+      value: density != null && Number.isFinite(density) ? `${density.toFixed(1)} p/cm³` : "Updating…",
+      note: "Proton density",
+      valueColor: "#38bdf8",
+    },
+    {
+      key: "pdyn" as const,
+      label: "Dynamic pressure",
+      value: pdyn != null && Number.isFinite(pdyn) ? `${pdyn.toFixed(1)} nPa` : "Updating…",
+      note: "From density × speed²",
+      valueColor: "#94a3b8",
+    },
+    {
+      key: "temp" as const,
+      label: "Solar-wind temperature",
+      value: temp != null && Number.isFinite(temp) ? `${Math.round(temp).toLocaleString()} K` : "Updating…",
+      note: "Proton temperature",
+      valueColor: "#94a3b8",
+    },
+  ];
+}
+
+export function interpretMetric(
+  sw: SpaceWeatherCurrent | null,
+  key: MetricKey,
+  opts?: MetricCardOptions,
+): string {
+  if (!sw && key !== "solar_flare" && key !== "imf_bz" && key !== "solar_wind") {
+    return "Live data is unavailable. No interpretation can be issued.";
+  }
+
+  const kp = sw?.kp ?? null;
+  const dst = sw?.dst ?? null;
+  const wind = sw?.plasma_speed ?? opts?.solar?.solar_wind?.speed ?? null;
+  const online = sw?.stations_online;
+  const total = sw?.stations_total;
+  const sa = opts?.solar;
+  const bz = sa?.solar_wind?.bz ?? null;
+  const vtec = sw?.mean_vtec ?? opts?.liveMeanVtec ?? null;
+
+  switch (key) {
+    case "solar_flare": {
+      const fc = formatFlareClassDisplay(sa?.flare_class);
+      if (fc === "N/A") {
+        return "GOES X-ray class is unavailable. No flare interpretation is issued.";
+      }
+      return `Current GOES long-band class is ${fc}. This is an X-ray flare class, not a geomagnetic or GNSS impact rating. A flare does not necessarily produce a geomagnetic storm.`;
+    }
+
+    case "solar_wind": {
+      if (wind === null) {
+        return "No current solar-wind speed is available.";
+      }
+      const density = sa?.solar_wind?.density;
+      const densNote =
+        density != null && Number.isFinite(density)
+          ? ` Proton density is ${density.toFixed(1)} p/cm³.`
+          : "";
+      return `Solar-wind speed is ${Math.round(wind)} km/s (${solarWindInterpretation(wind).toLowerCase()}).${densNote} High speed alone does not establish a geomagnetic storm — read with IMF Bz and Kp/Dst.`;
+    }
+
+    case "imf_bz": {
+      if (bz === null) {
+        return "IMF Bz is unavailable from the live RTSW feed.";
+      }
+      const south = formatSouthwardDuration(sa?.solar_wind?.southward_duration_minutes);
+      const bt = sa?.solar_wind?.bt;
+      const btNote =
+        bt != null && Number.isFinite(bt) ? ` IMF Bt is ${bt.toFixed(1)} nT.` : "";
+      const southExtra = south ? ` ${south}.` : "";
+      if (bz < 0) {
+        return `IMF Bz is ${formatBzDisplay(bz)} (southward).${southExtra}${btNote} Southward orientation favours magnetospheric coupling; sustained intervals matter more than brief spikes.`;
+      }
+      if (bz > 0) {
+        return `IMF Bz is ${formatBzDisplay(bz)} (northward).${btNote} Coupling is usually weaker than during sustained southward Bz.`;
+      }
+      return "IMF Bz is near 0 nT.";
+    }
+
+    case "geomagnetic_storm": {
+      const g = noaaGScaleFromKp(kp);
+      if (kp === null) {
+        return "Kp is unavailable, so the NOAA G-scale cannot be assigned.";
+      }
+      if (!g.isStorm) {
+        if (kp >= 4) {
+          return `${g.display} (Kp ${formatKpDisplay(kp)}). Conditions are active but below the G1 storm threshold (Kp ≥ 5). This is not a NOAA G-scale geomagnetic storm.`;
+        }
+        return `${g.display} (Kp ${formatKpDisplay(kp)}). No NOAA G1–G5 geomagnetic storm is in progress.`;
+      }
+      return `${g.display} (Kp ${formatKpDisplay(kp)}). This indicates NOAA ${g.code} geomagnetic storm conditions globally. It does not automatically mean Zimbabwe's ionosphere or GNSS is degraded — check the Zimbabwe Ionosphere and GNSS Risk cards.`;
+    }
+
+    case "dst":
+      if (dst === null) {
+        return "No current Dst measurement is available.";
+      }
+      {
+        let level: string;
+        if (dst > -20) level = "quiet ring-current conditions";
+        else if (dst > -50) level = "weak disturbance";
+        else if (dst > -100) level = "moderate storm-time depression";
+        else if (dst > -200) level = "intense storm-time depression";
+        else level = "severe storm-time depression";
+        return `Dst ${formatDstDisplay(dst)} indicates ${level}. Dst/SYM-H are magnetospheric context, not NOAA G-scale labels.`;
+      }
+
+    case "zimbabwe_iono":
+      if (vtec === null) {
+        return "Live Zimbabwe network VTEC is not available yet. ΔTEC and ROTI remain unavailable until a validated quiet-time reference and sampling window are in place — values are never invented.";
+      }
+      return `Network VTEC is ${formatVtecDisplay(vtec)}. ΔTEC% and ROTI show “reference baseline under development” until scientifically validated. Do not classify local disturbance from Kp alone.`;
+
+    case "gnss_risk": {
+      const interpretations: Record<string, string> = {
+        Low: "Routine GNSS, RTK and CORS operations can continue normally, pending local ionosphere confirmation.",
+        Moderate: "Verify precision fixes and monitor Zimbabwe VTEC / CORS health.",
+        High: "Expect possible positioning degradation; use dual-frequency data and validation. Confirm with local ionosphere metrics when available.",
+        Critical: "GNSS positioning may be unreliable; postpone critical operations where possible and check local CORS/VTEC evidence.",
+      };
+      const risk = sw?.gnss_risk ?? "Unknown";
+      return `Current GNSS risk label is ${risk} (provisional). ${interpretations[risk] ?? "Continue monitoring."} Local ΔTEC/ROTI/RTK rules will refine this later.`;
+    }
+
+    case "stations":
+      if (online == null || !total) {
+        return "No live CORS telemetry is available.";
+      }
+      {
+        const availability = (online / total) * 100;
+        let availLevel: string;
+        if (availability >= 90) availLevel = "excellent network availability";
+        else if (availability >= 70) availLevel = "good availability with some local coverage gaps";
+        else if (availability >= 50) availLevel = "reduced availability that may affect regional corrections";
+        else availLevel = "low availability with significant CORS coverage limitations";
+        return `${online} of ${total} CORS stations are reported online (${availability.toFixed(0)}%), indicating ${availLevel}. Online ≠ TEC processing available.`;
+      }
+  }
+}
+
+/** Short geomagnetic / ionospheric condition label for chart point tooltips. */
+export function kpGeomagneticCondition(kp: number | null | undefined): string | null {
+  if (kp == null || !Number.isFinite(kp)) return null;
+  return kpConditionFromValue(kp).label;
+}
+
+export function dstGeomagneticCondition(dst: number | null | undefined): string | null {
+  if (dst == null || !Number.isFinite(dst)) return null;
+  if (dst > -20) return "Quiet";
+  if (dst > -50) return "Weak disturbance";
+  if (dst > -100) return "Moderate storm";
+  if (dst > -200) return "Intense storm";
+  if (dst > -350) return "Severe storm";
+  return "Super storm";
+}
+
+export function tecIonosphericCondition(tec: number | null | undefined): string | null {
+  if (tec == null || !Number.isFinite(tec)) return null;
+  if (tec < 10) return "Very low";
+  if (tec < 25) return "Low";
+  if (tec < 40) return "Moderate";
+  if (tec < 60) return "Elevated";
+  if (tec < 100) return "High";
+  return "Very high (not automatically a storm)";
+}
+
+export function s4ScintillationCondition(s4: number | null | undefined): string | null {
+  if (s4 == null || !Number.isFinite(s4)) return null;
+  if (s4 < 0.1) return "None";
+  if (s4 < 0.2) return "Negligible";
+  if (s4 < 0.3) return "Weak";
+  if (s4 < 0.5) return "Moderate";
+  if (s4 < 0.7) return "Strong";
+  if (s4 < 0.9) return "Severe";
+  return "Full outage risk";
+}
+
+export function conditionsForSeries(
+  values: (number | null)[],
+  kind: "kp" | "dst" | "tec" | "s4",
+): (string | null)[] {
+  const fn =
+    kind === "kp"
+      ? kpGeomagneticCondition
+      : kind === "dst"
+        ? dstGeomagneticCondition
+        : kind === "tec"
+          ? tecIonosphericCondition
+          : s4ScintillationCondition;
+  return values.map((v) => fn(v));
+}

@@ -1,0 +1,1683 @@
+"use client";
+import { useState, useRef, useEffect } from "react";
+import dynamic from "next/dynamic";
+import {
+  uploadCmn, uploadRinex, getSessionSummary, getSessionHourly, getSessionTecPlot, getSessionBias,
+  getStations, downloadSessionRaw, getLivePipelineStatus, getSessionStatus,
+} from "@/lib/api";
+import LineChart from "@/components/charts/LineChart";
+import RinexConverterPanel from "@/components/processing/RinexConverterPanel";
+import RinexDownloadPanel from "@/components/processing/RinexDownloadPanel";
+import type { TecSummaryRow, TecHourlyRow, TecPlotSeries, BiasRow, Station } from "@/lib/types";
+import type { MapLayer } from "@/components/maps/CorsMapWithLayers";
+
+function formatDayLabel(dateStr: string) {
+  const d = new Date(dateStr.slice(0, 10));
+  if (isNaN(d.getTime())) return dateStr.slice(0, 10);
+  return d.toLocaleDateString("en-US", { month: "short", day: "2-digit" });
+}
+
+function formatMonthLabel(monthStr: string) {
+  const d = new Date(`${monthStr.slice(0, 7)}-01`);
+  if (isNaN(d.getTime())) return monthStr;
+  return d.toLocaleDateString("en-US", { month: "short", year: "numeric" });
+}
+
+function formatHourLabel(hour: number) {
+  const hh = Math.floor(hour);
+  const mm = Math.round((hour - hh) * 60);
+  return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+}
+
+interface VtecInterpretation {
+  coverageHours: [number, number];
+  sufficientForFullCycle: boolean;
+  minimum: { vtec: number; hour: number };
+  maximum: { vtec: number; hour: number };
+  nightBaseline: { meanVtec: number } | null;
+  sunrise: { onsetHour: number } | null;
+  daytimeReach: { hour: number; vtec: number } | null;
+  peak: { vtec: number; startHour: number; endHour: number } | null;
+  eveningDecayOnsetHour: number | null;
+  nightRecoveryHour: number | null;
+  fluctuation: { stdTecu: number } | null;
+}
+
+/**
+ * Derives a plain-language interpretation of the mean VTEC curve from the
+ * curve's own real values -- onset/peak/decay times and TECU levels are all
+ * computed from this session's actual data, never templated placeholders,
+ * per this project's no-fabricated-data policy. Any feature that can't be
+ * confidently detected in the available data (e.g. a short time window, or
+ * a day with no clean diurnal shape) comes back null and is reported as
+ * such rather than guessed.
+ */
+function interpretVtecCurve(points: { x: number | null; y: number | null }[]): VtecInterpretation | null {
+  const pts = points
+    .filter((p): p is { x: number; y: number } => p.x != null && p.y != null && Number.isFinite(p.x) && Number.isFinite(p.y))
+    .sort((a, b) => a.x - b.x);
+  if (pts.length < 8) return null;
+
+  const xs = pts.map((p) => p.x);
+  const ys = pts.map((p) => p.y);
+  const minIdx = ys.indexOf(Math.min(...ys));
+  const maxIdx = ys.indexOf(Math.max(...ys));
+  const minimum = { vtec: ys[minIdx], hour: xs[minIdx] };
+  const maximum = { vtec: ys[maxIdx], hour: xs[maxIdx] };
+  const coverageHours: [number, number] = [xs[0], xs[xs.length - 1]];
+  const sufficientForFullCycle = coverageHours[0] <= 1 && coverageHours[1] >= 22;
+
+  const nightPts = pts.filter((p) => p.x <= 4 || p.x >= 20);
+  const nightBaseline = nightPts.length >= 3
+    ? { meanVtec: nightPts.reduce((s, p) => s + p.y, 0) / nightPts.length }
+    : null;
+
+  const baseline = nightBaseline?.meanVtec ?? minimum.vtec;
+  const span = maximum.vtec - baseline;
+  const riseThreshold = baseline + 0.25 * span;
+  const reach90Threshold = baseline + 0.9 * span;
+  const plateauThreshold = maximum.vtec * 0.9;
+
+  // The mean-VTEC curve (an average of ~12 individual satellite arcs) still
+  // wobbles by a few TECU minute-to-minute from residual multipath and
+  // per-arc differences, even while genuinely sitting near its daily
+  // maximum. A raw point-by-point threshold walk collapses onto a single
+  // noisy spike instead of the multi-hour window a human reading the graph
+  // would call the peak. A short moving average -- used only to locate
+  // transitions, not to alter any reported value -- filters that minute-
+  // scale noise while preserving the real hour-scale diurnal shape.
+  const SMOOTH_HALF_WINDOW = 15;
+  const ysSmooth = ys.map((_, i) => {
+    const lo = Math.max(0, i - SMOOTH_HALF_WINDOW);
+    const hi = Math.min(ys.length - 1, i + SMOOTH_HALF_WINDOW);
+    let sum = 0;
+    for (let j = lo; j <= hi; j++) sum += ys[j];
+    return sum / (hi - lo + 1);
+  });
+  const smoothMaxIdx = ysSmooth.indexOf(Math.max(...ysSmooth));
+
+  let sunrise: VtecInterpretation["sunrise"] = null;
+  if (span > 1) {
+    for (let i = 1; i < smoothMaxIdx; i++) {
+      if (ysSmooth[i] >= riseThreshold && ysSmooth[i - 1] < riseThreshold) {
+        sunrise = { onsetHour: xs[i] };
+        break;
+      }
+    }
+  }
+
+  let daytimeReach: VtecInterpretation["daytimeReach"] = null;
+  if (span > 1) {
+    for (let i = 0; i <= smoothMaxIdx; i++) {
+      if (ysSmooth[i] >= reach90Threshold) {
+        daytimeReach = { hour: xs[i], vtec: ys[i] };
+        break;
+      }
+    }
+  }
+
+  let plateauStart = smoothMaxIdx;
+  while (plateauStart > 0 && ysSmooth[plateauStart - 1] >= plateauThreshold) plateauStart--;
+  let plateauEnd = smoothMaxIdx;
+  while (plateauEnd < ysSmooth.length - 1 && ysSmooth[plateauEnd + 1] >= plateauThreshold) plateauEnd++;
+  const peak = span > 1 ? { vtec: maximum.vtec, startHour: xs[plateauStart], endHour: xs[plateauEnd] } : null;
+
+  let eveningDecayOnsetHour: number | null = null;
+  if (span > 1) {
+    for (let i = plateauEnd + 1; i < ysSmooth.length; i++) {
+      if (ysSmooth[i] < reach90Threshold) {
+        eveningDecayOnsetHour = xs[i];
+        break;
+      }
+    }
+  }
+
+  let nightRecoveryHour: number | null = null;
+  if (eveningDecayOnsetHour != null && nightBaseline && span > 1) {
+    const recoverThreshold = nightBaseline.meanVtec + 0.15 * span;
+    const decayStartIdx = xs.findIndex((x) => x === eveningDecayOnsetHour);
+    for (let i = decayStartIdx; i < ysSmooth.length; i++) {
+      if (ysSmooth[i] <= recoverThreshold) {
+        nightRecoveryHour = xs[i];
+        break;
+      }
+    }
+  }
+
+  let fluctuation: VtecInterpretation["fluctuation"] = null;
+  if (peak) {
+    const fluctWindow = pts.filter((p) => p.x >= peak.startHour - 3 && p.x <= peak.endHour + 3);
+    if (fluctWindow.length >= 5) {
+      const diffs = fluctWindow.slice(1).map((p, i) => p.y - fluctWindow[i].y);
+      const meanDiff = diffs.reduce((s, d) => s + d, 0) / diffs.length;
+      const variance = diffs.reduce((s, d) => s + (d - meanDiff) ** 2, 0) / diffs.length;
+      fluctuation = { stdTecu: Math.sqrt(variance) };
+    }
+  }
+
+  return {
+    coverageHours, sufficientForFullCycle, minimum, maximum,
+    nightBaseline, sunrise, daytimeReach, peak,
+    eveningDecayOnsetHour, nightRecoveryHour, fluctuation,
+  };
+}
+
+interface RawBiasInterpretation {
+  pairedCount: number;
+  meanCorrectionTecu: number;
+  stdCorrectionTecu: number;
+  largestCorrection: { hour: number; correctionTecu: number; rawVtec: number; correctedVtec: number } | null;
+  implausibleRawFraction: number;
+  mostNegativeRaw: { hour: number; vtec: number } | null;
+}
+
+/**
+ * Compares the raw (leveled but not DCB-corrected) VTEC series against the
+ * final DCB-corrected series, both from this session's own processed data.
+ * Quantifies what the correction actually did rather than describing it in
+ * the abstract.
+ */
+function interpretRawVsCorrected(
+  hours: number[],
+  corrected: (number | null)[],
+  raw: (number | null)[],
+): RawBiasInterpretation | null {
+  const pairs: { hour: number; corrected: number; raw: number }[] = [];
+  for (let i = 0; i < hours.length; i++) {
+    const c = corrected[i];
+    const r = raw[i];
+    if (c != null && r != null && Number.isFinite(c) && Number.isFinite(r)) {
+      pairs.push({ hour: hours[i], corrected: c, raw: r });
+    }
+  }
+  if (pairs.length < 8) return null;
+
+  const diffs = pairs.map((p) => p.corrected - p.raw);
+  const meanCorrectionTecu = diffs.reduce((s, d) => s + d, 0) / diffs.length;
+  const variance = diffs.reduce((s, d) => s + (d - meanCorrectionTecu) ** 2, 0) / diffs.length;
+  const stdCorrectionTecu = Math.sqrt(variance);
+
+  let largestIdx = 0;
+  for (let i = 1; i < diffs.length; i++) {
+    if (Math.abs(diffs[i]) > Math.abs(diffs[largestIdx])) largestIdx = i;
+  }
+  const largestCorrection = {
+    hour: pairs[largestIdx].hour,
+    correctionTecu: diffs[largestIdx],
+    rawVtec: pairs[largestIdx].raw,
+    correctedVtec: pairs[largestIdx].corrected,
+  };
+
+  // VTEC is a physical electron column density and can't be meaningfully
+  // negative by more than a couple TECU of noise -- a raw value well below
+  // zero is a direct, visible symptom of the uncorrected hardware bias.
+  const implausible = pairs.filter((p) => p.raw < -2);
+  const implausibleRawFraction = implausible.length / pairs.length;
+  const mostNegativeRaw = implausible.length > 0
+    ? implausible.reduce((worst, p) => (p.raw < worst.vtec ? { hour: p.hour, vtec: p.raw } : worst), { hour: implausible[0].hour, vtec: implausible[0].raw })
+    : null;
+
+  return { pairedCount: pairs.length, meanCorrectionTecu, stdCorrectionTecu, largestCorrection, implausibleRawFraction, mostNegativeRaw };
+}
+
+function RawBiasInterpretationPanel({ interp }: { interp: RawBiasInterpretation | null }) {
+  if (!interp) {
+    return (
+      <div className="card processing-pipeline-explain" style={{ marginTop: "0.75rem", padding: "0.85rem 1rem" }}>
+        <p style={{ fontSize: "0.8rem", margin: 0, color: "var(--text-muted)" }}>
+          Not enough paired raw/corrected points in this session to compare the two series.
+        </p>
+      </div>
+    );
+  }
+  const { pairedCount, meanCorrectionTecu, stdCorrectionTecu, largestCorrection, implausibleRawFraction, mostNegativeRaw } = interp;
+  return (
+    <div className="card processing-pipeline-explain" style={{ marginTop: "0.75rem", padding: "0.9rem 1.1rem", fontSize: "0.82rem", lineHeight: 1.6 }}>
+      <div style={{ fontWeight: 700, fontSize: "0.88rem", marginBottom: "0.5rem" }}>
+        Interpretation of the Raw vs. Bias-Corrected Graph
+      </div>
+      <p style={{ margin: "0 0 0.6rem", color: "var(--text-muted)" }}>
+        Green is the same leveled slant-TEC series divided by the mapping function twice — once with satellite and
+        receiver differential code bias (DCB) removed (Eq 4.16), once without. Comparing the two, across
+        {" "}{pairedCount} paired epochs in this session:
+      </p>
+
+      <div style={{ marginBottom: "0.5rem" }}>
+        <strong>Average correction: </strong>
+        the DCB correction shifts VTEC by {meanCorrectionTecu >= 0 ? "+" : ""}{meanCorrectionTecu.toFixed(2)} TECU on
+        average (standard deviation {stdCorrectionTecu.toFixed(2)} TECU across the day) — this is the combined
+        satellite + receiver hardware delay the raw code measurement can&apos;t distinguish from real electron
+        content on its own.
+      </div>
+
+      {largestCorrection && (
+        <div style={{ marginBottom: "0.5rem" }}>
+          <strong>Largest single correction: </strong>
+          at {formatHourLabel(largestCorrection.hour)} UT, raw VTEC reads {largestCorrection.rawVtec.toFixed(1)} TECU
+          versus {largestCorrection.correctedVtec.toFixed(1)} TECU corrected — a{" "}
+          {Math.abs(largestCorrection.correctionTecu).toFixed(1)} TECU difference at that single epoch.
+        </div>
+      )}
+
+      <div style={{ marginBottom: "0.5rem" }}>
+        <strong>Physical plausibility: </strong>
+        {implausibleRawFraction > 0 && mostNegativeRaw
+          ? `${(implausibleRawFraction * 100).toFixed(0)}% of raw epochs read below -2 TECU, which isn't physically
+             possible for a real ionosphere (VTEC is a non-negative electron column density) -- the raw series dips
+             as low as ${mostNegativeRaw.vtec.toFixed(1)} TECU at ${formatHourLabel(mostNegativeRaw.hour)} UT. The
+             corrected series stays in a physically plausible range throughout, which is the practical evidence that
+             the DCB correction is necessary here, not optional.`
+          : "the raw series stays within a physically plausible range in this session, so the correction here is a smaller, mostly cosmetic adjustment rather than fixing an implausible raw signal."}
+      </div>
+
+      <p style={{ margin: "0.6rem 0 0", color: "var(--text-muted)", fontSize: "0.78rem" }}>
+        Scientific context: satellite and receiver hardware introduce a fixed group delay between the two GNSS
+        frequencies that has nothing to do with the ionosphere, but shows up in the raw code-based TEC estimate as
+        an offset (and, since it varies per satellite and drifts with receiver temperature/hardware state, as
+        additional noise and occasional large single-epoch excursions). DCB correction (CODE P1C1/P1P2 products plus
+        an estimated receiver bias) removes that instrument artifact, leaving the physically meaningful VTEC signal.
+      </p>
+    </div>
+  );
+}
+
+interface PrnArcSummary {
+  label: string;
+  windowStart: number;
+  windowEnd: number;
+  minVtec: number;
+  maxVtec: number;
+  shape: "rising" | "setting" | "peaked" | "dipped" | "flat" | "multi-pass";
+  gapHours: number | null;
+}
+
+/**
+ * Each PRN panel plots one satellite's own visibility window (only the
+ * epochs where that PRN was above the elevation mask), not the full day --
+ * so its shape mostly reflects whichever slice of the regional diurnal TEC
+ * curve that satellite happened to be up during, not an independent signal.
+ * Classified directly from that arc's own real min/max/gap structure.
+ */
+function summarizePrnArc(label: string, points: { x: number | null; y: number | null }[]): PrnArcSummary | null {
+  const pts = points
+    .filter((p): p is { x: number; y: number } => p.x != null && p.y != null && Number.isFinite(p.x) && Number.isFinite(p.y))
+    .sort((a, b) => a.x - b.x);
+  if (pts.length < 3) return null;
+
+  const xs = pts.map((p) => p.x);
+  const ys = pts.map((p) => p.y);
+  const minVtec = Math.min(...ys);
+  const maxVtec = Math.max(...ys);
+  const windowStart = xs[0];
+  const windowEnd = xs[xs.length - 1];
+
+  let maxGap = 0;
+  for (let i = 1; i < xs.length; i++) maxGap = Math.max(maxGap, xs[i] - xs[i - 1]);
+  if (maxGap > 1) {
+    return { label, windowStart, windowEnd, minVtec, maxVtec, shape: "multi-pass", gapHours: maxGap };
+  }
+
+  if (maxVtec - minVtec < 1) {
+    return { label, windowStart, windowEnd, minVtec, maxVtec, shape: "flat", gapHours: null };
+  }
+
+  const n = ys.length;
+  const maxIdx = ys.indexOf(maxVtec);
+  const minIdx = ys.indexOf(minVtec);
+  const edgeMargin = Math.max(1, Math.floor(n * 0.12));
+  const nearStart = (i: number) => i <= edgeMargin;
+  const nearEnd = (i: number) => i >= n - 1 - edgeMargin;
+
+  let shape: PrnArcSummary["shape"];
+  if (nearStart(maxIdx) && nearEnd(minIdx)) shape = "setting";
+  else if (nearStart(minIdx) && nearEnd(maxIdx)) shape = "rising";
+  else if (!nearStart(maxIdx) && !nearEnd(maxIdx)) shape = "peaked";
+  else if (!nearStart(minIdx) && !nearEnd(minIdx)) shape = "dipped";
+  else shape = ys[n - 1] - ys[0] >= 0 ? "rising" : "setting";
+
+  return { label, windowStart, windowEnd, minVtec, maxVtec, shape, gapHours: null };
+}
+
+const PRN_SHAPE_NOTE: Record<PrnArcSummary["shape"], string> = {
+  rising: "VTEC increases across this window — consistent with being visible during a rising portion of the regional diurnal curve (e.g. the post-sunrise ramp).",
+  setting: "VTEC decreases across this window — consistent with being visible during a declining portion of the diurnal curve (e.g. the evening decay).",
+  peaked: "VTEC rises then falls within this window, peaking partway through — the satellite was visible through a local maximum.",
+  dipped: "VTEC falls then rises within this window, bottoming out partway through — the satellite was visible through a local minimum.",
+  flat: "VTEC stays within about 1 TECU across this window — little diurnal change during this satellite's visibility period.",
+  "multi-pass": "this satellite had two separate visibility windows in this session (a gap of over an hour between points) — the panel plots both passes back to back.",
+};
+
+function PrnArcInterpretationPanel({ datasets }: { datasets: { label: string; points: { x: number | null; y: number | null }[] }[] }) {
+  const summaries = datasets
+    .map((ds) => summarizePrnArc(ds.label, ds.points))
+    .filter((s): s is PrnArcSummary => s !== null);
+
+  if (summaries.length === 0) {
+    return (
+      <div className="card processing-pipeline-explain" style={{ marginTop: "0.75rem", padding: "0.85rem 1rem" }}>
+        <p style={{ fontSize: "0.8rem", margin: 0, color: "var(--text-muted)" }}>
+          Not enough points in these arcs to characterize their shape.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="card processing-pipeline-explain" style={{ marginTop: "0.75rem", padding: "0.9rem 1.1rem", fontSize: "0.82rem", lineHeight: 1.6 }}>
+      <div style={{ fontWeight: 700, fontSize: "0.88rem", marginBottom: "0.5rem" }}>
+        Interpretation of the Per-PRN Arcs
+      </div>
+      <p style={{ margin: "0 0 0.7rem", color: "var(--text-muted)" }}>
+        Each panel above is one satellite&apos;s own VTEC arc, covering only the epochs that satellite was above the
+        elevation mask — not the full day. A window&apos;s shape mostly reflects which slice of the day that
+        satellite happened to be visible during, not a separate ionospheric signal. Read directly from each arc&apos;s
+        own data:
+      </p>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.78rem" }}>
+          <thead>
+            <tr style={{ textAlign: "left", color: "var(--text-muted)" }}>
+              <th style={{ padding: "0.3rem 0.6rem" }}>PRN</th>
+              <th style={{ padding: "0.3rem 0.6rem" }}>Window (UT)</th>
+              <th style={{ padding: "0.3rem 0.6rem" }}>VTEC range</th>
+              <th style={{ padding: "0.3rem 0.6rem" }}>Shape</th>
+            </tr>
+          </thead>
+          <tbody>
+            {summaries.map((s) => (
+              <tr key={s.label} style={{ borderTop: "1px solid var(--border)" }}>
+                <td style={{ padding: "0.3rem 0.6rem", fontWeight: 600 }}>{s.label}</td>
+                <td style={{ padding: "0.3rem 0.6rem" }}>{formatHourLabel(s.windowStart)}–{formatHourLabel(s.windowEnd)}</td>
+                <td style={{ padding: "0.3rem 0.6rem" }}>{s.minVtec.toFixed(1)}–{s.maxVtec.toFixed(1)} TECU</td>
+                <td style={{ padding: "0.3rem 0.6rem", textTransform: "capitalize" }}>{s.shape}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ marginTop: "0.7rem", display: "flex", flexDirection: "column", gap: "0.3rem" }}>
+        {(Object.keys(PRN_SHAPE_NOTE) as PrnArcSummary["shape"][])
+          .filter((shape) => summaries.some((s) => s.shape === shape))
+          .map((shape) => (
+            <div key={shape} style={{ color: "var(--text-muted)" }}>
+              <strong style={{ textTransform: "capitalize", color: "var(--text)" }}>{shape}: </strong>
+              {PRN_SHAPE_NOTE[shape]}
+            </div>
+          ))}
+      </div>
+    </div>
+  );
+}
+
+function utToLocalLabel(utHour: number): string {
+  // ZINGSA/Zimbabwe runs UTC+2 year-round (no DST) -- a safe general fact
+  // for this platform, not a per-station claim.
+  return formatHourLabel(((utHour + 2) % 24 + 24) % 24);
+}
+
+function TecInterpretationPanel({ interp, prnCount }: { interp: VtecInterpretation | null; prnCount: number }) {
+  if (!interp) {
+    return (
+      <div className="card processing-pipeline-explain" style={{ marginTop: "0.75rem", padding: "0.85rem 1rem" }}>
+        <p style={{ fontSize: "0.8rem", margin: 0, color: "var(--text-muted)" }}>
+          Not enough data points in this session to interpret the diurnal shape of the curve.
+        </p>
+      </div>
+    );
+  }
+
+  const {
+    coverageHours, sufficientForFullCycle, minimum, maximum,
+    nightBaseline, sunrise, daytimeReach, peak,
+    eveningDecayOnsetHour, nightRecoveryHour, fluctuation,
+  } = interp;
+
+  return (
+    <div className="card processing-pipeline-explain" style={{ marginTop: "0.75rem", padding: "0.9rem 1.1rem", fontSize: "0.82rem", lineHeight: 1.6 }}>
+      <div style={{ fontWeight: 700, fontSize: "0.88rem", marginBottom: "0.5rem" }}>
+        Interpretation of the Mean VTEC Graph
+      </div>
+      <p style={{ margin: "0 0 0.6rem", color: "var(--text-muted)" }}>
+        This graph shows the mean Vertical Total Electron Content (VTEC) across {prnCount} satellite
+        arc{prnCount === 1 ? "" : "s"} after leveling and DCB (differential code bias) removal. The values and times
+        below are read directly from this session&apos;s own processed curve — data covers
+        {" "}{formatHourLabel(coverageHours[0])}{"–"}{formatHourLabel(coverageHours[1])} UT.
+      </p>
+      {!sufficientForFullCycle && (
+        <p style={{ margin: "0 0 0.6rem", color: "var(--accent-warn, #ff8c00)" }}>
+          This session doesn&apos;t cover a full 00:00{"–"}24:00 UT day, so the nighttime/sunrise/decay
+          phases below may be partial or unavailable.
+        </p>
+      )}
+
+      <div style={{ marginBottom: "0.5rem" }}>
+        <strong>Nighttime baseline: </strong>
+        {nightBaseline
+          ? `mean VTEC stays low, around ${nightBaseline.meanVtec.toFixed(1)} TECU, during the covered night hours (00:00–04:00 and/or 20:00–24:00 UT). Minimal solar ionization and dominant recombination keep electron density low.`
+          : "not enough night-hour coverage (00:00–04:00 / 20:00–24:00 UT) in this session to establish a baseline."}
+      </div>
+
+      <div style={{ marginBottom: "0.5rem" }}>
+        <strong>Sunrise transition: </strong>
+        {sunrise
+          ? `VTEC begins a sustained rise around ${formatHourLabel(sunrise.onsetHour)} UT (${utToLocalLabel(sunrise.onsetHour)} local, UTC+2), as solar EUV radiation starts ionizing the upper atmosphere.`
+          : "no clear sustained rise from a night baseline was detected in this data."}
+      </div>
+
+      <div style={{ marginBottom: "0.5rem" }}>
+        <strong>Daytime development: </strong>
+        {daytimeReach
+          ? `VTEC reaches ${daytimeReach.vtec.toFixed(1)} TECU (within 90% of the day's peak) by ${formatHourLabel(daytimeReach.hour)} UT, as ion production continues to build through the morning.`
+          : "the curve doesn't show a clear morning build-up to near-peak levels in this data."}
+      </div>
+
+      <div style={{ marginBottom: "0.5rem" }}>
+        <strong>Peak: </strong>
+        {peak
+          ? `maximum VTEC of ${peak.vtec.toFixed(1)} TECU occurs between ${formatHourLabel(peak.startHour)} and ${formatHourLabel(peak.endHour)} UT (${utToLocalLabel(peak.startHour)}–${utToLocalLabel(peak.endHour)} local) — the point where ion production balances, then is overtaken by, recombination.`
+          : `maximum VTEC of ${maximum.vtec.toFixed(1)} TECU occurs at ${formatHourLabel(maximum.hour)} UT.`}
+      </div>
+
+      <div style={{ marginBottom: "0.5rem" }}>
+        <strong>Evening decay: </strong>
+        {eveningDecayOnsetHour != null
+          ? `VTEC starts falling off the peak plateau around ${formatHourLabel(eveningDecayOnsetHour)} UT (${utToLocalLabel(eveningDecayOnsetHour)} local) as solar ionization weakens and recombination dominates.`
+          : "no clear post-peak decline was detected — either the session doesn't extend into the evening, or the peak persisted through the covered window."}
+      </div>
+
+      <div style={{ marginBottom: "0.5rem" }}>
+        <strong>Night recovery: </strong>
+        {nightRecoveryHour != null
+          ? `VTEC returns close to nighttime levels by ${formatHourLabel(nightRecoveryHour)} UT (${utToLocalLabel(nightRecoveryHour)} local), completing the diurnal cycle.`
+          : "the session doesn't show VTEC returning to a night baseline within its covered window."}
+      </div>
+
+      <div style={{ marginBottom: "0.5rem" }}>
+        <strong>Minimum / maximum: </strong>
+        {minimum.vtec.toFixed(1)} TECU at {formatHourLabel(minimum.hour)} UT (minimum) to {maximum.vtec.toFixed(1)} TECU
+        at {formatHourLabel(maximum.hour)} UT (maximum) — a range of {(maximum.vtec - minimum.vtec).toFixed(1)} TECU.
+      </div>
+
+      {fluctuation && (
+        <div style={{ marginBottom: "0.5rem" }}>
+          <strong>Small fluctuations: </strong>
+          around the peak, point-to-point variation has a standard deviation of about {fluctuation.stdTecu.toFixed(2)} TECU
+          — typical of residual differences between individual satellite arcs, measurement noise, and brief tracking
+          interruptions averaged into the 12-PRN mean.
+        </div>
+      )}
+
+      <p style={{ margin: "0.6rem 0 0", color: "var(--text-muted)", fontSize: "0.78rem" }}>
+        Scientific context: quiet-day ionospheric TEC over a mid-latitude/equatorial station typically follows this
+        pattern — low nighttime TEC, a rapid post-sunrise rise driven by solar EUV ionization, an afternoon maximum
+        once ion production is overtaken by recombination, and a gradual decline after sunset back to nighttime
+        levels. A shape that deviates substantially from this (e.g. a second peak, an unusually sharp drop, or an
+        elevated night baseline) can indicate a geomagnetic or ionospheric disturbance rather than a quiet day.
+      </p>
+    </div>
+  );
+}
+
+function summaryDateLabel(dateStr: string, mode: "daily" | "monthly" | "yearly") {
+  if (mode === "monthly") return formatMonthLabel(dateStr);
+  if (mode === "yearly") return dateStr;
+  return formatDayLabel(dateStr);
+}
+
+function downloadCsv(filename: string, headers: string[], rows: (string | number | boolean | null | undefined)[][]) {
+  const csv = [headers.join(","), ...rows.map((r) => r.map((v) => (v === null || v === undefined ? "" : String(v))).join(","))].join("\n");
+  const blob = new Blob([csv], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
+const CorsMap = dynamic(() => import("@/components/maps/CorsMap"), { ssr: false });
+
+type Mode = "daily" | "monthly" | "yearly";
+
+const LAYERS: MapLayer[] = ["Hybrid", "Satellite", "Street", "TEC Heat Map"];
+
+const PIPELINE_STAGES = [
+  { icon: "📂", label: "RINEX/CMN loading",        color: "#ffcc00" },
+  { icon: "🔍", label: "Cycle slip detection",      color: "#168bd2" },
+  { icon: "✂️",  label: "Satellite bias correction", color: "#a78bfa" },
+  { icon: "▶",  label: "Receiver bias correction",  color: "#00cc88" },
+  { icon: "↗",  label: "Slant TEC calculation",     color: "#ff8c00" },
+  { icon: "⊞",  label: "Vertical TEC calculation",  color: "#168bd2" },
+  { icon: "🗺️", label: "Map/table generation",      color: "#00ff88" },
+] as const;
+
+const PIPELINE_EXPLANATIONS: Record<string, string> = {
+  "RINEX/CMN loading": "Reads dual-frequency observation and navigation files (RINEX .o/.n or GOP CMN format) and aligns them to a common time base for TEC computation.",
+  "Cycle slip detection": "Identifies phase jumps on L1/L2 carriers so biased STEC segments are excluded before bias correction.",
+  "Satellite bias correction": "Applies satellite differential code biases (DCBs) from CODE P1C1/P1P2 files to reduce systematic errors per PRN.",
+  "Receiver bias correction": "Estimates and removes receiver hardware delays so slant TEC can be leveled across satellites and epochs.",
+  "Slant TEC calculation": "Computes slant total electron content along each satellite ray using dual-frequency pseudorange and phase (Gopi Eqs 4.10–4.12).",
+  "Vertical TEC calculation": "Maps slant TEC to vertical TEC at the ionospheric pierce point using the thin-shell model and elevation mapping function.",
+  "Map/table generation": "Builds summary tables, PRN plots, and map overlays for the processed session — mean, max, and min VTEC by day or hour.",
+};
+
+function parseStationCodeFromFilename(name: string): string | null {
+  const rinex = /^([a-z0-9]{4})\d{3}0\.\d{2}o$/i.exec(name);
+  if (rinex) return rinex[1].toLowerCase();
+  const prefix = /^([a-z0-9]{4})/i.exec(name.replace(/^.*[\\/]/, ""));
+  return prefix ? prefix[1].toLowerCase() : null;
+}
+
+function resolveMapStations(
+  catalog: Station[],
+  biasRows: BiasRow[],
+  obsFiles: File[],
+  cmnName: string,
+): Station[] {
+  const codes = new Set<string>();
+  biasRows.forEach((r) => {
+    if (r.station) codes.add(r.station.toLowerCase());
+  });
+  if (codes.size === 0) {
+    obsFiles.forEach((f) => {
+      const code = parseStationCodeFromFilename(f.name);
+      if (code) codes.add(code);
+    });
+    if (cmnName !== "No file selected") {
+      const code = parseStationCodeFromFilename(cmnName);
+      if (code) codes.add(code);
+    }
+  }
+  if (codes.size === 0) return [];
+  const matched = catalog.filter((s) => codes.has(s.code.toLowerCase()));
+  return matched.length > 0 ? matched : catalog.filter((s) =>
+    [...codes].some((c) => s.code.toLowerCase().startsWith(c) || c.startsWith(s.code.toLowerCase())),
+  );
+}
+
+export default function ProcessingPage() {
+  const [status, setStatus]     = useState<string>("");
+  const [rows, setRows]         = useState<TecSummaryRow[]>([]);
+  const [hourlyRows, setHourlyRows] = useState<TecHourlyRow[]>([]);
+  const [mode, setMode]         = useState<Mode>("daily");
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [tecPlot, setTecPlot] = useState<TecPlotSeries | null>(null);
+  const [loading, setLoading]   = useState(false);
+  const [tab, setTab]           = useState<"cmn" | "rinex" | "converter" | "download">("cmn");
+  const [mapLayer, setMapLayer] = useState<MapLayer>("Hybrid");
+  const [cmnName, setCmnName]   = useState("No file selected");
+  const [obsFiles, setObsFiles] = useState<File[]>([]);
+  const [navFiles, setNavFiles] = useState<File[]>([]);
+  const [filePool, setFilePool] = useState<File[]>([]);
+  const [missingNavFor, setMissingNavFor] = useState<string[]>([]);
+  const [unmatchedNames, setUnmatchedNames] = useState<string[]>([]);
+  const [browseObs, setBrowseObs] = useState(true);
+  const [browseN, setBrowseN] = useState(true);
+  const [browseG, setBrowseG] = useState(true);
+  const [folderLabel, setFolderLabel] = useState("No folder selected");
+  const [processingMode, setProcessingMode] = useState<"day" | "month" | "year" | "directory">("directory");
+  // When user picks obs+nav in separate dialogs, keep merged pool (browser cannot read paths).
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const [targetDay, setTargetDay] = useState(todayIso);
+  const [targetMonth, setTargetMonth] = useState(todayIso.slice(0, 7));
+  const [targetYear, setTargetYear] = useState(new Date().getFullYear());
+  const rinexRef = useRef<HTMLInputElement>(null);
+  const folderRef = useRef<HTMLInputElement>(null);
+  const cmnRef = useRef<HTMLInputElement>(null);
+  const navFollowUpRef = useRef<HTMLInputElement>(null);
+
+  // Processing settings.
+  const [stationsList, setStationsList] = useState<Station[]>([]);
+  const [allStations, setAllStations] = useState(true);
+  const [selectedStations, setSelectedStations] = useState<string[]>([]);
+  const [elevMin, setElevMin] = useState(30);
+  const [ippHeight, setIppHeight] = useState(350);
+  const [dcbFolder, setDcbFolder] = useState("");
+  const [kpCsv, setKpCsv] = useState("");
+  const [outCmn, setOutCmn] = useState(true);
+  const [outStd, setOutStd] = useState(true);
+  const [outBias, setOutBias] = useState(true);
+  const [outImg, setOutImg] = useState(true);
+  const [outPrn, setOutPrn] = useState(true);
+  const [outUnbias, setOutUnbias] = useState(true);
+  const [biasRows, setBiasRows] = useState<BiasRow[]>([]);
+  const [tecPlotRaw, setTecPlotRaw] = useState<TecPlotSeries | null>(null);
+  const [processingHostNote, setProcessingHostNote] = useState<string | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [pipelineStage, setPipelineStage] = useState<string | null>(null);
+  const [pipelineActiveStage, setPipelineActiveStage] = useState<string | null>(null);
+  const [showTecInterpretation, setShowTecInterpretation] = useState(false);
+  const [showBiasInterpretation, setShowBiasInterpretation] = useState(false);
+  const [showPrnInterpretation, setShowPrnInterpretation] = useState(false);
+  const [mapStations, setMapStations] = useState<Station[]>([]);
+
+  useEffect(() => {
+    const applyHash = () => {
+      if (window.location.hash === "#converter") setTab("converter");
+      if (window.location.hash === "#download" || window.location.hash === "#rinex-data") setTab("download");
+    };
+    applyHash();
+    window.addEventListener("hashchange", applyHash);
+    return () => window.removeEventListener("hashchange", applyHash);
+  }, []);
+
+  useEffect(() => {
+    if (tab === "converter") {
+      if (window.location.hash !== "#converter") {
+        window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#converter`);
+      }
+    } else if (tab === "download") {
+      if (window.location.hash !== "#download") {
+        window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#download`);
+      }
+    } else if (window.location.hash === "#converter" || window.location.hash === "#download" || window.location.hash === "#rinex-data") {
+      window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+    }
+  }, [tab]);
+
+  useEffect(() => {
+    getStations().then(setStationsList).catch(() => undefined);
+    getLivePipelineStatus()
+      .then((p) => {
+        if (p.runtime_mode === "vercel-serverless" || !p.ingest_enabled) {
+          setProcessingHostNote(
+            "Large RINEX jobs may time out on Vercel serverless. For full processing and graphs, run locally with .\\dev.ps1 or use a dedicated compute host.",
+          );
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (filePool.length === 0) return;
+    classifyAndSetRinexFiles(filePool, processingMode !== "directory");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [processingMode, targetDay, targetMonth, targetYear, browseObs, browseN, browseG]);
+
+  useEffect(() => {
+    if (!sessionId) {
+      setMapStations([]);
+      return;
+    }
+    setMapStations(resolveMapStations(stationsList, biasRows, obsFiles, cmnName));
+  }, [sessionId, stationsList, biasRows, obsFiles, cmnName]);
+
+  const imgLabel = {
+    day: "TEC Image (24 hrs)",
+    month: "TEC Image (Monthly)",
+    year: "TEC Image (Yearly)",
+    directory: "TEC Image (All data)",
+  }[processingMode];
+
+  function classifyRinexFile(name: string): "obs" | "nav-n" | "nav-g" | null {
+    const lower = name.toLowerCase();
+    if (/\.(rnx|obs)$/.test(lower) || /\d{2}o$/.test(lower)) return "obs";
+    if (/\.(nav|gnav|hnav)$/.test(lower) || /\d{2}n$/.test(lower)) return "nav-n";
+    if (/\.g$/.test(lower) || /\d{2}g$/.test(lower)) return "nav-g";
+    return null;
+  }
+
+  // Parse station code + day-of-year + two-digit year from RINEX names.
+  function parseRinexObsDate(name: string): Date | null {
+    const m = /[a-z0-9_]{4}(\d{3})0\.(\d{2})o$/i.exec(name);
+    if (!m) return null;
+    const doy = parseInt(m[1], 10);
+    const year = 2000 + parseInt(m[2], 10);
+    const d = new Date(Date.UTC(year, 0, 1));
+    d.setUTCDate(d.getUTCDate() + doy - 1);
+    return d;
+  }
+
+  function keepByProcessingMode(date: Date | null): boolean {
+    if (!date) return processingMode === "directory";
+    const iso = date.toISOString();
+    if (processingMode === "day") return iso.slice(0, 10) === targetDay;
+    if (processingMode === "month") return iso.slice(0, 7) === targetMonth;
+    if (processingMode === "year") return date.getUTCFullYear() === targetYear;
+    return true;
+  }
+
+  function buildRinexAccept(): string {
+    const parts: string[] = [];
+    if (browseObs) parts.push(".rnx", ".obs", ".o", ".24o", ".25o", ".26o");
+    if (browseN) parts.push(".nav", ".n", ".24n", ".25n", ".26n");
+    if (browseG) parts.push(".g", ".24g", ".25g", ".26g");
+    return parts.join(",");
+  }
+
+  function buildNavAccept(): string {
+    const parts: string[] = [];
+    if (browseN) parts.push(".nav", ".n", ".24n", ".25n", ".26n");
+    if (browseG) parts.push(".g", ".24g", ".25g", ".26g");
+    return parts.join(",");
+  }
+
+  function rinexBaseStem(name: string): string {
+    const lower = name.toLowerCase();
+    const yr = /^(.+)\.\d{2}[ong]$/i.exec(name);
+    if (yr) return yr[1].toLowerCase();
+    const plain = /^(.+)\.(o|obs|rnx|n|nav|g|gnav|hnav)$/i.exec(lower);
+    if (plain) return plain[1].toLowerCase();
+    return lower.replace(/\.[^.]+$/, "");
+  }
+
+  function expectedNavNames(obsName: string): string[] {
+    const m = /^(.+\.)(\d{2})o$/i.exec(obsName);
+    if (m) return [`${m[1]}${m[2]}n`, `${m[1]}${m[2]}N`, `${m[1]}${m[2]}g`, `${m[1]}${m[2]}G`];
+    const m2 = /^(.+)\.(o|obs|rnx)$/i.exec(obsName);
+    if (m2) return [`${m2[1]}.n`, `${m2[1]}.N`, `${m2[1]}.nav`, `${m2[1]}.24n`];
+    return [];
+  }
+
+  function autoPairNavigation(obs: File[], nav: File[], pool: File[]): { nav: File[]; missing: string[] } {
+    const navByStem = new Map<string, File>();
+    for (const f of nav) navByStem.set(rinexBaseStem(f.name), f);
+    for (const f of pool) {
+      const kind = classifyRinexFile(f.name);
+      if (kind === "nav-n" && browseN) navByStem.set(rinexBaseStem(f.name), f);
+      if (kind === "nav-g" && browseG) navByStem.set(rinexBaseStem(f.name), f);
+    }
+    const paired: File[] = [];
+    const seen = new Set<string>();
+    const missing: string[] = [];
+    for (const o of obs) {
+      const stem = rinexBaseStem(o.name);
+      const match = navByStem.get(stem);
+      if (match) {
+        if (!seen.has(match.name)) {
+          paired.push(match);
+          seen.add(match.name);
+        }
+      } else {
+        missing.push(o.name);
+      }
+    }
+    return { nav: paired, missing };
+  }
+
+  function syncTargetDateFromObs(obs: File[]) {
+    if (obs.length === 0) return;
+    const d = parseRinexObsDate(obs[0].name);
+    if (!d) return;
+    const iso = d.toISOString().slice(0, 10);
+    setTargetDay(iso);
+    setTargetMonth(iso.slice(0, 7));
+    setTargetYear(d.getUTCFullYear());
+  }
+
+  function classifyAndSetRinexFiles(files: File[], applyDateFilter: boolean): string[] {
+    const obs: File[] = [];
+    const nav: File[] = [];
+    const unmatched: string[] = [];
+    for (const f of files) {
+      const kind = classifyRinexFile(f.name);
+      if (kind === "obs") {
+        if (!browseObs) continue;
+        if (applyDateFilter && !keepByProcessingMode(parseRinexObsDate(f.name))) continue;
+        obs.push(f);
+      } else if (kind === "nav-n") {
+        if (browseN) nav.push(f);
+      } else if (kind === "nav-g") {
+        if (browseG) nav.push(f);
+      } else {
+        unmatched.push(f.name);
+      }
+    }
+
+    let finalObs = obs;
+    if (applyDateFilter && obs.length === 0 && files.length > 0) {
+      // Folder scan with day/month/year filter found no obs — fall back to all obs in folder.
+      finalObs = files.filter((f) => classifyRinexFile(f.name) === "obs" && browseObs);
+    }
+
+    const paired = autoPairNavigation(finalObs, nav, files);
+    setObsFiles(finalObs);
+    setNavFiles(paired.nav);
+    setMissingNavFor(paired.missing);
+    setUnmatchedNames(unmatched);
+    if (finalObs.length > 0) syncTargetDateFromObs(finalObs);
+    return paired.missing;
+  }
+
+  function mergeIntoPool(incoming: File[]): File[] {
+    const byName = new Map(filePool.map((f) => [f.name, f]));
+    for (const f of incoming) byName.set(f.name, f);
+    return Array.from(byName.values());
+  }
+
+  function handleFolderBrowse(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.currentTarget.files ?? []);
+    if (files.length === 0) return;
+    const relPath = (files[0] as File & { webkitRelativePath?: string }).webkitRelativePath;
+    setFolderLabel(relPath ? relPath.split("/")[0] : `${files.length} file(s)`);
+    setFilePool(files);
+    classifyAndSetRinexFiles(files, processingMode !== "directory");
+    e.currentTarget.value = "";
+  }
+
+  function handleFilesBrowse(e: React.ChangeEvent<HTMLInputElement>) {
+    const picked = Array.from(e.currentTarget.files ?? []);
+    if (picked.length === 0) return;
+    const merged = mergeIntoPool(picked);
+    setFilePool(merged);
+    setFolderLabel(
+      merged.length === 1
+        ? merged[0].name
+        : `${merged.length} files (${merged.map((f) => f.name).join(", ")})`,
+    );
+    const missing = classifyAndSetRinexFiles(merged, false);
+    e.currentTarget.value = "";
+    // A plain <input type="file"> can't read sibling files off disk on its own --
+    // browsers don't expose that without a user gesture. Chaining a second
+    // .click() from inside this onChange handler was tried, but browsers
+    // don't reliably treat that as a fresh user gesture (Chrome silently
+    // no-ops it), so the dialog never actually opened. The "Select
+    // navigation file..." button in the warning banner below does the same
+    // thing from a real click handler, which browsers do honor.
+    if (missing.length > 0 && (browseN || browseG)) {
+      setStatus(`Missing navigation file for ${missing.join(", ")} — click "Select navigation file…" below.`);
+    }
+  }
+
+  function handleNavFollowUpBrowse(e: React.ChangeEvent<HTMLInputElement>) {
+    const picked = Array.from(e.currentTarget.files ?? []);
+    e.currentTarget.value = "";
+    if (picked.length === 0) return;
+    const merged = mergeIntoPool(picked);
+    setFilePool(merged);
+    setFolderLabel(`${merged.length} files (${merged.map((f) => f.name).join(", ")})`);
+    const missing = classifyAndSetRinexFiles(merged, false);
+    setStatus(missing.length > 0 ? `Still missing navigation file for ${missing.join(", ")}.` : "");
+  }
+
+  async function loadSummary(id: string, m: Mode) {
+    const data = await getSessionSummary(id, m);
+    setRows(data);
+  }
+
+  async function loadHourly(id: string) {
+    if (processingMode !== "day") return setHourlyRows([]);
+    try { setHourlyRows(await getSessionHourly(id)); } catch { setHourlyRows([]); }
+  }
+
+  function buildOptions() {
+    return {
+      elevationMin: elevMin,
+      ippHeight,
+      dcbFolder,
+      stations: allStations ? [] : selectedStations,
+      kpCsv,
+    };
+  }
+
+  async function loadBias(id: string) {
+    try { setBiasRows(await getSessionBias(id)); } catch { setBiasRows([]); }
+  }
+
+  /**
+   * Polls the real backend session status until processing finishes.
+   * `stage` reflects whatever pipeline step the backend is actually running
+   * right now (tec_core.py reports it as it goes) -- not a simulated timer,
+   * since a fake progress animation would misrepresent what's happening.
+   */
+  async function waitForSession(id: string, maxMs = 5 * 60 * 1000) {
+    const start = Date.now();
+    for (;;) {
+      const s = await getSessionStatus(id);
+      setPipelineActiveStage(s.stage ?? null);
+      if (s.status === "done") return s;
+      if (s.status === "error") throw new Error(s.message || "Processing failed.");
+      if (Date.now() - start > maxMs) throw new Error("Processing timed out.");
+      await new Promise((r) => setTimeout(r, 700));
+    }
+  }
+
+  async function handleProcess() {
+    setBiasRows([]); setTecPlotRaw(null); setHourlyRows([]);
+    setPipelineActiveStage(null);
+    if (tab === "cmn") {
+      const file = cmnRef.current?.files?.[0];
+      if (!file) return setStatus("Select a .Cmn file first.");
+      setLoading(true); setStatus("Processing…");
+      try {
+        const sess = await uploadCmn(file, buildOptions());
+        setSessionId(sess.session_id);
+        const finalSess = await waitForSession(sess.session_id);
+        setStatus(`Done — ${finalSess.rows.toLocaleString()} observations`);
+        await loadSummary(sess.session_id, mode);
+        await loadHourly(sess.session_id);
+        try {
+          const plot = await getSessionTecPlot(sess.session_id);
+          setTecPlot(plot);
+          const raw = await getSessionTecPlot(sess.session_id, true);
+          setTecPlotRaw(raw);
+        } catch {
+          setTecPlot(null);
+          setTecPlotRaw(null);
+        }
+        if (outBias) await loadBias(sess.session_id);
+      } catch (e) { setStatus(`Error: ${e}`); }
+    } else {
+      if (!obsFiles.length) return setStatus("Select at least one observation file.");
+      if (missingNavFor.length > 0) {
+        const expected = missingNavFor.flatMap(expectedNavNames).slice(0, 4).join(" or ");
+        return setStatus(
+          `Missing navigation file for ${missingNavFor.join(", ")}. Also select ${expected || "the matching .24n file"} (Ctrl/Cmd-click both files, or use Browse folder…).`,
+        );
+      }
+      setLoading(true); setStatus("Processing RINEX…");
+      try {
+        const sess = await uploadRinex(obsFiles, navFiles, buildOptions());
+        setSessionId(sess.session_id);
+        const finalSess = await waitForSession(sess.session_id);
+        setStatus(`Done — ${finalSess.rows.toLocaleString()} observations`);
+        await loadSummary(sess.session_id, mode);
+        await loadHourly(sess.session_id);
+        const plot = await getSessionTecPlot(sess.session_id);
+        setTecPlot(plot);
+        const raw = await getSessionTecPlot(sess.session_id, true);
+        setTecPlotRaw(raw);
+        if (outBias) await loadBias(sess.session_id);
+      } catch (e) { setTecPlot(null); setStatus(`Error: ${e}`); }
+    }
+    setPipelineActiveStage(null);
+    setLoading(false);
+  }
+
+  async function handleDownloadCmn() {
+    if (!sessionId) return;
+    const blob = await downloadSessionRaw(sessionId);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `${sessionId}_TEC_all_PRNs.csv`; a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function handleDownloadStd() {
+    if (!sessionId) return;
+    downloadCsv(`${sessionId}_STD_Mean_TEC.csv`,
+      ["date", "mean_vtec", "max_vtec", "min_vtec", "samples", "storm_flag", "kp_index"],
+      rows.map((r) => [r.date, r.mean_vtec, r.max_vtec, r.min_vtec, r.samples, r.storm_flag ?? "", r.kp_index ?? ""]));
+  }
+
+  function handleDownloadBias() {
+    if (!sessionId) return;
+    downloadCsv(`${sessionId}_Bias.csv`,
+      ["station", "mean_stec", "mean_vtec", "dcb_folder"],
+      biasRows.map((r) => [r.station, r.mean_stec, r.mean_vtec, r.dcb_folder]));
+  }
+
+  async function changeMode(m: Mode) {
+    setMode(m);
+    if (sessionId) { setLoading(true); await loadSummary(sessionId, m); setLoading(false); }
+  }
+
+  const useHourly = processingMode === "day" && hourlyRows.length > 0;
+  const summaryLabels = rows.map((r) => summaryDateLabel(r.date, mode));
+  const hourlyLabels = hourlyRows.map((r) => formatHourLabel(r.ut_hour));
+  const vtecLabels = useHourly ? hourlyLabels : summaryLabels;
+  const meanVtecValues = useHourly ? hourlyRows.map((r) => r.mean_vtec ?? 0) : rows.map((r) => r.mean_vtec ?? 0);
+  const maxVtecValues = useHourly ? hourlyRows.map((r) => r.max_vtec ?? 0) : rows.map((r) => r.max_vtec ?? 0);
+  const minVtecValues = useHourly ? hourlyRows.map((r) => r.min_vtec ?? 0) : rows.map((r) => r.min_vtec ?? 0);
+  const daytimeVtecValues = rows.map((r) => r.daytime_mean_vtec ?? r.mean_vtec ?? 0);
+  const tecMeanLabels = tecPlot?.mean.map((p) => (p.x ?? 0).toFixed(2)) ?? [];
+  const tecMeanHours = tecPlot?.mean.map((p) => p.x ?? 0) ?? [];
+  const tecMeanValues = tecPlot?.mean.map((p) => p.y ?? null) ?? [];
+  const rawMeanByX = new Map((tecPlotRaw?.mean ?? []).map((p) => [(p.x ?? 0).toFixed(2), p.y ?? null]));
+  const rawMeanValuesAligned = tecMeanLabels.map((label) => rawMeanByX.get(label) ?? null);
+  const tecInterpretation = tecPlot ? interpretVtecCurve(tecPlot.mean) : null;
+  const biasInterpretation = tecPlot && tecPlotRaw
+    ? interpretRawVsCorrected(tecMeanHours, tecMeanValues, rawMeanValuesAligned)
+    : null;
+  const processDisabled =
+    loading ||
+    (tab === "rinex" && (obsFiles.length === 0 || missingNavFor.length > 0)) ||
+    (tab === "cmn" && cmnName === "No file selected");
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "1.4rem" }}>
+
+      {/* Title */}
+      <div>
+        <h1 className="page-title">⚙️ RINEX / CMN Processing</h1>
+        <p className="page-subtitle">GOP-compatible CMN and RINEX observation file processor with VTEC computation</p>
+      </div>
+
+      {processingHostNote && (
+        <div className="banner banner-info" style={{ fontSize: "0.82rem" }}>
+          {processingHostNote}
+        </div>
+      )}
+
+      {/* File selection */}
+      <div className="card" style={{ display: "flex", flexDirection: "column", gap: "0.8rem" }}>
+        <div className="tabs" style={{ marginBottom: "0.2rem" }}>
+          <button className={`tab${tab === "cmn" ? " active" : ""}`} onClick={() => setTab("cmn")}>CMN File</button>
+          <button className={`tab${tab === "rinex" ? " active" : ""}`} onClick={() => setTab("rinex")}>RINEX Files</button>
+          <button className={`tab${tab === "download" ? " active" : ""}`} onClick={() => setTab("download")}>RINEX Data</button>
+          <button className={`tab${tab === "converter" ? " active" : ""}`} onClick={() => setTab("converter")}>RINEX Converter</button>
+        </div>
+
+        {tab === "converter" && <RinexConverterPanel />}
+        {tab === "download" && <RinexDownloadPanel />}
+
+        {tab === "cmn" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+            <label style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>Select .Cmn observation file</label>
+            <p style={{ margin: "-0.15rem 0 0.1rem", color: "var(--text-muted)", fontSize: "0.76rem", lineHeight: 1.45 }}>
+              A CMN file is a pre-processed GNSS observation product containing satellite measurements
+              with receiver and satellite bias corrections. Upload it to calculate filtered STEC and VTEC
+              for the selected period and stations.
+            </p>
+            <div className="file-picker-row">
+              <button type="button" className="file-picker-button" onClick={() => cmnRef.current?.click()}>
+                <span className="file-picker-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24">
+                    <path d="M4 6.5h5l2 2h9v9.5a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8.5a2 2 0 0 1 2-2Z" />
+                    <path d="M12 12v5m-2-2 2 2 2-2" />
+                  </svg>
+                </span>
+                Select file
+              </button>
+              <span className="file-picker-name">{cmnName}</span>
+              <input
+                ref={cmnRef}
+                type="file"
+                accept=".Cmn,.cmn,.csv"
+                className="file-picker-input"
+                onChange={(e) => setCmnName(e.currentTarget.files?.[0]?.name ?? "No file selected")}
+              />
+            </div>
+            {cmnName !== "No file selected" && (
+              <div className="card" style={{ padding: "0.6rem 0.9rem", fontSize: "0.78rem", display: "flex", flexDirection: "column", gap: "0.15rem" }}>
+                <div><strong>Type:</strong> CMN</div>
+                <div><strong>Total file(s) found#</strong> 1</div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {tab === "rinex" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.7rem" }}>
+            <label style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>
+              RINEX files — select the observation (.o) and matching navigation (.n) file together
+            </label>
+
+            <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap" }}>
+              <button type="button" className="file-picker-button" style={{ flex: "1 1 180px", justifyContent: "center" }}
+                onClick={() => folderRef.current?.click()}>
+                <span className="file-picker-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24">
+                    <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
+                  </svg>
+                </span>
+                Browse folder…
+              </button>
+              <button type="button" className="file-picker-button" style={{ flex: "1 1 180px", justifyContent: "center" }}
+                onClick={() => rinexRef.current?.click()}>
+                <span className="file-picker-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24">
+                    <path d="M4 6.5h5l2 2h9v9.5a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8.5a2 2 0 0 1 2-2Z" />
+                    <path d="M12 12v5m-2-2 2 2 2-2" />
+                  </svg>
+                </span>
+                Browse files…
+              </button>
+              <input
+                ref={folderRef}
+                type="file"
+                multiple
+                className="file-picker-input"
+                onChange={handleFolderBrowse}
+                {...({ webkitdirectory: "", directory: "" } as Record<string, string>)}
+              />
+              <input
+                ref={rinexRef}
+                type="file"
+                multiple
+                accept={buildRinexAccept()}
+                className="file-picker-input"
+                onChange={handleFilesBrowse}
+              />
+              <input
+                ref={navFollowUpRef}
+                type="file"
+                multiple
+                accept={buildNavAccept()}
+                className="file-picker-input"
+                onChange={handleNavFollowUpBrowse}
+              />
+            </div>
+
+            <div>
+              <p style={{ fontSize: "0.72rem", color: "var(--text-muted)", margin: "0 0 0.35rem" }}>
+                Browse file types (G/N/O triplets — e.g. karo1140.24o / .24n / .24g)
+              </p>
+              <div style={{ display: "flex", gap: "1.2rem", flexWrap: "wrap", fontSize: "0.8rem" }}>
+                <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", cursor: "pointer" }}>
+                  <input type="checkbox" checked={browseObs} onChange={(e) => setBrowseObs(e.target.checked)} />
+                  Obs (.o)
+                </label>
+                <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", cursor: "pointer" }}>
+                  <input type="checkbox" checked={browseN} onChange={(e) => setBrowseN(e.target.checked)} />
+                  GPS nav (.n)
+                </label>
+                <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", cursor: "pointer" }}>
+                  <input type="checkbox" checked={browseG} onChange={(e) => setBrowseG(e.target.checked)} />
+                  GLONASS nav (.g)
+                </label>
+              </div>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+              <label className="metric-label">Folder path</label>
+              <input
+                value={folderLabel}
+                readOnly
+                style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "6px", padding: "0.4rem 0.7rem", color: "var(--text)" }}
+              />
+              <p style={{ fontSize: "0.7rem", color: "var(--text-muted)", margin: 0 }}>
+                Browsers don&apos;t expose full filesystem paths — this shows the name of the folder/files you picked.
+              </p>
+            </div>
+
+            <p style={{ fontSize: "0.72rem", color: "var(--text-muted)", margin: 0 }}>
+              {obsFiles.length === 0 && navFiles.length === 0
+                ? "No files selected"
+                : `RINEX · Selected: ${obsFiles.length} obs · ${navFiles.length} nav (.n/.g) — ${obsFiles.length ? obsFiles.map((f) => f.name).join(", ") : "none"}${navFiles.length ? ` + ${navFiles.map((f) => f.name).join(", ")}` : ""}`}
+            </p>
+            {(obsFiles.length > 0 || navFiles.length > 0) && (
+              <div className="card" style={{ padding: "0.6rem 0.9rem", fontSize: "0.78rem", display: "flex", flexDirection: "column", gap: "0.15rem" }}>
+                <div><strong>Type:</strong> Rinex</div>
+                <div><strong>Total file(s) found#</strong> {obsFiles.length + navFiles.length}</div>
+                <div style={{ color: "var(--text-muted)" }}>{obsFiles.length} observation · {navFiles.length} navigation (auto-paired by filename)</div>
+                {navFiles.length > 0 && (
+                  <div style={{ color: "#00cc88", fontSize: "0.72rem" }}>
+                    Paired: {obsFiles.map((o, i) => `${o.name} → ${navFiles.find((n) => rinexBaseStem(n.name) === rinexBaseStem(o.name))?.name ?? "?"}`).join("; ")}
+                  </div>
+                )}
+              </div>
+            )}
+            <p style={{ fontSize: "0.72rem", color: "var(--text-muted)", margin: 0 }}>
+              Use <strong>Browse folder…</strong> to scan a directory — matching .24n/.24g files are paired automatically.
+              Or Ctrl/Cmd-click both files in one dialog. You can also pick the .o file first, then browse again to add the .24n.
+            </p>
+            {missingNavFor.length > 0 && (
+              <div className="banner banner-alert" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.6rem" }}>
+                <span>
+                  No matching navigation file for: {missingNavFor.join(", ")}.
+                  Expected companion: {missingNavFor.flatMap(expectedNavNames).slice(0, 3).join(" or ")}.
+                  Elevations cannot be computed without the .24n file.
+                </span>
+                <button
+                  type="button"
+                  className="btn"
+                  style={{ fontSize: "0.75rem", padding: "0.3rem 0.7rem", whiteSpace: "nowrap" }}
+                  onClick={() => navFollowUpRef.current?.click()}
+                >
+                  Select navigation file…
+                </button>
+              </div>
+            )}
+            {unmatchedNames.length > 0 && (
+              <div className="banner banner-alert">
+                Unrecognized file(s) ignored: {unmatchedNames.join(", ")}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {tab !== "converter" && tab !== "download" && (
+      <>
+      {/* Processing settings panel */}
+      <div className="card" style={{ display: "flex", flexDirection: "column", gap: "0.8rem" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", borderBottom: "1px solid var(--border)", paddingBottom: "0.8rem" }}>
+          <label className="metric-label">Processing mode</label>
+          <div style={{ display: "flex", gap: "1.2rem", flexWrap: "wrap", fontSize: "0.8rem" }}>
+            {([
+              ["day", "This Day only"],
+              ["month", "This Month"],
+              ["year", "This Year"],
+              ["directory", "Directory"],
+            ] as const).map(([value, label]) => (
+              <label key={value} style={{ display: "flex", alignItems: "center", gap: "0.4rem", cursor: "pointer" }}>
+                <input
+                  type="radio"
+                  name="processing-mode"
+                  checked={processingMode === value}
+                  onChange={() => setProcessingMode(value)}
+                />
+                {label}
+              </label>
+            ))}
+          </div>
+          {processingMode === "day" && (
+            <input type="date" value={targetDay} onChange={(e) => setTargetDay(e.target.value)}
+              style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "6px", padding: "0.4rem 0.7rem", color: "var(--text)", width: "fit-content" }} />
+          )}
+          {processingMode === "month" && (
+            <input type="month" value={targetMonth} onChange={(e) => setTargetMonth(e.target.value)}
+              style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "6px", padding: "0.4rem 0.7rem", color: "var(--text)", width: "fit-content" }} />
+          )}
+          {processingMode === "year" && (
+            <input type="number" value={targetYear} onChange={(e) => setTargetYear(parseInt(e.target.value, 10) || targetYear)}
+              style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "6px", padding: "0.4rem 0.7rem", color: "var(--text)", width: "110px" }} />
+          )}
+        </div>
+
+        <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", cursor: "pointer", fontSize: "0.85rem", fontWeight: 600 }}>
+          <input type="checkbox" checked={allStations} onChange={(e) => setAllStations(e.target.checked)} />
+          All stations
+        </label>
+
+        {!allStations && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
+            <label className="metric-label">Zimbabwe CORS stations</label>
+            <select
+              multiple
+              value={selectedStations}
+              onChange={(e) => setSelectedStations(Array.from(e.currentTarget.selectedOptions).map((o) => o.value))}
+              style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "6px", padding: "0.4rem 0.7rem", color: "var(--text)", minHeight: "110px" }}
+            >
+              {stationsList.map((s) => (
+                <option key={s.code} value={s.code}>{s.code} - {s.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "0.7rem" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+            <label className="metric-label">Min elevation (°)</label>
+            <input type="number" min={0} max={90} step={1} value={elevMin}
+              onChange={(e) => setElevMin(parseFloat(e.target.value) || 0)}
+              style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "6px", padding: "0.4rem 0.7rem", color: "var(--text)" }} />
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+            <label className="metric-label">IPP height (km)</label>
+            <input type="number" min={250} max={600} step={1} value={ippHeight}
+              onChange={(e) => setIppHeight(parseFloat(e.target.value) || 0)}
+              style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "6px", padding: "0.4rem 0.7rem", color: "var(--text)" }} />
+          </div>
+        </div>
+
+        <button
+          type="button"
+          className="btn processing-advanced-toggle"
+          onClick={() => setShowAdvanced((v) => !v)}
+          aria-expanded={showAdvanced}
+        >
+          {showAdvanced ? "▾ Hide advanced settings" : "▸ Advanced settings (DCB, Kp CSV, outputs)"}
+        </button>
+
+        {showAdvanced && (
+        <>
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+          <label className="metric-label">DCB folder (P1C1/P1P2 files)</label>
+          <input value={dcbFolder} onChange={(e) => setDcbFolder(e.target.value)}
+            placeholder="Leave blank for server default"
+            style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "6px", padding: "0.4rem 0.7rem", color: "var(--text)" }} />
+          <p style={{ fontSize: "0.7rem", color: "var(--text-muted)", margin: 0 }}>
+            Folder containing CODE DCB files (P1C1YYMM.DCB, P1P2YYMM.DCB). Leave blank to use the server default.
+          </p>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+          <label className="metric-label">KP index CSV (optional path)</label>
+          <input value={kpCsv} onChange={(e) => setKpCsv(e.target.value)}
+            placeholder="Optional server-side path to a Kp CSV"
+            style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "6px", padding: "0.4rem 0.7rem", color: "var(--text)" }} />
+        </div>
+
+        <div style={{ borderTop: "1px solid var(--border)", paddingTop: "0.6rem" }}>
+          <div style={{ fontWeight: 700, fontSize: "0.85rem", marginBottom: "0.5rem" }}>Output files</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+            {([
+              ["CMN file (TEC-all PRNs)", outCmn, setOutCmn],
+              ["STD file (Mean TEC)", outStd, setOutStd],
+              ["Bias file (DCBs used)", outBias, setOutBias],
+              [imgLabel, outImg, setOutImg],
+              ["TEC PRN Images", outPrn, setOutPrn],
+              ["(Un)/Bias TEC image", outUnbias, setOutUnbias],
+            ] as [string, boolean, (v: boolean) => void][]).map(([label, val, setVal]) => (
+              <label key={label} style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer" }}>
+                <input type="checkbox" checked={val} onChange={(e) => setVal(e.target.checked)} />
+                <span style={{
+                  background: val ? "#006622" : "#1a2a3a", borderRadius: "4px", padding: "3px 8px",
+                  fontSize: "0.8rem", color: "#fff", fontWeight: 600,
+                }}>{label}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+        </>
+        )}
+      </div>
+
+      {/* Info banner */}
+      <div className="banner banner-info">
+        Select a {tab === "cmn" ? ".Cmn" : "RINEX observation"} file above, then click Start Process to run the VTEC computation pipeline.
+      </div>
+
+      <div className="processing-action-row">
+        <button className="btn btn-primary" onClick={handleProcess} disabled={processDisabled}
+          style={{ fontSize: "0.9rem", padding: "0.5rem 1.4rem" }}>
+          {loading ? "⏳ Processing…" : "► Start Process"}
+        </button>
+      </div>
+
+      {status && (
+        <div className={`banner ${status.startsWith("Error") ? "banner-alert" : "banner-info"}`}>{status}</div>
+      )}
+      </>
+      )}
+
+      {tab !== "converter" && tab !== "download" && (
+      <>
+      {/* Map section */}
+      <div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.6rem", marginBottom: "0.4rem" }}>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: "0.9rem" }}>Zimbabwe CORS Processing Map</div>
+            <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "0.15rem" }}>
+              {mapStations.length > 0
+                ? `${mapStations.length} processed station(s) on map.`
+                : rows.length > 0
+                  ? `${rows.length} session(s) loaded — station not in CORS catalog.`
+                  : "No stations loaded for processing. Select RINEX/CMN files to add sites."}
+            </div>
+          </div>
+          {/* Layer switcher */}
+          <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexWrap: "wrap" }}>
+            <span style={{ fontSize: "0.65rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-muted)" }}>Map Layer</span>
+            {LAYERS.map((l) => (
+              <button key={l} onClick={() => setMapLayer(l)} style={{
+                padding: "0.3rem 0.8rem",
+                borderRadius: "6px",
+                fontSize: "0.8rem",
+                fontWeight: 600,
+                cursor: "pointer",
+                border: `1px solid ${mapLayer === l ? "var(--accent)" : "var(--border)"}`,
+                background: mapLayer === l ? "var(--accent)" : "transparent",
+                color: mapLayer === l ? "#000" : "var(--text)",
+                transition: "background 0.12s",
+              }}>{l}</button>
+            ))}
+          </div>
+        </div>
+
+        {/* Map with station status legend overlay */}
+        <div style={{ position: "relative" }}>
+          <CorsMap stations={mapStations} height={420} layer={mapLayer} />
+          <div style={{
+            position: "absolute", bottom: "12px", left: "12px",
+            display: "inline-flex", flexDirection: "column", gap: "0.3rem",
+            background: "rgba(0,0,0,0.82)", border: "1px solid var(--border)",
+            borderRadius: "8px", padding: "0.55rem 0.8rem",
+            fontSize: "0.75rem", fontWeight: 700, zIndex: 10, pointerEvents: "none",
+          }}>
+            <div style={{ textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: "0.2rem", fontSize: "0.68rem" }}>
+              Station Status
+            </div>
+            {[
+              { color: "#00ff88", label: "Online (MSM streaming)" },
+              { color: "#ff4444", label: "Offline (not streaming)" },
+              { color: "#666",    label: "Telemetry Unavailable" },
+            ].map(({ color, label }) => (
+              <div key={label} style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <span className="dot" style={{ background: color }} />
+                <span>{label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Processing Pipeline */}
+      <div>
+        <div style={{ fontWeight: 700, fontSize: "0.9rem", marginBottom: "0.2rem" }}>Processing Pipeline</div>
+        <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.8rem" }}>
+          {loading
+            ? "Processing — the glowing card is the stage the backend is running right now."
+            : "Click a stage card for an explanation of that pipeline step."}
+        </div>
+        <div style={{ display: "flex", gap: "0.6rem", overflowX: "auto" }}>
+          {(() => {
+            const activeIndex = pipelineActiveStage
+              ? PIPELINE_STAGES.findIndex((s) => s.label === pipelineActiveStage)
+              : -1;
+            return PIPELINE_STAGES.map(({ icon, label, color }, i) => {
+              const isActive = loading && i === activeIndex;
+              const isDone = loading && activeIndex >= 0 && i < activeIndex;
+              const cls = [
+                "card",
+                "processing-pipeline-card",
+                pipelineStage === label && "processing-pipeline-card--selected",
+                isActive && "processing-pipeline-card--active",
+                isDone && "processing-pipeline-card--done",
+              ].filter(Boolean).join(" ");
+              return (
+                <button
+                  key={label}
+                  type="button"
+                  className={cls}
+                  style={{ flex: "1 1 0", minWidth: "120px", textAlign: "center", borderLeft: `3px solid ${color}`, padding: "0.8rem" }}
+                  onClick={() => setPipelineStage((s) => (s === label ? null : label))}
+                  aria-pressed={pipelineStage === label}
+                  aria-current={isActive ? "step" : undefined}
+                >
+                  <div style={{ fontSize: "1.3rem", marginBottom: "0.3rem" }}>{isDone ? "✓" : icon}</div>
+                  <div style={{ fontSize: "0.75rem", fontWeight: 600, lineHeight: 1.3 }}>{label}</div>
+                  <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", marginTop: "0.25rem" }}>
+                    {isActive ? "Running…" : `Stage ${i + 1}`}
+                  </div>
+                </button>
+              );
+            });
+          })()}
+        </div>
+        {pipelineStage && PIPELINE_EXPLANATIONS[pipelineStage] && (
+          <div className="card processing-pipeline-explain" style={{ marginTop: "0.75rem", padding: "0.85rem 1rem" }}>
+            <div style={{ fontWeight: 700, fontSize: "0.85rem", marginBottom: "0.35rem" }}>{pipelineStage}</div>
+            <p style={{ fontSize: "0.8rem", margin: 0, lineHeight: 1.5, color: "var(--text-muted)" }}>
+              {PIPELINE_EXPLANATIONS[pipelineStage]}
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Results */}
+      {rows.length > 0 && (
+        <>
+          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center" }}>
+            {(["daily", "monthly", "yearly"] as Mode[]).map((m) => (
+              <button key={m} className={`tab${mode === m ? " active" : ""}`}
+                onClick={() => changeMode(m)}
+                style={{ borderBottom: "none", border: "1px solid var(--border)", borderRadius: "6px" }}>
+                {m.charAt(0).toUpperCase() + m.slice(1)}
+              </button>
+            ))}
+            <div style={{ flex: 1 }} />
+            {outCmn && (
+              <button className="btn" onClick={handleDownloadCmn} style={{ fontSize: "0.78rem", padding: "0.35rem 0.8rem" }}>
+                ⬇ CMN file
+              </button>
+            )}
+            {outStd && (
+              <button className="btn" onClick={handleDownloadStd} style={{ fontSize: "0.78rem", padding: "0.35rem 0.8rem" }}>
+                ⬇ STD file
+              </button>
+            )}
+            {outBias && biasRows.length > 0 && (
+              <button className="btn" onClick={handleDownloadBias} style={{ fontSize: "0.78rem", padding: "0.35rem 0.8rem" }}>
+                ⬇ Bias file
+              </button>
+            )}
+          </div>
+          {outImg && tecPlot && tecPlot.mean.length > 0 && (
+            <div className="card">
+              <div className="metric-label" style={{ marginBottom: "0.6rem" }}>
+                {imgLabel} (GOP-style, bias removed) — {tecPlot.datasets.length} PRN arcs
+              </div>
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => setShowTecInterpretation((s) => !s)}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setShowTecInterpretation((s) => !s); }}
+                style={{ cursor: "pointer" }}
+                aria-expanded={showTecInterpretation}
+                title="Click the graph for an interpretation of this result"
+              >
+                <LineChart
+                  labels={tecMeanLabels}
+                  datasets={[
+                    {
+                      label: "Mean VTEC",
+                      data: tecMeanValues,
+                      color: "#00cc66",
+                      fill: true,
+                      spanGaps: false,
+                    },
+                  ]}
+                  yLabel={tecPlot.ylabel}
+                  height={300}
+                  xValues={tecMeanHours}
+                  xLabel="UT (hrs)"
+                  xMin={0}
+                  xMax={24}
+                  xStepSize={2}
+                />
+              </div>
+              <p style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>
+                Gopi Ch.4 pipeline: TECG/TECP (Eqs 4.10–4.12), leveling (4.14–4.15), DCB (4.16), mapping + VTEC (4.17).
+                Upload matching .24n navigation with every .24o file.
+              </p>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setShowTecInterpretation((s) => !s)}
+                aria-expanded={showTecInterpretation}
+                style={{ fontSize: "0.78rem", padding: "0.4rem 0.9rem", marginTop: "0.5rem" }}
+              >
+                {showTecInterpretation ? "▲ Hide interpretation" : "▼ Interpret this graph"}
+              </button>
+              {showTecInterpretation && (
+                <TecInterpretationPanel interp={tecInterpretation} prnCount={tecPlot.datasets.length} />
+              )}
+            </div>
+          )}
+          {outUnbias && tecPlot && tecPlotRaw && tecPlot.mean.length > 0 && (
+            <div className="card">
+              <div className="metric-label" style={{ marginBottom: "0.6rem" }}>(Un)/Bias TEC image — raw vs DCB-corrected VTEC</div>
+              <LineChart
+                labels={tecMeanLabels}
+                datasets={[
+                  { label: "Bias-corrected VTEC", data: tecMeanValues, color: "#00cc66", fill: false, spanGaps: false },
+                  { label: "Raw VTEC", data: rawMeanValuesAligned, color: "#ff8c00", fill: false, spanGaps: false },
+                ]}
+                yLabel={tecPlot.ylabel}
+                height={300}
+                xValues={tecMeanHours}
+                xLabel="UT (hrs)"
+                xMin={0}
+                xMax={24}
+                xStepSize={2}
+              />
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setShowBiasInterpretation((s) => !s)}
+                aria-expanded={showBiasInterpretation}
+                style={{ fontSize: "0.78rem", padding: "0.4rem 0.9rem", marginTop: "0.5rem" }}
+              >
+                {showBiasInterpretation ? "▲ Hide interpretation" : "▼ Interpret this graph"}
+              </button>
+              {showBiasInterpretation && (
+                <RawBiasInterpretationPanel interp={biasInterpretation} />
+              )}
+            </div>
+          )}
+          {outPrn && tecPlot && tecPlot.datasets.length > 0 && (
+            <div className="card">
+              <div className="metric-label" style={{ marginBottom: "0.6rem" }}>TEC PRN Images — {tecPlot.datasets.length} PRN arcs</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "0.8rem" }}>
+                {tecPlot.datasets.map((ds) => (
+                  <div key={ds.label}>
+                    <div style={{ fontSize: "0.75rem", fontWeight: 600, marginBottom: "0.3rem" }}>{ds.label}</div>
+                    <LineChart
+                      labels={ds.points.map((p) => (p.x == null ? "" : p.x.toFixed(2)))}
+                      datasets={[{ label: ds.label, data: ds.points.map((p) => p.y ?? null), color: "#168bd2", fill: false, spanGaps: false }]}
+                      yLabel={tecPlot.ylabel}
+                      height={160}
+                    />
+                  </div>
+                ))}
+              </div>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setShowPrnInterpretation((s) => !s)}
+                aria-expanded={showPrnInterpretation}
+                style={{ fontSize: "0.78rem", padding: "0.4rem 0.9rem", marginTop: "0.8rem" }}
+              >
+                {showPrnInterpretation ? "▲ Hide interpretation" : "▼ Interpret these arcs"}
+              </button>
+              {showPrnInterpretation && (
+                <PrnArcInterpretationPanel datasets={tecPlot.datasets} />
+              )}
+            </div>
+          )}
+          <div className="card">
+            <div className="metric-label" style={{ marginBottom: "0.6rem" }}>VTEC Six AM to Six PM Mean Value — {mode}</div>
+            <LineChart labels={summaryLabels} datasets={[{ label: "6AM–6PM Mean VTEC (TECU)", data: daytimeVtecValues, color: "#00cc88", fill: true }]} height={280} />
+          </div>
+          <div className="card">
+            <div className="metric-label" style={{ marginBottom: "0.6rem" }}>
+              Maximum VTEC — {useHourly ? "hourly" : mode}
+            </div>
+            <LineChart labels={vtecLabels} datasets={[{ label: "Max VTEC (TECU)", data: maxVtecValues, color: "#ff8c00", fill: true }]} height={280} />
+          </div>
+          <div className="card">
+            <div className="metric-label" style={{ marginBottom: "0.6rem" }}>
+              Mean VTEC — {useHourly ? "hourly" : mode}
+            </div>
+            <LineChart labels={vtecLabels} datasets={[{ label: "Mean VTEC (TECU)", data: meanVtecValues, color: "#168bd2", fill: true }]} height={280} />
+          </div>
+          <div className="card">
+            <div className="metric-label" style={{ marginBottom: "0.6rem" }}>
+              Minimum VTEC — {useHourly ? "hourly" : mode}
+            </div>
+            <LineChart labels={vtecLabels} datasets={[{ label: "Min VTEC (TECU)", data: minVtecValues, color: "#a78bfa", fill: true }]} height={280} />
+          </div>
+          <div className="card" style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.82rem" }}>
+              <thead>
+                <tr style={{ borderBottom: "1px solid var(--border)", color: "var(--text-muted)" }}>
+                  <th style={{ padding: "0.4rem 0.6rem", textAlign: "left" }}>Date</th>
+                  <th style={{ padding: "0.4rem 0.6rem", textAlign: "right" }}>Mean VTEC</th>
+                  <th style={{ padding: "0.4rem 0.6rem", textAlign: "right" }}>Max VTEC</th>
+                  <th style={{ padding: "0.4rem 0.6rem", textAlign: "right" }}>Min VTEC</th>
+                  <th style={{ padding: "0.4rem 0.6rem", textAlign: "right" }}>Samples</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.date} style={{ borderBottom: "1px solid #1a2a3a" }}>
+                    <td style={{ padding: "0.35rem 0.6rem" }}>{summaryDateLabel(r.date, mode)}</td>
+                    <td style={{ padding: "0.35rem 0.6rem", textAlign: "right", color: "#168bd2" }}>{r.mean_vtec?.toFixed(2) ?? "N/A"}</td>
+                    <td style={{ padding: "0.35rem 0.6rem", textAlign: "right" }}>{r.max_vtec?.toFixed(2) ?? "N/A"}</td>
+                    <td style={{ padding: "0.35rem 0.6rem", textAlign: "right" }}>{r.min_vtec?.toFixed(2) ?? "N/A"}</td>
+                    <td style={{ padding: "0.35rem 0.6rem", textAlign: "right" }}>{r.samples?.toLocaleString() ?? "N/A"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      </>
+      )}
+
+    </div>
+  );
+}

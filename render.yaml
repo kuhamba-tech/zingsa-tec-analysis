@@ -1,0 +1,152 @@
+# ZGIIS / zingsa_spaceweather — Render Blueprint
+# Dashboard: https://dashboard.render.com → New → Blueprint → this repo
+#
+# Provisions:
+#   - Postgres (live VTEC + station status)
+#   - FastAPI web service (API + reads live TEC)
+#   - Background worker (always-on NTRIP collector)
+#   - Static site (Next.js export)
+#
+# After first deploy, fill sync:false secrets in the
+# zingsa-spaceweather-secrets environment group (NTRIP_* etc.).
+# Starter plan is required for reliable live NTRIP (free web services sleep).
+
+databases:
+  - name: zingsa-spaceweather-db
+    plan: basic-256mb
+    databaseName: zingsa_spaceweather
+    user: zingsa
+
+services:
+  # ── FastAPI (live TEC API) ──────────────────────────────────────────────────
+  - type: web
+    name: zingsa-spaceweather-api
+    runtime: python
+    plan: starter
+    region: oregon
+    branch: master
+    autoDeployTrigger: commit
+    buildCommand: pip install -r requirements-render.txt
+    preDeployCommand: python scripts/render_init_db.py
+    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips='*'
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.8"
+      - key: ZGIIS_ENV
+        value: production
+      - key: ZGIIS_BACKGROUND_SERVICES
+        value: "1"
+      # Collector owns NTRIP sockets — API must not open a second set of streams.
+      - key: ZGIIS_EXTERNAL_COLLECTOR
+        value: "1"
+      - key: ENABLE_NTRIP_PROBE
+        value: "false"
+      - key: TEC_HEATMAP_LIVE_NTRIP
+        value: "0"
+      - key: CORS_ORIGIN_REGEX
+        value: "https://zingsa-spaceweather\\.onrender\\.com|https://.*\\.onrender\\.com"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: zingsa-spaceweather-db
+          property: connectionString
+      - key: TSDB_DSN
+        fromDatabase:
+          name: zingsa-spaceweather-db
+          property: connectionString
+      - fromGroup: zingsa-spaceweather-secrets
+
+  # ── Always-on NTRIP → Postgres collector ────────────────────────────────────
+  - type: worker
+    name: zingsa-spaceweather-collector
+    runtime: python
+    plan: starter
+    region: oregon
+    branch: master
+    autoDeployTrigger: commit
+    buildCommand: pip install -r requirements-render.txt
+    startCommand: python scripts/live_ntrip_collector.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.8"
+      - key: ZGIIS_ENV
+        value: production
+      - key: ZGIIS_SKIP_DB_SCHEMA_INIT
+        value: "1"
+      - key: ZGIIS_DB_FLUSH_N
+        value: "50"
+      - key: NTRIP_LIVE_MAX_CONCURRENT
+        value: "24"
+      - key: NTRIP_MOUNTPOINT
+        value: ZINGSA_HQ
+      - key: ZGIIS_EPHEMERIS_REFRESH_ENABLED
+        value: "1"
+      - key: STATUS_SNAPSHOT_PUSH_URL
+        value: https://zingsa-spaceweather-api.onrender.com/cors/status/snapshots
+      - key: RENDER_API_HOST
+        fromService:
+          name: zingsa-spaceweather-api
+          type: web
+          property: host
+      - key: DATABASE_URL
+        fromDatabase:
+          name: zingsa-spaceweather-db
+          property: connectionString
+      - key: TSDB_DSN
+        fromDatabase:
+          name: zingsa-spaceweather-db
+          property: connectionString
+      - fromGroup: zingsa-spaceweather-secrets
+
+  # ── Next.js static frontend ─────────────────────────────────────────────────
+  - type: web
+    name: zingsa-spaceweather
+    runtime: static
+    branch: master
+    autoDeployTrigger: commit
+    buildCommand: bash scripts/render_build_frontend.sh
+    staticPublishPath: frontend/out
+    headers:
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+    envVars:
+      - key: NODE_VERSION
+        value: "22.14.0"
+      - key: RENDER_API_HOST
+        fromService:
+          name: zingsa-spaceweather-api
+          type: web
+          property: host
+
+envVarGroups:
+  - name: zingsa-spaceweather-secrets
+    envVars:
+      - key: NTRIP_HOST
+        sync: false
+      - key: NTRIP_PORT
+        value: "2101"
+      - key: NTRIP_USERNAME
+        sync: false
+      - key: NTRIP_PASSWORD
+        sync: false
+      - key: NTRIP_CONNECTION
+        value: TCP
+      - key: SPIDER_BASE_URL
+        sync: false
+      - key: SPIDER_USERNAME
+        sync: false
+      - key: SPIDER_PASSWORD
+        sync: false
+      - key: SPIDER_SITE_STATUS_ENABLED
+        value: "1"
+      - key: NASA_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false

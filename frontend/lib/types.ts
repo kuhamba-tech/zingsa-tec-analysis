@@ -1,0 +1,1691 @@
+// ── Space Weather ─────────────────────────────────────────────────────────────
+export interface SpaceWeatherCurrent {
+  kp: number | null;
+  kp_condition: string | null;
+  kp_color: string | null;
+  dst: number | null;
+  f107: number | null;
+  s4: number | null;
+  ap: number | null;
+  gnss_risk: string | null;
+  gnss_risk_color: string | null;
+  stations_online: number | null;
+  stations_total: number | null;
+  plasma_speed: number | null;
+  mean_vtec: number | null;
+  updated_utc: string | null;
+}
+
+export interface SolarCycleIndexPoint {
+  time_tag: string;
+  year_month: string;
+  year_frac: number;
+  f107: number | null;
+  ssn: number | null;
+  f107_source: string | null;
+  ssn_source: string | null;
+}
+
+export interface SolarCycleIndicesResponse {
+  mode: string;
+  source: string;
+  updated_utc: string | null;
+  start_year: number;
+  point_count: number;
+  f107_from: string | null;
+  f107_to: string | null;
+  ssn_from: string | null;
+  ssn_to: string | null;
+  lisird_error: string | null;
+  points: SolarCycleIndexPoint[];
+}
+
+export interface ProtonFluxSeries {
+  labels: string[];
+  times: string[];
+  epoch_ms?: (number | null)[];
+  unit: string;
+  series: Record<string, (number | null)[]>;
+}
+
+export interface XrayFluxSeries {
+  labels: string[];
+  times: string[];
+  epoch_ms?: (number | null)[];
+  unit: string;
+  flux: (number | null)[];
+}
+
+export interface ImfSeries {
+  labels: string[];
+  times: string[];
+  epoch_ms?: (number | null)[];
+  unit: string;
+  bt: (number | null)[];
+  by: (number | null)[];
+  bz: (number | null)[];
+}
+
+export interface SolarWindSpeedSeries {
+  labels: string[];
+  times: string[];
+  epoch_ms?: (number | null)[];
+  unit: string;
+  speed: (number | null)[];
+  density?: (number | null)[];
+  /** Proton temperature (K) from RTSW plasma when available. */
+  temperature?: (number | null)[];
+}
+
+export interface KpForecastSeries {
+  labels: string[];
+  times: string[];
+  epoch_ms?: (number | null)[];
+  unit: string;
+  kinds: string[];
+  observed: (number | null)[];
+  estimated: (number | null)[];
+  predicted: (number | null)[];
+}
+
+export interface DstSeries {
+  labels: string[];
+  times: string[];
+  epoch_ms?: (number | null)[];
+  unit: string;
+  dst: (number | null)[];
+}
+
+export interface HeliosphericMonitorResponse {
+  mode: string;
+  source: string;
+  updated_utc: string | null;
+  xray?: XrayFluxSeries;
+  protons: ProtonFluxSeries;
+  imf: ImfSeries;
+  solar_wind: SolarWindSpeedSeries;
+  kp: KpForecastSeries;
+  dst?: DstSeries;
+  errors: Record<string, string | null>;
+}
+
+export interface TimelinePoint { t: string; v: number | null; }
+
+export interface SpaceWeatherTimelines {
+  kp: TimelinePoint[];
+  dst: TimelinePoint[];
+  f107: TimelinePoint[];
+  solar_wind: TimelinePoint[];
+  s4: TimelinePoint[];
+  gnss_risk: TimelinePoint[];
+  stations_online: TimelinePoint[];
+  mean_vtec: TimelinePoint[];
+  gic: TimelinePoint[];
+}
+
+export interface SpaceWeatherLogStatus {
+  logging: boolean;
+  interval_sec: number;
+  record_count: number;
+  latest_time: string | null;
+  db_backend: string;
+}
+
+// ── Extended Kalman Filter (EKF) ────────────────────────────────────────────
+export interface EkfPoint {
+  t: string;
+  observed: number | null;
+  predicted: number | null;
+  error: number | null;
+  confidence: number | null;
+}
+
+export interface EkfSeries {
+  parameter: string;
+  points: EkfPoint[];
+}
+
+export interface EkfAlert {
+  alert_id: string;
+  timestamp: string;
+  parameter: string;
+  parameter_label: string;
+  observed_value: number | null;
+  ekf_predicted_value: number | null;
+  prediction_error: number | null;
+  threshold: number | null;
+  severity: "Low" | "Moderate" | "High" | "Severe";
+  related_indicators: string[];
+  alert_message: string;
+  acknowledged_status: boolean;
+}
+
+export interface EkfStatus {
+  series: Record<string, EkfSeries>;
+  alerts: EkfAlert[];
+  banner: string | null;
+  active_alert_count?: number;
+  kp_storm_level?: string | null;
+  notification_channels?: Record<string, boolean>;
+}
+
+export interface StormAlertStatus {
+  active: boolean;
+  active_count: number;
+  banner: string | null;
+  kp_storm_level: string | null;
+  geomagnetic_level?: "none" | "possible" | "storm";
+  geomagnetic_reasons?: string[];
+  alert_rules?: string[];
+  ekf_alert_count: number;
+  notification_channels: Record<string, boolean>;
+  dry_run: boolean;
+}
+
+export interface SpaceWeatherHistoryRow {
+  time: string;
+  kp: number | null;
+  kp_condition: string | null;
+  dst: number | null;
+  f107: number | null;
+  plasma_speed: number | null;
+  s4: number | null;
+  gnss_risk: string | null;
+  gnss_risk_score: number | null;
+  stations_online: number | null;
+  stations_total: number | null;
+  mean_vtec: number | null;
+}
+
+export interface SpaceWeatherHistoryResponse {
+  hours: number;
+  resample: string | null;
+  count: number;
+  rows: SpaceWeatherHistoryRow[];
+}
+
+export interface CorrelationPair {
+  a: string;
+  b: string;
+  r: number;
+}
+
+export interface SpaceWeatherCorrelationResponse {
+  hours: number;
+  resample: string;
+  sample_count: number;
+  from_time: string | null;
+  to_time: string | null;
+  matrix: Record<string, Record<string, number | null>>;
+  pairs: CorrelationPair[];
+}
+
+export type SpaceWeatherReportPeriod = "hourly" | "daily" | "weekly" | "monthly" | "yearly";
+
+export interface SpaceWeatherReportParameter {
+  name: string;
+  current: number | null;
+  unit?: string | null;
+  trend: string;
+  interpretation: string;
+}
+
+export interface SpaceWeatherReportGnssStation {
+  station_code: string | null;
+  station_name: string | null;
+  availability_pct: number | null;
+  rtk_note: string;
+}
+
+export interface SpaceWeatherReportCharts {
+  labels: string[];
+  kp: (number | null)[];
+  dst: (number | null)[];
+  tec: (number | null)[];
+}
+
+export interface SpaceWeatherReport {
+  period: SpaceWeatherReportPeriod;
+  period_label: string;
+  window_start: string;
+  window_end: string;
+  generated_utc: string;
+  sample_count: number;
+  impact: { label: string; color: string; risk: string };
+  executive_summary: string;
+  parameters: SpaceWeatherReportParameter[];
+  gnss_stations: SpaceWeatherReportGnssStation[];
+  overall_availability_pct: number | null;
+  risk_score: number | null;
+  risk_message: string;
+  charts: SpaceWeatherReportCharts;
+}
+
+export interface SolarActivity {
+  flare_count: number | null;
+  cme_count: number | null;
+  xray_low: number | null;
+  xray_high: number | null;
+  plasma_speed: number | null;
+  radio_bursts: Record<string, unknown>[];
+  active_regions: Record<string, unknown>[];
+  cme_list: Record<string, unknown>[];
+}
+
+export interface SolarWindDetail {
+  speed: number | null;
+  density: number | null;
+  temperature: number | null;
+  bt: number | null;
+  bz: number | null;
+  /** Dynamic pressure in nPa when density+speed are available. */
+  dynamic_pressure?: number | null;
+  /** Continuous minutes of Bz < 0 ending at the latest RTSW sample. */
+  southward_duration_minutes?: number | null;
+}
+
+export interface SolarActivityFull {
+  mode: string;
+  updated: string;
+  flare_class: string;
+  flux: number | null;
+  xray_series: number[];
+  solar_wind: SolarWindDetail;
+  alerts: Record<string, unknown>[];
+  donki_flares: Record<string, unknown>[];
+  donki_cmes: Record<string, unknown>[];
+  donki_storms: Record<string, unknown>[];
+  donki_date_start: string | null;
+  donki_date_end: string | null;
+  donki_status: string;
+  donki_note: string;
+  event_feed_source?: string;
+  activity_label: string;
+  activity_color: string;
+  activity_gnss: string;
+  api_routes: string[];
+  feed_status: Record<string, {
+    status: string;
+    reachable: boolean;
+    fresh: boolean;
+    timestamp: string | null;
+    age_minutes: number | null;
+  }>;
+  error: string | null;
+  active_regions: Record<string, unknown>[];
+  cme_rows: Record<string, unknown>[];
+  radio_burst_rows: Record<string, unknown>[];
+}
+
+// ── CORS Network ──────────────────────────────────────────────────────────────
+export interface Station {
+  code: string;
+  name: string;
+  lat: number;
+  lon: number;
+  status: string;
+  status_source?: "spider" | "ntrip" | "catalog" | "unknown";
+  constellations: string[];
+  current_tec: number | null;
+  height_m: number | null;
+  mountpoint?: string | null;
+  marker_name?: string | null;
+  marker_number?: string | null;
+  rtcm_id?: string | null;
+  site_server?: string | null;
+  last_update?: string | null;
+  site_status_label?: string | null;
+  catalog_status?: string | null;
+  ntrip_verdict?: string | null;
+  ntrip_probed_at?: string | null;
+  sourcetable_identifier?: string | null;
+  sourcetable_mismatch?: boolean;
+  sourcetable_note?: string | null;
+  /** Live NTRIP rover clients on this mountpoint (Spider feed). null = feed unavailable. */
+  connected_rovers?: number | null;
+  rover_peak_24h?: number | null;
+  rover_share_pct?: number | null;
+  rover_rank?: number | null;
+}
+
+export interface RoverClientStation {
+  code: string;
+  mountpoint: string;
+  name: string;
+  connected_rovers: number;
+  peak_24h: number | null;
+  share_pct: number | null;
+  rank: number | null;
+}
+
+export interface RoverClientsSnapshot {
+  available: boolean;
+  updated_at: string | null;
+  source: string | null;
+  message: string | null;
+  total_rovers: number;
+  stations_with_rovers: number;
+  busiest_code: string | null;
+  busiest_count: number;
+  stations: RoverClientStation[];
+}
+
+export interface CorsHealth {
+  online: number;
+  /** @deprecated Always 0 — no-stream stations are counted in offline. */
+  degraded?: number;
+  offline: number;
+  total: number;
+}
+
+export interface StationStatusLogStatus {
+  logging: boolean;
+  poll_interval_sec: number;
+  api_reachable: boolean;
+  event_count: number;
+  snapshot_count: number;
+  tracked_stations: number;
+  db_backend: string;
+}
+
+export interface StationStatusEvent {
+  time: string;
+  station_code: string | null;
+  status: string;
+  previous_status: string | null;
+  event_type: string;
+  online_count: number | null;
+  degraded_count: number | null;
+  offline_count: number | null;
+  unknown_count: number | null;
+  api_reachable: boolean;
+  message: string | null;
+  source: string | null;
+}
+
+export interface StationUptimeRow {
+  station_code: string;
+  station_name: string;
+  samples: number;
+  online_pct: number;
+  /** @deprecated Always 0 — folded into offline_pct. */
+  degraded_pct?: number;
+  offline_pct: number;
+  unknown_pct: number;
+}
+
+export interface StationUptimeTimelinePoint {
+  time: string;
+  online_pct: number;
+  online_count: number;
+  offline_count: number;
+  unknown_count: number;
+  samples: number;
+}
+
+export interface StationOutageInterval {
+  station_code: string;
+  station_name: string;
+  started_at: string;
+  ended_at: string | null;
+  duration_min: number;
+  ongoing: boolean;
+}
+
+export interface StationUptimeAnalysis {
+  hours: number;
+  bucket_minutes: number;
+  station_code: string | null;
+  station_name: string | null;
+  samples: number;
+  online_pct: number;
+  offline_pct: number;
+  unknown_pct: number;
+  outage_events: number;
+  network_online_pct: number;
+  stations: StationUptimeRow[];
+  timeline: StationUptimeTimelinePoint[];
+  outage_intervals?: StationOutageInterval[];
+}
+
+// ── Processing ────────────────────────────────────────────────────────────────
+export interface ProcessingSession {
+  session_id: string;
+  status: string;
+  message: string;
+  rows: number;
+  stage: string | null;
+}
+
+export interface TecSummaryRow {
+  date: string;
+  mean_vtec: number | null;
+  max_vtec: number | null;
+  min_vtec: number | null;
+  daytime_mean_vtec?: number | null;
+  samples: number | null;
+  storm_flag?: boolean | null;
+  kp_index?: number | null;
+}
+
+export interface TecHourlyRow {
+  ut_hour: number;
+  mean_vtec: number | null;
+  max_vtec: number | null;
+  min_vtec: number | null;
+  days_used: number | null;
+}
+
+export interface BiasRow {
+  station: string;
+  mean_stec: number | null;
+  mean_vtec: number | null;
+  dcb_folder: string;
+}
+
+export interface ProcessingOptions {
+  elevationMin?: number;
+  ippHeight?: number;
+  dcbFolder?: string;
+  stations?: string[];
+  kpCsv?: string;
+}
+
+export interface RinexConvertConfig {
+  product_type: "rinex3" | "rinex2";
+  observation_rate: "original" | "1hz" | "30s" | "15s";
+  archive_type: "none" | "gzip" | "hatanaka";
+  use_multiple_extensions: boolean;
+  include_observations: boolean;
+  include_observables: string;
+  satellite_system: string;
+  product_dynamics: "static" | "kinematic";
+  compact_rinex: boolean;
+  include_doppler: boolean;
+  include_snr: boolean;
+  include_l2c: boolean;
+  include_navigation: boolean;
+  observer: string;
+  agency: string;
+  include_meteo: boolean;
+  meteo_device_name: string;
+  meteo_manufacturer: string;
+  include_auxiliary: boolean;
+  aux_device_name: string;
+  aux_manufacturer: string;
+  general_header: string;
+  obs_header: string;
+  nav_header: string;
+  meteo_header: string;
+  aux_header: string;
+}
+
+export interface TecPlotPoint {
+  x: number | null;
+  y: number | null;
+}
+
+export interface TecPlotDataset {
+  label: string;
+  points: TecPlotPoint[];
+}
+
+export interface TecPlotSeries {
+  datasets: TecPlotDataset[];
+  mean: TecPlotPoint[];
+  xlabel: string;
+  ylabel: string;
+  y_min: number;
+  y_max: number;
+}
+
+// ── TEC Analysis ──────────────────────────────────────────────────────────────
+export interface ArchiveMeta {
+  available: boolean;
+  stations: string[];
+  first_date: string | null;
+  last_date: string | null;
+  observations: number;
+  source_files: number;
+  total_rows: number;
+}
+
+export interface TecObservation {
+  timestamp: string;
+  station: string;
+  vtec: number | null;
+  stec: number | null;
+  constellation: string | null;
+  prn: string | null;
+  elevation_deg: number | null;
+}
+
+export interface AnomalyDay {
+  date: string;
+  mean_vtec: number;
+  anomaly: boolean;
+  threshold: number;
+  max_vtec?: number | null;
+  tec_anomaly_flag?: boolean;
+  storm_flag?: boolean;
+  kp_storm_flag?: boolean;
+  kp?: number | null;
+  dst?: number | null;
+  kp_severity?: string | null;
+  tec_response?: string | null;
+  tec_response_z?: number | null;
+  tec_deviation_tecu?: number | null;
+}
+
+export interface StormComparisonDoy {
+  doy: number;
+  quiet_mean_vtec: number | null;
+  storm_mean_vtec: number | null;
+}
+
+export interface EiaSummary {
+  peak_hour_utc: number | null;
+  post_sunset_peak_hour_utc: number | null;
+  post_sunset_mean_vtec: number | null;
+  daytime_mean_vtec: number | null;
+  peak_season: string | null;
+  anomaly_day_count: number;
+  storm_confirmed_count: number;
+}
+
+export interface GeomagneticDailyPoint {
+  date: string;
+  kp: number | null;
+  dst: number | null;
+}
+
+export interface AnomalyAnalysisResponse {
+  days: AnomalyDay[];
+  storm_comparison: StormComparisonDoy[];
+  eia: EiaSummary;
+  stations: string[];
+  kp_available: boolean;
+  dst_available: boolean;
+  geomagnetic_daily: GeomagneticDailyPoint[];
+  diurnal: DiurnalPoint[];
+  seasonal: SeasonalRow[];
+  solar_cycle: SolarCycleRow[];
+}
+
+export interface TecHeatmapResponse {
+  available: boolean;
+  stations: TecHeatmapStation[];
+  heat_points: TecHeatmapPoint[];
+  grid: TecHeatmapGrid | null;
+  bounds: number[];
+  tec_min: number | null;
+  tec_max: number | null;
+  station_count: number;
+  updated_at: string | null;
+  message: string | null;
+  data_quality?: "none" | "regional_mean" | "stations_only" | "station" | "processed_archive";
+  icao_mod_tecu?: number;
+  icao_sev_tecu?: number;
+  diagnostics?: TecHeatmapDiagnostics | null;
+}
+
+export interface TecHeatmapDiagnostics {
+  matamba: {
+    source?: string;
+    cadence_minutes?: number;
+    window_minutes?: number;
+    grid_resolution_deg?: number;
+    interpolation?: string;
+    median_filter_size?: number;
+    quality_metrics?: string[];
+    recommendations?: string[];
+  };
+  fit: {
+    rmse_tecu?: number | null;
+    quality_factor?: number | null;
+    control_station_count?: number;
+    control_observation_count?: number;
+  };
+  gradients: {
+    spatial_max_tecu_per_deg?: number | null;
+    spatial_mean_tecu_per_deg?: number | null;
+    spatial_lat_max_tecu_per_deg?: number | null;
+    spatial_lon_max_tecu_per_deg?: number | null;
+    spatial_max_direction?: string | null;
+    temporal_max_tecu_per_hour?: number | null;
+    temporal_mean_tecu_per_hour?: number | null;
+    temporal_station_max_tecu_per_hour?: number | null;
+    temporal_window_minutes?: number;
+    temporal_cadence_minutes?: number;
+    temporal_available?: boolean;
+    icao_supporting_diagnostic?: boolean;
+    method?: string;
+  };
+  ionosonde_comparison: {
+    code?: string;
+    name?: string;
+    lat?: number;
+    lon?: number;
+    country?: string;
+    estimated_vtec?: number | null;
+    ionosonde_vtec?: number | null;
+    difference_tecu?: number | null;
+    status?: string;
+    note?: string;
+    source?: string;
+    source_url?: string;
+    public_endpoint?: string;
+    availability_years?: number[];
+    latest_available_year?: number | null;
+    has_near_realtime_public_tec?: boolean;
+    checked_utc?: string;
+  };
+  border_station_comparison?: Array<{
+    code: string;
+    name: string;
+    lat: number;
+    lon: number;
+    source?: string;
+    obs_count: number;
+    distance_km: number;
+    station_vtec: number;
+    difference_from_madimbo_grid_tecu: number | null;
+    difference_from_madimbo_ionosonde_tecu: number | null;
+  }>;
+  evaluation?: {
+    method?: string;
+    matched_points_only?: boolean;
+    comparison_window_days?: number;
+    comparison_interval_minutes?: number;
+    map_generation_interval_minutes?: number;
+    rmse_window_minutes?: number;
+    reference_statistics?: Record<string, number | number[] | string | null>;
+    control_point_count?: number;
+    targets?: Array<{
+      code: string;
+      name: string;
+      lat: number;
+      lon: number;
+      country: string;
+      nrt_tec_est: number | null;
+      ionosonde: { value: number | null; difference_tecu: number | null; matched: boolean };
+      afritec: { value: number | null; difference_tecu: number | null; matched: boolean };
+      status: string;
+    }>;
+    notes?: string[];
+  };
+  frequency_recommendations: string[];
+}
+
+export interface TecHeatmapStation {
+  code: string;
+  name: string;
+  lat: number;
+  lon: number;
+  vtec: number;
+  obs_count: number;
+  source?: "live" | "live_ntrip" | "processed_archive" | "processed_archive_estimate" | string;
+}
+
+export interface TecHeatmapPoint {
+  lon: number;
+  lat: number;
+  vtec: number;
+  weight: number;
+  code: string | null;
+}
+
+export interface TecHeatmapGrid {
+  lons: number[][];
+  lats: number[][];
+  vtec: (number | null)[][];
+  method?: string | null;
+  resolution_deg?: number | null;
+}
+
+export interface DiurnalPoint { hour: number; mean_vtec: number; std_vtec: number; }
+export interface SeasonalRow { season: string; mean: number; max: number; min: number; std: number; }
+export interface SolarCycleRow { year: number; mean_vtec: number; max_vtec: number; min_vtec: number; }
+
+export interface OmniDailyPoint {
+  date: string;
+  ssn: number | null;
+  kp: number | null;
+  kp_mean: number | null;
+  dst: number | null;
+  f107: number | null;
+  storm_flag: boolean;
+  storm_class: string;
+  mean_vtec: number | null;
+}
+
+export interface OmniStormDay {
+  date: string;
+  kp: number | null;
+  dst: number | null;
+  f107: number | null;
+  ssn: number | null;
+  storm_class: string;
+  mean_vtec: number | null;
+}
+
+export interface OmniAnalysisResponse {
+  source: string;
+  start_date: string | null;
+  end_date: string | null;
+  days: number;
+  storm_days: number;
+  max_kp: number | null;
+  min_dst: number | null;
+  mean_f107: number | null;
+  mean_vtec_storm: number | null;
+  mean_vtec_quiet: number | null;
+  series: OmniDailyPoint[];
+  storms: OmniStormDay[];
+  fetched_at: string | null;
+}
+export interface CelestrakDailyPoint {
+  date: string;
+  ssn: number | null;
+  kp: number | null;
+  kp_mean: number | null;
+  ap: number | null;
+  f107: number | null;
+  data_type: string | null;
+  storm_flag: boolean;
+  storm_class: string;
+  mean_vtec: number | null;
+}
+
+export interface CelestrakStormDay {
+  date: string;
+  kp: number | null;
+  ap: number | null;
+  f107: number | null;
+  ssn: number | null;
+  storm_class: string;
+  mean_vtec: number | null;
+}
+
+export interface CelestrakAnalysisResponse {
+  source: string;
+  start_date: string | null;
+  end_date: string | null;
+  days: number;
+  storm_days: number;
+  max_kp: number | null;
+  max_ap: number | null;
+  mean_f107: number | null;
+  mean_vtec_storm: number | null;
+  mean_vtec_quiet: number | null;
+  series: CelestrakDailyPoint[];
+  storms: CelestrakStormDay[];
+  fetched_at: string | null;
+}
+
+export interface GfzKpDailyPoint {
+  date: string;
+  kp: number | null;
+  kp_mean: number | null;
+  ap: number | null;
+  ap_daily: number | null;
+  cp: number | null;
+  storm_flag: boolean;
+  storm_class: string;
+  mean_vtec: number | null;
+}
+
+export interface GfzKpStormDay {
+  date: string;
+  kp: number | null;
+  ap: number | null;
+  cp: number | null;
+  storm_class: string;
+  mean_vtec: number | null;
+}
+
+export interface GfzKpAnalysisResponse {
+  source: string;
+  start_date: string | null;
+  end_date: string | null;
+  days: number;
+  storm_days: number;
+  max_kp: number | null;
+  max_ap: number | null;
+  mean_cp: number | null;
+  mean_vtec_storm: number | null;
+  mean_vtec_quiet: number | null;
+  series: GfzKpDailyPoint[];
+  storms: GfzKpStormDay[];
+  fetched_at: string | null;
+}
+
+export interface WdcKyotoDailyPoint {
+  date: string;
+  kp: number | null;
+  kp_mean: number | null;
+  ap: number | null;
+  ap_daily: number | null;
+  dst: number | null;
+  storm_flag: boolean;
+  storm_class: string;
+  mean_vtec: number | null;
+}
+
+export interface WdcKyotoStormDay {
+  date: string;
+  kp: number | null;
+  dst: number | null;
+  ap: number | null;
+  storm_class: string;
+  mean_vtec: number | null;
+}
+
+export interface WdcKyotoAnalysisResponse {
+  source: string;
+  start_date: string | null;
+  end_date: string | null;
+  days: number;
+  storm_days: number;
+  max_kp: number | null;
+  min_dst: number | null;
+  max_ap: number | null;
+  mean_vtec_storm: number | null;
+  mean_vtec_quiet: number | null;
+  series: WdcKyotoDailyPoint[];
+  storms: WdcKyotoStormDay[];
+  fetched_at: string | null;
+}
+
+export interface IntermagnetDailyPoint {
+  date: string;
+  mean_h: number | null;
+  range_h: number | null;
+  max_dbdt: number | null;
+  gic_est_a: number | null;
+  samples: number;
+  storm_flag: boolean;
+  storm_class: string;
+  mean_vtec: number | null;
+}
+
+export interface IntermagnetStormDay {
+  date: string;
+  max_dbdt: number | null;
+  range_h: number | null;
+  gic_est_a: number | null;
+  storm_class: string;
+  mean_vtec: number | null;
+}
+
+export interface DidbaseIonosondeResponse {
+  code: string;
+  name: string;
+  lat: number | null;
+  lon: number | null;
+  country: string | null;
+  source: string;
+  source_url: string;
+  public_endpoint: string;
+  availability_years: number[];
+  latest_available_year: number | null;
+  has_near_realtime_public_tec: boolean;
+  status: string;
+  error: string | null;
+  checked_utc: string | null;
+  note: string;
+  requested_year: number | null;
+  year_has_data: boolean | null;
+}
+
+export interface IntermagnetAnalysisResponse {
+  source: string;
+  observatory: string;
+  observatory_name: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  days: number;
+  storm_days: number;
+  max_dbdt: number | null;
+  max_range_h: number | null;
+  max_gic_est_a: number | null;
+  mean_vtec_storm: number | null;
+  mean_vtec_quiet: number | null;
+  series: IntermagnetDailyPoint[];
+  storms: IntermagnetStormDay[];
+  fetched_at: string | null;
+}
+
+export interface GuviOn2Point {
+  date: string;
+  overpass_ut: string;
+  region: string;
+  ratio: number | null;
+  status: string;
+  note: string;
+}
+
+export interface GuviOn2Response {
+  source: string;
+  source_url: string;
+  mission_url: string;
+  instrument: string;
+  altitude_range_km: number[];
+  region: string;
+  status: string;
+  message: string;
+  series: GuviOn2Point[];
+  fetched_at: string | null;
+}
+
+export interface Cosmic2DailyPoint {
+  date: string;
+  year: number;
+  doy: number;
+  file_name: string;
+  file_url: string;
+  available: boolean;
+  size_bytes: number | null;
+  status: string;
+  note: string;
+}
+
+export interface Cosmic2AnalysisResponse {
+  source: string;
+  source_url: string;
+  level2_url: string;
+  mission_url: string;
+  product: string;
+  start_date: string | null;
+  end_date: string | null;
+  days: number;
+  available_days: number;
+  missing_days: number;
+  total_size_bytes: number | null;
+  status: string;
+  message: string;
+  series: Cosmic2DailyPoint[];
+  fetched_at: string | null;
+}
+
+export interface PrnRow {
+  prn: string;
+  constellation: string;
+  mean_vtec: number | null;
+  max_vtec: number | null;
+  mean_stec: number | null;
+  mean_elevation: number | null;
+  mean_qual: number | null;
+  mean_roti: number | null;
+  max_roti: number | null;
+  roti_level: string | null;
+  cycle_slip_count: number | null;
+  mean_s4: number | null;
+  max_s4: number | null;
+  cnr_std_dbhz: number | null;
+  integrity_score: number | null;
+  position_error_cm: number | null;
+  ppp_convergence_min: number | null;
+  samples: number | null;
+}
+
+export interface PrnObservation {
+  timestamp: string;
+  station: string;
+  prn: string;
+  constellation: string | null;
+  vtec: number | null;
+  stec: number | null;
+  elevation_deg: number | null;
+  azimuth_deg: number | null;
+  quality: number | null;
+  rot_tecu_per_min: number | null;
+  roti_tecu_per_min: number | null;
+  s4: number | null;
+  cnr_dbhz: number | null;
+  cnr_std_dbhz_5min: number | null;
+  scintillation_proxy: number | null;
+  cycle_slip_flag: boolean;
+  gnss_integrity_score: number | null;
+  position_error_cm: number | null;
+  ppp_convergence_min: number | null;
+}
+
+export interface PrnMeta {
+  source: string;
+  record_count: number;
+  stations: string[];
+  prns: string[];
+  has_azimuth: boolean;
+  has_elevation: boolean;
+  has_quality: boolean;
+  has_roti: boolean;
+  has_s4: boolean;
+  time_start: string | null;
+  time_end: string | null;
+  message: string | null;
+}
+
+export interface PrnExplorerResponse {
+  meta: PrnMeta;
+  summary: PrnRow[];
+  observations: PrnObservation[];
+}
+
+export interface PrnConstellationMetric {
+  label: string;
+  text: string;
+}
+
+export interface PrnConstellationInfo {
+  id: string;
+  label: string;
+  icon: string;
+  prefix: string;
+  max_prn: number;
+  color: string;
+  prn_range: string;
+  section: string;
+  summary: string;
+  frequencies: string;
+  metrics: PrnConstellationMetric[];
+  formula_caption: string;
+  formula: string;
+  zgiis: string;
+}
+
+export interface PrnConstellationPayload {
+  constellations: PrnConstellationInfo[];
+  citation: string;
+  quality_note: string;
+}
+
+// ── Live ──────────────────────────────────────────────────────────────────────
+export interface LiveObservation {
+  time: string;
+  station: string;
+  vtec_tecu: number | null;
+  stec_tecu: number | null;
+  elevation_deg: number | null;
+  constellation: string | null;
+  prn: string | null;
+}
+
+export interface LiveStationVtecPoint {
+  time: string;
+  vtec_tecu: number;
+  obs_count: number;
+}
+
+export interface LiveStationVtecSeries {
+  station: string;
+  name: string;
+  points: LiveStationVtecPoint[];
+  latest_vtec: number | null;
+  mean_vtec: number | null;
+}
+
+export interface GlobalTecStationPoint {
+  time: string;
+  vtec_tecu: number;
+}
+
+export interface GlobalTecStationSeries {
+  station: string;
+  points: GlobalTecStationPoint[];
+  latest_vtec: number | null;
+}
+
+export interface GlobalTecByStationResponse {
+  available: boolean;
+  epoch: string | null;
+  source: string | null;
+  inserted: number;
+  stations: GlobalTecStationSeries[];
+  latest: Array<{ station: string; lat: number; lon: number; vtec_tecu: number }>;
+  message: string | null;
+}
+
+export interface StationLiveStatus {
+  code: string;
+  name: string;
+  lat: number;
+  lon: number;
+  latency_ms: number | null;
+  msg_rate: number | null;
+  stale: boolean;
+  last_vtec: number | null;
+}
+
+export interface LivePipelineStreamStatus {
+  mountpoint: string;
+  connected: boolean;
+  last_seen: string | null;
+  msg_count: number;
+}
+
+export interface LivePipelineStatus {
+  ntrip_configured: boolean;
+  active_streams: number;
+  streams: Record<string, LivePipelineStreamStatus>;
+  db_backend: string;
+  db_env_key: string | null;
+  db_host_kind: string;
+  record_count: number;
+  recent_record_count_1h: number;
+  diagnostics: Record<string, {
+    observations?: number;
+    missing_elevation?: number;
+    vtec_emitted?: number;
+    last_observation_at?: string | null;
+    last_vtec_at?: string | null;
+  }>;
+  runtime_mode: string;
+  ingest_enabled: boolean;
+  message: string | null;
+}
+
+export interface LiveVtecStationHealth {
+  station: string;
+  name: string;
+  vtec: number | null;
+  source: string;
+  obs_age_s: number | null;
+  blocker: string | null;
+}
+
+export interface LiveVtecHealth {
+  live_available: boolean;
+  degraded: boolean;
+  db_backend: string;
+  collector_running: boolean;
+  collector_expected: boolean;
+  stations_with_fresh_vtec: number;
+  stations_measured_live: number;
+  stations_interpolated: number;
+  newest_obs_age_s: number | null;
+  degraded_reason: string | null;
+  blockers: string[];
+  stations: LiveVtecStationHealth[];
+  ephemeris_svs: number | null;
+  heatmap_available: boolean;
+  message: string | null;
+}
+
+export interface NtripProbeRow {
+  station: string;
+  mountpoint: string;
+  tcp_ok: boolean;
+  caster_ok: boolean;
+  http_status: string | null;
+  bytes_received: number;
+  rtcm_total: number;
+  msm_count: number;
+  rtcm_frames: number;
+  msg_types: Record<string, number>;
+  msm_types: Record<string, number>;
+  first_msgs: number[];
+  verdict: "msm_streaming" | "rtcm_no_msm" | "connected_no_data" | "offline" | string;
+  note: string;
+  error: string | null;
+}
+
+export interface NtripProbeResponse {
+  host: string | null;
+  port: number;
+  listen_sec: number;
+  probed_at: string;
+  stations: NtripProbeRow[];
+  summary: {
+    total: number;
+    msm_streaming: number;
+    rtcm_no_msm: number;
+    connected_no_data: number;
+    offline: number;
+  };
+  error: string | null;
+}
+
+// ── Forecast ──────────────────────────────────────────────────────────────────
+export interface ForecastStatus {
+  torch_ok: boolean;
+  model_exists: boolean;
+  forecast_h: number;
+  seq_len: number;
+  path: string | null;
+}
+
+export interface CnnGruTrainStatus {
+  running: boolean;
+  started_at: string | null;
+  epoch: number;
+  total_epochs: number;
+  last_loss: number | null;
+  error: string | null;
+  result: Record<string, unknown> | null;
+}
+
+export interface ForecastPoint {
+  t: string;
+  predicted_vtec: number;
+  upper: number | null;
+  lower: number | null;
+}
+
+// ── Chat ──────────────────────────────────────────────────────────────────────
+export interface ChatContextSummary {
+  lines: string[];
+  tec?: Record<string, unknown> | null;
+  space_weather?: Record<string, unknown> | null;
+  ekf_alerts?: Record<string, unknown> | null;
+  live_pipeline?: Record<string, unknown> | null;
+}
+export interface ChatMessage { role: "user" | "assistant"; content: string; }
+export interface ChatResponse {
+  reply: string;
+  context_injected: boolean;
+  context?: ChatContextSummary | null;
+}
+
+// ── VTEC Theory ───────────────────────────────────────────────────────────────
+export interface TheoryEquation {
+  latex: string;
+  number: string;
+  caption: string;
+}
+
+export interface TheoryVariable {
+  symbol: string;
+  meaning: string;
+}
+
+export interface TheoryIllustration {
+  step_id: string;
+  caption: string;
+  svg: string;
+  num: string;
+  short: string;
+  accent: string;
+}
+
+export interface TheoryJourneyPill {
+  num: string;
+  short: string;
+  accent: string;
+  icon?: string;
+}
+
+export interface TheoryPipelineStage {
+  label: string;
+  icon: string;
+}
+
+export interface TheoryStep {
+  id: string;
+  title: string;
+  accent: string;
+  body: string;
+  why: string;
+  equations: TheoryEquation[];
+  variables: TheoryVariable[];
+  illustration: TheoryIllustration;
+  ipp_detail?: boolean;
+}
+
+export interface VtecTheoryPayload {
+  citation: string;
+  journey: TheoryJourneyPill[];
+  pipeline_stages: TheoryPipelineStage[];
+  computation_pipeline: ComputationPipeline;
+  steps: TheoryStep[];
+  ipp?: { svg: string; legend_html: string };
+}
+
+/** Same shape as VtecTheoryPayload (no IPP detail section). */
+export type GeomagneticTheoryPayload = Omit<VtecTheoryPayload, "ipp">;
+export type UnderstandingTecPayload = Omit<VtecTheoryPayload, "ipp">;
+
+export interface ComputationPipeline {
+  inputs: string[];
+  stages: { label: string; ref: string }[];
+  output: string;
+}
+
+// ── Navigation News (broadcast agent API) ───────────────────────────────────────
+
+export type AudienceId = "farmer" | "surveyor" | "citizen" | "driver" | "aviation" | "scientist";
+
+export interface NavigationNewsBriefApi {
+  id: AudienceId;
+  icon: string;
+  title: string;
+  audience: string;
+  headline: string;
+  summary: string;
+  space_weather_today: string;
+  space_weather_bullets: string[];
+  bullets: string[];
+  action: string;
+  status_tone: string;
+  broadcast_script: string;
+  social_script: string;
+  channels: string[];
+}
+
+export interface NavigationNewsBundleApi {
+  computed_at: string;
+  last_updated_at: string;
+  next_update_at: string;
+  update_interval_hours: number;
+  update_history: string[];
+  input_summary: string;
+  sources: { spaceWeather?: boolean; corsStations?: boolean; ntripProbe?: boolean };
+  briefs: NavigationNewsBriefApi[];
+}
+
+export interface NavigationNewsScheduleApi {
+  last_updated_at: string;
+  next_update_at: string;
+  update_interval_hours: number;
+  updates_per_day: number;
+  update_history: string[];
+}
+
+export interface BroadcastRecipient {
+  recipient_id: string;
+  recipient_type: "phone" | "group";
+  whatsapp_to: string;
+  member_count: number;
+  display_name: string;
+  audience: AudienceId;
+  audience_role?: string | null;
+  audience_title?: string | null;
+  audience_description?: string | null;
+  audience_icon?: string | null;
+  script_kind: string;
+  language?: string;
+  language_label?: string | null;
+  accessibility?: string;
+  accessibility_label?: string | null;
+  active: boolean;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BroadcastRecipientCreate {
+  recipient_type: "phone" | "group";
+  whatsapp_to: string;
+  display_name: string;
+  audience?: AudienceId;
+  script_kind?: string;
+  language?: "en" | "sn" | "nd";
+  accessibility?: "standard" | "deaf" | "blind";
+  notes?: string;
+  active?: boolean;
+}
+
+export interface BroadcastDelivery {
+  delivery_id: string;
+  recipient_id: string | null;
+  display_name: string | null;
+  whatsapp_to: string | null;
+  audience: string | null;
+  ok: boolean;
+  detail: string | null;
+  dry_run: boolean;
+  sent_at: string;
+}
+
+export interface NavigationBroadcastOverview {
+  recipients: BroadcastRecipient[];
+  status: NavigationBroadcastStatus;
+}
+
+export interface NavigationBroadcastStatus {
+  enabled: boolean;
+  running: boolean;
+  interval_hours: number;
+  last_broadcast_at: string | null;
+  next_broadcast_at: string | null;
+  active_recipient_count: number;
+  whatsapp_configured: boolean;
+  dry_run: boolean;
+  recent_deliveries: BroadcastDelivery[];
+  facebook?: NavigationFacebookStatus | null;
+}
+
+export interface NavigationFacebookStatus {
+  enabled: boolean;
+  configured: boolean;
+  dry_run: boolean;
+  page_id: string;
+  page_url: string;
+}
+
+export interface NavigationBroadcastRunResult {
+  ok: boolean;
+  skipped?: boolean;
+  reason?: string | null;
+  recipient_count?: number;
+  dry_run: boolean;
+  headline?: string | null;
+  computed_at?: string | null;
+  deliveries?: Array<{
+    recipient_id?: string;
+    display_name?: string;
+    audience?: string;
+    ok?: boolean;
+    detail?: string;
+  }>;
+}
+
+export interface NavigationFacebookPostResult {
+  ok: boolean;
+  skipped?: boolean;
+  reason?: string | null;
+  dry_run: boolean;
+  page_id: string;
+  page_url: string;
+  detail?: string | null;
+  message_preview?: string | null;
+  message_length?: number | null;
+  computed_at?: string | null;
+}
+
+// ── GIC Monitor ──────────────────────────────────────────────────────────────
+
+export interface GicSubstation {
+  code: string;
+  name: string;
+  lat: number;
+  lon: number;
+}
+
+export interface GicLine {
+  from: string;
+  to: string;
+  kv: number;
+  coords: [number, number][];
+}
+
+export interface GicGenerationLink {
+  from: string;
+  to: string;
+  coords: [number, number][];
+}
+
+export interface GicPowerPlant {
+  code: string;
+  name: string;
+  lat: number;
+  lon: number;
+  fuel: "hydro" | "coal";
+  operator: string;
+  status: "operational" | "care_and_maintenance" | "decommissioning";
+  capacity_mw?: number | null;
+  linked_substation?: string | null;
+  notes?: string | null;
+}
+
+export interface GicMonitoringStationMeta {
+  station_id: string;
+  name: string;
+  substation: string;
+  sensor: string;
+  datalogger: string;
+  gateway: string;
+  notes: string;
+}
+
+export interface GicRiskBand {
+  level: string;
+  min_abs_a: number;
+  color: string;
+  meaning: string;
+}
+
+export interface GicNetwork {
+  substations: GicSubstation[];
+  power_plants?: GicPowerPlant[];
+  lines: GicLine[];
+  generation_links?: GicGenerationLink[];
+  monitoring_stations: GicMonitoringStationMeta[];
+  risk_bands: GicRiskBand[];
+}
+
+export interface GicStationStatus {
+  station_id: string;
+  name: string;
+  substation: string | null;
+  sensor: string | null;
+  datalogger: string | null;
+  gateway: string | null;
+  record_count: number;
+  first_sample: string | null;
+  last_sample: string | null;
+  latest_gic_a: number | null;
+  latest_level: string | null;
+  has_data: boolean;
+}
+
+export interface GicStatusResponse {
+  stations: GicStationStatus[];
+  total_records: number;
+}
+
+export interface GicSeriesPoint {
+  t: string;
+  observed: number | null;
+  predicted: number | null;
+  error: number | null;
+  confidence: number | null;
+  rate_a_per_min: number | null;
+}
+
+export interface GicSpaceWeatherPoint {
+  t: string;
+  kp: number | null;
+  dst: number | null;
+}
+
+export interface GicDeviationStatus {
+  available: boolean;
+  observed: number | null;
+  predicted: number | null;
+  error: number | null;
+  threshold: number | null;
+  ratio: number | null;
+  severity: string;
+  timestamp: string | null;
+}
+
+export interface GicSeriesResponse {
+  station_id: string;
+  hours: number;
+  resample: string | null;
+  count: number;
+  points: GicSeriesPoint[];
+  space_weather: GicSpaceWeatherPoint[];
+  deviation: GicDeviationStatus | null;
+  alerts: EkfAlert[];
+  banner: string | null;
+}
+
+export interface GicUploadResult {
+  filename: string;
+  station_id: string;
+  parsed: number;
+  inserted: number;
+  from: string;
+  to: string;
+}
+
+export interface GicReportStatistics {
+  mean_a: number;
+  std_a: number;
+  min_a: number;
+  max_a: number;
+  peak_abs_a: number;
+  peak_time: string;
+  p95_abs_a: number;
+  first_sample: string;
+  last_sample: string;
+}
+
+export interface GicBandMinutes {
+  level: string;
+  minutes: number;
+  samples: number;
+}
+
+export interface GicEvent {
+  start: string;
+  end: string;
+  duration_min: number;
+  peak_gic_a: number;
+  peak_time: string;
+  level: string;
+}
+
+export interface GicKpCorrelation {
+  kp_r: number | null;
+  dst_r: number | null;
+  samples: number;
+}
+
+export interface GicLiveModelPoint {
+  t: string;
+  b_total: number;
+  dbdt: number | null;
+  gic_est_a: number | null;
+}
+
+export interface GicLiveModel {
+  available: boolean;
+  reason?: string;
+  model?: string;
+  coefficient_a_per_nt_min?: number;
+  source?: string;
+  disclaimer?: string;
+  latest?: GicLiveModelPoint | null;
+  count?: number;
+  points: GicLiveModelPoint[];
+}
+
+export type GicReportPeriod = "hourly" | "daily" | "weekly" | "monthly" | "yearly";
+
+export interface GicReport {
+  station_id: string;
+  period: GicReportPeriod;
+  period_label: string;
+  window_start: string;
+  window_end: string;
+  generated_utc: string;
+  sample_count: number;
+  statistics: GicReportStatistics | null;
+  band_minutes: GicBandMinutes[];
+  events: GicEvent[];
+  kp_correlation: GicKpCorrelation | null;
+  interpretation: string[];
+}

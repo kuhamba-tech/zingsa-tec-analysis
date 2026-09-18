@@ -1,0 +1,1427 @@
+"""Build live TEC heat-map payload for the Next.js map (no synthetic data)."""
+
+from __future__ import annotations
+
+from datetime import datetime
+import os
+from typing import Any
+from zoneinfo import ZoneInfo
+
+import numpy as np
+import pandas as pd
+
+from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
+from zgiis.ionosonde.didbase import get_madimbo_metadata
+from zgiis.maps.interpolation import (
+    MATAMBA_GRID_STEP_DEG,
+    MATAMBA_MEDIAN_FILTER_SIZE,
+    ZW_LAT_MAX,
+    ZW_LAT_MIN,
+    ZW_LON_MAX,
+    ZW_LON_MIN,
+    interpolate_tec_matamba,
+)
+
+TEC_SCALE_MIN = 0.0
+TEC_SCALE_MAX = 200.0
+ICAO_TEC_MOD = 125.0
+ICAO_TEC_SEV = 175.0
+MATAMBA_CADENCE_MIN = 5
+MATAMBA_WINDOW_MIN = 15
+MATAMBA_TEMPORAL_LOOKBACK_MIN = MATAMBA_WINDOW_MIN + MATAMBA_CADENCE_MIN
+MADIMBO_IONOSONDE = {
+    "code": "MU12K",
+    "name": "Madimbo ionosonde",
+    "lat": -22.39,
+    "lon": 30.88,
+    "country": "South Africa",
+    "note": "Nearest SANSA ionosonde to Zimbabwe listed by Matamba and Danskin (2022); use for cross-border TEC validation when NRT ionosonde TEC is available.",
+}
+MADIMBO_BORDER_COMPARE_LIMIT = 5
+MATAMBA_EVALUATION_WINDOW_DAYS = 5
+MATAMBA_EVALUATION_INTERVAL_MIN = 60
+MATAMBA_EVALUATION_TARGETS = [
+    {
+        "code": "HE13N",
+        "name": "Hermanus ionosonde",
+        "lat": -34.43,
+        "lon": 19.23,
+        "country": "South Africa",
+        "env_ionosonde": "HE13N_IONOSONDE_TEC",
+        "env_afritec": "HE13N_AFRITEC_TEC",
+    },
+    {
+        "code": "GR13L",
+        "name": "Grahamstown ionosonde",
+        "lat": -33.32,
+        "lon": 26.50,
+        "country": "South Africa",
+        "env_ionosonde": "GR13L_IONOSONDE_TEC",
+        "env_afritec": "GR13L_AFRITEC_TEC",
+    },
+]
+MATAMBA_REFERENCE_STATISTICS = {
+    "ionosonde_example_slope_range": [0.90, 1.01],
+    "ionosonde_example_correlation": 0.96,
+    "ionosonde_operational_correlation_min": 0.82,
+    "ionosonde_observed_slope_range": [0.65, 1.12],
+    "afritec_example_slope_range": [0.85, 0.86],
+    "afritec_example_correlation": 0.93,
+    "afritec_observed_slope_range": [0.59, 1.15],
+}
+TEC_ACQUISITION_RECOMMENDATIONS = [
+    "Use dual-frequency GNSS L1/L2 observations for TEC; single-frequency streams cannot isolate ionospheric delay.",
+    "For live NTRIP VTEC, require MSM4/MSM7 observation messages plus broadcast ephemeris, especially GPS RTCM 1019.",
+    "Generate operational map products every 5 minutes from the previous 15 minutes of accepted observations.",
+    "Reject non-physical VTEC below 0 TECU and cap operational outliers above 50 TECU unless solar-cycle conditions justify a higher cap.",
+    "Use 1 degree by 1 degree nearest-neighbour gridding with a 7-cell spatial median filter for the Matamba/SANSA-style product.",
+]
+_REGIONAL_CODES = frozenset({"nw", "ne", "cent", "sw", "se"})
+_PROCESSED_ARCHIVE_SOURCES = frozenset({"processed_archive", "processed_archive_estimate"})
+_SURFACE_ESTIMATE_SOURCES = frozenset({"live_surface_estimate", "processed_archive_estimate"})
+_STATION_LOOKUP = {s.code.lower(): s for s in ZIMBABWE_CORS_STATIONS}
+
+
+def _live_db_heatmap_enabled() -> bool:
+    """Live DB rows should be used in every environment unless explicitly disabled."""
+    disabled = os.getenv("TEC_HEATMAP_QUERY_LIVE_DB", "").strip().lower() in {"0", "false", "no", "off"}
+    return not disabled
+
+
+def _absolute_weight(vtec: float) -> float:
+    span = TEC_SCALE_MAX - TEC_SCALE_MIN
+    if span <= 0:
+        return 0.5
+    return float(max(0.05, min(1.0, (vtec - TEC_SCALE_MIN) / span)))
+
+
+def _quality_message(quality: str, station_count: int) -> str | None:
+    if quality == "regional_mean":
+        return (
+            "Live NTRIP VTEC (MSM code TEC) where streams report observations, "
+            "plus interpolated estimates for sites still waiting on MSM. "
+            "RINEX/CMN archive VTEC is never used on this live map."
+        )
+    if quality == "stations_only":
+        return (
+            f"{station_count} CORS site(s) reporting live NTRIP VTEC — interpolated surface could not be built. "
+            "Ensure MSM4/MSM7 streams and broadcast ephemeris are flowing."
+        )
+    if quality == "processed_archive":
+        # Live dashboard must never present this quality; kept for the archive-only endpoint.
+        return (
+            f"Processed RINEX/CMN archive VTEC for {station_count} CORS site(s). "
+            "This product is archive-only — the National Dashboard heat map uses live NTRIP exclusively."
+        )
+    if quality == "station":
+        return (
+            f"Live NTRIP VTEC from {station_count} CORS mountpoint(s) — absolute code TEC from MSM decode. "
+            "Not RINEX archive."
+        )
+    return None
+
+
+def _classify_data_quality(stations: list[dict[str, Any]], grid: dict[str, Any] | None) -> str:
+    if not stations:
+        return "none"
+    sources = {str(s.get("source") or "") for s in stations}
+    if sources & {"live_ntrip"} and not (sources & ({"live"} | _PROCESSED_ARCHIVE_SOURCES)):
+        # On-demand NTRIP samples still count as live station product for ICAO banners.
+        if grid is None:
+            return "stations_only"
+        if any(int(s.get("obs_count") or 0) == 0 for s in stations):
+            return "regional_mean"
+        return "station"
+    if all(str(s.get("source") or "") in _PROCESSED_ARCHIVE_SOURCES for s in stations):
+        return "processed_archive"
+    if any(str(s.get("source") or "") in _SURFACE_ESTIMATE_SOURCES for s in stations):
+        return "regional_mean"
+    codes = {str(s["code"]).lower() for s in stations}
+    if codes.issubset(_REGIONAL_CODES):
+        return "regional_mean"
+    if all(int(s.get("obs_count") or 0) == 0 for s in stations):
+        return "regional_mean"
+    if grid is None:
+        return "stations_only"
+    return "station"
+
+
+def _matamba_metadata() -> dict[str, Any]:
+    return {
+        "source": "Matamba and Danskin (2022), Space Weather, doi:10.1029/2021SW003013",
+        "cadence_minutes": MATAMBA_CADENCE_MIN,
+        "window_minutes": MATAMBA_WINDOW_MIN,
+        "grid_resolution_deg": MATAMBA_GRID_STEP_DEG,
+        "interpolation": "nearest-neighbour",
+        "median_filter_size": MATAMBA_MEDIAN_FILTER_SIZE,
+        "quality_metrics": ["map RMSE", "station coverage quality factor", "spatial TEC gradient", "temporal TEC gradient"],
+        "gradient_method": {
+            "spatial": (
+                "Cell-to-cell TEC change on the 1 degree median-filtered grid, reported for north-south, "
+                "east-west, and combined adjacent-cell gradients in TECU/degree."
+            ),
+            "temporal": (
+                "Absolute TEC change between consecutive 5-minute median-filtered map products, normalized "
+                "to TECU/hour. Each map uses the previous 15 minutes of observations."
+            ),
+            "icao_note": (
+                "ICAO Doc 10100 advisory level is still based on absolute vertical TEC thresholds; gradients "
+                "are supporting GNSS-impact diagnostics for spatial and temporal variability."
+            ),
+        },
+        "evaluation": {
+            "targets": [target["code"] for target in MATAMBA_EVALUATION_TARGETS],
+            "external_references": ["ionosonde TEC", "AfriTEC model"],
+            "matched_points_only": True,
+            "comparison_window_days": MATAMBA_EVALUATION_WINDOW_DAYS,
+            "comparison_interval_minutes": MATAMBA_EVALUATION_INTERVAL_MIN,
+            "rmse_window_minutes": MATAMBA_WINDOW_MIN,
+            "rmse_definition": (
+                "RMSE of gridded median-filtered TEC minus original TEC estimates at IPP/control locations "
+                "for each 5-minute map using the past 15 minutes of data."
+            ),
+            "reference_statistics": MATAMBA_REFERENCE_STATISTICS,
+        },
+        "recommendations": TEC_ACQUISITION_RECOMMENDATIONS,
+    }
+
+
+def _empty_diagnostics() -> dict[str, Any]:
+    return {
+        "matamba": _matamba_metadata(),
+        "fit": {"rmse_tecu": None, "quality_factor": 0.0, "control_station_count": 0, "control_observation_count": 0},
+        "gradients": _empty_gradient_payload(),
+        "ionosonde_comparison": _madimbo_comparison(None),
+        "border_station_comparison": [],
+        "evaluation": _matamba_evaluation([], None, None, None),
+        "frequency_recommendations": TEC_ACQUISITION_RECOMMENDATIONS,
+    }
+
+
+def _grid_lookup(grid_lons: np.ndarray, grid_lats: np.ndarray, grid_tec: np.ndarray, lon: float, lat: float) -> float | None:
+    if grid_tec.size == 0:
+        return None
+    distances = np.hypot(grid_lons - float(lon), grid_lats - float(lat))
+    if not np.isfinite(distances).any():
+        return None
+    idx = np.unravel_index(int(np.nanargmin(distances)), distances.shape)
+    value = float(grid_tec[idx])
+    return value if np.isfinite(value) else None
+
+
+def _fit_metrics(
+    control_rows: list[dict[str, Any]],
+    grid_lons: np.ndarray,
+    grid_lats: np.ndarray,
+    grid_tec: np.ndarray,
+) -> dict[str, Any]:
+    errors: list[float] = []
+    obs_count = 0
+    for row in control_rows:
+        obs_count += int(row.get("obs_count") or 0)
+        fitted = _grid_lookup(grid_lons, grid_lats, grid_tec, float(row["lon"]), float(row["lat"]))
+        if fitted is None:
+            continue
+        errors.append(float(fitted) - float(row["vtec"]))
+    rmse = float(np.sqrt(np.mean(np.square(errors)))) if errors else None
+    coverage = min(1.0, len(control_rows) / max(1, len(ZIMBABWE_CORS_STATIONS)))
+    fit_score = 1.0 if rmse is None else max(0.0, 1.0 - min(rmse, 50.0) / 50.0)
+    quality = round(float(0.65 * coverage + 0.35 * fit_score), 3)
+    return {
+        "rmse_tecu": round(rmse, 2) if rmse is not None else None,
+        "quality_factor": quality,
+        "control_station_count": len(control_rows),
+        "control_observation_count": obs_count,
+    }
+
+
+def _empty_gradient_payload() -> dict[str, Any]:
+    return {
+        "spatial_max_tecu_per_deg": None,
+        "spatial_mean_tecu_per_deg": None,
+        "spatial_lat_max_tecu_per_deg": None,
+        "spatial_lon_max_tecu_per_deg": None,
+        "spatial_max_direction": None,
+        "temporal_max_tecu_per_hour": None,
+        "temporal_mean_tecu_per_hour": None,
+        "temporal_window_minutes": MATAMBA_WINDOW_MIN,
+        "temporal_cadence_minutes": MATAMBA_CADENCE_MIN,
+        "temporal_available": False,
+        "icao_supporting_diagnostic": True,
+        "method": "Matamba adjacent-cell spatial gradient and consecutive-map temporal gradient",
+    }
+
+
+def _spatial_gradient(grid_lons: np.ndarray, grid_lats: np.ndarray, grid_tec: np.ndarray) -> dict[str, Any]:
+    out = _empty_gradient_payload()
+    if grid_tec.size == 0 or not np.isfinite(grid_tec).any():
+        return out
+    lat_step = float(np.nanmedian(np.abs(np.diff(grid_lats[:, 0])))) if grid_lats.shape[0] > 1 else 1.0
+    lon_step = float(np.nanmedian(np.abs(np.diff(grid_lons[0, :])))) if grid_lons.shape[1] > 1 else 1.0
+    lat_grad = np.abs(np.diff(grid_tec, axis=0)) / max(lat_step, 1e-6) if grid_tec.shape[0] > 1 else np.array([])
+    lon_grad = np.abs(np.diff(grid_tec, axis=1)) / max(lon_step, 1e-6) if grid_tec.shape[1] > 1 else np.array([])
+    finite_lat = lat_grad[np.isfinite(lat_grad)]
+    finite_lon = lon_grad[np.isfinite(lon_grad)]
+    lat_max = float(np.max(finite_lat)) if finite_lat.size else None
+    lon_max = float(np.max(finite_lon)) if finite_lon.size else None
+    all_components = np.concatenate([finite_lat, finite_lon]) if finite_lat.size or finite_lon.size else np.array([])
+    if all_components.size:
+        out["spatial_mean_tecu_per_deg"] = round(float(np.mean(all_components)), 3)
+    if lat_max is not None:
+        out["spatial_lat_max_tecu_per_deg"] = round(lat_max, 3)
+    if lon_max is not None:
+        out["spatial_lon_max_tecu_per_deg"] = round(lon_max, 3)
+    candidates = [(lat_max, "north-south"), (lon_max, "east-west")]
+    candidates = [(value, label) for value, label in candidates if value is not None]
+    if candidates:
+        value, label = max(candidates, key=lambda item: item[0])
+        out["spatial_max_tecu_per_deg"] = round(float(value), 3)
+        out["spatial_max_direction"] = label
+    return out
+
+
+def _temporal_gradient(
+    grid_tec: np.ndarray,
+    previous_grid_tec: np.ndarray | None,
+) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    if previous_grid_tec is None or previous_grid_tec.size == 0 or previous_grid_tec.shape != grid_tec.shape:
+        return {
+            "temporal_max_tecu_per_hour": None,
+            "temporal_mean_tecu_per_hour": None,
+            "temporal_available": False,
+        }
+    delta = np.abs(grid_tec - previous_grid_tec) / (MATAMBA_CADENCE_MIN / 60.0)
+    finite = delta[np.isfinite(delta)]
+    if finite.size == 0:
+        return {
+            "temporal_max_tecu_per_hour": None,
+            "temporal_mean_tecu_per_hour": None,
+            "temporal_available": False,
+        }
+    out["temporal_max_tecu_per_hour"] = round(float(np.max(finite)), 3)
+    out["temporal_mean_tecu_per_hour"] = round(float(np.mean(finite)), 3)
+    out["temporal_available"] = True
+    return out
+
+
+def _station_temporal_gradient(control_rows: list[dict[str, Any]], previous_rows: list[dict[str, Any]] | None) -> float | None:
+    if not previous_rows:
+        return None
+    prev_by_code = {str(row["code"]).lower().rstrip("_"): row for row in previous_rows}
+    diffs: list[float] = []
+    for row in control_rows:
+        prev = prev_by_code.get(str(row["code"]).lower().rstrip("_"))
+        if prev is None:
+            continue
+        diffs.append(abs(float(row["vtec"]) - float(prev["vtec"])) / (MATAMBA_CADENCE_MIN / 60.0))
+    return round(float(max(diffs)), 3) if diffs else None
+
+
+def _distance_km(lat_a: float, lon_a: float, lat_b: float, lon_b: float) -> float:
+    radius_km = 6371.0
+    phi_a = np.deg2rad(float(lat_a))
+    phi_b = np.deg2rad(float(lat_b))
+    dphi = np.deg2rad(float(lat_b) - float(lat_a))
+    dlambda = np.deg2rad(float(lon_b) - float(lon_a))
+    a = np.sin(dphi / 2.0) ** 2 + np.cos(phi_a) * np.cos(phi_b) * np.sin(dlambda / 2.0) ** 2
+    return float(2.0 * radius_km * np.arcsin(np.sqrt(a)))
+
+
+def _madimbo_metadata() -> dict[str, Any]:
+    try:
+        meta = get_madimbo_metadata()
+    except Exception:
+        meta = {**MADIMBO_IONOSONDE, "source": "fallback", "status": "fallback"}
+    return {
+        **MADIMBO_IONOSONDE,
+        **meta,
+        "note": meta.get("note") or MADIMBO_IONOSONDE["note"],
+    }
+
+
+def _madimbo_comparison(estimated_vtec: float | None) -> dict[str, Any]:
+    madimbo = _madimbo_metadata()
+    iono_vtec = os.getenv("MADIMBO_IONOSONDE_TEC")
+    measured = None
+    difference = None
+    try:
+        measured = float(iono_vtec) if iono_vtec not in {None, ""} else None
+    except ValueError:
+        measured = None
+    if measured is not None and estimated_vtec is not None:
+        difference = round(float(estimated_vtec) - measured, 2)
+    return {
+        **madimbo,
+        "estimated_vtec": round(float(estimated_vtec), 2) if estimated_vtec is not None else None,
+        "ionosonde_vtec": measured,
+        "difference_tecu": difference,
+        "status": "comparison_available" if difference is not None else "awaiting_ionosonde_tec",
+    }
+
+
+def _madimbo_border_station_comparison(
+    station_rows: list[dict[str, Any]],
+    madimbo_estimate: float | None,
+    madimbo_ionosonde_tec: float | None,
+) -> list[dict[str, Any]]:
+    madimbo = _madimbo_metadata()
+    rows: list[dict[str, Any]] = []
+    for row in station_rows:
+        distance = _distance_km(float(row["lat"]), float(row["lon"]), float(madimbo["lat"]), float(madimbo["lon"]))
+        if distance > 350.0:
+            continue
+        vtec = float(row["vtec"])
+        rows.append(
+            {
+                "code": row["code"],
+                "name": row["name"],
+                "lat": row["lat"],
+                "lon": row["lon"],
+                "source": row.get("source"),
+                "obs_count": int(row.get("obs_count") or 0),
+                "distance_km": round(distance, 1),
+                "station_vtec": round(vtec, 2),
+                "difference_from_madimbo_grid_tecu": (
+                    round(vtec - float(madimbo_estimate), 2) if madimbo_estimate is not None else None
+                ),
+                "difference_from_madimbo_ionosonde_tecu": (
+                    round(vtec - float(madimbo_ionosonde_tec), 2) if madimbo_ionosonde_tec is not None else None
+                ),
+            }
+        )
+    return sorted(rows, key=lambda item: float(item["distance_km"]))[:MADIMBO_BORDER_COMPARE_LIMIT]
+
+
+def _read_env_float(name: str) -> float | None:
+    raw = os.getenv(name)
+    if raw in {None, ""}:
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        return None
+
+
+def _comparison_row(estimate: float | None, measured: float | None) -> dict[str, Any]:
+    diff = None
+    if estimate is not None and measured is not None:
+        diff = round(float(estimate) - float(measured), 2)
+    return {
+        "value": measured,
+        "difference_tecu": diff,
+        "matched": estimate is not None and measured is not None,
+    }
+
+
+def _matamba_evaluation(
+    control_rows: list[dict[str, Any]],
+    grid_lons: np.ndarray | None,
+    grid_lats: np.ndarray | None,
+    grid_tec: np.ndarray | None,
+) -> dict[str, Any]:
+    targets: list[dict[str, Any]] = []
+    for target in MATAMBA_EVALUATION_TARGETS:
+        estimate = None
+        if grid_lons is not None and grid_lats is not None and grid_tec is not None:
+            estimate = _grid_lookup(grid_lons, grid_lats, grid_tec, target["lon"], target["lat"])
+        iono = _read_env_float(target["env_ionosonde"])
+        afritec = _read_env_float(target["env_afritec"])
+        targets.append(
+            {
+                "code": target["code"],
+                "name": target["name"],
+                "lat": target["lat"],
+                "lon": target["lon"],
+                "country": target["country"],
+                "nrt_tec_est": round(float(estimate), 2) if estimate is not None else None,
+                "ionosonde": _comparison_row(estimate, iono),
+                "afritec": _comparison_row(estimate, afritec),
+                "status": "matched_comparison_available" if iono is not None or afritec is not None else "awaiting_external_tec",
+            }
+        )
+
+    return {
+        "method": "Interpolate NRT TEC estimate from the median-filtered gridded map at ionosonde coordinates.",
+        "matched_points_only": True,
+        "comparison_window_days": MATAMBA_EVALUATION_WINDOW_DAYS,
+        "comparison_interval_minutes": MATAMBA_EVALUATION_INTERVAL_MIN,
+        "map_generation_interval_minutes": MATAMBA_CADENCE_MIN,
+        "rmse_window_minutes": MATAMBA_WINDOW_MIN,
+        "reference_statistics": MATAMBA_REFERENCE_STATISTICS,
+        "control_point_count": len(control_rows),
+        "targets": targets,
+        "notes": [
+            "Matamba and Danskin compare only matched data points in time.",
+            "Each hour, compare the latest 5 days of NRT TEC estimates with ionosonde TEC and AfriTEC.",
+            "Set HE13N_IONOSONDE_TEC, GR13L_IONOSONDE_TEC, HE13N_AFRITEC_TEC, and GR13L_AFRITEC_TEC to compute live residuals.",
+        ],
+    }
+
+
+def _matamba_diagnostics(
+    control_rows: list[dict[str, Any]],
+    station_rows: list[dict[str, Any]],
+    grid_lons: np.ndarray,
+    grid_lats: np.ndarray,
+    grid_tec: np.ndarray,
+    *,
+    previous_rows: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    madimbo = _madimbo_metadata()
+    madimbo_estimate = _grid_lookup(grid_lons, grid_lats, grid_tec, madimbo["lon"], madimbo["lat"])
+    madimbo_iono = _read_env_float("MADIMBO_IONOSONDE_TEC")
+    gradients = _spatial_gradient(grid_lons, grid_lats, grid_tec)
+    previous_grid_tec = None
+    if previous_rows:
+        try:
+            prev_lats = np.array([s["lat"] for s in previous_rows], dtype=float)
+            prev_lons = np.array([s["lon"] for s in previous_rows], dtype=float)
+            prev_vtecs = np.array([s["vtec"] for s in previous_rows], dtype=float)
+            _, _, previous_grid_tec = interpolate_tec_matamba(prev_lats, prev_lons, prev_vtecs)
+        except Exception:
+            previous_grid_tec = None
+    gradients.update(_temporal_gradient(grid_tec, previous_grid_tec))
+    station_temporal = _station_temporal_gradient(control_rows, previous_rows)
+    gradients["temporal_station_max_tecu_per_hour"] = station_temporal
+    return {
+        "matamba": _matamba_metadata(),
+        "fit": _fit_metrics(control_rows, grid_lons, grid_lats, grid_tec),
+        "gradients": gradients,
+        "ionosonde_comparison": _madimbo_comparison(madimbo_estimate),
+        "border_station_comparison": _madimbo_border_station_comparison(station_rows, madimbo_estimate, madimbo_iono),
+        "evaluation": _matamba_evaluation(control_rows, grid_lons, grid_lats, grid_tec),
+        "frequency_recommendations": TEC_ACQUISITION_RECOMMENDATIONS,
+    }
+
+
+def _row_from_station(station, *, vtec: float, obs_count: int, source: str = "live") -> dict[str, Any]:
+    return {
+        "code": station.code,
+        "name": station.name,
+        "lat": station.lat,
+        "lon": station.lon,
+        "vtec": round(float(vtec), 2),
+        "obs_count": int(obs_count),
+        "source": source,
+    }
+
+
+def _rows_from_station_vtec_summary(df, *, source: str = "live") -> list[dict[str, Any]]:
+    """Build heat-map station rows from SQL-aggregated live NTRIP VTEC."""
+    if df is None or getattr(df, "empty", True):
+        return []
+    if "station" not in df.columns or "mean_vtec" not in df.columns:
+        return []
+    rows: list[dict[str, Any]] = []
+    for _, row in df.iterrows():
+        code = str(row["station"]).lower().rstrip("_")
+        station = _STATION_LOOKUP.get(code)
+        if station is None:
+            continue
+        try:
+            vtec = float(row["mean_vtec"])
+            obs_count = int(row["obs_count"]) if "obs_count" in row and pd.notna(row["obs_count"]) else 1
+        except (TypeError, ValueError):
+            continue
+        if not np.isfinite(vtec) or vtec <= 0 or vtec >= 200:
+            continue
+        rows.append(_row_from_station(station, vtec=vtec, obs_count=max(obs_count, 1), source=source))
+    return rows
+
+
+def _pipeline_station_rows(hours: float = 2.0) -> list[dict[str, Any]]:
+    """Station VTEC from the live NTRIP ingest DB (absolute code TEC when available).
+
+    Uses only the last few minutes of code_live MSM decode so the map cannot
+    linger on an older multi-hour average while NTRIP is still streaming.
+    """
+    if not _live_db_heatmap_enabled():
+        return []
+    try:
+        from backend.live_manager import get_db
+
+        minutes = max(
+            0.5,
+            min(float(hours) * 60.0, float(LIVE_HEATMAP_MAX_LOOKBACK_MINUTES), float(LIVE_VTEC_RECENT_MINUTES)),
+        )
+        df = get_db().recent_station_vtec(minutes=minutes, code_live_only=True)
+    except Exception:
+        return []
+    return _rows_from_station_vtec_summary(df, source="live")
+
+
+def _recent_pipeline_rows(hours: float = 0.5) -> list[dict[str, Any]]:
+    """Very short window — catches stations that just came online."""
+    try:
+        if not _live_db_heatmap_enabled():
+            return []
+        from backend.live_manager import get_db
+
+        minutes = max(0.5, min(float(hours) * 60.0, 2.0, float(LIVE_HEATMAP_MAX_LOOKBACK_MINUTES)))
+        df = get_db().recent_station_vtec(minutes=minutes, code_live_only=True)
+    except Exception:
+        return []
+    return _rows_from_station_vtec_summary(df, source="live")
+
+
+def _robust_station_vtec(series, *, prefer_latest_n: int | None = None) -> float | None:
+    """Median VTEC for one station, with within-station spike clipping.
+
+    Code TEC without full DCB can throw large PRN outliers; mean() was
+    pulling Neon station cards to ~100 TECU while peer sites stayed ~20.
+    When ``prefer_latest_n`` is set, use only the newest N samples so the
+    map tracks live recalculation instead of a sticky multi-minute median.
+    """
+    vals = pd.to_numeric(series, errors="coerce").dropna()
+    vals = vals[(vals > 0) & (vals < 200)]
+    if vals.empty:
+        return None
+    if prefer_latest_n is not None and prefer_latest_n > 0 and len(vals) > prefer_latest_n:
+        vals = vals.iloc[-int(prefer_latest_n) :]
+    med = float(vals.median())
+    mad = float((vals - med).abs().median())
+    if mad > 0:
+        # ~3σ on a MAD scale, with a 12 TECU floor so quiet days still clip spikes.
+        limit = max(3.0 * mad / 0.6745, 12.0)
+        clipped = vals[(vals - med).abs() <= limit]
+        if not clipped.empty:
+            vals = clipped
+    return float(vals.median())
+
+
+def _prn_consensus_station_vtec(group: pd.DataFrame) -> float | None:
+    """Median of per-PRN medians after dropping low/high code-TEC bias PRNs.
+
+    Some mounts (e.g. BEIT/LUPA) stream thousands of G01 samples near ~2–4 TECU
+    while G30 on the same site sits near the network (~19–22 TECU). A sample-level
+    median then reports ~8–9 TECU — not a physical ionosphere value.
+
+    Split PRN medians on the largest gap (≥8 TECU), then if the remaining set still
+    looks low-biased prefer the upper half of PRN medians. Singleton extreme highs
+    are treated as spikes and dropped.
+    """
+    if group is None or getattr(group, "empty", True) or "prn" not in group.columns:
+        return None
+    work = group.copy()
+    work["vtec_tecu"] = pd.to_numeric(work["vtec_tecu"], errors="coerce")
+    work["prn"] = work["prn"].astype(str)
+    work = work.dropna(subset=["vtec_tecu", "prn"])
+    work = work[(work["vtec_tecu"] > 0) & (work["vtec_tecu"] < 200)]
+    if work.empty:
+        return None
+
+    prn_meds: list[float] = []
+    for prn, series in work.groupby("prn")["vtec_tecu"]:
+        # Skip model/forecast labels (GIM) — not a live MSM satellite PRN.
+        label = str(prn).strip().upper()
+        if not label or label == "GIM" or label[0] not in "GRECSJ":
+            continue
+        # Allow single-epoch peer PRNs — TSHO often has one good G03/G06
+        # sample beside hundreds of low-biased G14 samples.
+        if len(series) < 1:
+            continue
+        # Robust per-PRN median: CENT G06 often swings 20→100+ TECU inside
+        # one lookback; a plain median then looks like a network spike.
+        med = _robust_station_vtec(series)
+        if med is None:
+            continue
+        # Reject non-physical near-zero code-TEC leftovers.
+        if np.isfinite(med) and med >= 1.0:
+            prn_meds.append(float(med))
+
+    # Drop extreme high-bias PRNs (LUPA/VICF G17 ~90–120 TECU) when peers
+    # sit in the physical daytime band — otherwise markers look like old cache.
+    physical = [m for m in prn_meds if 8.0 <= m <= 45.0]
+    if physical and any(m > 55.0 for m in prn_meds):
+        prn_meds = [m for m in prn_meds if m <= 55.0]
+
+    if len(prn_meds) == 1 and 8.0 <= prn_meds[0] <= 45.0:
+        # KWEK-like: one usable PRN after near-zero G14/G19 are rejected.
+        return float(prn_meds[0])
+    if len(prn_meds) < 2:
+        return None
+
+    arr = np.array(sorted(prn_meds), dtype=float)
+    if len(arr) >= 2:
+        gaps = np.diff(arr)
+        split = int(np.argmax(gaps))
+        if float(gaps[split]) >= 8.0:
+            lower = arr[: split + 1]
+            upper = arr[split + 1 :]
+            low_med = float(np.median(lower))
+            up_med = float(np.median(upper))
+            # Singleton extreme high spike → keep lower cluster, but not when
+            # that cluster is only low-biased leftovers (CENT G19~4 vs G06~105).
+            if len(upper) == 1 and up_med > low_med + 40.0:
+                if float(np.max(lower)) < 12.0:
+                    return None
+                arr = lower
+            # Low-biased PRN pile (BEIT/LUPA G01/G14) → keep higher cluster.
+            elif low_med < 12.0 and up_med >= low_med + 8.0:
+                arr = upper
+            elif len(upper) >= len(lower):
+                arr = upper
+            else:
+                arr = lower
+
+    # Mid-bias case (e.g. LUPA G01/G14/G30 with gaps < 8 after first split):
+    # prefer upper half when the lower half is unphysically low.
+    if len(arr) >= 3:
+        k = max(1, len(arr) // 2)
+        lower = arr[:k]
+        upper = arr[-k:]
+        low_med = float(np.median(lower))
+        up_med = float(np.median(upper))
+        if low_med < 12.0 and (up_med - low_med) >= 8.0:
+            arr = upper
+
+    ref = float(np.median(arr))
+    if len(arr) == 1:
+        return ref
+    sigma = float(np.std(arr)) if len(arr) > 1 else 6.0
+    sigma = max(sigma, 6.0)
+    limit = max(3.0 * sigma, 12.0)
+    kept = [float(m) for m in arr if abs(float(m) - ref) <= limit]
+    if not kept:
+        kept = [float(m) for m in arr]
+    return float(np.median(kept))
+
+
+def _fresh_station_vtec_from_group(group: pd.DataFrame) -> float | None:
+    """Robust VTEC biased to the newest observations in the lookback window.
+
+    Prefer the newest time slice, but if that slice is only a low-biased PRN
+    (common for TSHO/BEIT when G14 dominates the last minute while G03/G30
+    were seen slightly earlier), fall back to PRN consensus on the full
+    lookback so the marker keeps a physical TECU value.
+    """
+    if group is None or getattr(group, "empty", True):
+        return None
+    full = group
+    work = group
+    if "time" in work.columns:
+        work = work.copy()
+        work["time"] = pd.to_datetime(work["time"], utc=True, errors="coerce")
+        work["vtec_tecu"] = pd.to_numeric(work["vtec_tecu"], errors="coerce")
+        work = work.dropna(subset=["time", "vtec_tecu"]).sort_values("time")
+        if work.empty:
+            return None
+        # Drop far-future GNSS/clock skew so "latest" is not a poisoned epoch
+        # (CENT was anchoring the fresh slice on +40 min samples → G06~100).
+        now = pd.Timestamp.now(tz="UTC")
+        work = work[work["time"] <= now + pd.Timedelta(minutes=2)]
+        if work.empty:
+            return None
+        full = work
+        latest = work["time"].iloc[-1]
+        slice_s = float(LIVE_VTEC_FRESH_SLICE_SECONDS)
+        fresh = work[work["time"] >= latest - pd.Timedelta(seconds=slice_s)]
+        if len(fresh) >= 5:
+            work = fresh
+
+    prn_vtec = _prn_consensus_station_vtec(work)
+    if prn_vtec is not None and prn_vtec >= 8.0:
+        return prn_vtec
+
+    # Fresh slice looked empty/low-biased — recover from the full lookback.
+    if full is not work:
+        full_prn = _prn_consensus_station_vtec(full)
+        if full_prn is not None and full_prn >= 8.0:
+            return full_prn
+
+    # Never publish a low-biased singleton (~4 TECU) or a spike/low blend
+    # (~50 TECU from G06~105 + G19~4) as live — omit so the surface can fill.
+    if prn_vtec is not None and 8.0 <= prn_vtec <= 45.0:
+        return prn_vtec
+    robust = _robust_station_vtec(work["vtec_tecu"], prefer_latest_n=40)
+    if robust is not None and 8.0 <= robust <= 45.0:
+        return robust
+    return None
+
+
+def _consensus_filter_control_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Drop spatially inconsistent live control points before IDW / Matamba fill.
+
+    Vercel Neon currently mixes good absolute code TEC (~16–25 TECU) with a few
+    stations stuck near 90–120 TECU. Filling every CORS site from that set made
+    production look nothing like the local NTRIP-decoded map.
+    """
+    measured = [
+        row
+        for row in rows
+        if int(row.get("obs_count") or 0) > 0 and float(row.get("vtec") or 0) > 0
+    ]
+    if len(measured) < 2:
+        return list(rows)
+
+    vals = np.array([float(row["vtec"]) for row in measured], dtype=float)
+    order = np.argsort(vals)
+    # Positive spikes dominate African CORS code-TEC failures; anchor on the
+    # lower half of the network so a few bad mounts cannot set the reference.
+    k = max(1, int(np.ceil(len(vals) / 2.0)))
+    low = vals[order[:k]]
+    ref = float(np.median(low))
+    sigma = float(np.std(low)) if len(low) > 1 else 8.0
+    sigma = max(sigma, 8.0)
+    lo = max(0.0, ref - 3.5 * sigma)
+    hi = ref + 3.5 * sigma
+    kept = [row for row in measured if lo <= float(row["vtec"]) <= hi]
+    return kept if kept else measured
+
+
+LIVE_VTEC_RECENT_MINUTES = 5.0
+# Hard ceiling for the live map product — short enough to track live decode,
+# long enough that low-biased PRN spikes (TSHO G14) do not erase peer PRNs.
+LIVE_HEATMAP_MAX_LOOKBACK_MINUTES = 5.0
+# Prefer the newest slice inside the lookback so ZINH/etc. track live decode.
+LIVE_VTEC_FRESH_SLICE_SECONDS = 60.0
+
+
+def station_vtec_by_code_from_frame(
+    df,
+    *,
+    recent_minutes: float | None = LIVE_VTEC_RECENT_MINUTES,
+) -> dict[str, float]:
+    """Shared Neon/local aggregation used by heat-map + CORS station cards.
+
+    When ``recent_minutes`` is set, each station uses only samples inside the
+    wall-clock window ``[now - N minutes, now + 2 minutes]`` so markers track
+    the live NTRIP decode instead of the last samples stored in a long DB
+    history (which looks like an old cache when ingest pauses).
+    """
+    df = _absolute_vtec_observation_frame(df)
+    if df is None or not hasattr(df, "empty") or df.empty:
+        return {}
+    if "station" not in df.columns or "vtec_tecu" not in df.columns:
+        return {}
+
+    work = df
+    if recent_minutes and recent_minutes > 0 and "time" in work.columns:
+        work = work.copy()
+        work["time"] = pd.to_datetime(work["time"], utc=True, errors="coerce")
+        work["vtec_tecu"] = pd.to_numeric(work["vtec_tecu"], errors="coerce")
+        work = work.dropna(subset=["time", "vtec_tecu", "station"])
+        if work.empty:
+            return {}
+        now = pd.Timestamp.now(tz="UTC")
+        window = pd.Timedelta(minutes=float(recent_minutes))
+        skew = pd.Timedelta(minutes=2)
+        work = work[(work["time"] >= now - window) & (work["time"] <= now + skew)]
+        if work.empty:
+            return {}
+        out: dict[str, float] = {}
+        for code_raw, group in work.groupby(work["station"].astype(str).str.lower().str.rstrip("_")):
+            vtec = _fresh_station_vtec_from_group(group)
+            if vtec is None:
+                continue
+            out[str(code_raw)] = round(vtec, 2)
+        return out
+
+    out = {}
+    for code_raw, series in work.groupby("station")["vtec_tecu"]:
+        code = str(code_raw).lower().rstrip("_")
+        vtec = _robust_station_vtec(series, prefer_latest_n=40)
+        if vtec is None:
+            continue
+        out[code] = round(vtec, 2)
+    return out
+
+
+def _absolute_vtec_observation_frame(df):
+    """Prefer dual-frequency CODE TEC so heat-map values are absolute (Global-TEC comparable).
+
+    Unleveled carrier-phase VTEC is relative (unknown ambiguity) and must not be
+    plotted as live TECU against DLR/Global TEC.
+    """
+    if df is None or not hasattr(df, "empty") or df.empty:
+        return df
+    work = df
+    if "tec_method" not in work.columns:
+        return work
+
+    method = work["tec_method"].astype(str)
+    # Never treat DLR Global TEC reference samples as live CORS VTEC.
+    work = work.loc[~method.str.startswith("dlr_", na=False)].copy()
+    if work.empty:
+        return work
+    method = work["tec_method"].astype(str)
+    code_live = method.str.contains("code_live", na=False)
+    # Fast path: new collector rows are already absolute code TEC.
+    if bool(code_live.any()):
+        return work.loc[code_live].copy()
+
+    phase_only = method.str.contains("phase_only_live_unleveled", na=False)
+    if not bool(phase_only.any()):
+        return work
+
+    if "tecg_tecu" in work.columns and "elevation_deg" in work.columns:
+        from zgiis.live.stec_vtec import mapping_function
+
+        need = phase_only & pd.to_numeric(work["tecg_tecu"], errors="coerce").notna()
+        if bool(need.any()):
+            work = work.copy()
+            tecg = pd.to_numeric(work.loc[need, "tecg_tecu"], errors="coerce")
+            elev = pd.to_numeric(work.loc[need, "elevation_deg"], errors="coerce")
+            mapping = elev.map(
+                lambda e: mapping_function(float(e)) if pd.notna(e) and float(e) > 0 else np.nan
+            )
+            work.loc[need, "vtec_tecu"] = tecg.to_numpy(dtype=float) / mapping.to_numpy(dtype=float)
+        no_code = pd.to_numeric(work["tecg_tecu"], errors="coerce").isna()
+        return work.loc[~(phase_only & no_code)].copy()
+
+    return work.loc[~phase_only].copy()
+
+
+def _station_rows_from_observation_frame(df, *, source: str) -> list[dict[str, Any]]:
+    df = _absolute_vtec_observation_frame(df)
+    if df is None or not hasattr(df, "empty") or df.empty or "station" not in df.columns or "vtec_tecu" not in df.columns:
+        return []
+    vtec_by_code = station_vtec_by_code_from_frame(df)
+    if not vtec_by_code:
+        return []
+    rows: list[dict[str, Any]] = []
+    # obs_count = samples inside each station's recent live window
+    work = df
+    if "time" in work.columns:
+        work = work.copy()
+        work["time"] = pd.to_datetime(work["time"], utc=True, errors="coerce")
+        work["vtec_tecu"] = pd.to_numeric(work["vtec_tecu"], errors="coerce")
+        work = work.dropna(subset=["time", "vtec_tecu", "station"])
+    window = pd.Timedelta(minutes=float(LIVE_VTEC_RECENT_MINUTES))
+    for code, vtec in vtec_by_code.items():
+        station = _STATION_LOOKUP.get(code)
+        if station is None:
+            continue
+        obs_count = 1
+        if "time" in work.columns and not work.empty:
+            group = work[work["station"].astype(str).str.lower().str.rstrip("_") == code]
+            if not group.empty:
+                latest = group["time"].max()
+                obs_count = int((group["time"] >= latest - window).sum()) or 1
+        rows.append(
+            _row_from_station(
+                station,
+                vtec=vtec,
+                obs_count=obs_count,
+                source=source,
+            )
+        )
+    return rows
+
+
+def _temporal_reference_pipeline_rows() -> list[dict[str, Any]]:
+    """Previous map product window: [latest - 20 min, latest - 5 min)."""
+    try:
+        if not _live_db_heatmap_enabled():
+            return []
+        from backend.live_manager import get_db
+
+        df = get_db().query_recent(hours=MATAMBA_TEMPORAL_LOOKBACK_MIN / 60.0)
+    except Exception:
+        return []
+    if df is None or not hasattr(df, "empty") or df.empty or "time" not in df.columns:
+        return []
+
+    work = df.copy()
+    work["time"] = np.array(work["time"], dtype="datetime64[ns]")
+    latest_raw = work["time"].max()
+    latest = np.datetime64(latest_raw.to_datetime64() if hasattr(latest_raw, "to_datetime64") else latest_raw)
+    if np.isnat(latest):
+        return []
+    previous_start = latest - np.timedelta64(MATAMBA_TEMPORAL_LOOKBACK_MIN, "m")
+    previous_end = latest - np.timedelta64(MATAMBA_CADENCE_MIN, "m")
+    previous = work[(work["time"] >= previous_start) & (work["time"] < previous_end)]
+    return _station_rows_from_observation_frame(previous, source="live_previous_map")
+
+
+def _live_pipeline_memory_rows() -> list[dict[str, Any]]:
+    """VTEC computed by the live ingest pipeline but not yet flushed to the DB."""
+    try:
+        from backend.live_manager import latest_vtec_by_station
+
+        rows: list[dict[str, Any]] = []
+        for code, vtec in latest_vtec_by_station().items():
+            station = _STATION_LOOKUP.get(code.lower().rstrip("_"))
+            if station is None or not np.isfinite(vtec) or vtec <= 0:
+                continue
+            rows.append(_row_from_station(station, vtec=vtec, obs_count=1, source="live"))
+        return rows
+    except Exception:
+        return []
+
+
+def _probe_sample_vtec_rows() -> list[dict[str, Any]]:
+    """VTEC sampled during the cached NTRIP probe (serverless / no persistent ingest)."""
+    try:
+        from zgiis.live.ntrip_status_cache import get_cached_ntrip_probe, ntrip_probe_enabled, probe_rows_by_station
+
+        if not ntrip_probe_enabled():
+            return []
+
+        payload = get_cached_ntrip_probe(refresh=False, allow_blocking_refresh=False)
+        if payload.get("error"):
+            return []
+
+        rows: list[dict[str, Any]] = []
+        for code, probe_row in probe_rows_by_station(payload).items():
+            raw = probe_row.get("mean_vtec_tecu")
+            if raw is None:
+                continue
+            vtec = float(raw)
+            if not np.isfinite(vtec) or vtec <= 0:
+                continue
+            station = _STATION_LOOKUP.get(code.lower().rstrip("_"))
+            if station is None:
+                continue
+            rows.append(
+                _row_from_station(
+                    station,
+                    vtec=vtec,
+                    obs_count=int(probe_row.get("vtec_sample_count") or 1),
+                    source="live",
+                )
+            )
+        return rows
+    except Exception:
+        return []
+
+
+def _live_ntrip_heatmap_rows(*, refresh: bool = False) -> list[dict[str, Any]]:
+    """Fresh on-demand NTRIP VTEC samples when the ingest DB has no recent rows."""
+    try:
+        from zgiis.live.heatmap_live_vtec import rows_by_station, sample_live_ntrip_vtec
+
+        payload = sample_live_ntrip_vtec(refresh=refresh)
+        if payload.get("error") and not any(
+            float(row.get("mean_vtec_tecu") or 0) > 0 for row in (payload.get("stations") or [])
+        ):
+            return []
+
+        rows: list[dict[str, Any]] = []
+        for code, probe_row in rows_by_station(payload).items():
+            raw = probe_row.get("mean_vtec_tecu")
+            if raw is None:
+                continue
+            vtec = float(raw)
+            if not np.isfinite(vtec) or vtec <= 0:
+                continue
+            station = _STATION_LOOKUP.get(code.lower().rstrip("_"))
+            if station is None:
+                continue
+            rows.append(
+                _row_from_station(
+                    station,
+                    vtec=vtec,
+                    obs_count=int(probe_row.get("vtec_sample_count") or 1),
+                    source="live_ntrip",
+                )
+            )
+        return rows
+    except Exception:
+        return []
+
+
+def _empty_heatmap_message() -> str:
+    try:
+        from zgiis.live.heatmap_live_vtec import live_ntrip_heatmap_enabled
+        from zgiis.live.ntrip_status_cache import get_cached_ntrip_probe, ntrip_probe_enabled, probe_rows_by_station
+
+        if live_ntrip_heatmap_enabled():
+            return (
+                "No live NTRIP VTEC yet — waiting for MSM observations and broadcast ephemeris. "
+                "RINEX/CMN archive VTEC is never shown on this live heat map."
+            )
+
+        if not ntrip_probe_enabled():
+            return (
+                "No recent live NTRIP VTEC in the pipeline database. "
+                "Run scripts/live_ntrip_collector.py or enable TEC_HEATMAP_LIVE_NTRIP. "
+                "Archive RINEX/CMN is not used here."
+            )
+
+        payload = get_cached_ntrip_probe(refresh=False, allow_blocking_refresh=False)
+        if payload.get("error"):
+            return "No recent live VTEC observations in the pipeline database."
+
+        by = probe_rows_by_station(payload)
+        connected = sum(
+            1 for row in by.values() if str(row.get("verdict") or "").lower() not in {"", "offline"}
+        )
+        msm = sum(1 for row in by.values() if str(row.get("verdict") or "").lower() == "msm_streaming")
+        with_vtec = sum(1 for row in by.values() if float(row.get("mean_vtec_tecu") or 0) > 0)
+
+        if with_vtec > 0:
+            return (
+                f"{with_vtec} connected CORS site(s) sampled live VTEC — "
+                "refresh the map to load the latest probe decode."
+            )
+        if msm > 0:
+            return (
+                f"{msm} CORS site(s) streaming MSM observations — "
+                "live VTEC decode needs L1/L2 carrier phase and GPS ephemeris (RTCM 1019 / BKG BRDC)."
+            )
+        if connected > 0:
+            return (
+                f"{connected} CORS site(s) NTRIP-connected — "
+                "awaiting MSM observation stream before live VTEC can be computed."
+            )
+    except Exception:
+        pass
+    return (
+        "No recent live VTEC observations in the pipeline database. "
+        "Processed RINEX archive values are not used for this map."
+    )
+
+
+def _cors_current_tec_rows() -> list[dict[str, Any]]:
+    """Live VTEC attached to CORS station records (NTRIP / recent pipeline query)."""
+    try:
+        from backend.routers.cors_network import _stations
+
+        rows: list[dict[str, Any]] = []
+        for station in _stations():
+            current = getattr(station, "current_tec", None)
+            if current is None:
+                continue
+            vtec = float(current)
+            if not np.isfinite(vtec) or vtec <= 0:
+                continue
+            rows.append(_row_from_station(station, vtec=vtec, obs_count=1))
+        return rows
+    except Exception:
+        return []
+
+
+def _processed_archive_rows() -> list[dict[str, Any]]:
+    """Newest processed RINEX/CMN VTEC per station (archive heat-map endpoint only)."""
+    try:
+        from zgiis.data.tec_archive import load_historical_tec
+
+        df, _ = load_historical_tec()
+    except Exception:
+        return []
+
+    if df is None or df.empty or not {"timestamp", "station", "vtec"}.issubset(df.columns):
+        return []
+
+    work = df.copy()
+    work["vtec"] = np.asarray(work["vtec"], dtype=float)
+    work = work[np.isfinite(work["vtec"]) & (work["vtec"] > 0)].copy()
+    if work.empty:
+        return []
+
+    latest = work.sort_values("timestamp").groupby("station", as_index=False).tail(1)
+    rows: list[dict[str, Any]] = []
+    for code_raw, group in latest.groupby("station"):
+        code = str(code_raw).lower().rstrip("_")
+        station = _STATION_LOOKUP.get(code)
+        if station is None:
+            continue
+        mean_vtec = float(group["vtec"].mean())
+        if not np.isfinite(mean_vtec) or mean_vtec <= 0:
+            continue
+        if "observations" in group.columns:
+            obs_count = int(np.asarray(group["observations"], dtype=float).sum())
+        else:
+            obs_count = len(group)
+        rows.append(
+            _row_from_station(
+                station,
+                vtec=mean_vtec,
+                obs_count=obs_count,
+                source="processed_archive",
+            )
+        )
+    return _archive_surface_station_rows(rows)
+
+
+def _archive_surface_station_rows(control_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Add archive-surface estimates for CORS stations lacking exact archive rows."""
+    return _surface_station_rows(control_rows, estimate_source="processed_archive_estimate")
+
+
+def _surface_station_rows(
+    control_rows: list[dict[str, Any]],
+    *,
+    estimate_source: str,
+) -> list[dict[str, Any]]:
+    """Add surface-estimated rows for CORS stations lacking exact VTEC rows."""
+    if not control_rows:
+        return []
+
+    exact_by_code = {str(row["code"]).lower().rstrip("_"): row for row in control_rows}
+    if len(control_rows) == 1:
+        base_value = float(control_rows[0]["vtec"])
+        rows = list(control_rows)
+        for station in ZIMBABWE_CORS_STATIONS:
+            code = station.code.lower().rstrip("_")
+            if code in exact_by_code:
+                continue
+            rows.append(
+                _row_from_station(
+                    station,
+                    vtec=base_value,
+                    obs_count=0,
+                    source=estimate_source,
+                )
+            )
+        return rows
+
+    control_lats = np.array([row["lat"] for row in control_rows], dtype=float)
+    control_lons = np.array([row["lon"] for row in control_rows], dtype=float)
+    control_vtec = np.array([row["vtec"] for row in control_rows], dtype=float)
+    rows = list(control_rows)
+
+    for station in ZIMBABWE_CORS_STATIONS:
+        code = station.code.lower().rstrip("_")
+        if code in exact_by_code:
+            continue
+        distances = np.hypot(control_lats - float(station.lat), control_lons - float(station.lon))
+        if not np.isfinite(distances).any():
+            continue
+        if float(distances.min()) <= 1e-9:
+            estimate = float(control_vtec[int(distances.argmin())])
+        else:
+            weights = 1.0 / np.maximum(distances, 1e-6) ** 2
+            estimate = float(np.sum(weights * control_vtec) / np.sum(weights))
+        if not np.isfinite(estimate) or estimate <= 0:
+            continue
+        rows.append(
+            _row_from_station(
+                station,
+                vtec=estimate,
+                obs_count=0,
+                source=estimate_source,
+            )
+        )
+    return rows
+
+
+def _live_surface_station_rows(control_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Show best live VTEC surface estimate at every CORS site."""
+    return _surface_station_rows(control_rows, estimate_source="live_surface_estimate")
+
+
+def _merge_station_rows(*groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Merge station VTEC rows. Later groups are more authoritative.
+
+    Important: do **not** prefer higher ``obs_count``. A 2-hour DB median can have
+    tens of thousands of samples and would permanently override the last-15-min
+    NTRIP decode that operators expect on the local map.
+    """
+    merged: dict[str, dict[str, Any]] = {}
+    for group in groups:
+        for row in group:
+            code = str(row["code"]).lower().rstrip("_")
+            prev = merged.get(code)
+            if prev is None:
+                merged[code] = row
+                continue
+            row_obs = int(row.get("obs_count") or 0)
+            prev_obs = int(prev.get("obs_count") or 0)
+            # Later measured values always win; estimates only fill gaps.
+            if row_obs > 0 or prev_obs <= 0:
+                merged[code] = row
+    return list(merged.values())
+
+
+def _control_rows(stations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        row
+        for row in stations
+        if str(row.get("source") or "") not in _SURFACE_ESTIMATE_SOURCES
+    ] or stations
+
+
+def _build_grid_payload(
+    stations: list[dict[str, Any]],
+    *,
+    previous_rows: list[dict[str, Any]] | None = None,
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    if not stations:
+        return None, _empty_diagnostics()
+    try:
+        control = _control_rows(stations)
+        lats = np.array([s["lat"] for s in control], dtype=float)
+        lons = np.array([s["lon"] for s in control], dtype=float)
+        vtecs = np.array([s["vtec"] for s in control], dtype=float)
+        grid_lons, grid_lats, grid_tec = interpolate_tec_matamba(lats, lons, vtecs)
+        if not np.isfinite(grid_tec).any():
+            return None, _empty_diagnostics()
+        payload = {
+            "lons": grid_lons.tolist(),
+            "lats": grid_lats.tolist(),
+            "vtec": np.where(np.isfinite(grid_tec), grid_tec, None).tolist(),
+            "method": "nearest_median",
+            "resolution_deg": MATAMBA_GRID_STEP_DEG,
+        }
+        previous_control = _control_rows(previous_rows or []) if previous_rows else None
+        return payload, _matamba_diagnostics(
+            control,
+            stations,
+            grid_lons,
+            grid_lats,
+            grid_tec,
+            previous_rows=previous_control,
+        )
+    except Exception:
+        return None, _empty_diagnostics()
+
+
+def _append_grid_heat_points(
+    heat_points: list[dict[str, Any]],
+    grid_payload: dict[str, Any],
+) -> None:
+    grid_lons = grid_payload["lons"]
+    grid_lats = grid_payload["lats"]
+    grid_vtec = grid_payload["vtec"]
+    rows = len(grid_lats)
+    cols = len(grid_lons[0]) if grid_lons else 0
+    step = max(1, rows // 24)
+    for i in range(0, rows, step):
+        for j in range(0, cols, step):
+            value = grid_vtec[i][j] if i < len(grid_vtec) and j < len(grid_vtec[i]) else None
+            if value is None or not np.isfinite(float(value)):
+                continue
+            heat_points.append(
+                {
+                    "lon": float(grid_lons[i][j]),
+                    "lat": float(grid_lats[i][j]),
+                    "vtec": round(float(value), 2),
+                    "weight": _absolute_weight(float(value)),
+                    "code": None,
+                }
+            )
+
+
+def _heatmap_payload_from_station_rows(
+    stations: list[dict[str, Any]],
+    *,
+    empty_message: str | None,
+    previous_rows: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    if not stations:
+        return {
+            "available": False,
+            "stations": [],
+            "heat_points": [],
+            "grid": None,
+            "bounds": [ZW_LON_MIN, ZW_LAT_MIN, ZW_LON_MAX, ZW_LAT_MAX],
+            "tec_min": None,
+            "tec_max": None,
+            "station_count": 0,
+            "updated_at": None,
+            "message": empty_message,
+            "data_quality": "none",
+            "icao_mod_tecu": ICAO_TEC_MOD,
+            "icao_sev_tecu": ICAO_TEC_SEV,
+            "diagnostics": _empty_diagnostics(),
+        }
+
+    tec_values = [s["vtec"] for s in stations]
+    tec_min = float(min(tec_values))
+    tec_max = float(max(tec_values))
+
+    heat_points: list[dict[str, Any]] = [
+        {
+            "lon": s["lon"],
+            "lat": s["lat"],
+            "vtec": s["vtec"],
+            "weight": _absolute_weight(s["vtec"]),
+            "code": s["code"],
+        }
+        for s in stations
+    ]
+
+    grid_payload, diagnostics = _build_grid_payload(stations, previous_rows=previous_rows)
+    if grid_payload is not None:
+        _append_grid_heat_points(heat_points, grid_payload)
+
+    quality = _classify_data_quality(stations, grid_payload)
+    quality_message = _quality_message(quality, len(stations))
+
+    updated_at = datetime.now(ZoneInfo("Africa/Harare")).strftime("%d %b %Y, %H:%M CAT")
+    return {
+        "available": True,
+        "stations": stations,
+        "heat_points": heat_points,
+        "grid": grid_payload,
+        "bounds": [ZW_LON_MIN, ZW_LAT_MIN, ZW_LON_MAX, ZW_LAT_MAX],
+        "tec_min": round(tec_min, 2),
+        "tec_max": round(tec_max, 2),
+        "station_count": len(stations),
+        "updated_at": updated_at,
+        "message": quality_message,
+        "data_quality": quality,
+        "icao_mod_tecu": ICAO_TEC_MOD,
+        "icao_sev_tecu": ICAO_TEC_SEV,
+        "diagnostics": diagnostics,
+    }
+
+
+def build_tec_heatmap(*, hours: float = 2.0, refresh_ntrip: bool = False) -> dict[str, Any]:
+    """Return interpolated grid + heat points for map overlay (live NTRIP only)."""
+    # Cap lookback so callers asking for hours=6 cannot paint an old average.
+    live_hours = min(float(hours), LIVE_HEATMAP_MAX_LOOKBACK_MINUTES / 60.0)
+    pipeline_rows = _pipeline_station_rows(hours=live_hours)
+    recent_rows = _recent_pipeline_rows(hours=min(live_hours, 2.0 / 60.0))
+    memory_rows = _live_pipeline_memory_rows()
+    # Prefer DB + in-memory NTRIP decode. Skip the cached probe sample whenever
+    # we already have fresh pipeline VTEC — that probe can be minutes stale.
+    live_rows = _merge_station_rows(pipeline_rows, recent_rows, memory_rows)
+    if not live_rows or refresh_ntrip:
+        live_rows = _merge_station_rows(
+            live_rows,
+            _probe_sample_vtec_rows() if not live_rows else [],
+            _live_ntrip_heatmap_rows(refresh=refresh_ntrip or not live_rows),
+            memory_rows,
+        )
+    live_rows = _consensus_filter_control_rows(live_rows) if live_rows else []
+    measured_live = [row for row in live_rows if int(row.get("obs_count") or 0) > 0]
+    previous_rows = _temporal_reference_pipeline_rows() if live_rows else []
+    if previous_rows:
+        previous_rows = _consensus_filter_control_rows(previous_rows)
+    # Fill every CORS marker from cleaned measured controls (same ~16–30 TECU
+    # band local NTRIP decode shows). Spiked Neon mounts are dropped first.
+    stations = _live_surface_station_rows(live_rows) if live_rows else []
+    # Streaming measured values must always win over surface interpolation —
+    # otherwise ZINH/etc. can look frozen on a neighbour estimate.
+    if measured_live:
+        stations = _merge_station_rows(stations, measured_live)
+    if not stations:
+        cors_rows = _cors_current_tec_rows()
+        # Ignore zero/placeholder current_tec — only real live values.
+        cors_rows = [row for row in cors_rows if float(row.get("vtec") or 0) > 0]
+        cors_rows = _consensus_filter_control_rows(cors_rows) if cors_rows else []
+        stations = _live_surface_station_rows(cors_rows) if cors_rows else []
+    # Hard guard: never emit RINEX/CMN archive rows on the live map product.
+    stations = [
+        row
+        for row in stations
+        if str(row.get("source") or "") not in _PROCESSED_ARCHIVE_SOURCES
+        and "processed_archive" not in str(row.get("source") or "")
+    ]
+    payload = _heatmap_payload_from_station_rows(
+        stations,
+        empty_message=_empty_heatmap_message(),
+        previous_rows=previous_rows,
+    )
+    if payload.get("data_quality") == "processed_archive":
+        return _heatmap_payload_from_station_rows(
+            [],
+            empty_message=_empty_heatmap_message(),
+            previous_rows=[],
+        )
+    # Advertise freshness so the UI can reject stale browser/CDN copies.
+    payload["lookback_minutes"] = LIVE_HEATMAP_MAX_LOOKBACK_MINUTES
+    payload["freshness"] = "live_ntrip"
+    return payload
+
+
+def build_archive_tec_heatmap() -> dict[str, Any]:
+    """Historical archive heat map only — not used by the live dashboard map."""
+    return _heatmap_payload_from_station_rows(
+        _processed_archive_rows(),
+        empty_message="No processed RINEX/CMN archive VTEC is available.",
+    )

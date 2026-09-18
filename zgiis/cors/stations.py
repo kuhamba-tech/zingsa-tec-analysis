@@ -1,0 +1,274 @@
+"""Zimbabwe CORS network station registry."""
+from __future__ import annotations
+import time
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from typing import List
+
+@dataclass
+class CorsStation:
+    code: str
+    name: str
+    lat: float
+    lon: float
+    status: str  # "online" | "offline" | "unknown"
+    constellations: List[str] = field(default_factory=list)
+    last_file: str = ""
+    current_tec: float = 0.0
+    elevation_mask: float = 15.0
+    height_m: float = 0.0
+    observation_count: int = 0
+    data_start: str = ""
+    data_end: str = ""
+    mountpoint: str = ""
+    marker_name: str = ""
+    marker_number: str = ""
+    rtcm_id: str = "0000"
+    site_server: str = "Local Site Server"
+    last_update: str = ""
+    site_status_label: str = ""
+    # "spider" = Leica Spider Site Status (map ground truth);
+    # "ntrip" = live RTCM connection state; "catalog" = ZINGSA CORS_Program
+    # archive/health API (real data, but not live telemetry); "unknown" = neither
+    # source has anything for this station right now.
+    status_source: str = "unknown"
+    catalog_status: str = ""
+    ntrip_verdict: str = ""
+    ntrip_probed_at: str = ""
+    # Cross-check against the caster's own sourcetable (STR identifier/coords).
+    # A mismatch means the caster reports this mountpoint under a different
+    # station's identity — a strong signal that no distinct receiver is wired
+    # to it (see zgiis/live/ntrip_sourcetable.py).
+    sourcetable_identifier: str = ""
+    sourcetable_mismatch: bool = False
+    sourcetable_note: str = ""
+    # Live NTRIP rover clients on this mountpoint (Spider Business Center feed).
+    # None = feed not available; 0 = feed available and no clients connected.
+    connected_rovers: int | None = None
+    rover_peak_24h: int | None = None
+    rover_share_pct: float | None = None
+    rover_rank: int | None = None
+
+    @property
+    def status_color(self) -> str:
+        return {
+            "online": "#1D9E75",
+            "offline": "#ef4444",
+        }.get(normalize_station_status(self.status), "#94a3b8")
+
+    @property
+    def status_icon(self) -> str:
+        return {
+            "online": "🟢",
+            "offline": "🔴",
+        }.get(normalize_station_status(self.status), "⚪")
+
+
+def normalize_station_status(status: str) -> str:
+    """Map labels to online / offline / unknown (Spider-style two states).
+
+    Legacy 'linked' / 'degraded' / 'connected' mean the site session is up → online.
+    """
+    s = (status or "").lower()
+    if s in {"online", "linked", "connected", "degraded"}:
+        return "online"
+    if s == "unknown":
+        return "unknown"
+    return "offline"
+
+
+def api_status_to_map(status: str) -> str:
+    """Map CORS health API status strings to map legend statuses."""
+    s = (status or "").upper()
+    if s == "ONLINE":
+        return "online"
+    return "offline"
+
+
+_CATALOG_HEALTH_CACHE_TTL_SEC = 60.0
+_catalog_health_cache: dict[str, object] = {"data": None, "ts": 0.0}
+
+
+def _cached_catalog_health() -> dict | None:
+    """Cached fetch of the ZINGSA CORS_Program station-health API.
+
+    This is real, sourced data (RINEX-archive/catalog derived) — never
+    fabricated — but it is NOT live RTCM telemetry, so callers must label it
+    as such rather than presenting it as a live connection state.
+    """
+    now = time.monotonic()
+    cached = _catalog_health_cache.get("data")
+    if cached is not None and (now - _catalog_health_cache["ts"]) < _CATALOG_HEALTH_CACHE_TTL_SEC:
+        return cached  # type: ignore[return-value]
+    try:
+        from zgiis.api.cors_client import fetch_station_health
+
+        health = fetch_station_health(country="Zimbabwe")
+    except Exception:
+        health = None
+    if health is not None:
+        _catalog_health_cache["data"] = health
+        _catalog_health_cache["ts"] = now
+        return health
+    return cached  # type: ignore[return-value]
+
+
+def _catalog_status_by_code(health: dict | None) -> dict[str, str]:
+    rows = (health or {}).get("stations") or []
+    by_code: dict[str, str] = {}
+    for row in rows:
+        code = str(row.get("station_id", "")).lower().rstrip("_")
+        if code:
+            by_code[code] = api_status_to_map(row.get("status"))
+    return by_code
+
+
+def stations_for_map(
+    health: dict | None = None,
+    *,
+    require_live_telemetry: bool = True,
+) -> List[CorsStation]:
+    """Return CORS stations with live health statuses when the API is available."""
+    from dataclasses import replace
+
+    if health is None:
+        try:
+            from zgiis.api.cors_client import fetch_station_health
+
+            health = fetch_station_health(country="Zimbabwe")
+        except Exception:
+            health = None
+
+    summary = (health or {}).get("health_summary") or {}
+    rows = (health or {}).get("stations") or []
+    if (
+        not rows
+        or (require_live_telemetry and int(summary.get("telemetry_live") or 0) <= 0)
+    ):
+        return [
+            replace(s, status=normalize_station_status(s.status), current_tec=0.0, status_source="unknown")
+            for s in ZIMBABWE_CORS_STATIONS
+        ]
+
+    by_code = _catalog_status_by_code(health)
+
+    merged: List[CorsStation] = []
+    for station in ZIMBABWE_CORS_STATIONS:
+        code = station.code.lower().rstrip("_")
+        live = by_code.get(code)
+        status = live if live else normalize_station_status(station.status)
+        source = "catalog" if live else "unknown"
+        merged.append(replace(station, status=status, status_source=source, catalog_status=status))
+    return merged
+
+
+def derive_status_from_stream(stream: dict | None, *, stale_after_sec: float = 90.0) -> str:
+    """Map one station's live NTRIP stream state to online/offline/unknown.
+
+    Fallback only when Spider Site Status is unavailable. Online requires a
+    recent MSM/last_seen observation — sticky TCP ``connected`` alone is not
+    enough (matches Spider red sites that still accept caster sessions).
+    """
+    if not stream:
+        return "unknown"
+    last_seen = stream.get("last_seen")
+    if last_seen:
+        try:
+            if isinstance(last_seen, str):
+                ts = datetime.fromisoformat(last_seen.replace("Z", "+00:00"))
+            else:
+                ts = last_seen
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            age = (datetime.now(tz=timezone.utc) - ts).total_seconds()
+            if age <= stale_after_sec:
+                return "online"
+        except Exception:
+            pass
+    return "offline"
+
+
+def stations_for_map_live(live_status: dict | None = None) -> List[CorsStation]:
+    """Return CORS stations with status derived solely from the live NTRIP
+    pipeline's real RTCM connection state — never the third-party catalog API.
+    Callers that want a catalog fallback should use stations_for_map() instead;
+    this function's "no third-party calls" contract is relied on elsewhere
+    (e.g. get_space_weather(use_third_party=False)).
+    """
+    from dataclasses import replace
+
+    pipeline_configured = False
+    try:
+        from backend import live_manager
+
+        mgr_status = live_manager.status()
+        if live_status is None:
+            live_status = mgr_status.get("streams") or {}
+        pipeline_configured = bool(mgr_status.get("configured"))
+    except Exception:
+        live_status = live_status or {}
+
+    merged: List[CorsStation] = []
+    for station in ZIMBABWE_CORS_STATIONS:
+        code = station.code.lower().rstrip("_")
+        stream = live_status.get(code) if live_status else None
+        if stream is None:
+            # Pipeline active but no stream row → treat as not connected.
+            status = "offline" if pipeline_configured else "unknown"
+            source = "ntrip" if pipeline_configured else "unknown"
+        else:
+            status = derive_status_from_stream(stream)
+            source = "ntrip"
+        merged.append(replace(station, status=status, status_source=source))
+
+    return merged
+
+ZIMBABWE_CORS_STATIONS: List[CorsStation] = [
+    # Coordinates imported from CORS_FILES/corszingsa.xlsx on 2026-06-13.
+    CorsStation("muto", "Mutoko",       -17.40452552, 32.21956895, "online",     ["GPS"], height_m=1265.3981),
+    CorsStation("mata", "Mataga",       -20.84527778, 30.19333333, "offline",    ["GPS"], height_m=1000.0000),
+    CorsStation("muta", "Mutare",       -18.97829762, 32.67722325, "online",     ["GPS", "GLONASS"], height_m=1113.0200),
+    CorsStation("bula", "Bulawayo",     -20.16531328, 28.64114319, "online",     ["GPS", "GLONASS"], height_m=1392.4000),
+    CorsStation("gwer", "Gweru",        -19.51195226, 29.84053989, "online",     ["GPS", "GLONASS"], height_m=1438.8300),
+    CorsStation("hacy", "Harare City",  -17.82516600, 31.03351100, "offline",    ["GPS", "GLONASS"]),
+    CorsStation("masv", "Masvingo",     -20.08775776, 30.83149252, "online",     ["GPS", "GLONASS"], height_m=1096.5400),
+    CorsStation("hara", "Harare",       -17.78140871, 31.04856188, "online",     ["GPS", "GLONASS"], height_m=1525.7100),
+    CorsStation("zinh", "ZINGSA HQ",    -17.78483089, 31.05063364, "online",     ["GPS", "GLONASS", "Galileo", "BeiDou"], height_m=1514.9404),
+    CorsStation("lupa", "Lupane",       -18.94696921, 27.76074133, "online",     ["GPS", "GLONASS", "Galileo", "BeiDou"], height_m=986.2676),
+    CorsStation("cent", "Centenary",    -16.73144103, 31.11882966, "online",     ["GPS", "GLONASS", "Galileo", "BeiDou"], height_m=1222.0549),
+    CorsStation("karo", "Karoi",        -16.81896637, 29.68364577, "online",     ["GPS", "GLONASS", "Galileo", "BeiDou"], height_m=1286.5621),
+    CorsStation("kwek", "Kwekwe",       -18.93450249, 29.80392498, "online",     ["GPS", "GLONASS", "Galileo", "BeiDou"], height_m=1231.4777),
+    CorsStation("gokw", "Gokwe",        -18.21248449, 28.93207200, "online",     ["GPS", "GLONASS", "Galileo", "BeiDou"], height_m=1292.7306),
+    CorsStation("gsu",  "GSU",          -20.43602472, 29.27481487, "online",     ["GPS", "GLONASS", "Galileo", "BeiDou"], height_m=1212.7989),
+    CorsStation("chir", "Chiredzi",     -21.04512914, 31.66864490, "online",     ["GPS", "GLONASS", "Galileo", "BeiDou"], height_m=434.6533),
+    CorsStation("chim", "Chimanimani",  -19.80266433, 32.87045111, "online",     ["GPS", "GLONASS", "Galileo", "BeiDou"], height_m=1539.1271),
+    CorsStation("chiv", "Chivhu",       -19.01795928, 30.89528957, "online",     ["GPS", "GLONASS", "Galileo", "BeiDou"], height_m=1466.4191),
+    CorsStation("kari", "Kariba",       -16.51946232, 28.79036193, "online",     ["GPS", "GLONASS", "Galileo", "BeiDou"], height_m=753.4219),
+    CorsStation("tsho", "Tsholotsho",   -19.77047206, 27.76089160, "online",     ["GPS", "GLONASS", "Galileo", "BeiDou"], height_m=1107.5636),
+    CorsStation("vicf", "Victoria Falls", -17.92673716, 25.84053994, "online",     ["GPS", "GLONASS", "Galileo", "BeiDou"], height_m=922.5889),
+    CorsStation("gutu", "Gutu",         -19.64609500, 31.14708901, "online",     ["GPS", "GLONASS", "Galileo", "BeiDou"], height_m=1396.6381),
+    CorsStation("beit", "Beitbridge",   -22.21018295, 29.99524904, "online",     ["GPS", "GLONASS", "Galileo", "BeiDou"], height_m=486.8955),
+    CorsStation("bing", "Binga",        -17.62509280, 27.33817181, "online",     ["GPS", "GLONASS", "Galileo", "BeiDou"], height_m=632.9443),
+    # Spider Site Status lists NKAY as the network's 25th site. Coordinates
+    # are taken from the live Spider map supplied by ZINGSA.
+    CorsStation("nkay", "Nkayi",        -18.98635139, 28.83723889, "online",     ["GPS", "GLONASS", "Galileo", "BeiDou"]),
+]
+
+
+def get_station(code: str) -> CorsStation | None:
+    code = code.lower()
+    return next((s for s in ZIMBABWE_CORS_STATIONS if s.code == code), None)
+
+
+def get_online_stations() -> List[CorsStation]:
+    return [s for s in ZIMBABWE_CORS_STATIONS if s.status == "online"]
+
+
+def update_tec_from_df(df) -> None:
+    """Update current_tec for stations from a processed DataFrame."""
+    if df is None or df.empty or "station" not in df.columns or "vtec" not in df.columns:
+        return
+    latest = df.groupby("station")["vtec"].mean()
+    for station in ZIMBABWE_CORS_STATIONS:
+        if station.code in latest.index:
+            station.current_tec = round(float(latest[station.code]), 2)
