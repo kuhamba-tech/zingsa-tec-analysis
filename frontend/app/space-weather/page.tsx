@@ -42,7 +42,6 @@ import {
   donkiCmeCountColor,
   donkiFlareCountColor,
   donkiStormCountColor,
-  flareClassColor,
 } from "@/lib/solarEventColors";
 import { DashboardHeaderClocks } from "@/components/dashboard/DashboardClocks";
 
