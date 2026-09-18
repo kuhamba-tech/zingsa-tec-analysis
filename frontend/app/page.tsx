@@ -7,10 +7,11 @@ import {
   getSpaceWeather,
   getStations,
 } from "@/lib/api";
+import { absorbInlineBootPayload, bootSpaceWeather } from "@/lib/bootSpaceWeather";
 import { peekSpaceWeather, subscribeSpaceWeather } from "@/lib/spaceWeatherStore";
 import { peekStations, subscribeStations, stationsAreSpiderAuthoritative } from "@/lib/stationsStore";
 import { mergeSpaceWeatherWithEkf } from "@/lib/homeSpaceWeather";
-import { buildMetricCards } from "@/lib/spaceWeatherMetrics";
+import { buildMetricCards, NOAA_G_SCALE } from "@/lib/spaceWeatherMetrics";
 import {
   countLiveStationStatuses,
   formatCorsConnectedShort,
@@ -28,7 +29,6 @@ import Link from "next/link";
 import Image from "next/image";
 import dynamic from "next/dynamic";
 import { DashboardHeaderClocks } from "@/components/dashboard/DashboardClocks";
-import { PRODUCT_SHORT_NAME, PRODUCT_TAGLINE } from "@/lib/navigationNewsBranding";
 
 const CauseEffectTimelineStack = dynamic(
   () => import("@/components/spaceWeather/CauseEffectTimelineStack"),
@@ -99,15 +99,21 @@ function HomeMetricCard({
   label,
   value,
   note,
+  subtitle,
   valueColor,
   loading,
+  showGScale,
+  activeGCode,
 }: {
   icon: string;
   label: string;
   value: string;
   note: string;
+  subtitle?: string | null;
   valueColor: string;
   loading?: boolean;
+  showGScale?: boolean;
+  activeGCode?: string | null;
 }) {
   return (
     <div className="sw-metric-card home-metric-card">
@@ -116,7 +122,36 @@ function HomeMetricCard({
       <div className="sw-metric-value" style={{ color: loading ? "var(--text-muted)" : valueColor }}>
         {loading ? "…" : value}
       </div>
+      {subtitle ? <div className="sw-metric-subtitle">{subtitle}</div> : null}
       <div className="sw-metric-note">{loading ? "Loading live feed…" : note}</div>
+      {showGScale ? (
+        <div className="sw-metric-flare-scale sw-metric-g-scale" aria-label="NOAA G-scale">
+          {NOAA_G_SCALE.map((g) => {
+            const active = activeGCode === g.code;
+            return (
+              <div
+                className={`sw-metric-flare-scale-item${active ? " is-active" : ""}`}
+                key={g.code}
+              >
+                <div
+                  className="sw-metric-flare-scale-bar"
+                  style={{
+                    background: g.color,
+                    height: active ? 4 : 2,
+                    opacity: active || !activeGCode ? 1 : 0.45,
+                  }}
+                />
+                <div
+                  className="sw-metric-flare-scale-letter"
+                  style={{ color: g.color, fontWeight: active ? 900 : 800 }}
+                >
+                  {g.code}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -145,13 +180,43 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
-    const cachedSw = peekSpaceWeather();
-    if (cachedSw) {
-      setLiveSw(cachedSw);
-      setDisplaySw(cachedSw);
-      setSwStatus("stale");
-    }
-    // Do not paint station greens/reds from a previous session — wait for Spider.
+    let cancelled = false;
+    const applySw = (sw: SpaceWeatherCurrent, status: FeedStatus) => {
+      if (cancelled || !sw) return;
+      setLiveSw(sw);
+      setDisplaySw(sw);
+      setSwStatus(status);
+      if (sw.stations_online != null && sw.stations_total != null) {
+        setStationsLoading(false);
+      }
+    };
+
+    const cachedSw = absorbInlineBootPayload() ?? peekSpaceWeather();
+    if (cachedSw) applySw(cachedSw, "stale");
+
+    // Inline boot often lands before React hydrates — poll briefly so metrics
+    // paint as soon as window.__ZGIIS_SW_BOOT is set.
+    const started = Date.now();
+    const poll = window.setInterval(() => {
+      const boot = absorbInlineBootPayload();
+      if (boot) {
+        applySw(boot, "stale");
+        window.clearInterval(poll);
+      } else if (Date.now() - started > 2500) {
+        window.clearInterval(poll);
+      }
+    }, 40);
+
+    void bootSpaceWeather().then((sw) => {
+      if (sw) applySw(sw, "ok");
+    });
+    // Prefetch the heavy timeline/map chunk while metrics paint.
+    void import("@/components/spaceWeather/CauseEffectTimelineStack");
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(poll);
+    };
   }, []);
 
   useEffect(() => subscribeSpaceWeather((next) => {
@@ -159,6 +224,9 @@ export default function HomePage() {
     setDisplaySw((prev) => (prev ? { ...prev, ...next } : next));
     setSwStatus("ok");
     setLoadError(null);
+    if (next.stations_online != null && next.stations_total != null) {
+      setStationsLoading(false);
+    }
   }), []);
 
   useEffect(() => subscribeStations((next) => {
@@ -184,11 +252,17 @@ export default function HomePage() {
           setDisplaySw(cached);
           setLiveSw(cached);
           setSwStatus("stale");
+          if (cached.stations_online != null && cached.stations_total != null) {
+            setStationsLoading(false);
+          }
         } else {
           setSwStatus("pending");
           setLoadError(null);
         }
-        setStationsLoading(peekStations().length === 0);
+        setStationsLoading((prev) => {
+          if (cached?.stations_online != null && cached?.stations_total != null) return false;
+          return peekStations().length === 0 ? true : prev;
+        });
         setNtripRefreshing(!cached && peekStations().length === 0);
       }
 
@@ -200,6 +274,9 @@ export default function HomePage() {
           setDisplaySw(value);
           setSwStatus("ok");
           setLoadError(null);
+          if (value.stations_online != null && value.stations_total != null) {
+            setStationsLoading(false);
+          }
           return value;
         })
         .catch(() => {
@@ -264,7 +341,9 @@ export default function HomePage() {
   }, []);
 
   const freshnessMsg = useFeedFreshness("space-weather", swStatus);
-  const loading = swStatus === "pending" && !displaySw;
+  const metricsPending = swStatus === "pending" && !displaySw;
+  const hasSwStationCounts =
+    displaySw?.stations_online != null && displaySw?.stations_total != null;
 
   const liveCounts = countLiveStationStatuses(stations);
   const spiderLive = stationsAreSpiderAuthoritative(stations);
@@ -273,6 +352,7 @@ export default function HomePage() {
     // Catalog-only snapshots (cold Vercel) must not override Spider/SW counts.
     liveStationCounts: spiderLive ? liveCounts : undefined,
     ekfFilled,
+    indicesLoading: metricsPending,
   })
     .filter((card) => HOME_METRIC_KEYS.includes(card.key))
     .map((card) => ({
@@ -328,7 +408,7 @@ export default function HomePage() {
               {pipelineNote}
             </div>
           )}
-          {ntripRefreshing && stations.length === 0 && (
+          {ntripRefreshing && stations.length === 0 && !hasSwStationCounts && (
             <div className="banner banner-info" style={{ fontSize: "0.78rem" }}>
               Checking live CORS streams…
             </div>
@@ -347,8 +427,15 @@ export default function HomePage() {
                 label={card.label}
                 value={card.value}
                 note={card.note}
+                subtitle={card.subtitle}
                 valueColor={card.valueColor}
-                loading={card.key === "stations" ? stationsLoading : loading && card.value === "N/A"}
+                showGScale={card.showGScale}
+                activeGCode={card.activeGCode}
+                loading={
+                  card.key === "stations"
+                    ? stationsLoading && !hasSwStationCounts
+                    : metricsPending
+                }
               />
             ))}
           </div>
@@ -358,7 +445,8 @@ export default function HomePage() {
       <DeferredMount
         className="sw-deferred-block"
         minHeight={320}
-        rootMargin="180px 0px"
+        rootMargin="480px 0px"
+        eager
         fallback={
           <div className="banner banner-info" role="status" style={{ margin: "0.75rem 0" }}>
             Loading timelines and CORS map…

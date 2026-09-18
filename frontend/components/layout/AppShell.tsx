@@ -151,11 +151,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("hashchange", sync);
   }, [pathname]);
 
-  // Warm the live space-weather cache as soon as the shell mounts so page
-  // metrics can paint without waiting on slower station/Spider calls.
+  // Warm the live space-weather cache without waiting on the heavy api.ts chunk.
   useEffect(() => {
-    void import("@/lib/api").then(({ getSpaceWeather }) => {
-      void getSpaceWeather().catch(() => null);
+    void import("@/lib/bootSpaceWeather").then(({ bootSpaceWeather }) => {
+      void bootSpaceWeather();
     });
   }, []);
 
