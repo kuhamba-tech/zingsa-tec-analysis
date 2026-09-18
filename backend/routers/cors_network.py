@@ -633,11 +633,11 @@ def _merge_spider_site_statuses(stations: list, *, refresh: bool = False) -> lis
         # refresh in the background. Explicit refresh_ntrip may wait briefly.
         serverless = _is_serverless_runtime()
         if refresh:
-        payload = ensure_spider_site_statuses(
+            payload = ensure_spider_site_statuses(
                 max_age_sec=0.0,
                 wait_sec=20.0 if serverless else 8.0,
                 allow_stale_fallback=serverless,
-        )
+            )
         else:
             payload = get_cached_spider_site_statuses(refresh=False)
     except Exception:

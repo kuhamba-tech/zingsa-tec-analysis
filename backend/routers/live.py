@@ -67,7 +67,7 @@ async def live_vtec(
             if bool(live_mask.any()):
                 df = df.loc[live_mask]
             else:
-            return []
+                return []
         result = []
         for _, row in df.iterrows():
             result.append(LiveObservation(
