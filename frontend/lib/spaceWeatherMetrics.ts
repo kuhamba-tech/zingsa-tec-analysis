@@ -240,11 +240,21 @@ function flareColor(flareClass: string | null | undefined): string {
   return "#38bdf8";
 }
 
-function vtecColor(tec: number | null): string {
+/** Same palette as the Zimbabwe Ionosphere metric card (What is happening now). */
+export function vtecColor(tec: number | null): string {
   if (tec === null) return "#94a3b8";
   if (tec >= 60) return "#f97316";
   if (tec >= 40) return "#eab308";
   return "#38bdf8";
+}
+
+/** CORS connected count color — matches the CORS Connected metric card. */
+export function corsCountColor(online: number | null, total: number | null): string {
+  if (online == null || total == null || total <= 0) return "#94a3b8";
+  const ratio = online / total;
+  if (ratio >= 0.7) return "#168bd2";
+  if (ratio >= 0.4) return "#eab308";
+  return "#f97316";
 }
 
 /** Single display rules for every dashboard surface (cards, Navigation News, briefs). */
