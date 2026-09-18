@@ -760,8 +760,8 @@ export default function SpaceWeatherPage() {
           </div>
         </div>
 
-        {/* Row 2: Solar Wind | Alerts | Flares count */}
-        <div className="sw-triple-grid">
+        {/* Row 2: Solar Wind | Estimated operational context */}
+        <div className="sw-double-grid">
 
           {/* Solar Wind */}
           <div className="card" {...solarCardClickProps("wind")}>
@@ -784,27 +784,6 @@ export default function SpaceWeatherPage() {
                 </div>
               );
             })}
-          </div>
-
-          <div className="card" style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-            <div className="metric-label">Alerts / Watches / Warnings</div>
-            {alertMsg ? (
-              <>
-                <div style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
-                  Issued {observationTime(displayText(latestAlert?.issue_datetime))}
-                </div>
-                <div style={{ fontSize: "0.85rem", lineHeight: 1.5, overflowY: "auto", maxHeight: "180px", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
-                  {alertMsg}
-                </div>
-                <div style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
-                  Check bulletin validity; a recent listing does not confirm an active warning.
-                </div>
-                {alertCount > 1 && <div style={{ fontSize: "0.85rem" }}>+{alertCount - 1} more bulletin(s)</div>}
-              </>
-            ) : (
-              <p>{saLoading && !sa ? "Loading NOAA bulletins…" : sa?.feed_status?.swpc_alerts?.reachable && solarFeedLive ? "No bulletins returned by the current NOAA feed." : "Current NOAA alert status unavailable."}</p>
-            )}
-            <a href="#operational-alerts-title" style={{ marginTop: "auto", fontSize: "0.85rem" }}>Source: NOAA SWPC · View all bulletins ↓</a>
           </div>
 
           {/* Estimated operational context */}
