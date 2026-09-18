@@ -1,7 +1,7 @@
 import SwSectionBanner from "./SwSectionBanner";
 import type { LiveStationVtecSeries } from "@/lib/types";
 import { monitoringFreshness, observationEpoch, observationTime } from "@/lib/monitoringStatus";
-import { corsCountColor, formatVtecDisplay, vtecColor } from "@/lib/spaceWeatherMetrics";
+import { formatVtecDisplay, vtecColor } from "@/lib/spaceWeatherMetrics";
 
 export default function LocalIonosphereObservations({ stations, now, refreshFailed, loading }: {
   stations: LiveStationVtecSeries[];
@@ -32,9 +32,8 @@ export default function LocalIonosphereObservations({ stations, now, refreshFail
         : "Unavailable";
 
   const meanColor = vtecColor(mean);
-  const stationsColor = loading
-    ? "#94a3b8"
-    : corsCountColor(fresh.length, rows.length);
+  // Match CORS Connected metric card — always brand blue when counts are live.
+  const stationsColor = loading || rows.length === 0 ? "#94a3b8" : "#168bd2";
   // Colour the range by the high end — same threshold bands as the metric card.
   const rangeColor = vtecColor(rangeMax);
 
