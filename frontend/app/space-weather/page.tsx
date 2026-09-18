@@ -8,6 +8,7 @@ import { peekSpaceWeather, subscribeSpaceWeather } from "@/lib/spaceWeatherStore
 import { peekSolarActivity, subscribeSolarActivity } from "@/lib/solarActivityStore";
 import { peekStations, subscribeStations } from "@/lib/stationsStore";
 import ClickableMetricGrid from "@/components/spaceWeather/ClickableMetricGrid";
+import DeferredMount from "@/components/spaceWeather/DeferredMount";
 import IndexScaleReference from "@/components/spaceWeather/IndexScaleReference";
 import SwSectionBanner from "@/components/spaceWeather/SwSectionBanner";
 import { monitoringFreshness, observationTime } from "@/lib/monitoringStatus";
@@ -287,7 +288,7 @@ function TimelineCard({
             {...speedScale}
           />
           <div style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>
-            {source} · {chrono.length} points{hasEkf ? " · EKF overlay" : ""} · synced UTC axis.
+            {source} · {plot.length} points{hasEkf ? " · EKF overlay" : ""} · synced UTC axis.
           </div>
           {expanded && <ChartAnalysisBox block={analysis} title="Scientific interpretation" />}
         </>
@@ -797,9 +798,23 @@ export default function SpaceWeatherPage() {
           Recent SWPC bulletins and feed status are listed on the Alerts page with storm watches.
         </p>
       </section>
-      <CauseEffectTimelineStack />
-      <IndexScaleReference />
-      <AdvancedScientificIndices sw={sw} solar={sa} />
+      <DeferredMount
+        className="sw-deferred-block"
+        minHeight={320}
+        rootMargin="180px 0px"
+        fallback={sectionFallback}
+      >
+        <CauseEffectTimelineStack />
+      </DeferredMount>
+      <DeferredMount
+        className="sw-deferred-block"
+        minHeight={120}
+        rootMargin="160px 0px"
+        fallback={sectionFallback}
+      >
+        <IndexScaleReference />
+        <AdvancedScientificIndices sw={sw} solar={sa} />
+      </DeferredMount>
 
       {/* ── Tabs ── */}
       <div className="tabs">
@@ -965,7 +980,14 @@ export default function SpaceWeatherPage() {
           </div>
 
           {/* KNMI-style heliospheric stack: protons, IMF, solar wind, Kp forecast */}
-          <HeliosphericMonitorStack />
+          <DeferredMount
+            className="sw-deferred-block"
+            minHeight={280}
+            rootMargin="200px 0px"
+            fallback={sectionFallback}
+          >
+            <HeliosphericMonitorStack />
+          </DeferredMount>
 
           {/* Active Regions + CME table side by side */}
           <div className="sw-double-grid">
@@ -1022,7 +1044,14 @@ export default function SpaceWeatherPage() {
           </div>
 
           {/* F10.7 & Sunspot Number — full multi-cycle record */}
-          <SolarCycleFullRecordCharts />
+          <DeferredMount
+            className="sw-deferred-block"
+            minHeight={240}
+            rootMargin="200px 0px"
+            fallback={sectionFallback}
+          >
+            <SolarCycleFullRecordCharts />
+          </DeferredMount>
 
           {/* Solar Cycle Progress */}
           <div className="card">

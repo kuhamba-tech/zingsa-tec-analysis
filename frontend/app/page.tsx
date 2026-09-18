@@ -17,6 +17,7 @@ import {
   mergeStationsPreferLive,
 } from "@/lib/liveStationStatus";
 import HomeStormAlertBanner from "@/components/layout/HomeStormAlertBanner";
+import DeferredMount from "@/components/spaceWeather/DeferredMount";
 import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
 import type {
   Station,
@@ -354,7 +355,18 @@ export default function HomePage() {
         </section>
       </div>
 
-      <CauseEffectTimelineStack />
+      <DeferredMount
+        className="sw-deferred-block"
+        minHeight={320}
+        rootMargin="180px 0px"
+        fallback={
+          <div className="banner banner-info" role="status" style={{ margin: "0.75rem 0" }}>
+            Loading timelines and CORS map…
+          </div>
+        }
+      >
+        <CauseEffectTimelineStack />
+      </DeferredMount>
 
       <section className="home-getting-started" aria-label="Getting started">
         <div className="home-getting-started-panel">

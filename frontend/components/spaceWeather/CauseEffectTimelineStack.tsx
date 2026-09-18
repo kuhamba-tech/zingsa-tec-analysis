@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import LocalIonosphereObservations from "./LocalIonosphereObservations";
 import SpaceWeatherCorsMap from "./SpaceWeatherCorsMap";
+import DeferredMount from "./DeferredMount";
 import GoesXrayLastDayChart from "./GoesXrayLastDayChart";
 import SwSectionBanner from "./SwSectionBanner";
 import LineChart from "@/components/charts/LineChart";
@@ -401,8 +402,20 @@ export default function CauseEffectTimelineStack() {
   return (
     <>
     <LocalIonosphereObservations stations={vtec} now={now} refreshFailed={vtecRefreshFailed} loading={loading} />
-    {/* CORS network map sits between local ionosphere readings and solar-driver timelines. */}
-    <SpaceWeatherCorsMap />
+    {/* CORS map is heavier than the readings — mount when near viewport. */}
+    <DeferredMount
+      className="sw-deferred-block"
+      minHeight={260}
+      rootMargin="120px 0px"
+      fallback={
+        <div className="home-map-loading" role="status" aria-live="polite">
+          <span className="home-map-loading-spinner" aria-hidden="true" />
+          <span>Loading CORS map…</span>
+        </div>
+      }
+    >
+      <SpaceWeatherCorsMap />
+    </DeferredMount>
     <section className="card sw-driver-timelines" style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }} aria-labelledby="driver-timelines-title">
       <SwSectionBanner
         icon="🔗"

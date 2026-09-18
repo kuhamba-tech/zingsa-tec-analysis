@@ -22,11 +22,36 @@ const CorsMapWithLayers = dynamic(() => import("@/components/maps/CorsMapWithLay
   ),
 });
 
+function useCorsMapHeight(preferred = 440): number {
+  const [height, setHeight] = useState(() => {
+    if (typeof window === "undefined") return preferred;
+    const w = window.innerWidth;
+    if (w <= 560) return 260;
+    if (w <= 768) return 320;
+    return preferred;
+  });
+
+  useEffect(() => {
+    const apply = () => {
+      const w = window.innerWidth;
+      if (w <= 560) setHeight(260);
+      else if (w <= 768) setHeight(320);
+      else setHeight(preferred);
+    };
+    apply();
+    window.addEventListener("resize", apply, { passive: true });
+    return () => window.removeEventListener("resize", apply);
+  }, [preferred]);
+
+  return height;
+}
+
 /**
  * Zimbabwe CORS Network map — markers use the same Spider station snapshot as
  * the CORS Connected metric card. Heatmap is optional and must never block markers.
  */
-export default function SpaceWeatherCorsMap({ height = 440 }: { height?: number }) {
+export default function SpaceWeatherCorsMap({ height: preferredHeight = 440 }: { height?: number }) {
+  const height = useCorsMapHeight(preferredHeight);
   const [stations, setStations] = useState<Station[]>(() => peekStations());
   const [stationsLoading, setStationsLoading] = useState(() => peekStations().length === 0);
   const [heatmap, setHeatmap] = useState<TecHeatmapResponse | null>(null);
@@ -68,6 +93,7 @@ export default function SpaceWeatherCorsMap({ height = 440 }: { height?: number 
       });
 
     // Heatmap is decorative for the Hybrid layer — never block station dots.
+    // On narrow viewports, wait longer so metric paint and scroll stay responsive.
     const loadHeatmap = () => {
       void getTecHeatmap(0.05, false)
         .then((hm) => {
@@ -75,14 +101,25 @@ export default function SpaceWeatherCorsMap({ height = 440 }: { height?: number 
         })
         .catch(() => null);
     };
+    const narrow =
+      typeof window !== "undefined" && window.matchMedia("(max-width: 768px)").matches;
+    const idleTimeout = narrow ? 6000 : 2500;
+    const fallbackDelay = narrow ? 1800 : 400;
+
+    let idleId: number | undefined;
+    let timeoutId: number | undefined;
     if (typeof window !== "undefined" && "requestIdleCallback" in window) {
-      window.requestIdleCallback(() => loadHeatmap(), { timeout: 2500 });
+      idleId = window.requestIdleCallback(() => loadHeatmap(), { timeout: idleTimeout });
     } else {
-      window.setTimeout(loadHeatmap, 400);
+      timeoutId = window.setTimeout(loadHeatmap, fallbackDelay);
     }
 
     return () => {
       cancelled = true;
+      if (idleId != null && "cancelIdleCallback" in window) {
+        window.cancelIdleCallback(idleId);
+      }
+      if (timeoutId != null) window.clearTimeout(timeoutId);
     };
   }, []);
 
