@@ -7253,8 +7253,27 @@ a.home-map-layer-btn {
   padding-top: 0.75rem;
 }
 @media (max-width: 640px) {
-  .sw-local-readings { grid-template-columns: 1fr; gap: .6rem; }
+  .sw-local-readings {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.45rem;
+  }
+  .sw-local-readings > div {
+    padding: 0.65rem 0.55rem;
+  }
+  .sw-local-readings span {
+    font-size: 0.68rem;
+    margin-bottom: 0.3rem;
+  }
+  .sw-local-readings strong {
+    font-size: 0.95rem;
+  }
   .sw-detail-content { padding: 0 .5rem .5rem; }
+}
+
+@media (max-width: 360px) {
+  .sw-local-readings {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* Mobile-first: keep first paint light; defer heavy SW/home stacks. */
