@@ -3,7 +3,8 @@
   "private": true,
   "scripts": {
     "build": "cd frontend && npm run build",
-    "preview": "cd frontend && npm run preview"
+    "preview": "cd frontend && npm run preview",
+    "program": "node ./scripts/run_program.mjs"
   },
   "dependencies": {
     "next": "16.2.9"
