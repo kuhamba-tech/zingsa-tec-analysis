@@ -33,12 +33,12 @@ let latest: Station[] | null = null;
 let latestSavedAt = 0;
 const listeners = new Set<Listener>();
 
-/** Drop any old localStorage catalog snapshots from previous deploys. */
+/** Drop any old localStorage catalog snapshots from previous deploys.
+ * Does not notify subscribers with [] — that falsely ends CORS loading. */
 export function purgeStaleStationsCache(): void {
   clearPersisted();
   latest = null;
   latestSavedAt = 0;
-  listeners.forEach((fn) => fn([]));
 }
 
 export function publishStations(stations: Station[]): Station[] {

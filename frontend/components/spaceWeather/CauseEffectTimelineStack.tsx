@@ -142,6 +142,24 @@ function chronologicalSeries<T extends Record<string, (number | null)[] | string
   };
 }
 
+function panelOrNull<T extends Record<string, (number | null)[] | string[]>>(
+  panel: { labels: string[]; epochs: number[]; series: T } | null,
+): { labels: string[]; epochs: number[]; series: T } | null {
+  if (!panel || panel.labels.length === 0) return null;
+  return panel;
+}
+
+/** Prefer clipped series; if the live window empties the panel, keep unclipped. */
+function clipOrFallback<T extends Record<string, (number | null)[] | string[]>>(
+  raw: { labels: string[]; epochs: number[]; series: T } | null,
+  domain: { min: number; max: number } | null,
+): { labels: string[]; epochs: number[]; series: T } | null {
+  const base = panelOrNull(raw);
+  if (!base) return null;
+  const clipped = panelOrNull(clipSeriesToDomain(base, domain));
+  return clipped ?? base;
+}
+
 /** Keep only points inside the shared L1 UTC window so Kp/Dst match wind/IMF. */
 function clipSeriesToDomain<T extends Record<string, (number | null)[] | string[]>>(
   panel: { labels: string[]; epochs: number[]; series: T } | null,
@@ -181,6 +199,7 @@ export default function CauseEffectTimelineStack() {
   const [vtec, setVtec] = useState<LiveStationVtecSeries[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [vtecLoading, setVtecLoading] = useState(true);
   const [syncHoverMs, setSyncHoverMs] = useState<number | null>(null);
   const [geoTab, setGeoTab] = useState<GeoTab>("kp");
   const [rangeHours, setRangeHours] = useState<6 | 24 | 72>(24);
@@ -191,38 +210,60 @@ export default function CauseEffectTimelineStack() {
   useEffect(() => {
     let cancelled = false;
     let inFlight = false;
+    let failures = 0;
     const cached = peekHeliosphericMonitor();
     if (cached) { setHelio(cached); setLoading(false); }
+    const markPainted = () => {
+      if (!cancelled) setLoading(false);
+    };
     const refresh = async () => {
       if (inFlight) return;
       inFlight = true;
+      failures = 0;
+      if (!cancelled) setVtecLoading(true);
       // Resolve each feed independently so Zimbabwe VTEC / GNSS panels paint
       // as soon as their JSON arrives instead of waiting on the slowest of 3.
       const tasks: Promise<void>[] = [
         getHeliosphericMonitor(false, false)
-          .then((h) => { if (!cancelled) setHelio(h); })
-          .catch(() => null)
+          .then((h) => {
+            if (cancelled) return;
+            setHelio(h);
+            markPainted();
+          })
+          .catch(() => { failures += 1; })
           .then(() => undefined),
         getTimelines()
-          .then((t) => { if (!cancelled) setTimelines(t); })
-          .catch(() => null)
+          .then((t) => {
+            if (cancelled) return;
+            setTimelines(t);
+            markPainted();
+          })
+          .catch(() => { failures += 1; })
           .then(() => undefined),
         getLiveVtecByStation(Math.min(rangeHours, 48), 2)
           .then((v) => {
             if (cancelled) return;
             setVtec(Array.isArray(v) ? v : []);
             setVtecRefreshFailed(false);
+            markPainted();
           })
           .catch(() => {
+            failures += 1;
             if (!cancelled) setVtecRefreshFailed(true);
+          })
+          .finally(() => {
+            if (!cancelled) setVtecLoading(false);
           })
           .then(() => undefined),
       ];
-      const results = await Promise.allSettled(tasks);
+      await Promise.allSettled(tasks);
       inFlight = false;
       if (cancelled) return;
-      const failed = results.filter((result) => result.status === "rejected").length;
-      setError(failed ? `${failed} of 3 timeline feeds could not refresh. Retained observations may lag; check their timestamps.` : null);
+      setError(
+        failures
+          ? `${failures} of 3 timeline feeds could not refresh. Retained observations may lag; check their timestamps.`
+          : null,
+      );
       setLoading(false);
     };
     setNow(Date.now());
@@ -252,25 +293,25 @@ export default function CauseEffectTimelineStack() {
     const raw = helio?.xray;
     if (!raw?.labels?.length) return null;
     const epochs = seriesEpochMs(raw.epoch_ms, raw.times, raw.labels);
-    return chronologicalSeries(raw.labels, epochs, { flux: raw.flux });
+    return panelOrNull(chronologicalSeries(raw.labels, epochs, { flux: raw.flux }));
   }, [helio]);
 
   const windPanel = useMemo(() => {
     const raw = helio?.solar_wind;
     if (!raw?.labels?.length) return null;
     const epochs = seriesEpochMs(raw.epoch_ms, raw.times, raw.labels);
-    return chronologicalSeries(raw.labels, epochs, {
+    return panelOrNull(chronologicalSeries(raw.labels, epochs, {
       speed: raw.speed,
       density: raw.density ?? raw.speed.map(() => null),
       temperature: raw.temperature ?? raw.speed.map(() => null),
-    });
+    }));
   }, [helio]);
 
   const imfPanel = useMemo(() => {
     const raw = helio?.imf;
     if (!raw?.labels?.length) return null;
     const epochs = seriesEpochMs(raw.epoch_ms, raw.times, raw.labels);
-    return chronologicalSeries(raw.labels, epochs, { bt: raw.bt, bz: raw.bz });
+    return panelOrNull(chronologicalSeries(raw.labels, epochs, { bt: raw.bt, bz: raw.bz }));
   }, [helio]);
 
   const kpPanelRaw = useMemo(() => {
@@ -353,20 +394,21 @@ export default function CauseEffectTimelineStack() {
   }, [now, rangeHours]);
 
   // Clip Kp/Dst/VTEC/GNSS to the same live UTC window as solar wind / IMF.
+  // If the window empties a panel (stale cache), fall back to unclipped series.
   const kpPanel = useMemo(
-    () => clipSeriesToDomain(kpPanelRaw, timeDomain),
+    () => clipOrFallback(kpPanelRaw, timeDomain),
     [kpPanelRaw, timeDomain],
   );
   const dstPanel = useMemo(
-    () => clipSeriesToDomain(dstPanelRaw, timeDomain),
+    () => clipOrFallback(dstPanelRaw, timeDomain),
     [dstPanelRaw, timeDomain],
   );
   const vtecPanel = useMemo(
-    () => clipSeriesToDomain(vtecPanelRaw, timeDomain),
+    () => clipOrFallback(vtecPanelRaw, timeDomain),
     [vtecPanelRaw, timeDomain],
   );
   const gnssPanelClipped = useMemo(
-    () => clipSeriesToDomain(gnssPanel, timeDomain),
+    () => clipOrFallback(gnssPanel, timeDomain),
     [gnssPanel, timeDomain],
   );
 
@@ -424,12 +466,13 @@ export default function CauseEffectTimelineStack() {
 
   return (
     <>
-    <LocalIonosphereObservations stations={vtec} now={now} refreshFailed={vtecRefreshFailed} loading={loading} />
+    <LocalIonosphereObservations stations={vtec} now={now} refreshFailed={vtecRefreshFailed} loading={vtecLoading} />
     {/* CORS map is heavier than the readings — mount when near viewport. */}
     <DeferredMount
       className="sw-deferred-block"
       minHeight={260}
-      rootMargin="120px 0px"
+      rootMargin="240px 0px"
+      eager
       fallback={
         <div className="home-map-loading" role="status" aria-live="polite">
           <span className="home-map-loading-spinner" aria-hidden="true" />
@@ -465,10 +508,12 @@ export default function CauseEffectTimelineStack() {
       />
       <p className="sw-supporting-text">Shared UTC window and synchronized crosshair. Compare observations and propagation delays; alignment alone does not establish cause and effect. Up to five station traces are shown; coverage above includes all returned stations. Local VTEC history is available for up to 48 hours.</p>
 
-      {loading && <div className="banner banner-info">Loading synchronized timelines…</div>}
-      {error && !loading && <div className="banner banner-warn">{error}</div>}
+      {loading && !helio && !timelines && vtec.length === 0 && (
+        <div className="banner banner-info">Loading synchronized timelines…</div>
+      )}
+      {error && <div className="banner banner-warn">{error}</div>}
 
-      {!loading && (
+      {(helio || timelines || vtec.length > 0 || !loading) && (
         <>
           <Panel
             title="1 · GOES X-ray flux"
