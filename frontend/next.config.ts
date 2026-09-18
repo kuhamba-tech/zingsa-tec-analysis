@@ -13,6 +13,15 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: path.resolve(__dirname, ".."),
   },
+  // OpenLayers modules are large; default webpack chunkLoadTimeout (120s) can
+  // still fire under slow HMR / parallel chunk pressure in cloud VMs.
+  webpack: (config) => {
+    config.output = {
+      ...config.output,
+      chunkLoadTimeout: 300_000,
+    };
+    return config;
+  },
 };
 
 export default nextConfig;
