@@ -36,11 +36,15 @@ function freshnessClass(freshness: MetricCardSpec["freshness"]): string {
 }
 
 function DetailRows({ rows }: { rows: MetricDetailRow[] }) {
+  const isList = rows.some((row) => Boolean(row.icon));
   return (
-    <div className="sw-metric-detail-rows">
+    <div className={`sw-metric-detail-rows${isList ? " sw-metric-detail-rows-list" : ""}`}>
       {rows.map((row) => (
         <div className="sw-metric-detail-row" key={row.label}>
-          <span className="sw-metric-detail-label">{row.label}</span>
+          <span className="sw-metric-detail-left">
+            {row.icon ? <span className="sw-metric-detail-icon" aria-hidden>{row.icon}</span> : null}
+            <span className="sw-metric-detail-label">{row.label}</span>
+          </span>
           <span className="sw-metric-detail-value" style={row.valueColor ? { color: row.valueColor } : undefined}>
             {row.value}
           </span>
@@ -97,13 +101,14 @@ function MetricCardButton({
   disabled: boolean;
   onClick: () => void;
 }) {
-  const isSummary = Boolean(detailRows?.length);
+  const isSummary = Boolean(detailRows?.length) && !detailRows?.some((r) => r.icon);
+  const isWindList = Boolean(detailRows?.some((r) => r.icon));
   const isFlare = Boolean(showFlareScale);
 
   return (
     <button
       type="button"
-      className={`sw-metric-card${isSummary ? " sw-metric-card-summary" : ""}${isFlare ? " sw-metric-card-flare" : ""}${selected ? " sw-metric-card-selected" : ""}${disabled ? " is-loading" : ""}`}
+      className={`sw-metric-card${isSummary ? " sw-metric-card-summary" : ""}${isWindList ? " sw-metric-card-wind" : ""}${isFlare ? " sw-metric-card-flare" : ""}${selected ? " sw-metric-card-selected" : ""}${disabled ? " is-loading" : ""}`}
       onClick={onClick}
       disabled={disabled}
       aria-pressed={selected}

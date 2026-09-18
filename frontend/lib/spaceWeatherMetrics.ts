@@ -23,6 +23,8 @@ export interface MetricDetailRow {
   label: string;
   value: string;
   valueColor?: string;
+  /** Optional leading icon for list-style rows (Solar Wind plasma fields). */
+  icon?: string;
 }
 
 export interface MetricCardSpec {
@@ -64,7 +66,7 @@ export const METRIC_EXPLANATIONS: Record<MetricKey, string> = {
   solar_flare:
     "GOES soft X-ray measurements (0.1–0.8 nm) indicate the strength of solar flare emission. Classes A/B/C/M/X describe X-ray flux, not geomagnetic or GNSS impact levels. A solar flare does not necessarily produce a geomagnetic storm.",
   solar_wind:
-    "Solar wind carries plasma and magnetic fields from the Sun. The primary card value is bulk speed; supporting plasma and IMF fields (density, proton temperature, Bz, Bt, and dynamic pressure when available) appear in the detail line. Increased speed can accompany CMEs and high-speed streams, but high solar-wind speed alone does not establish a geomagnetic storm.",
+    "Solar wind carries plasma and magnetic fields from the Sun. The primary card value is bulk speed; density, proton temperature, IMF Bz, and IMF Bt are listed below in the detail rows. Increased speed can accompany CMEs and high-speed streams, but high solar-wind speed alone does not establish a geomagnetic storm.",
   imf_bz:
     "Southward IMF Bz favours magnetic reconnection and energy transfer from the solar wind into Earth's magnetosphere. Magnitude and duration are both important. A brief negative spike is not the same as sustained southward Bz.",
   geomagnetic_storm:
@@ -400,22 +402,51 @@ export function buildMetricCards(
   const temp = sa?.solar_wind?.temperature ?? null;
   const bt = sa?.solar_wind?.bt ?? null;
 
-  const windNoteParts = [wind == null ? "Loading…" : solarWindInterpretation(wind)];
-  if (density != null && Number.isFinite(density)) {
-    windNoteParts.push(`${density.toFixed(1)} p/cm³`);
-  }
-  if (temp != null && Number.isFinite(temp)) {
-    windNoteParts.push(`${Math.round(temp).toLocaleString()} K`);
-  }
-  if (bz != null && Number.isFinite(bz)) {
-    windNoteParts.push(`Bz ${formatBzDisplay(bz)}`);
-  }
-  if (bt != null && Number.isFinite(bt)) {
-    windNoteParts.push(`Bt ${bt.toFixed(1)} nT`);
-  }
-  // Keep dynamic pressure when present — useful plasma context beyond image-1 fields.
+  const windInterpretation = wind == null ? "Loading…" : solarWindInterpretation(wind);
+  const windDetailRows: MetricDetailRow[] = [
+    {
+      icon: "🔵",
+      label: "Density",
+      value:
+        density != null && Number.isFinite(density)
+          ? `${density.toFixed(1)} p/cm³`
+          : solarLoading
+            ? "Updating…"
+            : "Unavailable",
+    },
+    {
+      icon: "🌡️",
+      label: "Proton Temp.",
+      value:
+        temp != null && Number.isFinite(temp)
+          ? `${Math.round(temp).toLocaleString()} K`
+          : solarLoading
+            ? "Updating…"
+            : "Unavailable",
+    },
+    {
+      icon: "↕️",
+      label: "IMF Bz",
+      value: bz != null && Number.isFinite(bz) ? formatBzDisplay(bz) : solarLoading ? "Updating…" : "Unavailable",
+      valueColor: bz != null ? imfBzColor(bz) : undefined,
+    },
+    {
+      icon: "🌐",
+      label: "IMF Bt",
+      value:
+        bt != null && Number.isFinite(bt)
+          ? `${bt.toFixed(1)} nT`
+          : solarLoading
+            ? "Updating…"
+            : "Unavailable",
+    },
+  ];
   if (pdyn != null && Number.isFinite(pdyn)) {
-    windNoteParts.push(`${pdyn.toFixed(1)} nPa`);
+    windDetailRows.push({
+      icon: "💨",
+      label: "Dyn. pressure",
+      value: `${pdyn.toFixed(1)} nPa`,
+    });
   }
 
   const ionoNote =
@@ -489,11 +520,13 @@ export function buildMetricCards(
       icon: "🌬️",
       label: "Solar Wind",
       value: formatSolarWindDisplay(wind),
-      note: windNoteParts.join(" · "),
+      note: "",
+      subtitle: wind == null ? null : windInterpretation,
       valueColor: solarWindColor(wind),
       source: "NOAA SWPC RTSW",
       observedAt: formatObservedShort(feeds.solar_wind_plasma?.timestamp) ?? formatObservedShort(sa?.updated) ?? swObserved,
       freshness: wind == null ? (solarLoading || indicesLoading ? "DELAYED" : "UNAVAILABLE") : sa?.solar_wind?.speed != null ? plasmaFresh : indicesFresh,
+      detailRows: windDetailRows,
     },
     {
       key: "imf_bz",

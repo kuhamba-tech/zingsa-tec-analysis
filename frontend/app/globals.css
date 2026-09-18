@@ -3198,14 +3198,19 @@ a.home-map-layer-btn {
   width: 100%;
 }
 .sw-metric-card.sw-metric-card-summary,
-.sw-metric-card.sw-metric-card-flare {
+.sw-metric-card.sw-metric-card-flare,
+.sw-metric-card.sw-metric-card-wind {
   min-height: 13.5rem;
   align-items: stretch;
   text-align: left;
 }
 .sw-metric-card.sw-metric-card-summary .sw-metric-icon,
 .sw-metric-card.sw-metric-card-summary .sw-metric-label,
-.sw-metric-card.sw-metric-card-summary .sw-metric-value {
+.sw-metric-card.sw-metric-card-summary .sw-metric-value,
+.sw-metric-card.sw-metric-card-wind .sw-metric-icon,
+.sw-metric-card.sw-metric-card-wind .sw-metric-label,
+.sw-metric-card.sw-metric-card-wind .sw-metric-value,
+.sw-metric-card.sw-metric-card-wind .sw-metric-subtitle {
   align-self: center;
   text-align: center;
 }
@@ -3269,18 +3274,52 @@ a.home-map-layer-btn {
   flex-direction: column;
   gap: 0.35rem;
 }
+.sw-metric-detail-rows-list {
+  gap: 0;
+  padding-top: 0.35rem;
+  margin-top: 0.75rem;
+}
 .sw-metric-detail-row {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 0.75rem;
   font-size: 0.85rem;
+}
+.sw-metric-detail-rows-list .sw-metric-detail-row {
+  padding: 0.55rem 0;
+  border-bottom: 1px solid rgba(36, 77, 115, 0.85);
+}
+.sw-metric-detail-rows-list .sw-metric-detail-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0.15rem;
+}
+.sw-metric-detail-left {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+}
+.sw-metric-detail-icon {
+  font-size: 0.95rem;
+  line-height: 1;
+  flex-shrink: 0;
 }
 .sw-metric-detail-label {
   color: var(--text-muted);
 }
+.sw-metric-detail-rows-list .sw-metric-detail-label {
+  color: #f8fafc;
+  font-weight: 650;
+}
 .sw-metric-detail-value {
   font-weight: 700;
   color: #fff;
+  white-space: nowrap;
+}
+.sw-metric-detail-rows-list .sw-metric-detail-value {
+  font-size: 0.95rem;
+  font-weight: 800;
 }
 .sw-metric-flare-scale {
   width: 100%;
@@ -3332,7 +3371,8 @@ a.home-map-layer-btn {
   color: var(--text-muted);
 }
 .sw-metric-card-flare .sw-metric-meta,
-.sw-metric-card-summary .sw-metric-meta {
+.sw-metric-card-summary .sw-metric-meta,
+.sw-metric-card-wind .sw-metric-meta {
   justify-content: flex-start;
 }
 .sw-metric-fresh {
