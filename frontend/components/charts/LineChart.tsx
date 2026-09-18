@@ -379,7 +379,7 @@ export default function LineChart({
           responsive: true,
           maintainAspectRatio: false,
           layout: formatXTick
-            ? { padding: { bottom: 6 } }
+            ? { padding: { bottom: 22 } }
             : undefined,
           interaction: {
             mode: compact ? "nearest" : "index",
@@ -478,7 +478,8 @@ export default function LineChart({
                     callback: formatXTick
                       ? (value) => {
                           const label = formatXTick(typeof value === "number" ? value : Number(value));
-                          // Chart.js renders "\n" as multi-line tick text.
+                          // Multi-line ticks: `00:00` then `18 Sep 2026` underneath.
+                          if (label.includes("\n")) return label.split("\n");
                           return label;
                         }
                       : undefined,

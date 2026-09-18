@@ -11,24 +11,45 @@ export function snapUtcMinute(ms: number): number {
   return Math.round(ms / 60_000) * 60_000;
 }
 
+const UTC_MONTHS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+] as const;
+
+/** Human-readable UTC calendar day, e.g. `18 Sep 2026`. */
+export function formatUtcDayLabel(ms: number): string {
+  const d = new Date(snapUtcMinute(ms));
+  return `${d.getUTCDate()} ${UTC_MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+}
+
 /**
  * KNMI-style UTC labels for Live Metric Timelines (24–72h windows):
- * text labels only at 00:00 / 06:00 / 12:00 / 18:00.
+ * text labels only at 00:00 / 06:00 / 12:00 / 18:00, with calendar day.
  */
 export function formatKnmiUtcTick(ms: number): string {
-  return formatUtcAxisTick(ms, { majorHours: 6 });
+  return formatUtcAxisTick(ms, { majorHours: 6, includeDate: true });
 }
 
 export interface UtcAxisTickOptions {
   /** Label every N hours (1 for 6h window, 6 for 24h/72h). Default 6. */
   majorHours?: number;
-  /** Include MM-DD before HH:mm (useful for multi-day windows). */
+  /** Include the calendar day under HH:mm on major ticks (not only midnight). */
   includeDate?: boolean;
 }
 
 /**
- * Easy-to-follow UTC axis labels like Live NOAA Kp Timeline: `HH:mm`
- * (and optionally `MM-DD HH:mm` on multi-day charts).
+ * Easy-to-follow UTC axis labels: `HH:mm` with the day underneath as
+ * `18 Sep 2026` (never opaque `09-18`).
  */
 export function formatUtcAxisTick(ms: number, opts: UtcAxisTickOptions = {}): string {
   if (!Number.isFinite(ms)) return "";
@@ -38,9 +59,11 @@ export function formatUtcAxisTick(ms: number, opts: UtcAxisTickOptions = {}): st
   const hh = d.getUTCHours();
   if (hh % majorHours !== 0) return "";
   const time = `${String(hh).padStart(2, "0")}:00`;
-  if (!opts.includeDate) return time;
-  const md = d.toISOString().slice(5, 10);
-  return `${md} ${time}`;
+  // Midnight always carries the day; multi-day axes also stamp other majors.
+  if (hh === 0 || opts.includeDate) {
+    return `${time}\n${formatUtcDayLabel(ms)}`;
+  }
+  return time;
 }
 
 /** UTC midnight (00:00:00.000) of the calendar day containing `ms`. */
@@ -82,11 +105,13 @@ export function alignTimeDomain(
 }
 
 /**
- * Standard numeric UTC axis props for LineChart — matches Live NOAA Kp Timeline.
+ * Standard numeric UTC axis props for LineChart — matches Live NOAA Kp Timeline,
+ * with the calendar day (`18 Sep 2026`) under HH:mm whenever the window spans
+ * a day or more.
  */
 export function utcTimeAxisProps(
   domain: { min: number; max: number } | null,
-  opts: { rangeHours?: number; majorHours?: number } = {},
+  opts: { rangeHours?: number; majorHours?: number; includeDate?: boolean } = {},
 ): {
   xMin?: number;
   xMax?: number;
@@ -100,7 +125,13 @@ export function utcTimeAxisProps(
   const majorHours =
     opts.majorHours ?? (rangeHours <= 8 ? 1 : rangeHours <= 36 ? 6 : 6);
   const majorMs = majorHours * ONE_H_MS;
-  const includeDate = rangeHours > 36;
+  const crossesUtcDay =
+    startOfUtcDay(domain.min) !== startOfUtcDay(Math.max(domain.min, domain.max - 1));
+  // On long windows only midnight gets the day (via formatUtcAxisTick) to avoid
+  // crowding; on ~24h windows stamp every major tick so the day is obvious.
+  const includeDate =
+    opts.includeDate ??
+    ((rangeHours >= 12 && rangeHours <= 36) || (rangeHours < 12 && crossesUtcDay));
   return {
     xMin: domain.min,
     xMax: domain.max,
@@ -126,7 +157,12 @@ export function sharedTimeDomain(epochLists: number[][]): { min: number; max: nu
       if (ms > max) max = ms;
     }
   }
-  if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) return null;
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return null;
+  // Single sample (or identical timestamps) — still provide a UTC day axis so
+  // Live Metric Timelines do not show "feed unavailable".
+  if (max <= min) {
+    return alignTimeDomain(min - ONE_H_MS, max + ONE_H_MS, SIX_H_MS);
+  }
   return alignTimeDomain(min, max, SIX_H_MS);
 }
 

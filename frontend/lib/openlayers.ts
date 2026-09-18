@@ -6,6 +6,7 @@
  * chunk per submodule; those race under Next.js HMR and produce ChunkLoadError
  * in the browser even when the URLs return 200 from curl.
  */
+import "ol/ol.css";
 import Map from "ol/Map";
 import View from "ol/View";
 import Overlay from "ol/Overlay";
