@@ -3371,6 +3371,15 @@ a.home-map-layer-btn {
 .sw-metric-flare-scale-desc {
   display: none;
 }
+.sw-metric-g-scale .sw-metric-flare-scale-item.is-active .sw-metric-flare-scale-letter {
+  text-shadow: 0 0 8px currentColor;
+}
+.sw-metric-card-gstorm .sw-metric-subtitle {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text);
+  margin-top: 0.15rem;
+}
 .sw-metric-note {
   font-size: 0.65rem;
   color: var(--text-muted);
