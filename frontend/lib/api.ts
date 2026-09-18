@@ -87,36 +87,34 @@ import { peekStations, publishStations, purgeStaleStationsCache, stationsAreSpid
 
 function apiBase(): string {
   if (typeof window !== "undefined") {
-    const { hostname, port, protocol } = window.location;
-    const host =
-      hostname === "[::1]" ? "127.0.0.1" : hostname;
-    // Local / cloud-agent Next on :3000 — use same-origin `/backend` proxy
-    // (next.config rewrites → FastAPI :8000). Direct `:8000` fails when only
-    // the frontend port is forwarded, which leaves Space Weather on
-    // "Connecting… / Updating…" until timeouts fire.
+    const { hostname, port } = window.location;
+    // Same-origin `/backend` proxy in next dev (rewrites → FastAPI :8000).
+    // Always use window.location.origin so Cursor port-forwards and
+    // 127.0.0.1 vs localhost never open a broken cross-origin :8000 call —
+    // that hang left Space Weather on "Connecting… / Updating…".
     if (
       process.env.NODE_ENV === "development" ||
       port === "3000" ||
-      port === "3001"
+      port === "3001" ||
+      port === "43128"
     ) {
-      const originPort = port ? `:${port}` : "";
-      return `${protocol}//${host}${originPort}/backend`;
+      return `${window.location.origin}/backend`;
     }
-    if (hostname === "localhost" || hostname === "127.0.0.1") {
-      return "http://localhost:8000";
+    if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]") {
+      return `${window.location.protocol}//127.0.0.1:8000`;
     }
     // Vercel/static export deploy — backend is exposed through /api.
     return `${window.location.origin}/api`;
   }
   const configured = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "");
   if (configured) return configured;
-  return "http://localhost:8000";
+  return "http://127.0.0.1:8000";
 }
 
 const KEY = process.env.NEXT_PUBLIC_API_KEY ?? "";
-const FETCH_TIMEOUT_MS = 28_000;
+const FETCH_TIMEOUT_MS = 18_000;
 const ANALYSIS_TIMEOUT_MS = 120_000;
-const SW_FAST_TIMEOUT_MS = 12_000;
+const SW_FAST_TIMEOUT_MS = 8_000;
 /** Solar monitor hits NOAA + NASA DONKI; allow cold-start headroom + one retry. */
 const SOLAR_TIMEOUT_MS = 55_000;
 const HELIO_TIMEOUT_MS = 45_000;
@@ -194,14 +192,16 @@ function apiUrl(path: string): string {
       }
     }
   }
-  // Next `trailingSlash: true` 308s `/backend/foo` → `/backend/foo/`. Prefer the
-  // final URL so Space Weather does not pay an extra RTT on every feed.
+  // FastAPI routes are registered without a trailing slash (`/space-weather/current`
+  // → 200, `/space-weather/current/` → 404). Do not force a slash onto `/backend`
+  // URLs — Next rewrites the path through to uvicorn as-is when
+  // skipTrailingSlashRedirect is enabled.
   if (base.includes("/backend")) {
     const q = url.indexOf("?");
-    if (q === -1) {
-      if (!url.endsWith("/")) url += "/";
-    } else if (url[q - 1] !== "/") {
-      url = `${url.slice(0, q)}/${url.slice(q)}`;
+    const pathPart = q === -1 ? url : url.slice(0, q);
+    const query = q === -1 ? "" : url.slice(q);
+    if (pathPart.endsWith("/") && pathPart !== `${base}/` && pathPart !== base) {
+      url = `${pathPart.replace(/\/+$/, "")}${query}`;
     }
   }
   return url;

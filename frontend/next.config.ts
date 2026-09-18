@@ -8,6 +8,9 @@ const nextConfig: NextConfig = {
   // proxy /backend → FastAPI (needed when only the frontend port is forwarded).
   ...(isDev ? {} : { output: "export" as const }),
   trailingSlash: true,
+  // Keep `/backend/...` paths without forced trailing slashes so the FastAPI
+  // proxy hits `/space-weather/current` (200) instead of `/.../current/` (404).
+  skipTrailingSlashRedirect: true,
   images: {
     unoptimized: true,
   },

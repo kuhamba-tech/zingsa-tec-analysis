@@ -458,7 +458,7 @@ export default function SpaceWeatherPage() {
     } else if (typeof window !== "undefined" && "requestIdleCallback" in window) {
       window.requestIdleCallback(() => runSecondary(), { timeout: 1500 });
     } else {
-      window.setTimeout(runSecondary, 120);
+      globalThis.setTimeout(runSecondary, 120);
     }
   }, []);
 
@@ -470,7 +470,7 @@ export default function SpaceWeatherPage() {
     const watchdog = window.setTimeout(() => {
       setFeedStatus((prev) => (prev === "pending" ? "down" : prev));
       setSaLoading(false);
-    }, 10_000);
+    }, 6_000);
     return () => {
       window.clearInterval(id);
       window.clearTimeout(watchdog);

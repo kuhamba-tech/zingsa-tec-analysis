@@ -108,13 +108,13 @@ export interface NoaaGScale {
 }
 
 /** NOAA G-scale from Kp. Kp 4 is active / below G1 — never labelled a G-storm. */
-export function noaaGScaleFromKp(kp: number | null | undefined): NoaaGScale {
+export function noaaGScaleFromKp(kp: number | null | undefined, loading = false): NoaaGScale {
   if (kp == null || !Number.isFinite(kp)) {
     return {
       code: "—",
-      title: "Updating",
-      display: "Updating…",
-      note: "Kp loading",
+      title: loading ? "Updating" : "Unavailable",
+      display: loading ? "Updating…" : "Unavailable",
+      note: loading ? "Kp loading" : "Kp feed unavailable",
       color: "#94a3b8",
       isStorm: false,
     };
@@ -258,43 +258,43 @@ export function corsCountColor(online: number | null, total: number | null): str
 }
 
 /** Single display rules for every dashboard surface (cards, Navigation News, briefs). */
-export function formatSolarWindDisplay(speed: number | null | undefined): string {
-  if (speed == null || !Number.isFinite(speed)) return "Updating…";
+export function formatSolarWindDisplay(speed: number | null | undefined, loading = false): string {
+  if (speed == null || !Number.isFinite(speed)) return loading ? "Updating…" : "Unavailable";
   return `${Math.round(speed)} km/s`;
 }
 
-export function formatF107Display(f107: number | null | undefined): string {
-  if (f107 == null || !Number.isFinite(f107)) return "Updating…";
+export function formatF107Display(f107: number | null | undefined, loading = false): string {
+  if (f107 == null || !Number.isFinite(f107)) return loading ? "Updating…" : "Unavailable";
   return String(Math.round(f107 * 10) / 10);
 }
 
-export function formatKpDisplay(kp: number | null | undefined): string {
-  if (kp == null || !Number.isFinite(kp)) return "Updating…";
+export function formatKpDisplay(kp: number | null | undefined, loading = false): string {
+  if (kp == null || !Number.isFinite(kp)) return loading ? "Updating…" : "Unavailable";
   const rounded = Math.round(kp * 10) / 10;
   return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
 }
 
-export function formatDstDisplay(dst: number | null | undefined): string {
-  if (dst == null || !Number.isFinite(dst)) return "Updating…";
+export function formatDstDisplay(dst: number | null | undefined, loading = false): string {
+  if (dst == null || !Number.isFinite(dst)) return loading ? "Updating…" : "Unavailable";
   const rounded = Math.round(dst * 10) / 10;
   const sign = rounded >= 0 ? "+" : "";
   return `${sign}${rounded} nT`;
 }
 
-export function formatApDisplay(ap: number | null | undefined): string {
-  if (ap == null || !Number.isFinite(ap)) return "Updating…";
+export function formatApDisplay(ap: number | null | undefined, loading = false): string {
+  if (ap == null || !Number.isFinite(ap)) return loading ? "Updating…" : "Unavailable";
   return String(Math.round(ap));
 }
 
-export function formatBzDisplay(bz: number | null | undefined): string {
-  if (bz == null || !Number.isFinite(bz)) return "Updating…";
+export function formatBzDisplay(bz: number | null | undefined, loading = false): string {
+  if (bz == null || !Number.isFinite(bz)) return loading ? "Updating…" : "Unavailable";
   const rounded = Math.round(bz * 10) / 10;
   const sign = rounded > 0 ? "+" : "";
   return `${sign}${rounded} nT`;
 }
 
-export function formatVtecDisplay(tec: number | null | undefined): string {
-  if (tec == null || !Number.isFinite(tec)) return "Updating…";
+export function formatVtecDisplay(tec: number | null | undefined, loading = false): string {
+  if (tec == null || !Number.isFinite(tec)) return loading ? "Updating…" : "Unavailable";
   return `${tec.toFixed(1)} TECU`;
 }
 
@@ -383,14 +383,14 @@ export function buildMetricCards(
   const flareClass = flareMissing
     ? solarLoading
       ? "Updating…"
-      : "Updating…"
+      : "Unavailable"
     : formatFlareClassDisplay(flareRaw);
   const bz = sa?.solar_wind?.bz ?? null;
   const density = sa?.solar_wind?.density ?? null;
   const pdyn = sa?.solar_wind?.dynamic_pressure ?? null;
   const southMin = sa?.solar_wind?.southward_duration_minutes ?? null;
   const vtec = sw?.mean_vtec ?? opts?.liveMeanVtec ?? null;
-  const g = noaaGScaleFromKp(kp);
+  const g = noaaGScaleFromKp(kp, indicesLoading);
 
   const stationsOnlineCount = liveCounts ? connectedStreamCount(liveCounts) : online;
   const stationsTotal = liveCounts?.total ?? total;
@@ -399,9 +399,9 @@ export function buildMetricCards(
     corsDisplay?.value ??
     (stationsOnlineCount !== null && stationsTotal
       ? `${stationsOnlineCount}/${stationsTotal}`
-      : indicesLoading || !sw
+      : indicesLoading
         ? "Updating…"
-        : "Updating…");
+        : "Unavailable");
 
   const stationsNote =
     corsDisplay?.note ??
@@ -555,7 +555,7 @@ export function buildMetricCards(
       key: "solar_wind",
       icon: "🌬️",
       label: "Solar Wind",
-      value: formatSolarWindDisplay(wind),
+      value: formatSolarWindDisplay(wind, solarLoading || indicesLoading),
       note: "",
       subtitle: wind == null ? null : windInterpretation,
       valueColor: solarWindColor(wind),
@@ -568,7 +568,7 @@ export function buildMetricCards(
       key: "imf_bz",
       icon: "🧲",
       label: "IMF Bz",
-      value: bz == null ? "Updating…" : `${formatBzDisplay(bz)}${bzArrow}`,
+      value: bz == null ? (solarLoading ? "Updating…" : "Unavailable") : `${formatBzDisplay(bz)}${bzArrow}`,
       note: bzNote,
       valueColor: imfBzColor(bz),
       source: "NOAA SWPC RTSW",
@@ -590,7 +590,7 @@ export function buildMetricCards(
       key: "dst",
       icon: "🌡️",
       label: "Dst / SYM-H",
-      value: formatDstDisplay(dst),
+      value: formatDstDisplay(dst, indicesLoading),
       note: "Ring current · SYM-H when available",
       valueColor: dstColor(dst),
       source: "NOAA / Kyoto Dst",
@@ -601,7 +601,7 @@ export function buildMetricCards(
       key: "zimbabwe_iono",
       icon: "🇿🇼",
       label: "Zimbabwe Ionosphere",
-      value: formatVtecDisplay(vtec),
+      value: formatVtecDisplay(vtec, indicesLoading),
       note: ionoNote,
       valueColor: vtecColor(vtec),
       source: "ZINGSA CORS live VTEC",
