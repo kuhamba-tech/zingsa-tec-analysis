@@ -445,6 +445,28 @@ export default function LineChart({
                   min: xMin,
                   max: xMax,
                   title: xLabel ? { display: true, text: xLabel, color: "#ffffff" } : undefined,
+                  // Force ticks onto exact step boundaries (epoch ms). Chart.js "nice"
+                  // rounding on large timestamps otherwise lands off :00 and every
+                  // formatXTick returns "" — blank UTC axes on Solar Drivers charts.
+                  afterBuildTicks:
+                    xStepSize && xMin != null && xMax != null
+                      ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        (axis: any) => {
+                          const step = xStepSize;
+                          const lo = Math.ceil(xMin / step) * step;
+                          const ticks: { value: number }[] = [];
+                          for (let v = lo; v <= xMax + step * 0.001; v += step) {
+                            ticks.push({ value: v });
+                          }
+                          if (ticks.length === 0 || ticks[0].value > xMin) {
+                            ticks.unshift({ value: xMin });
+                          }
+                          if (ticks[ticks.length - 1].value < xMax) {
+                            ticks.push({ value: xMax });
+                          }
+                          axis.ticks = ticks;
+                        }
+                      : undefined,
                   ticks: {
                     color: "#ffffff",
                     stepSize: xStepSize,
@@ -468,14 +490,16 @@ export default function LineChart({
                       if (typeof raw !== "number" || !Number.isFinite(raw)) return "#244d73";
                       if (!xMajorStepMs || !xStepSize) return "#244d73";
                       // Stronger line on major (e.g. 6h) ticks; faint hourly demarcations.
-                      const onMajor = Math.abs(raw % xMajorStepMs) < 1 || Math.abs(raw % xMajorStepMs) > xMajorStepMs - 1;
+                      const rem = ((raw % xMajorStepMs) + xMajorStepMs) % xMajorStepMs;
+                      const onMajor = rem < 1 || rem > xMajorStepMs - 1;
                       return onMajor ? "rgba(148, 163, 184, 0.45)" : "rgba(36, 77, 115, 0.35)";
                     },
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     lineWidth: (ctx: any) => {
                       const raw = ctx?.tick?.value;
                       if (typeof raw !== "number" || !xMajorStepMs) return 1;
-                      const onMajor = Math.abs(raw % xMajorStepMs) < 1 || Math.abs(raw % xMajorStepMs) > xMajorStepMs - 1;
+                      const rem = ((raw % xMajorStepMs) + xMajorStepMs) % xMajorStepMs;
+                      const onMajor = rem < 1 || rem > xMajorStepMs - 1;
                       return onMajor ? 1.25 : 0.75;
                     },
                   },

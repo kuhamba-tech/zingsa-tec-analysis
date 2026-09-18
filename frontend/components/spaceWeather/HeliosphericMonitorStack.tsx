@@ -17,6 +17,12 @@ import SwSectionBanner from "@/components/spaceWeather/SwSectionBanner";
 import { getHeliosphericMonitor } from "@/lib/api";
 import { peekHeliosphericMonitor } from "@/lib/heliosphericStore";
 import {
+  alignTimeDomain,
+  seriesEpochsFromApi,
+  sharedTimeDomain,
+  utcTimeAxisProps,
+} from "@/lib/chartTimeAxis";
+import {
   analyzeHeliosphericOverview,
   analyzeHeliosphericPanel,
   type HeliosphericPanelId,
@@ -227,6 +233,43 @@ export default function HeliosphericMonitorStack() {
   const overviewOpen = selected === "overview";
   const overview = analyzeHeliosphericOverview();
 
+  const panelAxis = useMemo(() => {
+    if (!data) {
+      return {
+        protons: {} as ReturnType<typeof utcTimeAxisProps> & { xValues?: number[]; epochMs?: number[] },
+        imf: {} as ReturnType<typeof utcTimeAxisProps> & { xValues?: number[]; epochMs?: number[] },
+        solar_wind: {} as ReturnType<typeof utcTimeAxisProps> & { xValues?: number[]; epochMs?: number[] },
+      };
+    }
+    const build = (
+      labels: string[],
+      epochMs?: (number | null)[],
+      times?: string[],
+    ) => {
+      const epochs = seriesEpochsFromApi(labels, epochMs, times);
+      if (!epochs) return {};
+      const domain =
+        sharedTimeDomain([epochs]) ??
+        alignTimeDomain(epochs[0], epochs[epochs.length - 1]);
+      return {
+        xValues: epochs,
+        epochMs: epochs,
+        ...utcTimeAxisProps(domain, {
+          rangeHours: (domain.max - domain.min) / (60 * 60 * 1000),
+        }),
+      };
+    };
+    return {
+      protons: build(data.protons.labels, data.protons.epoch_ms, data.protons.times),
+      imf: build(data.imf.labels, data.imf.epoch_ms, data.imf.times),
+      solar_wind: build(
+        data.solar_wind.labels,
+        data.solar_wind.epoch_ms,
+        data.solar_wind.times,
+      ),
+    };
+  }, [data]);
+
   return (
     <div className="card" style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}>
       <div
@@ -289,6 +332,7 @@ export default function HeliosphericMonitorStack() {
                 yLabel="Proton flux (pfu)"
                 height={220}
                 toggleableLegend
+                {...panelAxis.protons}
               />
             ) : (
               <div className="banner banner-info">
@@ -317,6 +361,7 @@ export default function HeliosphericMonitorStack() {
                   { label: "IMF GSM By", data: data.imf.by, color: "#38bdf8" },
                   { label: "IMF GSM Bz", data: data.imf.bz, color: "#ef4444", fill: true },
                 ]}
+                {...panelAxis.imf}
               />
             ) : (
               <div className="banner banner-info">
@@ -376,6 +421,7 @@ export default function HeliosphericMonitorStack() {
                     fillAbove: true,
                   },
                 ]}
+                {...panelAxis.solar_wind}
               />
               );
             })() : (

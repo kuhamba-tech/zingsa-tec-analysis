@@ -4,6 +4,11 @@ import { useEffect, useMemo, useState } from "react";
 import LineChart from "@/components/charts/LineChart";
 import SwSectionBanner from "@/components/spaceWeather/SwSectionBanner";
 import { getSolarActivity } from "@/lib/api";
+import {
+  alignTimeDomain,
+  parseTimelineEpoch,
+  utcTimeAxisProps,
+} from "@/lib/chartTimeAxis";
 import { peekSolarActivity, subscribeSolarActivity } from "@/lib/solarActivityStore";
 import type { SolarActivityFull } from "@/lib/types";
 
@@ -12,9 +17,12 @@ function displayFlux(flux: number | null | undefined): string | null {
   return `${flux.toExponential(2)} W/m²`;
 }
 
+const SAMPLE_STEP_MS = 40 * 60 * 1000;
+
 /**
  * GOES long-band flux for the last ~day (scaled ×10⁻⁷), shown as the
  * companion chart after the logarithmic driver-timeline X-ray panel.
+ * X-axis uses the same HH:mm UTC labels as Live NOAA Kp Timeline.
  */
 export default function GoesXrayLastDayChart() {
   const [sa, setSa] = useState<SolarActivityFull | null>(() => peekSolarActivity());
@@ -48,19 +56,23 @@ export default function GoesXrayLastDayChart() {
     };
   }, []);
 
-  const xrayScaled = useMemo(() => {
+  const chart = useMemo(() => {
     const raw = sa?.xray_series ?? [];
-    return raw.map((v) => parseFloat((v * 1e7).toFixed(3)));
-  }, [sa?.xray_series]);
-
-  const labels = useMemo(() => {
-    const n = xrayScaled.length;
-    return Array.from({ length: n }, (_, i) => {
-      const hoursAgo = ((n - 1 - i) * 40) / 60;
-      if (i === n - 1) return "now";
-      return `-${Math.max(0, Math.round(hoursAgo))}h`;
-    });
-  }, [xrayScaled.length]);
+    if (!raw.length) return null;
+    const endMs =
+      parseTimelineEpoch(sa?.updated ?? "") ??
+      Date.now();
+    const epochs = raw.map((_, i) => endMs - (raw.length - 1 - i) * SAMPLE_STEP_MS);
+    const data = raw.map((v) => parseFloat((v * 1e7).toFixed(3)));
+    const labels = epochs.map((ms) => new Date(ms).toISOString());
+    const domain = alignTimeDomain(epochs[0], epochs[epochs.length - 1]);
+    return {
+      labels,
+      data,
+      epochs,
+      axis: utcTimeAxisProps(domain, { rangeHours: 24 }),
+    };
+  }, [sa?.xray_series, sa?.updated]);
 
   const flareRaw = sa?.flare_class?.trim();
   const flareClass =
@@ -70,7 +82,7 @@ export default function GoesXrayLastDayChart() {
         ? "Unavailable"
         : flareRaw;
   const fluxLabel = displayFlux(sa?.flux);
-  const live = xrayScaled.length > 0;
+  const live = Boolean(chart);
 
   return (
     <div className="card" style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
@@ -86,13 +98,16 @@ export default function GoesXrayLastDayChart() {
           </span>
         }
       />
-      {live ? (
+      {chart ? (
         <>
           <LineChart
-            labels={labels}
-            datasets={[{ label: "X-Ray Flux (×10⁻⁷ W/m²)", data: xrayScaled, color: "#f97316" }]}
+            labels={chart.labels}
+            datasets={[{ label: "X-Ray Flux (×10⁻⁷ W/m²)", data: chart.data, color: "#f97316" }]}
             yLabel="Flux ×10⁻⁷"
             height={150}
+            xValues={chart.epochs}
+            epochMs={chart.epochs}
+            {...chart.axis}
           />
           <div style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
             0.1–0.8 nm band · Source: NOAA SWPC GOES primary · Current class {flareClass}

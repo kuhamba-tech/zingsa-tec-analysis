@@ -8,6 +8,13 @@ import LineChart from "@/components/charts/LineChart";
 import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
 import { getHeliosphericMonitor, getLiveVtecByStation, getTimelines } from "@/lib/api";
 import { peekHeliosphericMonitor } from "@/lib/heliosphericStore";
+import {
+  ONE_H_MS,
+  SIX_H_MS,
+  alignTimeDomain,
+  parseTimelineEpoch,
+  utcTimeAxisProps,
+} from "@/lib/chartTimeAxis";
 import type { ChartAnalysisBlock } from "@/lib/multiSourceChartAnalysis";
 import type {
   HeliosphericMonitorResponse,
@@ -93,9 +100,8 @@ function Panel({
   );
 }
 
-function parseTimelineEpoch(t: string): number | null {
-  const ms = Date.parse(t.endsWith("Z") || t.includes("+") ? t : `${t}Z`);
-  return Number.isFinite(ms) ? ms : null;
+function parseLocalEpoch(t: string): number | null {
+  return parseTimelineEpoch(t);
 }
 
 /** Prefer API epoch_ms; fall back to ISO times so sync works if the field is absent. */
@@ -108,13 +114,10 @@ function seriesEpochMs(
     return epochMs;
   }
   if (times && times.length === labels.length) {
-    return times.map((t) => parseTimelineEpoch(t));
+    return times.map((t) => parseLocalEpoch(t));
   }
   return labels.map(() => null);
 }
-
-const ONE_H_MS = 60 * 60 * 1000;
-const SIX_H_MS = 6 * ONE_H_MS;
 
 function chronologicalSeries<T extends Record<string, (number | null)[] | string[]>>(
   labels: string[],
@@ -327,7 +330,10 @@ export default function CauseEffectTimelineStack() {
     return chronologicalSeries(labels, epochs, series);
   }, [plottedStations]);
 
-  const timeDomain = useMemo(() => now ? { min: now - rangeHours * ONE_H_MS, max: now } : null, [now, rangeHours]);
+  const timeDomain = useMemo(() => {
+    if (!now) return null;
+    return alignTimeDomain(now - rangeHours * ONE_H_MS, now, rangeHours <= 8 ? ONE_H_MS : SIX_H_MS);
+  }, [now, rangeHours]);
 
   // Clip Kp/Dst to the same live UTC window as solar wind / IMF.
   const kpPanel = useMemo(
@@ -339,23 +345,10 @@ export default function CauseEffectTimelineStack() {
     [dstPanelRaw, timeDomain],
   );
 
-  const timeAxis = useMemo(() => {
-    if (!timeDomain) return {};
-    return {
-      xMin: timeDomain.min,
-      xMax: timeDomain.max,
-      xStepSize: ONE_H_MS,
-      xMajorStepMs: rangeHours === 6 ? ONE_H_MS : SIX_H_MS,
-      formatXTick: (ms: number) => {
-        const date = new Date(ms);
-        const time = date.toISOString().slice(11, 16);
-        if (rangeHours === 6) return time;
-        if (date.getUTCHours() % 6 !== 0 || date.getUTCMinutes() !== 0) return "";
-        return rangeHours === 72 ? `${date.toISOString().slice(5, 10)} ${time}` : time;
-      },
-      xLabel: "UTC",
-    };
-  }, [timeDomain, rangeHours]);
+  const timeAxis = useMemo(
+    () => utcTimeAxisProps(timeDomain, { rangeHours }),
+    [timeDomain, rangeHours],
+  );
 
   const analyses: Record<string, ChartAnalysisBlock> = {
     xray: {

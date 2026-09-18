@@ -7167,6 +7167,9 @@ a.home-map-layer-btn {
   font-size: 0.78rem;
   margin: 0.2rem 0 0;
 }
+.space-weather-page .page-title {
+  font-size: clamp(1.15rem, 2vw, 1.45rem);
+}
 .space-weather-page .sw-monitor-status {
   gap: 0.4rem 0.85rem;
   font-size: 0.72rem;
@@ -7175,7 +7178,7 @@ a.home-map-layer-btn {
   padding: 0.12rem 0.45rem;
   font-size: 0.68rem;
 }
-.space-weather-page .sw-supporting-text:has(+ .banner),
+/* Drop the long refresh-help line above the metric grid to free vertical space. */
 .space-weather-page > .sw-supporting-text {
   display: none;
 }
