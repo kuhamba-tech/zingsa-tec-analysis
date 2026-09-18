@@ -107,11 +107,11 @@ export default function SpaceWeatherCorsMap({ height: preferredHeight = 440 }: {
     const fallbackDelay = narrow ? 1800 : 400;
 
     let idleId: number | undefined;
-    let timeoutId: number | undefined;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
     if (typeof window !== "undefined" && "requestIdleCallback" in window) {
       idleId = window.requestIdleCallback(() => loadHeatmap(), { timeout: idleTimeout });
     } else {
-      timeoutId = window.setTimeout(loadHeatmap, fallbackDelay);
+      timeoutId = globalThis.setTimeout(loadHeatmap, fallbackDelay);
     }
 
     return () => {
@@ -119,7 +119,7 @@ export default function SpaceWeatherCorsMap({ height: preferredHeight = 440 }: {
       if (idleId != null && "cancelIdleCallback" in window) {
         window.cancelIdleCallback(idleId);
       }
-      if (timeoutId != null) window.clearTimeout(timeoutId);
+      if (timeoutId != null) globalThis.clearTimeout(timeoutId);
     };
   }, []);
 
