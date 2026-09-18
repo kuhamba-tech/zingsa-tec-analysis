@@ -1,14 +1,18 @@
 "use client";
 import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import CorsMap from "./CorsMap";
 import NetworkDistancesPanel from "./NetworkDistancesPanel";
 import TecHeatMapLegend from "./TecHeatMapLegend";
-import StationVtecTimePlots from "@/components/charts/StationVtecTimePlots";
 import { heatmapQualityBanner, icaoTecLabel, icaoTecLevel, inferHeatmapQuality } from "@/lib/icaoTecAdvisory";
 import type { ProposedCorsSite } from "@/lib/corsGeneticOptimizer";
 import type { Station, TecHeatmapResponse } from "@/lib/types";
 import type { LiveStationCounts } from "@/lib/liveStationStatus";
 
+const StationVtecTimePlots = dynamic(
+  () => import("@/components/charts/StationVtecTimePlots"),
+  { ssr: false },
+);
 export type MapLayer =
   | "Hybrid"
   | "Satellite"

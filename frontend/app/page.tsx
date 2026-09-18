@@ -16,7 +16,6 @@ import {
   formatCorsConnectedShort,
   mergeStationsPreferLive,
 } from "@/lib/liveStationStatus";
-import CauseEffectTimelineStack from "@/components/spaceWeather/CauseEffectTimelineStack";
 import HomeStormAlertBanner from "@/components/layout/HomeStormAlertBanner";
 import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
 import type {
@@ -26,8 +25,22 @@ import type {
 import type { MetricKey } from "@/lib/spaceWeatherMetrics";
 import Link from "next/link";
 import Image from "next/image";
+import dynamic from "next/dynamic";
 import { DashboardHeaderClocks } from "@/components/dashboard/DashboardClocks";
 import { PRODUCT_SHORT_NAME, PRODUCT_TAGLINE } from "@/lib/navigationNewsBranding";
+
+const CauseEffectTimelineStack = dynamic(
+  () => import("@/components/spaceWeather/CauseEffectTimelineStack"),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="banner banner-info" role="status" style={{ margin: "0.75rem 0" }}>
+        Loading timelines and CORS map…
+      </div>
+    ),
+  },
+);
+
 const MODULES = [
   { href: "/processing",       icon: "⚙️",  title: "Processing",        desc: "Upload RINEX/CMN, download CORS RINEX for post-processing, or convert files" },
   { href: "/time-series",       icon: "📈",  title: "Time Series",       desc: "VTEC trends over time" },

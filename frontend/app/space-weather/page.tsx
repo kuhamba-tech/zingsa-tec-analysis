@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { getSpaceWeather, getSolarActivity, getTimelines, refreshSpaceWeather, getStations, getEkfStatus } from "@/lib/api";
 import { peekSpaceWeather, subscribeSpaceWeather } from "@/lib/spaceWeatherStore";
@@ -8,15 +9,10 @@ import { peekSolarActivity, subscribeSolarActivity } from "@/lib/solarActivitySt
 import { peekStations, subscribeStations } from "@/lib/stationsStore";
 import ClickableMetricGrid from "@/components/spaceWeather/ClickableMetricGrid";
 import IndexScaleReference from "@/components/spaceWeather/IndexScaleReference";
-import SolarCycleFullRecordCharts from "@/components/spaceWeather/SolarCycleFullRecordCharts";
-import HeliosphericMonitorStack from "@/components/spaceWeather/HeliosphericMonitorStack";
-import CauseEffectTimelineStack from "@/components/spaceWeather/CauseEffectTimelineStack";
 import SwSectionBanner from "@/components/spaceWeather/SwSectionBanner";
 import { monitoringFreshness, observationTime } from "@/lib/monitoringStatus";
 import AdvancedScientificIndices from "@/components/spaceWeather/AdvancedScientificIndices";
 import HomeStormAlertBanner from "@/components/layout/HomeStormAlertBanner";
-import LineChart from "@/components/charts/LineChart";
-import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
 import type { ChartAnalysisBlock } from "@/lib/multiSourceChartAnalysis";
 import {
   analyzeDstTimeline,
@@ -45,6 +41,31 @@ import type { EkfPoint, EkfStatus, SpaceWeatherCurrent, SolarActivityFull, Space
 import { FLARE_SCALE } from "@/lib/solarEventColors";
 import { DashboardHeaderClocks } from "@/components/dashboard/DashboardClocks";
 
+const sectionFallback = (
+  <div className="banner banner-info" role="status" style={{ margin: "0.75rem 0" }}>
+    Loading section…
+  </div>
+);
+
+const CauseEffectTimelineStack = dynamic(
+  () => import("@/components/spaceWeather/CauseEffectTimelineStack"),
+  { ssr: false, loading: () => sectionFallback },
+);
+const HeliosphericMonitorStack = dynamic(
+  () => import("@/components/spaceWeather/HeliosphericMonitorStack"),
+  { ssr: false, loading: () => sectionFallback },
+);
+const SolarCycleFullRecordCharts = dynamic(
+  () => import("@/components/spaceWeather/SolarCycleFullRecordCharts"),
+  { ssr: false, loading: () => sectionFallback },
+);
+const LineChart = dynamic(() => import("@/components/charts/LineChart"), {
+  ssr: false,
+  loading: () => <div className="banner banner-info" role="status">Loading chart…</div>,
+});
+const ChartAnalysisBox = dynamic(() => import("@/components/dashboard/ChartAnalysisBox"), {
+  ssr: false,
+});
 // ── Solar Cycle 25 reference ──────────────────────────────────────────────────
 const SC25_START = new Date("2019-12-01").getTime();
 const SC25_END_EST = new Date("2031-03-01").getTime();
@@ -376,9 +397,7 @@ export default function SpaceWeatherPage() {
       setFeedStatus("pending");
     }
 
-    // Cache-first (requireNetwork=false) so the grid paints immediately.
-    // A hard requireNetwork wait used to leave "Connecting / Updating…" for
-    // up to ~56s when the API was slow or port 8000 was unreachable.
+    // Critical path: paint metric cards first.
     getSpaceWeather(false)
       .then((s) => {
         setSw(s);
@@ -397,10 +416,6 @@ export default function SpaceWeatherPage() {
         }
       });
 
-    getStations(false)
-      .then((stations) => setLiveStationCounts(countSpiderLiveStationStatuses(stations)))
-      .catch(() => null);
-
     if (!background) setSaLoading((prev) => (peekSolarActivity() ? false : prev || true));
     getSolarActivity(false, false)
       .then((payload) => {
@@ -408,18 +423,29 @@ export default function SpaceWeatherPage() {
         setSaError(payload?.error ?? null);
       })
       .catch((error: unknown) => {
-        // Keep any previous payload so the monitor doesn't blank out on a transient failure.
         setSaError(error instanceof Error ? error.message : "Solar monitor API unreachable");
       })
       .finally(() => setSaLoading(false));
 
-    getTimelines()
-      .then(setTl)
-      .catch(() => null);
-
-    getEkfStatus()
-      .then(setEkf)
-      .catch(() => null);
+    // Secondary feeds after first paint — reduces connection contention.
+    const runSecondary = () => {
+      getStations(false)
+        .then((stations) => setLiveStationCounts(countSpiderLiveStationStatuses(stations)))
+        .catch(() => null);
+      getTimelines()
+        .then(setTl)
+        .catch(() => null);
+      getEkfStatus()
+        .then(setEkf)
+        .catch(() => null);
+    };
+    if (background) {
+      runSecondary();
+    } else if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+      window.requestIdleCallback(() => runSecondary(), { timeout: 1500 });
+    } else {
+      window.setTimeout(runSecondary, 120);
+    }
   }, []);
 
   useEffect(() => {
