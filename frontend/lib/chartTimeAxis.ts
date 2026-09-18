@@ -43,16 +43,41 @@ export function formatUtcAxisTick(ms: number, opts: UtcAxisTickOptions = {}): st
   return `${md} ${time}`;
 }
 
-/** Floor/ceil a live window onto major-tick boundaries so HH:mm labels appear. */
+/** UTC midnight (00:00:00.000) of the calendar day containing `ms`. */
+export function startOfUtcDay(ms: number): number {
+  const d = new Date(ms);
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+}
+
+/**
+ * Floor/ceil a live window so HH:mm labels appear.
+ * For ≥6h major steps (24h / 3-day charts): leftmost tick is always **00:00 UTC**
+ * of the day containing `minMs` — same as Live NOAA Kp Timeline (not 12:50 / 12:00).
+ * Short 6h windows snap to whole-hour boundaries instead.
+ */
 export function alignTimeDomain(
   minMs: number,
   maxMs: number,
   majorMs: number = SIX_H_MS,
 ): { min: number; max: number } {
-  const pad = ONE_H_MS;
+  if (!Number.isFinite(minMs) || !Number.isFinite(maxMs)) {
+    return { min: minMs, max: maxMs };
+  }
+  const lo = Math.min(minMs, maxMs);
+  const hi = Math.max(minMs, maxMs);
+
+  if (majorMs >= SIX_H_MS) {
+    const min = startOfUtcDay(lo);
+    let max = startOfUtcDay(hi);
+    if (hi > max) max += 24 * ONE_H_MS; // next 00:00 UTC after hi
+    if (max <= min) max = min + 24 * ONE_H_MS;
+    return { min, max };
+  }
+
+  // 6h (hourly) windows: whole hours only — never :50 mid-hour starts.
   return {
-    min: Math.floor((minMs - pad) / majorMs) * majorMs,
-    max: Math.ceil((maxMs + pad) / majorMs) * majorMs,
+    min: Math.floor(lo / majorMs) * majorMs,
+    max: Math.ceil(hi / majorMs) * majorMs || minMs + majorMs,
   };
 }
 
