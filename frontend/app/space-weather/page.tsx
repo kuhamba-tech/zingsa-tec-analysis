@@ -759,51 +759,6 @@ export default function SpaceWeatherPage() {
             )}
           </div>
         </div>
-
-        {/* Row 2: Solar Wind | Estimated operational context */}
-        <div className="sw-double-grid">
-
-          {/* Solar Wind */}
-          <div className="card" {...solarCardClickProps("wind")}>
-            <div style={{ fontSize: "0.85rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "0.8rem" }}>Solar Wind</div>
-            {[
-              { icon: "🌀", label: "Speed",       val: sa?.solar_wind?.speed,       unit: "km/s",   fmt: (v: number) => v.toFixed(0) },
-              { icon: "🔵", label: "Density",     val: sa?.solar_wind?.density,     unit: "p/cm³",  fmt: (v: number) => v.toFixed(1) },
-              { icon: "🌡️", label: "Proton Temp.", val: sa?.solar_wind?.temperature, unit: "K",      fmt: (v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 0 }) },
-              { icon: "↕️", label: "IMF Bz",      val: sa?.solar_wind?.bz,          unit: "nT",     fmt: (v: number) => v.toFixed(1) },
-              { icon: "🔵", label: "IMF Bt",      val: sa?.solar_wind?.bt,          unit: "nT",     fmt: (v: number) => v.toFixed(1) },
-            ].map(({ icon, label, val, unit, fmt }) => {
-              const display = typeof val === "number" && Number.isFinite(val) ? fmt(val) : null;
-              const missingLabel = sa ? "Feed unavailable" : "Loading…";
-              return (
-                <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.3rem 0", borderBottom: "1px solid #1a2a3a", fontSize: "0.85rem" }}>
-                  <span style={{ color: "var(--text-muted)" }}>{icon} {label}</span>
-                  <span style={{ fontWeight: 700 }}>
-                    {display !== null ? `${display} ${unit}` : missingLabel}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Estimated operational context */}
-          <div className="card" {...solarCardClickProps("impact")}>
-            <div style={{ fontSize: "0.85rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "0.7rem" }}>Estimated operational context — provisional</div>
-            <div className="sw-double-grid">
-              {[
-                { label: "GNSS / CORS",  val: impact.rtk },
-                { label: "HF Radio",     val: impact.hf },
-                { label: "Satellites",   val: "Impact not verified" },
-                { label: "Power Grids",  val: "Check local GIC measurements" },
-              ].map(({ label, val }) => (
-                <div key={label} style={{ background: "#0a1929", borderRadius: "6px", padding: "0.4rem 0.6rem" }}>
-                  <div style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: "2px" }}>{label}</div>
-                  <div style={{ fontSize: "0.85rem", fontWeight: 600 }}>{val}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
       </div>
 
       {/* ── Condition banner ── */}
