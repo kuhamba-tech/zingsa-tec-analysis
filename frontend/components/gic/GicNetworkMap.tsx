@@ -196,18 +196,34 @@ export default function GicNetworkMap({ network, stationStatus, height = 460, on
     let disposed = false;
 
     (async () => {
-      const ol = await import("ol");
-      const { fromLonLat } = await import("ol/proj");
-      const TileLayer = (await import("ol/layer/Tile")).default;
-      const VectorLayer = (await import("ol/layer/Vector")).default;
-      const VectorSource = (await import("ol/source/Vector")).default;
-      const XYZ = (await import("ol/source/XYZ")).default;
-      const Feature = (await import("ol/Feature")).default;
-      const Point = (await import("ol/geom/Point")).default;
-      const LineString = (await import("ol/geom/LineString")).default;
-      const { Style, RegularShape, Circle, Fill, Stroke, Text } = await import("ol/style");
-      const Overlay = (await import("ol/Overlay")).default;
-      const View = (await import("ol/View")).default;
+      // Avoid `import("ol")` barrel — it creates a huge chunk that ChunkLoadError-timeouts.
+      const [
+        { default: Map },
+        { fromLonLat },
+        { default: TileLayer },
+        { default: VectorLayer },
+        { default: VectorSource },
+        { default: XYZ },
+        { default: Feature },
+        { default: Point },
+        { default: LineString },
+        { Style, RegularShape, Circle, Fill, Stroke, Text },
+        { default: Overlay },
+        { default: View },
+      ] = await Promise.all([
+        import("ol/Map"),
+        import("ol/proj"),
+        import("ol/layer/Tile"),
+        import("ol/layer/Vector"),
+        import("ol/source/Vector"),
+        import("ol/source/XYZ"),
+        import("ol/Feature"),
+        import("ol/geom/Point"),
+        import("ol/geom/LineString"),
+        import("ol/style"),
+        import("ol/Overlay"),
+        import("ol/View"),
+      ]);
 
       if (disposed || olMapRef.current) return;
 
@@ -230,7 +246,7 @@ export default function GicNetworkMap({ network, stationStatus, height = 460, on
 
       const popup = new Overlay({ element: popupEl, positioning: "bottom-center", offset: [0, -14] });
 
-      const map = new ol.Map({
+      const map = new Map({
         target: container,
         layers: [baseTile, labelTile, new VectorLayer({ source: vectorSource, zIndex: 2 })],
         view: new View({ center: fromLonLat([29.3, -19.0]), zoom: 6.3 }),
