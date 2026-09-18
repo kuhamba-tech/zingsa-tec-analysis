@@ -23,8 +23,8 @@ const CorsMapWithLayers = dynamic(() => import("@/components/maps/CorsMapWithLay
 });
 
 /**
- * Zimbabwe CORS Network map — placed after local ionosphere observations and
- * before Solar Drivers on Live Space Weather (and home when embedded there).
+ * Zimbabwe CORS Network map — markers use the same Spider station snapshot as
+ * the CORS Connected metric card. Heatmap is optional and must never block markers.
  */
 export default function SpaceWeatherCorsMap({ height = 440 }: { height?: number }) {
   const [stations, setStations] = useState<Station[]>(() => peekStations());
@@ -32,7 +32,12 @@ export default function SpaceWeatherCorsMap({ height = 440 }: { height?: number 
   const [heatmap, setHeatmap] = useState<TecHeatmapResponse | null>(null);
   const [riskLevel, setRiskLevel] = useState(() => peekSpaceWeather()?.gnss_risk ?? "Low");
 
-  useEffect(() => subscribeStations(setStations), []);
+  useEffect(() => subscribeStations((next) => {
+    if (next.length) {
+      setStations(next);
+      setStationsLoading(false);
+    }
+  }), []);
   useEffect(
     () =>
       subscribeSpaceWeather((next) => {
@@ -43,15 +48,39 @@ export default function SpaceWeatherCorsMap({ height = 440 }: { height?: number 
 
   useEffect(() => {
     let cancelled = false;
-    setStationsLoading(peekStations().length === 0);
-    Promise.allSettled([getStations(false), getTecHeatmap(0.05, true).catch(() => null)]).then(
-      ([st, hm]) => {
+    const cached = peekStations();
+    if (cached.length) {
+      setStations(cached);
+      setStationsLoading(false);
+    }
+
+    // Markers first — same /cors/stations feed the metric cards already use.
+    getStations(false)
+      .then((rows) => {
         if (cancelled) return;
-        if (st.status === "fulfilled") setStations(st.value);
-        if (hm.status === "fulfilled" && hm.value) setHeatmap(hm.value);
-        setStationsLoading(false);
-      },
-    );
+        if (rows.length) {
+          setStations(rows);
+          setStationsLoading(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled && peekStations().length === 0) setStationsLoading(false);
+      });
+
+    // Heatmap is decorative for the Hybrid layer — never block station dots.
+    const loadHeatmap = () => {
+      void getTecHeatmap(0.05, false)
+        .then((hm) => {
+          if (!cancelled && hm) setHeatmap(hm);
+        })
+        .catch(() => null);
+    };
+    if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+      window.requestIdleCallback(() => loadHeatmap(), { timeout: 2500 });
+    } else {
+      window.setTimeout(loadHeatmap, 400);
+    }
+
     return () => {
       cancelled = true;
     };
@@ -79,7 +108,7 @@ export default function SpaceWeatherCorsMap({ height = 440 }: { height?: number 
         riskLevel={riskLevel}
         liveCounts={liveCounts}
         ntripProbedAt={ntripProbedAt}
-        stationsLoading={stationsLoading}
+        stationsLoading={stationsLoading && stations.length === 0}
         heatmap={displayHeatmap}
       />
     </div>

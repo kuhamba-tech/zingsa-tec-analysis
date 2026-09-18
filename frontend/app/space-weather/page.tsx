@@ -397,7 +397,8 @@ export default function SpaceWeatherPage() {
       setFeedStatus("pending");
     }
 
-    // Critical path: paint metric cards first.
+    // Critical path: paint metric cards + warm the shared Spider stations store
+    // so the CORS map can draw markers without waiting on heatmap / idle work.
     getSpaceWeather(false)
       .then((s) => {
         setSw(s);
@@ -416,6 +417,10 @@ export default function SpaceWeatherPage() {
         }
       });
 
+    getStations(false)
+      .then((stations) => setLiveStationCounts(countSpiderLiveStationStatuses(stations)))
+      .catch(() => null);
+
     if (!background) setSaLoading((prev) => (peekSolarActivity() ? false : prev || true));
     getSolarActivity(false, false)
       .then((payload) => {
@@ -429,9 +434,6 @@ export default function SpaceWeatherPage() {
 
     // Secondary feeds after first paint — reduces connection contention.
     const runSecondary = () => {
-      getStations(false)
-        .then((stations) => setLiveStationCounts(countSpiderLiveStationStatuses(stations)))
-        .catch(() => null);
       getTimelines()
         .then(setTl)
         .catch(() => null);
