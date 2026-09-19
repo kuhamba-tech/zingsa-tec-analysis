@@ -365,7 +365,12 @@ export default function SpaceWeatherPage() {
   const [selectedSolarInfo, setSelectedSolarInfo] = useState<SolarInfoKey>("summary");
   const [selectedGraph, setSelectedGraph] = useState<string | null>(null);
   const [timelineSyncMs, setTimelineSyncMs] = useState<number | null>(null);
+  const [hasMounted, setHasMounted] = useState(false);
   const toggleGraph = (graphId: string) => setSelectedGraph((current) => current === graphId ? null : graphId);
+
+  useEffect(() => {
+    setHasMounted(true);
+  }, []);
 
   useEffect(() => {
     // Seed after mount (not in useState) so SSR HTML matches the first client render.
@@ -757,12 +762,25 @@ export default function SpaceWeatherPage() {
       </div>
 
       <div className="sw-monitor-status" role="status">
-        <span className={`sw-feed-state sw-feed-state-${overallStatus.toLowerCase()}`}>
-          {feedStatus === "pending" && !sw && !sa ? "Connecting" : overallStatus === "LIVE" ? "Feeds current" : overallStatus === "DELAYED" ? "Partial feeds" : "Feeds unavailable"}
-          </span>
-        <span>Indices: {snapshotStatus === "DELAYED" ? "partial" : snapshotStatus.toLowerCase()} · Solar: {solarStatus === "DELAYED" ? "partial" : solarStatus.toLowerCase()}</span>
-        <span>Snapshot: {observationTime(sw?.updated_utc)}</span>
-        {lastFetched && <span>Last successful fetch: {observationTime(lastFetched)}</span>}
+        <span
+          className={`sw-feed-state sw-feed-state-${!hasMounted ? "unavailable" : overallStatus.toLowerCase()}`}
+          suppressHydrationWarning
+        >
+          {!hasMounted || (feedStatus === "pending" && !sw && !sa)
+            ? "Connecting"
+            : overallStatus === "LIVE"
+              ? "Feeds current"
+              : overallStatus === "DELAYED"
+                ? "Partial feeds"
+                : "Feeds unavailable"}
+        </span>
+        <span suppressHydrationWarning>
+          Indices: {!hasMounted ? "unavailable" : snapshotStatus === "DELAYED" ? "partial" : snapshotStatus.toLowerCase()}
+          {" · "}
+          Solar: {!hasMounted ? "unavailable" : solarStatus === "DELAYED" ? "partial" : solarStatus.toLowerCase()}
+        </span>
+        <span suppressHydrationWarning>Snapshot: {!hasMounted ? "Time unavailable" : observationTime(sw?.updated_utc)}</span>
+        {hasMounted && lastFetched && <span>Last successful fetch: {observationTime(lastFetched)}</span>}
       </div>
       <p className="sw-supporting-text">Refresh checks run every 45 seconds. Snapshot time is separate from each source’s observation time; check the timestamp on each reading.</p>
       {freshnessMsg && <div className="banner banner-warn">{freshnessMsg}</div>}

@@ -42,10 +42,11 @@ const nextConfig: NextConfig = {
   // still fire under slow HMR / parallel chunk pressure in cloud VMs.
   // Keep all `ol` package code in one async chunk so CorsMap does not race
   // a dozen `_app-pages-browser_node_modules_ol_*` loads.
-  webpack: (config) => {
+  webpack: (config, { dev }) => {
     config.output = {
       ...config.output,
-      chunkLoadTimeout: 300_000,
+      // Dev HMR can stall chunk fetches; give the browser more headroom.
+      chunkLoadTimeout: dev ? 600_000 : 300_000,
     };
     const split = config.optimization?.splitChunks;
     if (split && typeof split === "object") {
