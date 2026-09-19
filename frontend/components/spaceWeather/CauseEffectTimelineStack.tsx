@@ -193,7 +193,21 @@ function timelinePointsToSeries(points: { t: string; v: number | null }[]) {
   });
 }
 
-export default function CauseEffectTimelineStack() {
+export type CauseEffectVariant = "full" | "drivers" | "local";
+
+/**
+ * full — National Dashboard / overview: local observations + Sun→Earth drivers + Zimbabwe response
+ * drivers — Live Metric Timelines: panels 1–4 only (X-ray → wind → IMF → geomagnetic)
+ * local — Space Weather overview under the drivers tab: CORS/VTEC/GNSS without duplicating drivers
+ */
+export default function CauseEffectTimelineStack({
+  variant = "full",
+}: {
+  variant?: CauseEffectVariant;
+}) {
+  const showDrivers = variant === "full" || variant === "drivers";
+  const showLocal = variant === "full" || variant === "local";
+
   const [helio, setHelio] = useState<HeliosphericMonitorResponse | null>(null);
   const [timelines, setTimelines] = useState<SpaceWeatherTimelines | null>(null);
   const [vtec, setVtec] = useState<LiveStationVtecSeries[]>([]);
@@ -211,8 +225,9 @@ export default function CauseEffectTimelineStack() {
     let cancelled = false;
     let inFlight = false;
     let failures = 0;
+    let feedCount = 0;
     const cached = peekHeliosphericMonitor();
-    if (cached) { setHelio(cached); setLoading(false); }
+    if (showDrivers && cached) { setHelio(cached); setLoading(false); }
     const markPainted = () => {
       if (!cancelled) setLoading(false);
     };
@@ -220,48 +235,65 @@ export default function CauseEffectTimelineStack() {
       if (inFlight) return;
       inFlight = true;
       failures = 0;
-      if (!cancelled) setVtecLoading(true);
+      feedCount = 0;
+      if (showLocal && !cancelled) setVtecLoading(true);
       // Resolve each feed independently so Zimbabwe VTEC / GNSS panels paint
-      // as soon as their JSON arrives instead of waiting on the slowest of 3.
-      const tasks: Promise<void>[] = [
-        getHeliosphericMonitor(false, false)
-          .then((h) => {
-            if (cancelled) return;
-            setHelio(h);
-            markPainted();
-          })
-          .catch(() => { failures += 1; })
-          .then(() => undefined),
-        getTimelines()
-          .then((t) => {
-            if (cancelled) return;
-            setTimelines(t);
-            markPainted();
-          })
-          .catch(() => { failures += 1; })
-          .then(() => undefined),
-        getLiveVtecByStation(Math.min(rangeHours, 48), 2)
-          .then((v) => {
-            if (cancelled) return;
-            setVtec(Array.isArray(v) ? v : []);
-            setVtecRefreshFailed(false);
-            markPainted();
-          })
-          .catch(() => {
-            failures += 1;
-            if (!cancelled) setVtecRefreshFailed(true);
-          })
-          .finally(() => {
-            if (!cancelled) setVtecLoading(false);
-          })
-          .then(() => undefined),
-      ];
+      // as soon as their JSON arrives instead of waiting on the slowest feed.
+      const tasks: Promise<void>[] = [];
+      if (showDrivers) {
+        feedCount += 1;
+        tasks.push(
+          getHeliosphericMonitor(false, false)
+            .then((h) => {
+              if (cancelled) return;
+              setHelio(h);
+              markPainted();
+            })
+            .catch(() => { failures += 1; })
+            .then(() => undefined),
+        );
+      }
+      if (showDrivers || showLocal) {
+        feedCount += 1;
+        tasks.push(
+          getTimelines()
+            .then((t) => {
+              if (cancelled) return;
+              setTimelines(t);
+              markPainted();
+            })
+            .catch(() => { failures += 1; })
+            .then(() => undefined),
+        );
+      }
+      if (showLocal) {
+        feedCount += 1;
+        tasks.push(
+          getLiveVtecByStation(Math.min(rangeHours, 48), 2)
+            .then((v) => {
+              if (cancelled) return;
+              setVtec(Array.isArray(v) ? v : []);
+              setVtecRefreshFailed(false);
+              markPainted();
+            })
+            .catch(() => {
+              failures += 1;
+              if (!cancelled) setVtecRefreshFailed(true);
+            })
+            .finally(() => {
+              if (!cancelled) setVtecLoading(false);
+            })
+            .then(() => undefined),
+        );
+      } else if (!cancelled) {
+        setVtecLoading(false);
+      }
       await Promise.allSettled(tasks);
       inFlight = false;
       if (cancelled) return;
       setError(
         failures
-          ? `${failures} of 3 timeline feeds could not refresh. Retained observations may lag; check their timestamps.`
+          ? `${failures} of ${feedCount || 1} timeline feeds could not refresh. Retained observations may lag; check their timestamps.`
           : null,
       );
       setLoading(false);
@@ -271,7 +303,7 @@ export default function CauseEffectTimelineStack() {
     const poll = window.setInterval(() => { void refresh(); }, 60_000);
     const clock = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => { cancelled = true; window.clearInterval(poll); window.clearInterval(clock); };
-  }, [rangeHours]);
+  }, [rangeHours, showDrivers, showLocal]);
 
   const plottedStations = useMemo(() => {
     const available = vtec.filter((station) => station.points?.length);
@@ -464,28 +496,51 @@ export default function CauseEffectTimelineStack() {
     },
   };
 
+  const bannerTitle =
+    variant === "drivers"
+      ? "Sun → Earth driver timelines"
+      : variant === "local"
+        ? "Zimbabwe ionosphere response"
+        : "Solar Drivers and Zimbabwe Response";
+  const bannerSupport =
+    variant === "drivers"
+      ? "Measurement flow: GOES X-ray → solar wind → IMF → geomagnetic activity. Shared UTC window and synchronized crosshair across panels 1–4."
+      : variant === "local"
+        ? "Local CORS VTEC and GNSS context after the international drivers. Shared UTC window with synchronized crosshair. Up to five station traces; VTEC history up to 48 hours."
+        : "Shared UTC window and synchronized crosshair. Compare observations and propagation delays; alignment alone does not establish cause and effect. Up to five station traces are shown; coverage above includes all returned stations. Local VTEC history is available for up to 48 hours.";
+
+  const hasDriverData = Boolean(helio || timelines);
+  const hasLocalData = Boolean(timelines || vtec.length > 0);
+  const showTimelineBody =
+    (showDrivers && (hasDriverData || !loading)) ||
+    (showLocal && (hasLocalData || !loading));
+
   return (
     <>
-    <LocalIonosphereObservations stations={vtec} now={now} refreshFailed={vtecRefreshFailed} loading={vtecLoading} />
-    {/* CORS map is heavier than the readings — mount when near viewport. */}
-    <DeferredMount
-      className="sw-deferred-block"
-      minHeight={260}
-      rootMargin="240px 0px"
-      eager
-      fallback={
-        <div className="home-map-loading" role="status" aria-live="polite">
-          <span className="home-map-loading-spinner" aria-hidden="true" />
-          <span>Loading CORS map…</span>
-        </div>
-      }
-    >
-      <SpaceWeatherCorsMap />
-    </DeferredMount>
+    {showLocal && (
+      <>
+        <LocalIonosphereObservations stations={vtec} now={now} refreshFailed={vtecRefreshFailed} loading={vtecLoading} />
+        {/* CORS map is heavier than the readings — mount when near viewport. */}
+        <DeferredMount
+          className="sw-deferred-block"
+          minHeight={260}
+          rootMargin="240px 0px"
+          eager
+          fallback={
+            <div className="home-map-loading" role="status" aria-live="polite">
+              <span className="home-map-loading-spinner" aria-hidden="true" />
+              <span>Loading CORS map…</span>
+            </div>
+          }
+        >
+          <SpaceWeatherCorsMap />
+        </DeferredMount>
+      </>
+    )}
     <section className="card sw-driver-timelines" style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }} aria-labelledby="driver-timelines-title">
       <SwSectionBanner
         icon="🔗"
-        title="Solar Drivers and Zimbabwe Response"
+        title={bannerTitle}
         titleId="driver-timelines-title"
         tone={error ? "warn" : loading ? "warn" : "ok"}
         meta={
@@ -506,266 +561,278 @@ export default function CauseEffectTimelineStack() {
           </div>
         }
       />
-      <p className="sw-supporting-text">Shared UTC window and synchronized crosshair. Compare observations and propagation delays; alignment alone does not establish cause and effect. Up to five station traces are shown; coverage above includes all returned stations. Local VTEC history is available for up to 48 hours.</p>
+      <p className="sw-supporting-text">{bannerSupport}</p>
 
       {loading && !helio && !timelines && vtec.length === 0 && (
         <div className="banner banner-info">Loading synchronized timelines…</div>
       )}
       {error && <div className="banner banner-warn">{error}</div>}
 
-      {(helio || timelines || vtec.length > 0 || !loading) && (
+      {showTimelineBody && (
         <>
-          <Panel
-            title="1 · GOES X-ray flux"
-            subtitle="Solar flares · logarithmic W/m² · C/M/X thresholds"
-            analysis={analyses.xray}
-            open={openPanel === "xray"}
-            onToggle={() => setOpenPanel((p) => (p === "xray" ? null : "xray"))}
-          >
-            {xrayPanel ? (
-              <LineChart
-                labels={xrayPanel.labels}
-                datasets={[{ label: "0.1–0.8 nm", data: xrayPanel.series.flux, color: "#60a5fa", fill: true }]}
-                yLabel="X-ray flux (W/m²)"
-                height={180}
-                yLogScale
-                thresholds={FLARE_THRESHOLDS}
-                xValues={xrayPanel.epochs}
-                epochMs={xrayPanel.epochs}
-                {...timeAxis}
-                {...syncProps}
-              />
-            ) : (
-              <div className="banner banner-info">X-ray series unavailable.</div>
-            )}
-          </Panel>
+          {showDrivers && (
+            <>
+              <Panel
+                title="1 · GOES X-ray flux"
+                subtitle="Solar flares · logarithmic W/m² · C/M/X thresholds"
+                analysis={analyses.xray}
+                open={openPanel === "xray"}
+                onToggle={() => setOpenPanel((p) => (p === "xray" ? null : "xray"))}
+              >
+                {xrayPanel ? (
+                  <LineChart
+                    labels={xrayPanel.labels}
+                    datasets={[{ label: "0.1–0.8 nm", data: xrayPanel.series.flux, color: "#60a5fa", fill: true }]}
+                    yLabel="X-ray flux (W/m²)"
+                    height={180}
+                    yLogScale
+                    thresholds={FLARE_THRESHOLDS}
+                    xValues={xrayPanel.epochs}
+                    epochMs={xrayPanel.epochs}
+                    {...timeAxis}
+                    {...syncProps}
+                  />
+                ) : (
+                  <div className="banner banner-info">X-ray series unavailable.</div>
+                )}
+              </Panel>
 
-          <GoesXrayLastDayChart />
+              <GoesXrayLastDayChart />
 
-          <Panel
-            title="2 · Solar wind speed + density + proton temp."
-            subtitle="L1 RTSW · km/s, cm⁻³ and K · oldest → newest · toggle series in the legend"
-            analysis={analyses.wind}
-            open={openPanel === "wind"}
-            onToggle={() => setOpenPanel((p) => (p === "wind" ? null : "wind"))}
-          >
-            {windPanel ? (
-              <LineChart
-                labels={windPanel.labels}
-                toggleableLegend
-                secondaryYLabel="Density (cm⁻³)"
-                tertiaryYLabel="Proton temp. (K)"
-                yLabel="Speed (km/s)"
-                height={180}
-                xValues={windPanel.epochs}
-                epochMs={windPanel.epochs}
-                {...timeAxis}
-                {...syncProps}
-                {...solarWindSpeedScale(windPanel.series.speed)}
-                thresholds={[
-                  {
-                    value: FAST_STREAM_KMS,
-                    label: "Fast stream (500 km/s)",
-                    color: "#ff8c00",
-                    fillAbove: true,
-                  },
-                ]}
-                datasets={[
-                  { label: "Speed", data: windPanel.series.speed, color: "#eab308", fill: true, yAxisId: "y" },
-                  {
-                    label: "Density",
-                    data: windPanel.series.density,
-                    color: "#38bdf8",
-                    yAxisId: "y2",
-                  },
-                  {
-                    label: "Proton Temp.",
-                    data: windPanel.series.temperature,
-                    color: "#f97316",
-                    yAxisId: "y3",
-                  },
-                ]}
-              />
-            ) : (
-              <div className="banner banner-info">Solar-wind series unavailable.</div>
-            )}
-          </Panel>
+              <Panel
+                title="2 · Solar wind speed + density + proton temp."
+                subtitle="L1 RTSW · km/s, cm⁻³ and K · oldest → newest · toggle series in the legend"
+                analysis={analyses.wind}
+                open={openPanel === "wind"}
+                onToggle={() => setOpenPanel((p) => (p === "wind" ? null : "wind"))}
+              >
+                {windPanel ? (
+                  <LineChart
+                    labels={windPanel.labels}
+                    toggleableLegend
+                    secondaryYLabel="Density (cm⁻³)"
+                    tertiaryYLabel="Proton temp. (K)"
+                    yLabel="Speed (km/s)"
+                    height={180}
+                    xValues={windPanel.epochs}
+                    epochMs={windPanel.epochs}
+                    {...timeAxis}
+                    {...syncProps}
+                    {...solarWindSpeedScale(windPanel.series.speed)}
+                    thresholds={[
+                      {
+                        value: FAST_STREAM_KMS,
+                        label: "Fast stream (500 km/s)",
+                        color: "#ff8c00",
+                        fillAbove: true,
+                      },
+                    ]}
+                    datasets={[
+                      { label: "Speed", data: windPanel.series.speed, color: "#eab308", fill: true, yAxisId: "y" },
+                      {
+                        label: "Density",
+                        data: windPanel.series.density,
+                        color: "#38bdf8",
+                        yAxisId: "y2",
+                      },
+                      {
+                        label: "Proton Temp.",
+                        data: windPanel.series.temperature,
+                        color: "#f97316",
+                        yAxisId: "y3",
+                      },
+                    ]}
+                  />
+                ) : (
+                  <div className="banner banner-info">Solar-wind series unavailable.</div>
+                )}
+              </Panel>
 
-          <Panel
-            title="3 · IMF Bz + Bt"
-            subtitle="L1 magnetometer · clear 0 nT line · southward Bz drives storms"
-            analysis={analyses.imf}
-            open={openPanel === "imf"}
-            onToggle={() => setOpenPanel((p) => (p === "imf" ? null : "imf"))}
-          >
-            {imfPanel ? (
-              <LineChart
-                labels={imfPanel.labels}
-                yLabel="IMF (nT)"
-                height={180}
-                toggleableLegend
-                thresholds={[{ value: 0, label: "Bz = 0", color: "#94a3b8" }]}
-                xValues={imfPanel.epochs}
-                epochMs={imfPanel.epochs}
-                {...timeAxis}
-                {...syncProps}
-                datasets={[
-                  { label: "Bt", data: imfPanel.series.bt, color: "#f8fafc" },
-                  { label: "Bz (GSM)", data: imfPanel.series.bz, color: "#ef4444", fill: true },
-                ]}
-              />
-            ) : (
-              <div className="banner banner-info">IMF series unavailable.</div>
-            )}
-          </Panel>
+              <Panel
+                title="3 · IMF Bz + Bt"
+                subtitle="L1 magnetometer · clear 0 nT line · southward Bz drives storms"
+                analysis={analyses.imf}
+                open={openPanel === "imf"}
+                onToggle={() => setOpenPanel((p) => (p === "imf" ? null : "imf"))}
+              >
+                {imfPanel ? (
+                  <LineChart
+                    labels={imfPanel.labels}
+                    yLabel="IMF (nT)"
+                    height={180}
+                    toggleableLegend
+                    thresholds={[{ value: 0, label: "Bz = 0", color: "#94a3b8" }]}
+                    xValues={imfPanel.epochs}
+                    epochMs={imfPanel.epochs}
+                    {...timeAxis}
+                    {...syncProps}
+                    datasets={[
+                      { label: "Bt", data: imfPanel.series.bt, color: "#f8fafc" },
+                      { label: "Bz (GSM)", data: imfPanel.series.bz, color: "#ef4444", fill: true },
+                    ]}
+                  />
+                ) : (
+                  <div className="banner banner-info">IMF series unavailable.</div>
+                )}
+              </Panel>
 
-          <Panel
-            title="4 · Geomagnetic activity"
-            subtitle="Live NOAA Kp / Kyoto Dst — same UTC window as solar wind & IMF"
-            analysis={analyses.geo}
-            open={openPanel === "geo"}
-            onToggle={() => setOpenPanel((p) => (p === "geo" ? null : "geo"))}
-          >
-            <div style={{ display: "flex", gap: "0.4rem", marginBottom: "0.5rem" }} onClick={(e) => e.stopPropagation()}>
-              {(["kp", "dst"] as const).map((tab) => (
-                <button
-                  key={tab}
-                  type="button"
-                  onClick={() => setGeoTab(tab)}
-                  style={{
-                    padding: "0.2rem 0.7rem",
-                    fontSize: "0.85rem",
-                    fontWeight: 700,
-                    borderRadius: 5,
-                    border: `1px solid ${geoTab === tab ? "var(--accent)" : "var(--border)"}`,
-                    background: geoTab === tab ? "var(--accent)" : "var(--surface)",
-                    color: "#fff",
-                    cursor: "pointer",
-                    textTransform: "uppercase",
-                  }}
-                >
-                  {tab}
-                </button>
-              ))}
-            </div>
-            {geoTab === "kp" && kpPanel ? (
-              <LineChart
-                labels={kpPanel.labels}
-                yLabel="Kp"
-                height={170}
-                toggleableLegend
-                thresholds={[{ value: 5, label: "Storm threshold (Kp 5)", color: "#ff8c00" }]}
-                xValues={kpPanel.epochs}
-                epochMs={kpPanel.epochs}
-                {...timeAxis}
-                {...syncProps}
-                datasets={[
-                  { label: "Observed", data: kpPanel.series.observed, color: "#22c55e" },
-                  { label: "Estimated", data: kpPanel.series.estimated, color: "#eab308" },
-                  { label: "Predicted", data: kpPanel.series.predicted, color: "#38bdf8", dashed: true },
-                ]}
-              />
-            ) : geoTab === "dst" && dstPanel ? (
-              <LineChart
-                labels={dstPanel.labels}
-                yLabel="Dst (nT)"
-                height={170}
-                thresholds={[
-                  { value: -50, label: "Storm threshold (−50 nT)", color: "#ff8c00" },
-                  { value: -100, label: "Intense (−100 nT)", color: "#ef4444" },
-                ]}
-                xValues={dstPanel.epochs}
-                epochMs={dstPanel.epochs}
-                {...timeAxis}
-                {...syncProps}
-                datasets={[{ label: "Dst", data: dstPanel.series.dst, color: "#34d399", fill: true }]}
-              />
-            ) : (
-              <div className="banner banner-info">Geomagnetic series unavailable for this tab.</div>
-            )}
-          </Panel>
+              <Panel
+                title="4 · Geomagnetic activity"
+                subtitle="Live NOAA Kp / Kyoto Dst — same UTC window as solar wind & IMF"
+                analysis={analyses.geo}
+                open={openPanel === "geo"}
+                onToggle={() => setOpenPanel((p) => (p === "geo" ? null : "geo"))}
+              >
+                <div style={{ display: "flex", gap: "0.4rem", marginBottom: "0.5rem" }} onClick={(e) => e.stopPropagation()}>
+                  {(["kp", "dst"] as const).map((tab) => (
+                    <button
+                      key={tab}
+                      type="button"
+                      onClick={() => setGeoTab(tab)}
+                      style={{
+                        padding: "0.2rem 0.7rem",
+                        fontSize: "0.85rem",
+                        fontWeight: 700,
+                        borderRadius: 5,
+                        border: `1px solid ${geoTab === tab ? "var(--accent)" : "var(--border)"}`,
+                        background: geoTab === tab ? "var(--accent)" : "var(--surface)",
+                        color: "#fff",
+                        cursor: "pointer",
+                        textTransform: "uppercase",
+                      }}
+                    >
+                      {tab}
+                    </button>
+                  ))}
+                </div>
+                {geoTab === "kp" && kpPanel ? (
+                  <LineChart
+                    labels={kpPanel.labels}
+                    yLabel="Kp"
+                    height={170}
+                    toggleableLegend
+                    thresholds={[{ value: 5, label: "Storm threshold (Kp 5)", color: "#ff8c00" }]}
+                    xValues={kpPanel.epochs}
+                    epochMs={kpPanel.epochs}
+                    {...timeAxis}
+                    {...syncProps}
+                    datasets={[
+                      { label: "Observed", data: kpPanel.series.observed, color: "#22c55e" },
+                      { label: "Estimated", data: kpPanel.series.estimated, color: "#eab308" },
+                      { label: "Predicted", data: kpPanel.series.predicted, color: "#38bdf8", dashed: true },
+                    ]}
+                  />
+                ) : geoTab === "dst" && dstPanel ? (
+                  <LineChart
+                    labels={dstPanel.labels}
+                    yLabel="Dst (nT)"
+                    height={170}
+                    thresholds={[
+                      { value: -50, label: "Storm threshold (−50 nT)", color: "#ff8c00" },
+                      { value: -100, label: "Intense (−100 nT)", color: "#ef4444" },
+                    ]}
+                    xValues={dstPanel.epochs}
+                    epochMs={dstPanel.epochs}
+                    {...timeAxis}
+                    {...syncProps}
+                    datasets={[{ label: "Dst", data: dstPanel.series.dst, color: "#34d399", fill: true }]}
+                  />
+                ) : (
+                  <div className="banner banner-info">Geomagnetic series unavailable for this tab.</div>
+                )}
+              </Panel>
+            </>
+          )}
 
-          <Panel
-            title="5 · Zimbabwe VTEC"
-            subtitle="Live CORS stations · local ionospheric response"
-            analysis={analyses.vtec}
-            open={openPanel === "vtec"}
-            onToggle={() => setOpenPanel((p) => (p === "vtec" ? null : "vtec"))}
-          >
-            {vtecPanel ? (
-              <LineChart
-                labels={vtecPanel.labels}
-                yLabel="VTEC (TECU)"
-                height={190}
-                toggleableLegend
-                xValues={vtecPanel.epochs}
-                epochMs={vtecPanel.epochs}
-                {...timeAxis}
-                {...syncProps}
-                datasets={Object.entries(vtecPanel.series).map(([station, data]) => {
-                  const code = station.toLowerCase().replace(/_+$/, "");
-                  return {
-                    label: `${station.toUpperCase()} VTEC`,
-                    data,
-                    color: STATION_COLORS[code] ?? "#94a3b8",
-                  };
-                })}
-              />
-            ) : (
-              <div className="banner banner-info">
-                {loading
-                  ? "Loading station VTEC…"
-                  : vtecRefreshFailed
-                    ? "Station VTEC observations are unavailable. Retrying automatically."
-                    : "No station VTEC points in the selected time range yet."}
-              </div>
-            )}
-          </Panel>
+          {showLocal && (
+            <>
+              <Panel
+                title={showDrivers ? "5 · Zimbabwe VTEC" : "1 · Zimbabwe VTEC"}
+                subtitle="Live CORS stations · local ionospheric response"
+                analysis={analyses.vtec}
+                open={openPanel === "vtec"}
+                onToggle={() => setOpenPanel((p) => (p === "vtec" ? null : "vtec"))}
+              >
+                {vtecPanel ? (
+                  <LineChart
+                    labels={vtecPanel.labels}
+                    yLabel="VTEC (TECU)"
+                    height={190}
+                    toggleableLegend
+                    xValues={vtecPanel.epochs}
+                    epochMs={vtecPanel.epochs}
+                    {...timeAxis}
+                    {...syncProps}
+                    datasets={Object.entries(vtecPanel.series).map(([station, data]) => {
+                      const code = station.toLowerCase().replace(/_+$/, "");
+                      return {
+                        label: `${station.toUpperCase()} VTEC`,
+                        data,
+                        color: STATION_COLORS[code] ?? "#94a3b8",
+                      };
+                    })}
+                  />
+                ) : (
+                  <div className="banner banner-info">
+                    {loading
+                      ? "Loading station VTEC…"
+                      : vtecRefreshFailed
+                        ? "Station VTEC observations are unavailable. Retrying automatically."
+                        : "No station VTEC points in the selected time range yet."}
+                  </div>
+                )}
+              </Panel>
 
-          <Panel
-            title="6 · Scintillation observations and estimated GNSS risk"
-            subtitle="S4 archive + provisional risk estimate · local positioning impact not verified"
-            analysis={analyses.gnss}
-            open={openPanel === "gnss"}
-            onToggle={() => setOpenPanel((p) => (p === "gnss" ? null : "gnss"))}
-          >
-            {gnssPanelClipped ? (
-              <LineChart
-                labels={gnssPanelClipped.labels}
-                yLabel="S4"
-                height={180}
-                toggleableLegend
-                secondaryYLabel="Estimated risk"
-                xValues={gnssPanelClipped.epochs}
-                epochMs={gnssPanelClipped.epochs}
-                {...timeAxis}
-                {...syncProps}
-                datasets={[
-                  {
-                    label: "S4",
-                    data: gnssPanelClipped.series.s4,
-                    color: "#f97316",
-                    yAxisId: "y",
-                  },
-                  {
-                    label: "Estimated GNSS risk (provisional)",
-                    data: gnssPanelClipped.series.risk,
-                    color: "#a78bfa",
-                    yAxisId: "y2",
-                  },
-                ]}
-              />
-            ) : (
-              <div className="banner banner-info">
-                {loading
-                  ? "Loading GNSS risk timelines…"
-                  : "S4 archive is empty for this window. Estimated GNSS risk still updates from indices when available."}
-              </div>
-            )}
-          </Panel>
+              <Panel
+                title={showDrivers ? "6 · Scintillation observations and estimated GNSS risk" : "2 · Scintillation observations and estimated GNSS risk"}
+                subtitle="S4 archive + provisional risk estimate · local positioning impact not verified"
+                analysis={analyses.gnss}
+                open={openPanel === "gnss"}
+                onToggle={() => setOpenPanel((p) => (p === "gnss" ? null : "gnss"))}
+              >
+                {gnssPanelClipped ? (
+                  <LineChart
+                    labels={gnssPanelClipped.labels}
+                    yLabel="S4"
+                    height={180}
+                    toggleableLegend
+                    secondaryYLabel="Estimated risk"
+                    xValues={gnssPanelClipped.epochs}
+                    epochMs={gnssPanelClipped.epochs}
+                    {...timeAxis}
+                    {...syncProps}
+                    datasets={[
+                      {
+                        label: "S4",
+                        data: gnssPanelClipped.series.s4,
+                        color: "#f97316",
+                        yAxisId: "y",
+                      },
+                      {
+                        label: "Estimated GNSS risk (provisional)",
+                        data: gnssPanelClipped.series.risk,
+                        color: "#a78bfa",
+                        yAxisId: "y2",
+                      },
+                    ]}
+                  />
+                ) : (
+                  <div className="banner banner-info">
+                    {loading
+                      ? "Loading GNSS risk timelines…"
+                      : "S4 archive is empty for this window. Estimated GNSS risk still updates from indices when available."}
+                  </div>
+                )}
+              </Panel>
+            </>
+          )}
 
           <div style={{ fontSize: "0.85rem", color: "var(--text-muted)", lineHeight: 1.5 }}>
-            Live NOAA SWPC + Kyoto Dst + Zimbabwe VTEC
+            {showDrivers && showLocal
+              ? "Live NOAA SWPC + Kyoto Dst + Zimbabwe VTEC"
+              : showDrivers
+                ? "Live NOAA SWPC GOES · L1 RTSW · IMF · Kp / Kyoto Dst"
+                : "Zimbabwe VTEC + scintillation / GNSS risk context"}
             {helio?.updated_utc
               ? ` · Updated ${helio.updated_utc.replace("T", " ").replace("Z", " UTC")}`
               : ""}
