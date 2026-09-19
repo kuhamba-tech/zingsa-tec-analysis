@@ -5,8 +5,9 @@ import LineChart from "@/components/charts/LineChart";
 import SwSectionBanner from "@/components/spaceWeather/SwSectionBanner";
 import { getSolarActivity } from "@/lib/api";
 import {
-  alignTimeDomain,
+  ONE_H_MS,
   parseTimelineEpoch,
+  startOfUtcDay,
   utcTimeAxisProps,
 } from "@/lib/chartTimeAxis";
 import { peekSolarActivity, subscribeSolarActivity } from "@/lib/solarActivityStore";
@@ -62,15 +63,22 @@ export default function GoesXrayLastDayChart() {
     const endMs =
       parseTimelineEpoch(sa?.updated ?? "") ??
       Date.now();
-    const epochs = raw.map((_, i) => endMs - (raw.length - 1 - i) * SAMPLE_STEP_MS);
-    const data = raw.map((v) => parseFloat((v * 1e7).toFixed(3)));
+    const epochsAll = raw.map((_, i) => endMs - (raw.length - 1 - i) * SAMPLE_STEP_MS);
+    const dataAll = raw.map((v) => Math.round(v * 1e7 * 1000) / 1000);
+    const dayStart = startOfUtcDay(endMs);
+    const dayEnd = dayStart + 24 * ONE_H_MS;
+    const pairs = epochsAll
+      .map((ms, i) => ({ ms, v: dataAll[i] }))
+      .filter((p) => p.ms >= dayStart && p.ms <= dayEnd);
+    const epochs = pairs.map((p) => p.ms);
+    const data = pairs.map((p) => p.v);
     const labels = epochs.map((ms) => new Date(ms).toISOString());
-    const domain = alignTimeDomain(epochs[0], epochs[epochs.length - 1]);
+    const domain = { min: dayStart, max: dayEnd };
     return {
       labels,
       data,
       epochs,
-      axis: utcTimeAxisProps(domain, { rangeHours: 24 }),
+      axis: utcTimeAxisProps(domain, { rangeHours: 24, majorHours: 4 }),
     };
   }, [sa?.xray_series, sa?.updated]);
 

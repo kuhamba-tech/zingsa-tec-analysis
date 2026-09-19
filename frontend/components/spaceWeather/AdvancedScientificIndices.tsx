@@ -15,7 +15,7 @@ interface Props {
  * Underlying APIs are unchanged — values are never invented.
  */
 export default function AdvancedScientificIndices({ sw, solar = null }: Props) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   const rows = buildAdvancedIndexRows(sw, solar);
 
   return (
