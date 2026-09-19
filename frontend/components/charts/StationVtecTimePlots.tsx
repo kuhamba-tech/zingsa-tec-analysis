@@ -36,6 +36,30 @@ function formatUtcTick(windowStartMs: number, hourOffset: number): string {
   });
 }
 
+/** 24h (day) = current UTC calendar day 00:00?24:00; shorter ranges stay rolling. */
+function resolveChartWindow(hours: number): {
+  windowStartMs: number;
+  windowEndMs: number;
+  spanHours: number;
+} {
+  const now = Date.now();
+  if (hours >= 24) {
+    const start = new Date(now);
+    start.setUTCHours(0, 0, 0, 0);
+    const windowStartMs = start.getTime();
+    return {
+      windowStartMs,
+      windowEndMs: windowStartMs + 24 * 3_600_000,
+      spanHours: 24,
+    };
+  }
+  return {
+    windowStartMs: now - hours * 3_600_000,
+    windowEndMs: now,
+    spanHours: hours,
+  };
+}
+
 /** Align observed + global series onto a shared UTC timeline (null where missing). */
 function mergeSeries(
   observed: LiveStationVtecSeries,
@@ -56,12 +80,14 @@ function mergeSeries(
 } {
   const obsMap = new Map(observed.points.map((p) => [p.time, p.vtec_tecu]));
   const globMap = new Map((global?.points ?? []).map((p) => [p.time, p.vtec_tecu]));
-  const times = Array.from(new Set([...obsMap.keys(), ...globMap.keys()])).sort(
-    (a, b) => new Date(a).getTime() - new Date(b).getTime(),
-  );
+  const { windowStartMs, windowEndMs, spanHours } = resolveChartWindow(hours);
+  const times = Array.from(new Set([...obsMap.keys(), ...globMap.keys()]))
+    .filter((t) => {
+      const ms = new Date(t).getTime();
+      return Number.isFinite(ms) && ms >= windowStartMs && ms <= windowEndMs;
+    })
+    .sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
   const useFullWindow = hours >= 12;
-  const windowEndMs = Date.now();
-  const windowStartMs = windowEndMs - hours * 3_600_000;
   const xValues = useFullWindow
     ? times.map((t) => (new Date(t).getTime() - windowStartMs) / 3_600_000)
     : undefined;
@@ -69,12 +95,12 @@ function mergeSeries(
     labels: times.map(formatTick),
     observed: times.map((t) => (obsMap.has(t) ? (obsMap.get(t) as number) : null)),
     global: times.map((t) => (globMap.has(t) ? (globMap.get(t) as number) : null)),
-    hasObserved: obsMap.size > 0,
-    hasGlobal: globMap.size > 0,
+    hasObserved: times.some((t) => obsMap.has(t)),
+    hasGlobal: times.some((t) => globMap.has(t)),
     xValues,
     xMin: useFullWindow ? 0 : undefined,
-    xMax: useFullWindow ? hours : undefined,
-    xStepSize: useFullWindow ? (hours >= 24 ? 4 : 2) : undefined,
+    xMax: useFullWindow ? spanHours : undefined,
+    xStepSize: useFullWindow ? (spanHours >= 24 ? 4 : 2) : undefined,
     formatXTick: useFullWindow
       ? (value: number) => formatUtcTick(windowStartMs, value)
       : undefined,
@@ -286,7 +312,7 @@ export default function StationVtecTimePlots({
       {status === "ok" && (
         <p className="station-vtec-plots-meta">
           {reporting} of {series.length || 25} stations reporting in the last{" "}
-          {hours === 24 ? "24 h (full-day window, UTC)" : `${hours} h`}
+          {hours === 24 ? "UTC day (00:00-24:00)" : `${hours} h`}
           {globalReporting > 0
             ? ` · Global TEC overlay on ${globalReporting} sites${globalSource ? ` (${globalSource})` : ""}`
             : ""}{" "}
