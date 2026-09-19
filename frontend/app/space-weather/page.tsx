@@ -2,19 +2,14 @@
 
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type CSSProperties, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { getSpaceWeather, getSolarActivity, getTimelines, refreshSpaceWeather, getStations, getEkfStatus } from "@/lib/api";
-import {
-  getSpaceWeatherClientSnapshot,
-  peekSpaceWeather,
-  subscribeSpaceWeatherStore,
-} from "@/lib/spaceWeatherStore";
+import { peekSpaceWeather, subscribeSpaceWeather } from "@/lib/spaceWeatherStore";
 import { absorbInlineBootPayload, bootSpaceWeather } from "@/lib/bootSpaceWeather";
 import { bootSolarActivity } from "@/lib/bootSolarActivity";
 import {
-  getSolarActivityClientSnapshot,
   peekSolarActivity,
-  subscribeSolarActivityStore,
+  subscribeSolarActivity,
   absorbInlineSolarBootPayload,
 } from "@/lib/solarActivityStore";
 import { peekStations, subscribeStations } from "@/lib/stationsStore";
@@ -381,17 +376,8 @@ function solarEventFeedLabel(source: string | undefined): string {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function SpaceWeatherPage() {
-  // Paint metric cards from boot/localStorage on the first client frame.
-  const sw = useSyncExternalStore(
-    subscribeSpaceWeatherStore,
-    getSpaceWeatherClientSnapshot,
-    () => null,
-  );
-  const sa = useSyncExternalStore(
-    subscribeSolarActivityStore,
-    getSolarActivityClientSnapshot,
-    () => null,
-  );
+  const [sw, setSw] = useState<SpaceWeatherCurrent | null>(null);
+  const [sa, setSa] = useState<SolarActivityFull | null>(null);
   const [saError, setSaError] = useState<string | null>(null);
   const [saLoading, setSaLoading] = useState(true);
   const [tl, setTl]         = useState<SpaceWeatherTimelines | null>(null);
@@ -409,21 +395,34 @@ export default function SpaceWeatherPage() {
   const toggleGraph = (graphId: string) => setSelectedGraph((current) => current === graphId ? null : graphId);
 
   useEffect(() => {
-    absorbInlineBootPayload();
-    absorbInlineSolarBootPayload();
-    if (peekSpaceWeather()) {
-      setFeedStatus((prev) => (prev === "pending" ? "stale" : prev));
-      setTl((prev) => prev ?? snapshotTimelines(peekSpaceWeather()!));
+    const cached = absorbInlineBootPayload() ?? peekSpaceWeather();
+    if (cached) {
+      setSw(cached);
+      setTl(snapshotTimelines(cached));
+      setFeedStatus("stale");
     }
-    if (peekSolarActivity()) setSaLoading(false);
+    const cachedSa = absorbInlineSolarBootPayload() ?? peekSolarActivity();
+    if (cachedSa) {
+      setSa(cachedSa);
+      setSaLoading(false);
+    }
     const cachedStations = peekStations();
     if (cachedStations.length) {
       setLiveStationCounts(countSpiderLiveStationStatuses(cachedStations));
     }
-    // Layout boot may finish after first paint — absorb into the store so cards update.
+    // Layout boot may finish after first paint — pull into React state.
     const bootPoll = window.setInterval(() => {
-      absorbInlineBootPayload();
-      absorbInlineSolarBootPayload();
+      const swBoot = absorbInlineBootPayload();
+      if (swBoot) {
+        setSw(swBoot);
+        setTl((prev) => prev ?? snapshotTimelines(swBoot));
+        setFeedStatus((prev) => (prev === "pending" ? "stale" : prev));
+      }
+      const saBoot = absorbInlineSolarBootPayload();
+      if (saBoot) {
+        setSa(saBoot);
+        setSaLoading(false);
+      }
       if (peekSpaceWeather() && peekSolarActivity()) {
         window.clearInterval(bootPoll);
       }
@@ -435,19 +434,18 @@ export default function SpaceWeatherPage() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!sw) return;
-    setTl((prev) => prev ?? snapshotTimelines(sw));
-    setFeedStatus((prev) => (prev === "pending" ? "ok" : prev === "stale" ? "ok" : prev));
+  useEffect(() => subscribeSpaceWeather((next) => {
+    setSw(next);
+    setTl((prev) => prev ?? snapshotTimelines(next));
+    setFeedStatus("ok");
     setLastFetched(new Date().toISOString());
-  }, [sw]);
+  }), []);
 
-  useEffect(() => {
-    if (sa) {
-      setSaLoading(false);
-      setSaError(sa.error ?? null);
-    }
-  }, [sa]);
+  useEffect(() => subscribeSolarActivity((next) => {
+    setSa(next);
+    setSaLoading(false);
+    setSaError(next?.error ?? null);
+  }), []);
 
   useEffect(() => {
     const tick = () => setNow(Date.now());
@@ -467,6 +465,7 @@ export default function SpaceWeatherPage() {
     // Phase 1 — current + solar in parallel so all metric cards fill together.
     getSpaceWeather(false)
       .then((s) => {
+        setSw(s);
         setTl((prev) => prev ?? snapshotTimelines(s));
         setFeedStatus("ok");
         setLastFetched(new Date().toISOString());
@@ -474,6 +473,7 @@ export default function SpaceWeatherPage() {
       .catch(() => {
         const cached = peekSpaceWeather();
         if (cached) {
+          setSw(cached);
           setTl((prev) => prev ?? snapshotTimelines(cached));
           setFeedStatus("stale");
         } else {
@@ -484,6 +484,7 @@ export default function SpaceWeatherPage() {
     if (!background) setSaLoading((prev) => (peekSolarActivity() ? false : prev || true));
     getSolarActivity(false, false)
       .then((payload) => {
+        setSa(payload);
         setSaError(payload?.error ?? null);
       })
       .catch((error: unknown) => {
@@ -514,15 +515,17 @@ export default function SpaceWeatherPage() {
 
   useEffect(() => {
     const profile = getLoadProfile();
-    // Lightweight boots race ahead of the heavier api.ts path.
     void bootSpaceWeather().then((boot) => {
       if (!boot) return;
+      setSw(boot);
       setTl((prev) => prev ?? snapshotTimelines(boot));
       setFeedStatus("ok");
       setLastFetched(new Date().toISOString());
     });
     void bootSolarActivity().then((boot) => {
-      if (boot) setSaLoading(false);
+      if (!boot) return;
+      setSa(boot);
+      setSaLoading(false);
     });
     fetchAll(false);
     const id = window.setInterval(() => fetchAll(true), profile.pollIntervalMs);

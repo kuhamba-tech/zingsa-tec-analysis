@@ -68,12 +68,8 @@ export function subscribeSolarActivityStore(onStoreChange: () => void): () => vo
   };
 }
 
-/** Client snapshot — layout boot → memory → localStorage. Must stay pure. */
+/** Stable client snapshot — store `latest` only (never window boot directly). */
 export function getSolarActivityClientSnapshot(): SolarActivityFull | null {
-  if (typeof window !== "undefined") {
-    const boot = (window as Window & { __ZGIIS_SA_BOOT?: unknown }).__ZGIIS_SA_BOOT;
-    if (isUsable(boot)) return boot;
-  }
   return peekSolarActivity();
 }
 
