@@ -43,7 +43,23 @@ def _sw() -> dict:
     # Page-load reads must stay quick. The CORS_Program enrichment endpoints can
     # time out independently, so use direct NOAA/local sources here and let the
     # dedicated station endpoints handle CORS/NTRIP status.
-    sw = get_space_weather(use_third_party=False, fetch_ionosphere=False)
+    try:
+        sw = get_space_weather(use_third_party=False, fetch_ionosphere=False)
+    except Exception:
+        log.exception("get_space_weather failed")
+        sw = None
+    if not isinstance(sw, dict):
+        sw = {
+            "mode": "unavailable",
+            "kp": None,
+            "dst": None,
+            "f107": None,
+            "gnss_risk": "Unknown",
+            "gnss_risk_color": "#94a3b8",
+            "stations_online": None,
+            "stations_total": 25,
+            "updated_utc": None,
+        }
     s4, delta_tec, ionosphere_status, ionosphere_note = _cached_s4()
     if s4 is not None:
         sw["s4"] = round(s4, 2)
@@ -254,7 +270,7 @@ def solar_activity(
 
 @router.get("/timelines", response_model=SpaceWeatherTimelines)
 async def timelines(
-    max_points: int = Query(336, ge=24, le=2000),
+    max_points: int = Query(168, ge=24, le=2000),
     _=Depends(require_api_key),
 ):
     return limit_timelines(build_timelines(_sw()), max_points=max_points)

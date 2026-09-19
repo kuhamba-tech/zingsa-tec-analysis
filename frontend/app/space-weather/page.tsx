@@ -6,15 +6,19 @@ import { useCallback, useEffect, useMemo, useState, type CSSProperties, type Key
 import { getSpaceWeather, getSolarActivity, getTimelines, refreshSpaceWeather, getStations, getEkfStatus } from "@/lib/api";
 import { peekSpaceWeather, subscribeSpaceWeather } from "@/lib/spaceWeatherStore";
 import { absorbInlineBootPayload } from "@/lib/bootSpaceWeather";
-import { peekSolarActivity, subscribeSolarActivity } from "@/lib/solarActivityStore";
+import { peekSolarActivity, subscribeSolarActivity, absorbInlineSolarBootPayload } from "@/lib/solarActivityStore";
 import { peekStations, subscribeStations } from "@/lib/stationsStore";
 import ClickableMetricGrid from "@/components/spaceWeather/ClickableMetricGrid";
 import DeferredMount from "@/components/spaceWeather/DeferredMount";
-import IndexScaleReference from "@/components/spaceWeather/IndexScaleReference";
 import SwSectionBanner from "@/components/spaceWeather/SwSectionBanner";
 import { monitoringFreshness, observationTime } from "@/lib/monitoringStatus";
-import AdvancedScientificIndices from "@/components/spaceWeather/AdvancedScientificIndices";
 import HomeStormAlertBanner from "@/components/layout/HomeStormAlertBanner";
+import {
+  afterNextPaint,
+  getLoadProfile,
+  isDocumentVisible,
+  scheduleSecondary,
+} from "@/lib/loadBudget";
 import type { ChartAnalysisBlock } from "@/lib/multiSourceChartAnalysis";
 import {
   analyzeF107Timeline,
@@ -73,6 +77,14 @@ const TecMethodComparisonLab = dynamic(
 );
 const TecMethodUnderstandingPanel = dynamic(
   () => import("@/components/spaceWeather/TecMethodUnderstandingPanel"),
+  { ssr: false, loading: () => sectionFallback },
+);
+const IndexScaleReference = dynamic(
+  () => import("@/components/spaceWeather/IndexScaleReference"),
+  { ssr: false, loading: () => null },
+);
+const AdvancedScientificIndices = dynamic(
+  () => import("@/components/spaceWeather/AdvancedScientificIndices"),
   { ssr: false, loading: () => sectionFallback },
 );
 const LineChart = dynamic(() => import("@/components/charts/LineChart"), {
@@ -391,7 +403,7 @@ export default function SpaceWeatherPage() {
       setTl(snapshotTimelines(cached));
       setFeedStatus("stale");
     }
-    const cachedSa = peekSolarActivity();
+    const cachedSa = absorbInlineSolarBootPayload() ?? peekSolarActivity();
     if (cachedSa) {
       setSa(cachedSa);
       setSaLoading(false);
@@ -423,12 +435,14 @@ export default function SpaceWeatherPage() {
   }, []);
 
   const fetchAll = useCallback((background = false) => {
+    if (background && !isDocumentVisible()) return;
+
+    const profile = getLoadProfile();
     if (!background && !peekSpaceWeather()) {
       setFeedStatus("pending");
     }
 
-    // Critical path: paint metric cards + warm the shared Spider stations store
-    // so the CORS map can draw markers without waiting on heatmap / idle work.
+    // Phase 1 — critical path only: paint Live Metric cards ASAP.
     getSpaceWeather(false)
       .then((s) => {
         setSw(s);
@@ -447,46 +461,52 @@ export default function SpaceWeatherPage() {
         }
       });
 
-    getStations(false)
-      .then((stations) => setLiveStationCounts(countSpiderLiveStationStatuses(stations)))
-      .catch(() => null);
+    // Phase 2 — solar monitor right after first paint (drives flare / wind cards).
+    const runSolar = () => {
+      if (!background) setSaLoading((prev) => (peekSolarActivity() ? false : prev || true));
+      getSolarActivity(false, false)
+        .then((payload) => {
+          setSa(payload);
+          setSaError(payload?.error ?? null);
+        })
+        .catch((error: unknown) => {
+          setSaError(error instanceof Error ? error.message : "Solar monitor API unreachable");
+        })
+        .finally(() => setSaLoading(false));
+    };
 
-    // Timelines power the default Live Metric Timelines tab — fetch with the
-    // critical path so charts are not stuck on "feed unavailable".
-    getTimelines()
-      .then(setTl)
-      .catch(() => null);
-
-    if (!background) setSaLoading((prev) => (peekSolarActivity() ? false : prev || true));
-    getSolarActivity(false, false)
-      .then((payload) => {
-        setSa(payload);
-        setSaError(payload?.error ?? null);
-      })
-      .catch((error: unknown) => {
-        setSaError(error instanceof Error ? error.message : "Solar monitor API unreachable");
-      })
-      .finally(() => setSaLoading(false));
-
-    // Secondary feed after first paint.
+    // Phase 3 — charts / stations / EKF after paint (lighter + later on mobile).
     const runSecondary = () => {
+      getTimelines(profile.timelineMaxPoints)
+        .then(setTl)
+        .catch(() => null);
+      getStations(false)
+        .then((stations) => setLiveStationCounts(countSpiderLiveStationStatuses(stations)))
+        .catch(() => null);
       getEkfStatus()
         .then(setEkf)
         .catch(() => null);
     };
+
     if (background) {
+      runSolar();
       runSecondary();
-    } else if (typeof window !== "undefined" && "requestIdleCallback" in window) {
-      window.requestIdleCallback(() => runSecondary(), { timeout: 1500 });
-    } else {
-      globalThis.setTimeout(runSecondary, 120);
+      return;
     }
+
+    afterNextPaint(runSolar, profile.lightPayload ? 80 : 32);
+    scheduleSecondary(runSecondary, profile);
   }, []);
 
   useEffect(() => {
+    const profile = getLoadProfile();
     fetchAll(false);
-    const id = window.setInterval(() => fetchAll(true), 45_000);
-    // Leave "Connecting" within 12s even if a fetch is stuck — show unavailable
+    const id = window.setInterval(() => fetchAll(true), profile.pollIntervalMs);
+    const onVisibility = () => {
+      if (isDocumentVisible()) fetchAll(true);
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    // Leave "Connecting" within 10s even if a fetch is stuck — show unavailable
     // rather than an infinite Updating… grid (aligned with SW_FAST + retry budget).
     const watchdog = window.setTimeout(() => {
       setFeedStatus((prev) => {
@@ -494,10 +514,11 @@ export default function SpaceWeatherPage() {
         return peekSpaceWeather() ? "stale" : "down";
       });
       setSaLoading(false);
-    }, 12_000);
+    }, 10_000);
     return () => {
       window.clearInterval(id);
       window.clearTimeout(watchdog);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [fetchAll]);
 
@@ -793,7 +814,7 @@ export default function SpaceWeatherPage() {
         <span suppressHydrationWarning>Snapshot: {!hasMounted ? "Time unavailable" : observationTime(sw?.updated_utc)}</span>
         {hasMounted && lastFetched && <span>Last successful fetch: {observationTime(lastFetched)}</span>}
       </div>
-      <p className="sw-supporting-text">Refresh checks run every 45 seconds. Snapshot time is separate from each source’s observation time; check the timestamp on each reading.</p>
+      <p className="sw-supporting-text">Background checks pause while this tab is hidden and run less often on mobile or slow networks. Snapshot time is separate from each source’s observation time; check the timestamp on each reading.</p>
       {freshnessMsg && <div className="banner banner-warn">{freshnessMsg}</div>}
       <HomeStormAlertBanner sw={sw} />
 
@@ -844,7 +865,7 @@ export default function SpaceWeatherPage() {
       <DeferredMount
         className="sw-deferred-block"
         minHeight={320}
-        rootMargin="180px 0px"
+        rootMargin="80px 0px"
         fallback={sectionFallback}
       >
         {/* Timelines live under Live Metric; keep station readings + CORS map here. */}
@@ -853,7 +874,7 @@ export default function SpaceWeatherPage() {
       <DeferredMount
         className="sw-deferred-block"
         minHeight={120}
-        rootMargin="160px 0px"
+        rootMargin="60px 0px"
         fallback={sectionFallback}
       >
         <IndexScaleReference />
@@ -869,6 +890,12 @@ export default function SpaceWeatherPage() {
 
       {/* ── Tab 0: Timelines ── */}
       {tab === 0 && (
+        <DeferredMount
+          className="sw-deferred-block"
+          minHeight={280}
+          rootMargin="20px 0px"
+          fallback={sectionFallback}
+        >
         <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
           <p style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>
             Chronological Sun→Earth→Zimbabwe order using the Solar Activity GOES X-ray and Heliospheric Monitor graphs, then local VTEC / CORS / GNSS
@@ -947,6 +974,7 @@ export default function SpaceWeatherPage() {
             }
           />
         </div>
+        </DeferredMount>
       )}
 
       {/* ── Tab 1: Solar Activity (detailed) ── */}

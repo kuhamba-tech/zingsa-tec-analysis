@@ -58,6 +58,16 @@ export function peekSolarActivity(): SolarActivityFull | null {
   return latest;
 }
 
+/** Apply pre-React layout boot payload into the shared solar store. */
+export function absorbInlineSolarBootPayload(): SolarActivityFull | null {
+  if (typeof window === "undefined") return null;
+  const boot = (window as Window & { __ZGIIS_SA_BOOT?: unknown }).__ZGIIS_SA_BOOT;
+  if (isUsable(boot)) {
+    return publishSolarActivity(boot);
+  }
+  return peekSolarActivity();
+}
+
 export function subscribeSolarActivity(fn: Listener): () => void {
   ensureSeeded();
   if (latest) fn(latest);

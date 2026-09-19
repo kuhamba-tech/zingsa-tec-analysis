@@ -106,6 +106,8 @@ const SOLAR_TIMEOUT_MS = 55_000;
 const HELIO_TIMEOUT_MS = 45_000;
 const REPORT_TIMEOUT_MS = 60_000;
 const LIVE_REFRESH_MIN_MS = 20_000;
+/** Short gap before one retry — long delays hurt first paint on mobile. */
+const RETRY_GAP_MS = 280;
 
 let lastSolarNetworkAt = 0;
 let lastHelioNetworkAt = 0;
@@ -204,8 +206,11 @@ export async function getWithRetry<T>(
 ): Promise<T> {
   try {
     return await get<T>(path, params, timeoutMs);
-  } catch {
-    await new Promise((r) => setTimeout(r, 800));
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    // Do not burn another full timeout on hard 4xx (except transient 408/429).
+    if (/→\s*(401|403|404|405|410)\b/.test(msg)) throw err;
+    await new Promise((r) => setTimeout(r, RETRY_GAP_MS));
     return get<T>(path, params, timeoutMs);
   }
 }
@@ -360,10 +365,15 @@ export const getHeliosphericMonitor = (forceRefresh = false, requireNetwork = fa
       }),
   );
 };
-export const getTimelines = () =>
-  dedupeGet("space-weather/timelines", () =>
-    getWithRetry<SpaceWeatherTimelines>("/space-weather/timelines", { _ts: Date.now() }),
+export const getTimelines = (maxPoints = 168) => {
+  const capped = Math.max(24, Math.min(2000, Math.round(maxPoints)));
+  return dedupeGet(`space-weather/timelines:${capped}`, () =>
+    getWithRetry<SpaceWeatherTimelines>("/space-weather/timelines", {
+      max_points: capped,
+      _ts: Date.now(),
+    }),
   );
+};
 export const refreshSpaceWeather = () =>
   fetch(apiUrl("/space-weather/refresh"), { method: "POST", headers: KEY ? { "X-API-Key": KEY } : {} });
 export const getSpaceWeatherLogStatus = () => get<SpaceWeatherLogStatus>("/space-weather/log/status");

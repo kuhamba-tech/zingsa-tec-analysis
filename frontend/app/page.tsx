@@ -17,6 +17,12 @@ import {
   formatCorsConnectedShort,
   mergeStationsPreferLive,
 } from "@/lib/liveStationStatus";
+import {
+  afterNextPaint,
+  getLoadProfile,
+  isDocumentVisible,
+  scheduleSecondary,
+} from "@/lib/loadBudget";
 import HomeStormAlertBanner from "@/components/layout/HomeStormAlertBanner";
 import DeferredMount from "@/components/spaceWeather/DeferredMount";
 import HomeTimelinesGate from "@/components/spaceWeather/HomeTimelinesGate";
@@ -242,6 +248,8 @@ export default function HomePage() {
     }
 
     async function load(background = false) {
+      if (background && !isDocumentVisible()) return;
+      const profile = getLoadProfile();
       const cached = peekSpaceWeather();
 
       if (!background) {
@@ -293,47 +301,77 @@ export default function HomePage() {
           return null;
         });
 
-      const stationsPromise = getStations(false)
-        .then((rows) => {
-          if (cancelled) return rows;
-          if (rows.length > 0) applyStations(rows);
-          return rows;
-        })
-        .catch(() => [] as Station[])
-        .finally(() => {
-          if (!cancelled) {
-            setStationsLoading(false);
-            setNtripRefreshing(false);
-          }
-        });
+      const runStations = () => {
+        void getStations(false)
+          .then((rows) => {
+            if (cancelled) return rows;
+            if (rows.length > 0) applyStations(rows);
+            return rows;
+          })
+          .catch(() => [] as Station[])
+          .finally(() => {
+            if (!cancelled) {
+              setStationsLoading(false);
+              setNtripRefreshing(false);
+            }
+          });
+      };
 
       // Secondary widgets after SW resolves (stations may still be in flight).
       void swPromise.then((sw) => {
         if (cancelled) return;
-        void Promise.allSettled([getEkfStatus(), getLivePipelineStatus()]).then(
-          ([ekfResult, pipelineResult]) => {
-            if (cancelled) return;
-            const ekfData = ekfResult.status === "fulfilled" ? ekfResult.value : null;
-            const merged = mergeSpaceWeatherWithEkf(sw, ekfData);
-            if (merged) {
-              setDisplaySw(merged.data);
-              setEkfFilled(merged.ekfFilled);
-            }
-            if (pipelineResult.status === "fulfilled") {
-              setPipelineNote(pipelineResult.value.message ?? null);
-            }
-          },
-        );
+        const runEkf = () => {
+          void Promise.allSettled([getEkfStatus(), getLivePipelineStatus()]).then(
+            ([ekfResult, pipelineResult]) => {
+              if (cancelled) return;
+              const ekfData = ekfResult.status === "fulfilled" ? ekfResult.value : null;
+              const merged = mergeSpaceWeatherWithEkf(sw, ekfData);
+              if (merged) {
+                setDisplaySw(merged.data);
+                setEkfFilled(merged.ekfFilled);
+              }
+              if (pipelineResult.status === "fulfilled") {
+                setPipelineNote(pipelineResult.value.message ?? null);
+              }
+            },
+          );
+        };
+        if (background) {
+          runEkf();
+        } else {
+          scheduleSecondary(runEkf, profile);
+        }
       });
 
-      await Promise.allSettled([swPromise, stationsPromise]);
+      if (background) {
+        runStations();
+        await swPromise;
+        return;
+      }
+
+      // Stations after first paint when SW already has counts; otherwise soon after paint.
+      const hasSwCounts =
+        (cached?.stations_online != null && cached?.stations_total != null) ||
+        peekStations().length > 0;
+      if (hasSwCounts) {
+        scheduleSecondary(runStations, profile);
+      } else {
+        afterNextPaint(runStations, profile.lightPayload ? 120 : 40);
+      }
+      await swPromise;
     }
 
     load(false);
-    const timer = window.setInterval(() => load(true), 30_000);
+    const profile = getLoadProfile();
+    const timer = window.setInterval(() => load(true), profile.pollIntervalMs);
+    const onVisibility = () => {
+      if (isDocumentVisible()) void load(true);
+    };
+    document.addEventListener("visibilitychange", onVisibility);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, []);
 
