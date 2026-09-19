@@ -15,6 +15,7 @@ import {
   getSolarActivityClientSnapshot,
   peekSolarActivity,
   subscribeSolarActivityStore,
+  absorbInlineSolarBootPayload,
 } from "@/lib/solarActivityStore";
 import { peekStations, subscribeStations } from "@/lib/stationsStore";
 import ClickableMetricGrid from "@/components/spaceWeather/ClickableMetricGrid";
@@ -409,6 +410,7 @@ export default function SpaceWeatherPage() {
 
   useEffect(() => {
     absorbInlineBootPayload();
+    absorbInlineSolarBootPayload();
     if (peekSpaceWeather()) {
       setFeedStatus((prev) => (prev === "pending" ? "stale" : prev));
       setTl((prev) => prev ?? snapshotTimelines(peekSpaceWeather()!));
@@ -418,6 +420,19 @@ export default function SpaceWeatherPage() {
     if (cachedStations.length) {
       setLiveStationCounts(countSpiderLiveStationStatuses(cachedStations));
     }
+    // Layout boot may finish after first paint — absorb into the store so cards update.
+    const bootPoll = window.setInterval(() => {
+      absorbInlineBootPayload();
+      absorbInlineSolarBootPayload();
+      if (peekSpaceWeather() && peekSolarActivity()) {
+        window.clearInterval(bootPoll);
+      }
+    }, 150);
+    const bootStop = window.setTimeout(() => window.clearInterval(bootPoll), 6_000);
+    return () => {
+      window.clearInterval(bootPoll);
+      window.clearTimeout(bootStop);
+    };
   }, []);
 
   useEffect(() => {
