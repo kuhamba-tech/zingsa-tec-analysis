@@ -69,7 +69,7 @@ class StormDayDetectionTests(unittest.TestCase):
         self.assertTrue(result.loc[0, "storm_flag"])
         self.assertEqual(result.loc[0, "kp_index"], 5.3)
         self.assertEqual(result.loc[0, "kp_g_scale"], "G1")
-        self.assertEqual(result.loc[0, "kp_condition"], "Minor Storm G1")
+        self.assertEqual(result.loc[0, "kp_condition"], "Minor Storm")
 
     def test_official_noaa_kp_boundaries_assign_g1_through_g5(self):
         dates = pd.date_range("2024-05-01", periods=6, freq="D")

@@ -6,7 +6,7 @@ KP_SCALE_BANDS: list[tuple[str, str, str, float, float]] = [
     ("0-2", "Quiet", "#00ff88", 0.0, 3.0),
     ("3", "Unsettled", "#88ff44", 3.0, 4.0),
     ("4", "Active", "#ffff00", 4.0, 5.0),
-    ("5", "Minor Storm G1", "#ff8c00", 5.0, 6.0),
+    ("5", "Minor Storm", "#ff8c00", 5.0, 6.0),
     ("6", "Moderate G2", "#ff6600", 6.0, 7.0),
     ("7", "Strong G3", "#ff2200", 7.0, 8.0),
     ("8", "Severe G4", "#cc0044", 8.0, 9.0),

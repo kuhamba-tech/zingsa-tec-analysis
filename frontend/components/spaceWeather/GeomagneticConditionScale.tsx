@@ -2,7 +2,7 @@ const GEOMAGNETIC_BANDS = [
   { min: 0, label: "Quiet", kp: "Kp 0-2", color: "#00ff88" },
   { min: 3, label: "Unsettled", kp: "Kp 3", color: "#52e34f" },
   { min: 4, label: "Active", kp: "Kp 4", color: "#c8f018" },
-  { min: 5, label: "Minor Storm G1", kp: "Kp 5", color: "#ffb000" },
+  { min: 5, label: "Minor Storm", kp: "Kp 5", color: "#ffb000" },
   { min: 6, label: "Moderate G2", kp: "Kp 6", color: "#ff7a00" },
   { min: 7, label: "Strong G3", kp: "Kp 7", color: "#ff2e2e" },
   { min: 8, label: "Severe G4", kp: "Kp 8", color: "#ff0080" },

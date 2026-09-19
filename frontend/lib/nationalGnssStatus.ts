@@ -119,9 +119,10 @@ export function stormRiskLabel(sw: SpaceWeatherCurrent | null): string {
   if (kp >= 8) return "G4 Severe";
   if (kp >= 7) return "G3 Strong";
   if (kp >= 6) return "G2 Moderate";
-  if (kp >= 5) return "G1 Minor";
+  if (kp >= 5) return "G1 Minor Storm";
   if (kp >= 4) return "G0 Active (below G1)";
-  return "G0 No Storm";
+  if (kp >= 3) return "G0 Unsettled";
+  return "G0 Quiet";
 }
 
 export interface NationalGnssStatusData {

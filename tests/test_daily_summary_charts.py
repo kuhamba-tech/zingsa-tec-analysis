@@ -36,7 +36,7 @@ class DailySummaryChartTests(unittest.TestCase):
                 "date": ["2024-04-30", "2024-05-01"],
                 "mean_vtec": [18.2, 20.4],
                 "kp_index": [4.9, 5.0],
-                "kp_condition": ["Active", "Minor Storm G1"],
+                "kp_condition": ["Active", "Minor Storm"],
                 "kp_storm_flag": [False, True],
             }
         )
@@ -52,7 +52,7 @@ class DailySummaryChartTests(unittest.TestCase):
         self.assertEqual(fig.data[1].name, "NOAA Kp storm (Kp >= 5)")
         self.assertEqual(len(fig.data[1].x), 1)
         self.assertEqual(pd.Timestamp(fig.data[1].x[0]), pd.Timestamp("2024-05-01"))
-        self.assertIn("Minor Storm G1", fig.data[1].customdata[0])
+        self.assertIn("Minor Storm", fig.data[1].customdata[0])
 
 
 if __name__ == "__main__":
