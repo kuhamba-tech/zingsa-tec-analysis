@@ -17,8 +17,6 @@ import HomeStormAlertBanner from "@/components/layout/HomeStormAlertBanner";
 import type { ChartAnalysisBlock } from "@/lib/multiSourceChartAnalysis";
 import {
   analyzeF107Timeline,
-  analyzeGnssRiskTimeline,
-  analyzeS4Timeline,
   analyzeStationsOnlineTimeline,
 } from "@/lib/dashboardChartAnalysis";
 import { analyzeGoesXrayExplanation } from "@/lib/heliosphericChartAnalysis";
@@ -501,8 +499,6 @@ export default function SpaceWeatherPage() {
   const currentTimestamp = sw?.updated_utc ?? null;
 
   const f107Points = withCurrentFallback(safePoints(tl?.f107), currentPoint(f107, currentTimestamp));
-  const s4Points = withCurrentFallback(safePoints(tl?.s4), currentPoint(s4, currentTimestamp));
-  const gnssPoints = withCurrentFallback(safePoints(tl?.gnss_risk), currentPoint(riskScore(risk), currentTimestamp));
   const streamCount = liveStationCounts
     ? connectedStreamCount(liveStationCounts)
     : sw?.stations_online ?? null;
@@ -513,18 +509,16 @@ export default function SpaceWeatherPage() {
 
   const timelineAnalyses = useMemo(() => ({
     f107: analyzeF107Timeline(f107Points),
-    s4: analyzeS4Timeline(s4Points),
-    gnss: analyzeGnssRiskTimeline(gnssPoints),
     stations: analyzeStationsOnlineTimeline(stationsOnlinePoints),
-  }), [f107Points, s4Points, gnssPoints, stationsOnlinePoints]);
+  }), [f107Points, stationsOnlinePoints]);
 
-  /** Shared UTC span for secondary Live Metric cards (drivers use their own synced stack). */
+  /** Shared UTC span for secondary Live Metric cards (driver/local stack has its own sync). */
   const liveMetricTimeDomain = useMemo(() => {
-    const lists = [f107Points, s4Points, gnssPoints, stationsOnlinePoints]
+    const lists = [f107Points, stationsOnlinePoints]
       .map((pts) => chronologicalPoints(pts).map((p) => p.ms))
       .filter((epochs) => epochs.length > 0);
     return sharedTimeDomain(lists);
-  }, [f107Points, s4Points, gnssPoints, stationsOnlinePoints]);
+  }, [f107Points, stationsOnlinePoints]);
 
   const liveMetricSync = {
     syncHoverMs: timelineSyncMs,
@@ -815,8 +809,8 @@ export default function SpaceWeatherPage() {
         rootMargin="180px 0px"
         fallback={sectionFallback}
       >
-        {/* Drivers 1–4 live under Live Metric Timelines; keep local response here. */}
-        <CauseEffectTimelineStack variant="local" />
+        {/* Timelines live under Live Metric; keep station readings + CORS map here. */}
+        <CauseEffectTimelineStack variant="overview" />
       </DeferredMount>
       <DeferredMount
         className="sw-deferred-block"
@@ -839,11 +833,11 @@ export default function SpaceWeatherPage() {
       {tab === 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
           <p style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>
-            Live NOAA feeds and derived indices — Sun→Earth drivers first (X-ray → wind → IMF → geomagnetic), then secondary metrics on a shared UTC axis
+            Live NOAA feeds and derived indices — Sun→Earth drivers, then Zimbabwe VTEC / GNSS response, then secondary metrics on a shared UTC axis
           </p>
 
-          {/* Image-1 measurement flow: 1 X-ray → 2 solar wind → 3 IMF → 4 geomagnetic */}
-          <CauseEffectTimelineStack variant="drivers" />
+          {/* 1–4 drivers → 5 VTEC → 6 scintillation / GNSS risk */}
+          <CauseEffectTimelineStack variant="liveMetric" />
 
           <TimelineCard graphId="f107" title="Live NOAA F10.7 Solar Flux Timeline"
             pts={f107Points} color="#ffcc00" yLabel="F10.7 (sfu)"
@@ -854,28 +848,6 @@ export default function SpaceWeatherPage() {
             ekfPoints={ekf?.series.f107?.points}
             ekfColor="#fde68a"
             emptyMsg="Live NOAA F10.7 feed unavailable."
-            {...liveMetricSync} />
-
-          <TimelineCard graphId="s4" title="Archived Scintillation S4 Timeline"
-            pts={s4Points} color="#ff8c00" yLabel="S4 Index"
-            threshold={{ value: 0.5, label: "Severe scintillation (0.5)" }}
-            source="ZINGSA CORS ionosphere archive"
-            analysis={timelineAnalyses.s4}
-            expanded={selectedGraph === "s4"} onToggle={toggleGraph}
-            ekfPoints={ekf?.series.s4?.points}
-            ekfColor="#fdba74"
-            emptyMsg="No observed S4 archive value is available for the timeline."
-            {...liveMetricSync} />
-
-          <TimelineCard graphId="gnss-risk" title="Estimated GNSS Risk Timeline (provisional)"
-            pts={gnssPoints} color="#168bd2" yLabel="Risk level"
-            threshold={{ value: 2, label: "High risk (2)" }}
-            source="Derived from NOAA Kp — ZINGSA GNSS risk thresholds"
-            analysis={timelineAnalyses.gnss}
-            expanded={selectedGraph === "gnss-risk"} onToggle={toggleGraph}
-            ekfPoints={ekf?.series.gnss_risk?.points}
-            ekfColor="#7dd3fc"
-            emptyMsg="GNSS risk timeline unavailable."
             {...liveMetricSync} />
 
           {stationsOnlinePoints.length > 0 ? (
