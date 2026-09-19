@@ -34,12 +34,14 @@ const SPACE_WEATHER_BOOT_SCRIPT = `
     var port = location.port;
     var origin = location.origin;
     var local = host === "localhost" || host === "127.0.0.1" || host === "[::1]";
+    var vercel = host.indexOf("vercel.app") >= 0 || host.indexOf("vercel.com") >= 0;
     var base;
+    // Prefer Next /backend proxy for local + Cursor/cloud previews. Only Vercel uses /api.
     if (port === "3000" || port === "3001" || port === "43128") {
       base = origin + "/backend";
     } else if (local && port === "8000") {
       base = origin;
-    } else if (local) {
+    } else if (local || !vercel) {
       base = origin + "/backend";
     } else {
       base = origin + "/api";

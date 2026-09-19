@@ -27,7 +27,13 @@ export function resolveClientApiBase(): string {
     return "http://127.0.0.1:8000";
   }
   const { hostname, port, origin, protocol } = window.location;
-  // Next dev / common frontend ports — always same-origin /backend proxy.
+  const local =
+    hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
+  const vercelHost = hostname.includes("vercel.app") || hostname.includes("vercel.com");
+
+  // Next dev / common frontend ports / Cursor port-forward previews — same-origin /backend.
+  // Never fall through to /api on unknown tunnel hosts in development: that 404s and
+  // leaves Live Metric stuck on Connecting / Updating….
   if (
     process.env.NODE_ENV === "development" ||
     port === "3000" ||
@@ -36,10 +42,14 @@ export function resolveClientApiBase(): string {
   ) {
     return `${origin}/backend`;
   }
-  if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]") {
+  if (local) {
     // Frontend served from uvicorn static export on :8000
     if (port === "8000") return origin;
     return `${protocol}//127.0.0.1:8000`;
+  }
+  // Non-Vercel remote previews still go through the Next /backend rewrite when present.
+  if (!vercelHost) {
+    return `${origin}/backend`;
   }
   // Vercel/static export — backend via /api (+ group routers).
   return `${origin}/api`;
