@@ -32,6 +32,27 @@ const CONST_COLORS: Record<string, string> = {
   J: "#fbbf24",
 };
 
+function startOfUtcDayMs(now = Date.now()): number {
+  const d = new Date(now);
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+}
+
+function isUtcCalendarDay(iso: string, dayStartMs: number): boolean {
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return false;
+  return ms >= dayStartMs && ms < dayStartMs + 24 * 3_600_000;
+}
+
+function utcDayLabel(dayStartMs: number): string {
+  const d = new Date(dayStartMs);
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${d.getUTCDate()} ${months[d.getUTCMonth()]} ${d.getUTCFullYear()} UTC`;
+}
+
+function hoursSinceUtcMidnight(now = Date.now()): number {
+  return Math.min(24, Math.max(1, (now - startOfUtcDayMs(now)) / 3_600_000));
+}
+
 function Section({
   title,
   subtitle,
@@ -62,29 +83,40 @@ export default function ZimbabweTecTeachingLab() {
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    Promise.allSettled([
-      getLiveVtecByStation(24, 15, 90_000),
-      getLiveVtec(2, undefined, 90_000, 6000),
-      getStations(),
-    ]).then(([st, live, cat]) => {
-      if (cancelled) return;
-      if (st.status === "fulfilled") setStations(Array.isArray(st.value) ? st.value : []);
-      if (live.status === "fulfilled") setObs(Array.isArray(live.value) ? live.value : []);
-      if (cat.status === "fulfilled") setCatalog(Array.isArray(cat.value) ? cat.value : []);
-      const fails = [st, live].filter((r) => r.status === "rejected").length;
-      setError(fails === 2 ? "Live CORS VTEC feeds unavailable right now." : null);
-      setUpdatedAt(new Date().toISOString());
-      setLoading(false);
-    });
+    const load = () => {
+      setLoading(true);
+      const dayHours = Math.min(24, Math.ceil(hoursSinceUtcMidnight() * 2) / 2 + 0.5);
+      Promise.allSettled([
+        // Cover from today's UTC midnight so the diurnal chart is one calendar day.
+        getLiveVtecByStation(dayHours, 10, 90_000),
+        getLiveVtec(Math.min(6, dayHours), undefined, 90_000, 8000),
+        getStations(),
+      ]).then(([st, live, cat]) => {
+        if (cancelled) return;
+        if (st.status === "fulfilled") setStations(Array.isArray(st.value) ? st.value : []);
+        if (live.status === "fulfilled") setObs(Array.isArray(live.value) ? live.value : []);
+        if (cat.status === "fulfilled") setCatalog(Array.isArray(cat.value) ? cat.value : []);
+        const fails = [st, live].filter((r) => r.status === "rejected").length;
+        setError(fails === 2 ? "Live CORS VTEC feeds unavailable right now." : null);
+        setUpdatedAt(new Date().toISOString());
+        setLoading(false);
+      });
+    };
+    load();
     const unlock = window.setTimeout(() => {
       if (!cancelled) setLoading(false);
     }, 8000);
+    // Keep the UTC-day chart live
+    const refresh = window.setInterval(load, 120_000);
     return () => {
       cancelled = true;
       window.clearTimeout(unlock);
+      window.clearInterval(refresh);
     };
   }, []);
+
+  const utcDayStart = useMemo(() => startOfUtcDayMs(), [updatedAt]);
+  const utcDayTitle = useMemo(() => utcDayLabel(utcDayStart), [utcDayStart]);
 
   const stationSeries = useMemo(() => {
     return stations
@@ -165,18 +197,20 @@ export default function ZimbabweTecTeachingLab() {
     : [];
 
   const diurnalLive = useMemo(() => {
+    const dayStart = utcDayStart;
     const hoursArr: number[] = [];
     const vals: number[] = [];
     for (const s of stations) {
       for (const p of s.points ?? []) {
+        if (!isUtcCalendarDay(p.time, dayStart)) continue;
         const h = hourOfDayUtc(p.time);
         if (h == null || !Number.isFinite(p.vtec_tecu)) continue;
         hoursArr.push(h);
         vals.push(p.vtec_tecu);
       }
     }
-    // Supplement with live observation samples for denser coverage
     for (const o of obs) {
+      if (!isUtcCalendarDay(o.time, dayStart)) continue;
       if (o.vtec_tecu == null || !Number.isFinite(o.vtec_tecu)) continue;
       const h = hourOfDayUtc(o.time);
       if (h == null) continue;
@@ -188,9 +222,9 @@ export default function ZimbabweTecTeachingLab() {
     const hasAny = fan.p50.some((v) => v != null);
     if (!hasAny) return null;
 
-    // VEq (zenith): median of high-elevation live samples per half-hour bin
     const veqBuckets = new Map<number, number[]>();
     for (const o of obs) {
+      if (!isUtcCalendarDay(o.time, dayStart)) continue;
       if (o.elevation_deg == null || o.elevation_deg < 60) continue;
       if (o.vtec_tecu == null || !Number.isFinite(o.vtec_tecu)) continue;
       if (o.vtec_tecu <= 0 || o.vtec_tecu > 70) continue;
@@ -208,8 +242,8 @@ export default function ZimbabweTecTeachingLab() {
       return sorted[Math.floor(sorted.length / 2)];
     });
 
-    return { ...fan, veq };
-  }, [stations, obs]);
+    return { ...fan, veq, dayLabel: utcDayTitle };
+  }, [stations, obs, utcDayStart, utcDayTitle]);
 
   const constellationSeries = useMemo(() => {
     const byConst = new Map<string, { x: number; y: number }[]>();
@@ -397,7 +431,7 @@ export default function ZimbabweTecTeachingLab() {
 
       <Section
         title="Diurnal VTEC distribution — Live CORS"
-        subtitle="UT [hours] 0–24 · live Zimbabwe CORS VTEC · 10–90th and 25–75th percentile bands, median, and VEq (zenith, elev ≥ 60°)."
+        subtitle={`One UTC day only (${diurnalLive?.dayLabel ?? utcDayTitle}) · live Zimbabwe CORS · 10–90th / 25–75th bands, median, VEq (zenith).`}
       >
         {diurnalLive ? (
           <div style={{ background: "#0b1220", borderRadius: 8, padding: "0.65rem 0.5rem 0.35rem", height: 340 }}>
@@ -409,11 +443,12 @@ export default function ZimbabweTecTeachingLab() {
               p75={diurnalLive.p75}
               p90={diurnalLive.p90}
               veq={diurnalLive.veq}
+              dayLabel={diurnalLive.dayLabel}
             />
           </div>
         ) : (
           <div className="banner banner-info">
-            {loading ? "Waiting for diurnal live samples…" : "Not enough live VTEC points yet for percentile bands."}
+            {loading ? "Waiting for today’s live CORS samples…" : "Not enough live VTEC points yet for today’s UTC day."}
           </div>
         )}
       </Section>
@@ -436,6 +471,7 @@ function DiurnalFanChart({
   p75,
   p90,
   veq,
+  dayLabel,
 }: {
   hours: number[];
   p10: (number | null)[];
@@ -444,6 +480,7 @@ function DiurnalFanChart({
   p75: (number | null)[];
   p90: (number | null)[];
   veq: (number | null)[];
+  dayLabel: string;
 }) {
   return (
     <Line
@@ -536,7 +573,7 @@ function DiurnalFanChart({
           },
           title: {
             display: true,
-            text: "Diurnal VTEC distribution — Live CORS",
+            text: `Diurnal VTEC distribution — Live CORS | ${dayLabel}`,
             color: "#f8fafc",
             font: { size: 14, weight: "bold" },
             padding: { bottom: 10 },
