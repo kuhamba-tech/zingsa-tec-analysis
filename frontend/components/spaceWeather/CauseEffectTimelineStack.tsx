@@ -198,7 +198,7 @@ export type CauseEffectVariant = "full" | "drivers" | "local" | "liveMetric" | "
 /**
  * full — National Dashboard: observations + map + drivers 1–4 + Zimbabwe 5–6
  * drivers — Sun→Earth panels 1–4 only
- * local — Zimbabwe response panels (+ observations/map chrome)
+ * local — Zimbabwe VTEC + scintillation/GNSS panels only (after Kp on Solar Activity)
  * liveMetric — Live Metric Timelines: panels 1–6, no map chrome
  * overview — Space Weather page above tabs: observations + CORS map only
  */
@@ -209,7 +209,7 @@ export default function CauseEffectTimelineStack({
 }) {
   const showDrivers = variant === "full" || variant === "drivers" || variant === "liveMetric";
   const showLocal = variant === "full" || variant === "local" || variant === "liveMetric";
-  const showChrome = variant === "full" || variant === "local" || variant === "overview";
+  const showChrome = variant === "full" || variant === "overview";
   const showTimelineSection = variant !== "overview";
   const fetchVtec = showLocal || showChrome;
 
@@ -514,7 +514,7 @@ export default function CauseEffectTimelineStack({
     variant === "drivers"
       ? "Measurement flow: GOES X-ray → solar wind → IMF → geomagnetic activity. Shared UTC window and synchronized crosshair across panels 1–4."
       : variant === "local"
-        ? "Local CORS VTEC and GNSS context after the international drivers. Shared UTC window with synchronized crosshair. Up to five station traces; VTEC history up to 48 hours."
+        ? "Local CORS VTEC and GNSS context after Kp / magnetosphere. Shared UTC window with synchronized crosshair. Up to five station traces; VTEC history up to 48 hours."
         : variant === "liveMetric"
           ? "Measurement flow: GOES X-ray → solar wind → IMF → geomagnetic → Zimbabwe VTEC → scintillation / GNSS risk. Shared UTC window and synchronized crosshair across panels 1–6."
           : "Shared UTC window and synchronized crosshair. Compare observations and propagation delays; alignment alone does not establish cause and effect. Up to five station traces are shown; coverage above includes all returned stations. Local VTEC history is available for up to 48 hours.";
