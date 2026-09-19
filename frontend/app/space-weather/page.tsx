@@ -147,7 +147,7 @@ const KP_BANDS = [
   { range: "0–2", label: "Quiet",          color: "#22c55e" },
   { range: "3",   label: "Unsettled",      color: "#84cc16" },
   { range: "4",   label: "Active",         color: "#eab308" },
-  { range: "5",   label: "Minor Storm G1", color: "#f97316" },
+  { range: "5",   label: "Minor Storm",    color: "#f97316" },
   { range: "6",   label: "Moderate G2",    color: "#ef4444" },
   { range: "7",   label: "Strong G3",      color: "#dc2626" },
   { range: "8",   label: "Severe G4",      color: "#991b1b" },

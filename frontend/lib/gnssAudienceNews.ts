@@ -110,9 +110,10 @@ function fmtNum(value: number | null | undefined, digits = 1): string {
 
 function kpLayman(kp: number | null | undefined): string {
   if (kp == null) return "Geomagnetic storm scale: updating";
-  if (kp < 4) return `No geomagnetic storm — G0 (Kp ${fmtNum(kp)})`;
-  if (kp < 5) return `No NOAA G-storm — G0 Active (Kp ${fmtNum(kp)}, below G1)`;
-  if (kp < 6) return `G1 — Minor geomagnetic storm globally (Kp ${fmtNum(kp)})`;
+  if (kp < 3) return `G0 — Quiet (Kp ${fmtNum(kp)})`;
+  if (kp < 4) return `G0 — Unsettled (Kp ${fmtNum(kp)})`;
+  if (kp < 5) return `G0 — Active (Kp ${fmtNum(kp)}, below G1)`;
+  if (kp < 6) return `G1 — Minor Storm (Kp ${fmtNum(kp)})`;
   if (kp < 7) return `G2 — Moderate geomagnetic storm globally (Kp ${fmtNum(kp)})`;
   if (kp < 8) return `G3 — Strong geomagnetic storm globally (Kp ${fmtNum(kp)})`;
   if (kp < 9) return `G4 — Severe geomagnetic storm globally (Kp ${fmtNum(kp)})`;

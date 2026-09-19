@@ -102,7 +102,7 @@ export const METRIC_EXPLANATIONS: Record<MetricKey, string> = {
 export interface NoaaGScale {
   /** G0 … G5 */
   code: string;
-  /** e.g. "No Storm", "Minor" */
+  /** e.g. "Quiet", "Minor Storm" */
   title: string;
   /** Primary card value line */
   display: string;
@@ -113,7 +113,7 @@ export interface NoaaGScale {
 
 /** NOAA G-scale colour strip — same visual language as the GOES A–X flare scale. */
 export const NOAA_G_SCALE = [
-  { code: "G0", color: "#00ff88", desc: "None" },
+  { code: "G0", color: "#00ff88", desc: "Quiet" },
   { code: "G1", color: "#eab308", desc: "Minor" },
   { code: "G2", color: "#f97316", desc: "Moderate" },
   { code: "G3", color: "#ef4444", desc: "Strong" },
@@ -129,7 +129,11 @@ export function formatKpEqualsDisplay(kp: number | null | undefined, loading = f
   return `kP=${text}`;
 }
 
-/** NOAA G-scale from Kp. Kp 4 is active / below G1 — never labelled a G-storm. */
+/**
+ * NOAA G-scale from Kp (KP geomagnetic scale reference):
+ * Kp 0–2 Quiet (G0), 3 Unsettled, 4 Active, 5 Minor Storm (G1) …
+ * Never label Kp 0–2 as "No Storm".
+ */
 export function noaaGScaleFromKp(kp: number | null | undefined, loading = false): NoaaGScale {
   if (kp == null || !Number.isFinite(kp)) {
     return {
@@ -141,13 +145,23 @@ export function noaaGScaleFromKp(kp: number | null | undefined, loading = false)
       isStorm: false,
     };
   }
+  if (kp < 3) {
+    return {
+      code: "G0",
+      title: "Quiet",
+      display: `G0 — Quiet`,
+      note: `Kp ${formatKpDisplay(kp)}`,
+      color: "#00ff88",
+      isStorm: false,
+    };
+  }
   if (kp < 4) {
     return {
       code: "G0",
-      title: "No Storm",
-      display: `G0 — No Storm`,
+      title: "Unsettled",
+      display: `G0 — Unsettled`,
       note: `Kp ${formatKpDisplay(kp)}`,
-      color: "#00ff88",
+      color: "#84cc16",
       isStorm: false,
     };
   }
@@ -164,8 +178,8 @@ export function noaaGScaleFromKp(kp: number | null | undefined, loading = false)
   if (kp < 6) {
     return {
       code: "G1",
-      title: "Minor",
-      display: `G1 — Minor`,
+      title: "Minor Storm",
+      display: `G1 — Minor Storm`,
       note: `Kp ${formatKpDisplay(kp)}`,
       color: "#eab308",
       isStorm: true,

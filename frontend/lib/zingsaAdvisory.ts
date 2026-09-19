@@ -14,7 +14,7 @@ import type { ForecastStatus } from "./gnssWeatherIntelligence";
 import type { SpaceWeatherCurrent } from "./types";
 
 export interface ZingsaAdvisory {
-  /** e.g. "No geomagnetic storm — G0." */
+  /** e.g. "G0 — Quiet." */
   stormLine: string;
   /** Local ionosphere line — never fabricated ΔTEC/ROTI. */
   ionosphereLine: string;
@@ -58,8 +58,8 @@ export function buildZingsaAdvisory(sw: SpaceWeatherCurrent | null): ZingsaAdvis
   const stormLine = g.isStorm
     ? `${g.code} — ${g.title} geomagnetic storm detected globally (Kp ${formatKpDisplay(sw?.kp)}).`
     : g.code === "G0" && g.title === "Active"
-      ? `No NOAA G1–G5 geomagnetic storm — G0 Active (Kp ${formatKpDisplay(sw?.kp)}, below G1 threshold).`
-      : `No geomagnetic storm — ${g.display}${sw?.kp != null ? ` (Kp ${formatKpDisplay(sw.kp)})` : ""}.`;
+      ? `G0 — Active (Kp ${formatKpDisplay(sw?.kp)}, below G1 threshold).`
+      : `${g.display}${sw?.kp != null ? ` (Kp ${formatKpDisplay(sw.kp)})` : ""}.`;
 
   let ionosphereLine: string;
   if (vtec == null) {

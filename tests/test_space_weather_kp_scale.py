@@ -13,7 +13,7 @@ class KpScaleTests(unittest.TestCase):
             (3.0, "Unsettled"),
             (3.99, "Unsettled"),
             (4.0, "Active"),
-            (5.0, "Minor Storm G1"),
+            (5.0, "Minor Storm"),
             (6.0, "Moderate Storm G2"),
             (7.0, "Strong Storm G3"),
             (8.0, "Severe Storm G4"),

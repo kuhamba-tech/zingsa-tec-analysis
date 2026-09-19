@@ -33,7 +33,7 @@ def classify_kp(kp: float) -> GeomagneticCondition:
             None,
             "Quiet",
             "#00f5a0",
-            "No geomagnetic storm. Nominal geomagnetic conditions.",
+            "G0 Quiet. Nominal geomagnetic conditions (Kp 0–2).",
         )
     if value < 4:
         return GeomagneticCondition(
@@ -42,7 +42,7 @@ def classify_kp(kp: float) -> GeomagneticCondition:
             None,
             "Unsettled",
             "#7cff4f",
-            "No geomagnetic storm. Monitor for changing geomagnetic activity.",
+            "G0 Unsettled. Monitor for changing geomagnetic activity.",
         )
     if value < 5:
         return GeomagneticCondition(
@@ -51,16 +51,16 @@ def classify_kp(kp: float) -> GeomagneticCondition:
             None,
             "Active",
             "#f4f000",
-            "Active geomagnetic conditions, but below the NOAA storm threshold.",
+            "G0 Active geomagnetic conditions, but below the NOAA storm threshold.",
         )
     if value < 6:
         return GeomagneticCondition(
             value,
-            "Minor Storm G1",
+            "Minor Storm",
             "G1",
-            "Minor",
+            "Minor Storm",
             "#ff9800",
-            "Minor storm: weak power-grid fluctuations and minor satellite effects are possible.",
+            "Minor Storm G1: weak power-grid fluctuations and minor satellite effects are possible.",
         )
     if value < 7:
         return GeomagneticCondition(
