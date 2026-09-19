@@ -213,6 +213,20 @@ def current(_=Depends(require_api_key)):
                 sw["mean_vtec"] = round(sum(vals) / len(vals), 2)
         except Exception:
             pass
+    # Vercel serverless has no in-process NTRIP decode — use last logged snapshot.
+    if sw.get("mean_vtec") is None and sw.get("vtec_tecu") is None:
+        try:
+            from backend.space_weather_logger import get_db as get_sw_db
+
+            latest = get_sw_db().latest_snapshot()
+            if latest is not None:
+                raw = latest.get("mean_vtec") if isinstance(latest, dict) else None
+                if raw is None and hasattr(latest, "get"):
+                    raw = latest.get("mean_vtec")
+                if raw is not None and float(raw) > 1.0:
+                    sw["mean_vtec"] = round(float(raw), 2)
+        except Exception:
+            pass
     threading.Thread(
         target=log_snapshot,
         kwargs={"source": "dashboard", "force": False},
