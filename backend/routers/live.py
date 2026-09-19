@@ -48,6 +48,7 @@ def _monitor():
 async def live_vtec(
     hours: float = Query(2.0, ge=0.1, le=48),
     station: str | None = Query(None),
+    limit: int = Query(4000, ge=100, le=20000),
     _=Depends(require_api_key),
 ):
     """Live NTRIP VTEC only — DLR Global TEC and RINEX archive rows are excluded."""
@@ -68,6 +69,10 @@ async def live_vtec(
                 df = df.loc[live_mask]
             else:
                 return []
+        # Evenly subsample so elevation / constellation charts stay responsive.
+        if len(df) > limit:
+            step = max(1, len(df) // limit)
+            df = df.iloc[::step].head(limit)
         result = []
         for _, row in df.iterrows():
             result.append(LiveObservation(
