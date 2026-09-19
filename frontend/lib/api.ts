@@ -84,7 +84,7 @@ import type {
 import { peekSpaceWeather, publishSpaceWeather } from "./spaceWeatherStore";
 import { peekSolarActivity, publishSolarActivity } from "./solarActivityStore";
 import { peekHeliosphericMonitor, rememberHeliosphericMonitor } from "./heliosphericStore";
-import { peekStations, publishStations, purgeStaleStationsCache, stationsAreSpiderAuthoritative } from "./stationsStore";
+import { peekStations, publishStations, purgeStaleStationsCache, stationsAreLiveAuthoritative, stationsAreSpiderAuthoritative } from "./stationsStore";
 import {
   getSpaceWeatherNetworkAt,
   noteSpaceWeatherNetworkOk,
@@ -569,8 +569,9 @@ function refreshStationsNetwork(refreshNtrip: boolean): Promise<Station[]> {
       .then((rows) => {
         if (Array.isArray(rows) && rows.length > 0) {
           const published = publishStations(rows);
-          // Only treat Spider Site Status as a successful live fetch.
-          if (stationsAreSpiderAuthoritative(published.length ? published : rows)) {
+          const snapshot = published.length ? published : rows;
+          // Spider or NTRIP/archive counts as a successful live fetch.
+          if (stationsAreLiveAuthoritative(snapshot)) {
             lastStationsNetworkAt = Date.now();
           }
           return Array.isArray(published) && published.length > 0 ? published : rows;
@@ -581,9 +582,9 @@ function refreshStationsNetwork(refreshNtrip: boolean): Promise<Station[]> {
         return rows;
       })
       .catch((err) => {
-        // Keep last Spider-authoritative snapshot on transient network failure.
+        // Keep last live Spider/NTRIP snapshot on transient network failure.
         const cached = peekStations();
-        if (cached.length > 0 && stationsAreSpiderAuthoritative(cached)) {
+        if (cached.length > 0 && stationsAreLiveAuthoritative(cached)) {
           return cached;
         }
         purgeStaleStationsCache();
@@ -593,8 +594,8 @@ function refreshStationsNetwork(refreshNtrip: boolean): Promise<Station[]> {
 }
 
 /**
- * Instant in-memory Spider snapshot when available; network refresh stays in
- * the background. Never seeds from localStorage catalog greens/reds.
+ * Instant in-memory Spider/NTRIP snapshot when available; network refresh stays
+ * in the background. Never seeds from localStorage catalog greens/reds.
  */
 export const getStations = (refreshNtrip = false) => {
   // Drop leftover localStorage catalog snapshots from older deploys (once per tab).
@@ -604,7 +605,7 @@ export const getStations = (refreshNtrip = false) => {
   }
   const cached = peekStations();
   const recentlyFetched = Date.now() - lastStationsNetworkAt < LIVE_REFRESH_MIN_MS;
-  if (!refreshNtrip && cached.length > 0 && stationsAreSpiderAuthoritative(cached)) {
+  if (!refreshNtrip && cached.length > 0 && stationsAreLiveAuthoritative(cached)) {
     if (recentlyFetched) return Promise.resolve(cached);
     const pending = refreshStationsNetwork(false);
     void pending;

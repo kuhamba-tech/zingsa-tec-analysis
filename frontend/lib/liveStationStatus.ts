@@ -1,5 +1,5 @@
 import type { Station } from "@/lib/types";
-import { stationsAreSpiderAuthoritative } from "@/lib/stationsStore";
+import { stationsAreLiveAuthoritative, stationsAreSpiderAuthoritative } from "@/lib/stationsStore";
 
 export type LiveStationStatus = "online" | "offline" | "unavailable";
 
@@ -120,12 +120,14 @@ export function countLiveStationStatuses(stations: Station[], expectedTotal = 25
   return counts;
 }
 
-/** Only return live counts when Spider Site Status is the majority source. */
+/** Only return live counts when Spider or NTRIP/archive is the majority source. */
 export function countSpiderLiveStationStatuses(
   stations: Station[],
   expectedTotal = 24,
 ): LiveStationCounts | null {
-  if (!stationsAreSpiderAuthoritative(stations)) return null;
+  if (!stationsAreLiveAuthoritative(stations) && !stationsAreSpiderAuthoritative(stations)) {
+    return null;
+  }
   return countLiveStationStatuses(stations, expectedTotal);
 }
 
