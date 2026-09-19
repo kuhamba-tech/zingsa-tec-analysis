@@ -141,7 +141,7 @@ const GRAPH_EXPLANATIONS: Record<GraphId, ChartAnalysisBlock> = {
       "Cyan median + bands = GOPI live CORS VTEC. Amber median + bands = Gg arc-bias calibrated VTEC.",
       "Offsets between the two medians are calibration differences (DCB / arc bias), not a different ionosphere.",
       "Only the current UTC calendar day is shown, so the chart builds as the day progresses.",
-      "Toggle methods in the comparison section below for STEC/elevation, skyplot, and ΔVTEC views.",
+      "Read the teaching guide below for STEC vs VTEC classification and the calculation steps that differ.",
     ],
   },
 };
@@ -481,8 +481,9 @@ export default function ZimbabweTecTeachingLab() {
         <div className="metric-label" style={{ marginBottom: "0.35rem" }}>Live CORS ionosphere graphs</div>
         <p className="sw-supporting-text" style={{ margin: 0 }}>
           Zimbabwe CORS NTRIP VTEC / STEC from the live pipeline — VTEC time series, STEC/VTEC versus
-          elevation, satellite skyplot coloured by VTEC, IPP ground tracks, and diurnal VTEC distribution.
-          Click any graph for its scientific explanation.
+          elevation, satellite skyplot coloured by VTEC, IPP ground tracks, and diurnal VTEC with
+          GOPI (cyan) vs Gg (amber). Below: a short guide that classifies TEC quantities and explains
+          how the two calculations differ. Click any graph for its scientific explanation.
         </p>
         {loading && <div className="banner banner-info" style={{ marginTop: "0.75rem" }}>Loading live CORS VTEC…</div>}
         {error && <div className="banner banner-warn" style={{ marginTop: "0.75rem" }}>{error}</div>}

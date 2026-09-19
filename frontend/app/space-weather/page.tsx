@@ -71,6 +71,10 @@ const TecMethodComparisonLab = dynamic(
   () => import("@/components/spaceWeather/TecMethodComparisonLab"),
   { ssr: false, loading: () => sectionFallback },
 );
+const TecMethodUnderstandingPanel = dynamic(
+  () => import("@/components/spaceWeather/TecMethodUnderstandingPanel"),
+  { ssr: false, loading: () => sectionFallback },
+);
 const LineChart = dynamic(() => import("@/components/charts/LineChart"), {
   ssr: false,
   loading: () => <div className="banner banner-info" role="status">Loading chart…</div>,
@@ -1147,7 +1151,9 @@ export default function SpaceWeatherPage() {
       {tab === 3 && (
         <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
           <p style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>
-            Local ionospheric response after Sun→Earth drivers — live Zimbabwe CORS VTEC graphs and scintillation / GNSS risk context
+            Local ionospheric response after Sun→Earth drivers — live Zimbabwe CORS VTEC graphs,
+            a TEC teaching guide (classify STEC/VTEC; GOPI vs Gg calculations from TEC_GNSS_Notebook_v5),
+            and scintillation / GNSS risk context
           </p>
           <CauseEffectTimelineStack
             variant="local"
@@ -1177,6 +1183,7 @@ export default function SpaceWeatherPage() {
             }
           />
           <ZimbabweTecTeachingLab />
+          <TecMethodUnderstandingPanel />
           <TecMethodComparisonLab />
         </div>
       )}
