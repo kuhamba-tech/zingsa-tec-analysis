@@ -84,6 +84,30 @@ export function peekSpaceWeather(): SpaceWeatherCurrent | null {
   return latest;
 }
 
+/** Subscribe to store changes without an immediate callback (for useSyncExternalStore). */
+export function subscribeSpaceWeatherStore(onStoreChange: () => void): () => void {
+  ensureSeeded();
+  const listener: Listener = () => onStoreChange();
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+/**
+ * Client snapshot for metric cards — prefer in-flight layout boot, then memory,
+ * then localStorage so the first hydrated frame can paint values.
+ */
+export function getSpaceWeatherClientSnapshot(): SpaceWeatherCurrent | null {
+  if (typeof window !== "undefined") {
+    const boot = (window as Window & { __ZGIIS_SW_BOOT?: unknown }).__ZGIIS_SW_BOOT;
+    if (isUsable(boot)) {
+      return publishSpaceWeather(boot);
+    }
+  }
+  return peekSpaceWeather();
+}
+
 /** Subscribe to space-weather updates; returns an unsubscribe function. */
 export function subscribeSpaceWeather(fn: Listener): () => void {
   ensureSeeded();

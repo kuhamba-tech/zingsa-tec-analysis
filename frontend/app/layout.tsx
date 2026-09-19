@@ -53,7 +53,7 @@ const SPACE_WEATHER_BOOT_SCRIPT = `
       url = base + "/space-weather-router/?__zr=" + encodeURIComponent(path);
     }
     var ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
-    var timer = ctrl ? setTimeout(function () { try { ctrl.abort(); } catch (e) {} }, 8000) : null;
+    var timer = ctrl ? setTimeout(function () { try { ctrl.abort(); } catch (e) {} }, 5000) : null;
     fetch(url + (url.indexOf("?") >= 0 ? "&" : "?") + "_ts=" + Date.now(), {
       cache: "no-store",
       signal: ctrl ? ctrl.signal : undefined
@@ -67,30 +67,28 @@ const SPACE_WEATHER_BOOT_SCRIPT = `
       .catch(function () {})
       .then(function () { if (timer) clearTimeout(timer); });
 
-    // Warm solar-activity after a tick so it does not compete with /current on slow links.
-    setTimeout(function () {
-      try {
-        var saPath = "/space-weather/solar-activity";
-        var saUrl = base + saPath;
-        if (base.slice(-4) === "/api") {
-          saUrl = base + "/space-weather-router/?__zr=" + encodeURIComponent(saPath);
-        }
-        var saCtrl = typeof AbortController !== "undefined" ? new AbortController() : null;
-        var saTimer = saCtrl ? setTimeout(function () { try { saCtrl.abort(); } catch (e) {} }, 12000) : null;
-        fetch(saUrl + (saUrl.indexOf("?") >= 0 ? "&" : "?") + "_ts=" + Date.now(), {
-          cache: "no-store",
-          signal: saCtrl ? saCtrl.signal : undefined
+    // Warm solar-activity in parallel — flare/wind cards need it for first paint.
+    try {
+      var saPath = "/space-weather/solar-activity";
+      var saUrl = base + saPath;
+      if (base.slice(-4) === "/api") {
+        saUrl = base + "/space-weather-router/?__zr=" + encodeURIComponent(saPath);
+      }
+      var saCtrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+      var saTimer = saCtrl ? setTimeout(function () { try { saCtrl.abort(); } catch (e) {} }, 10000) : null;
+      fetch(saUrl + (saUrl.indexOf("?") >= 0 ? "&" : "?") + "_ts=" + Date.now(), {
+        cache: "no-store",
+        signal: saCtrl ? saCtrl.signal : undefined
+      })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (d) {
+          if (d && (d.flare_class || d.mode || d.solar_wind)) {
+            window.__ZGIIS_SA_BOOT = d;
+          }
         })
-          .then(function (r) { return r.ok ? r.json() : null; })
-          .then(function (d) {
-            if (d && (d.flare_class || d.mode || d.solar_wind)) {
-              window.__ZGIIS_SA_BOOT = d;
-            }
-          })
-          .catch(function () {})
-          .then(function () { if (saTimer) clearTimeout(saTimer); });
-      } catch (e) {}
-    }, 60);
+        .catch(function () {})
+        .then(function () { if (saTimer) clearTimeout(saTimer); });
+    } catch (e) {}
   } catch (e) {}
 })();
 `;

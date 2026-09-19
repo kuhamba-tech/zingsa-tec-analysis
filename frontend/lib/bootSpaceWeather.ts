@@ -11,7 +11,7 @@ import {
 import { peekSpaceWeather, publishSpaceWeather } from "@/lib/spaceWeatherStore";
 import type { SpaceWeatherCurrent } from "@/lib/types";
 
-const BOOT_TIMEOUT_MS = 8_000;
+const BOOT_TIMEOUT_MS = 5_000;
 
 declare global {
   interface Window {
