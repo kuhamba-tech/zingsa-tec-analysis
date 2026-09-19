@@ -450,8 +450,8 @@ function CorsVtecMap({
   const vmin = Math.min(...points.map((p) => p.vtec), 0);
 
   return (
-    <div style={{ position: "relative", height: 280, border: "1px solid var(--border)", borderRadius: 8, background: "#071422" }}>
-      <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none">
+    <div style={{ position: "relative", height: 280, border: "1px solid var(--border)", borderRadius: 8, background: "#071422", overflow: "hidden" }}>
+      <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">
         <text x="2" y="6" fill="#64748b" fontSize="3.2">{latMax.toFixed(1)}°S</text>
         <text x="2" y="98" fill="#64748b" fontSize="3.2">{Math.abs(latMin).toFixed(1)}°S</text>
         <text x="2" y="99.5" fill="#64748b" fontSize="2.8">{lonMin}°E</text>
@@ -462,8 +462,8 @@ function CorsVtecMap({
           const fill = `hsl(${210 - t * 160}, 85%, ${45 + t * 15}%)`;
           return (
             <g key={p.code}>
-              <circle cx={x} cy={y} r="2.2" fill={fill} stroke="#fff" strokeWidth="0.35" />
-              <text x={x + 2.6} y={y + 1} fill="#cbd5e1" fontSize="2.4">{p.code} {p.vtec.toFixed(1)}</text>
+              <circle cx={x} cy={y} r="1.8" fill={fill} stroke="#fff" strokeWidth="0.4" vectorEffect="non-scaling-stroke" />
+              <text x={Math.min(x + 2.2, 88)} y={y + 1} fill="#cbd5e1" fontSize="2.3">{p.code} {p.vtec.toFixed(1)}</text>
             </g>
           );
         })}
