@@ -827,7 +827,7 @@ export default function SpaceWeatherPage() {
 
       {/* ── Tabs ── */}
       <div className="tabs">
-        {["Live Metric Timelines", "Solar Activity", "Kp Scale"].map((t, i) => (
+        {["Live Metric Timelines", "Solar Activity", "Kp Scale", "Zimbabwe Ionospheric Response"].map((t, i) => (
           <button key={t} className={`tab${tab === i ? " active" : ""}`} onClick={() => { setTab(i); setSelectedGraph(null); }}>{t}</button>
         ))}
       </div>
@@ -1109,6 +1109,42 @@ export default function SpaceWeatherPage() {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* ── Tab 3: Zimbabwe Ionospheric Response ── */}
+      {tab === 3 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+          <p style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>
+            Local ionospheric response after Sun→Earth drivers — Zimbabwe CORS VTEC, station availability, and scintillation / GNSS risk context
+          </p>
+          <CauseEffectTimelineStack
+            variant="local"
+            afterVtec={
+              stationsOnlinePoints.length > 0 ? (
+                <TimelineCard
+                  graphId="cors-online-zw"
+                  title="2 · Live CORS Stations Online Timeline"
+                  pts={stationsOnlinePoints}
+                  color="#00ff88"
+                  yLabel="Stations online"
+                  source="ZINGSA CORS station-health — current live count"
+                  analysis={timelineAnalyses.stations}
+                  expanded={selectedGraph === "cors-online-zw"}
+                  onToggle={toggleGraph}
+                  ekfPoints={ekf?.series.stations_online?.points}
+                  ekfColor="#86efac"
+                  emptyMsg="Live CORS telemetry unavailable."
+                  {...liveMetricSync}
+                />
+              ) : (
+                <div className="card">
+                  <div className="metric-label" style={{ marginBottom: "0.6rem" }}>2 · Live CORS Stations Online Timeline</div>
+                  <div className="banner banner-info">Live CORS telemetry is unavailable — no station count timeline.</div>
+                </div>
+              )
+            }
+          />
         </div>
       )}
 
