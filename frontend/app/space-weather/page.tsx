@@ -845,7 +845,7 @@ export default function SpaceWeatherPage() {
 
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.5rem 0.8rem", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "0.85rem", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase" }}>
             <span className={`dot ${solarFeedLive ? "dot-ok" : "dot-warn"}`} style={{ width: "7px", height: "7px" }} />
-            <span>NOAA SWPC · {solarFeedLabel}</span>
+            <span>solar monitor-live data</span>
           </div>
 
           <GoesSolarXrayCard
