@@ -35,7 +35,6 @@ import { alignEkfToPoints } from "@/lib/ekfAlign";
 import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
 import { connectedStreamCount, countSpiderLiveStationStatuses, type LiveStationCounts } from "@/lib/liveStationStatus";
 import type { EkfPoint, EkfStatus, SpaceWeatherCurrent, SolarActivityFull, SpaceWeatherTimelines, TimelinePoint } from "@/lib/types";
-import { FLARE_SCALE } from "@/lib/solarEventColors";
 import { DashboardHeaderClocks } from "@/components/dashboard/DashboardClocks";
 
 const sectionFallback = (
@@ -50,6 +49,10 @@ const CauseEffectTimelineStack = dynamic(
 );
 const HeliosphericMonitorStack = dynamic(
   () => import("@/components/spaceWeather/HeliosphericMonitorStack"),
+  { ssr: false, loading: () => sectionFallback },
+);
+const GoesSolarXrayCard = dynamic(
+  () => import("@/components/spaceWeather/GoesSolarXrayCard"),
   { ssr: false, loading: () => sectionFallback },
 );
 const SolarCycleFullRecordCharts = dynamic(
@@ -833,34 +836,61 @@ export default function SpaceWeatherPage() {
       {tab === 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
           <p style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>
-            Chronological Sun→Earth→Zimbabwe order: solar drivers first, then local VTEC / CORS, then scintillation and GNSS risk
+            Chronological Sun→Earth→Zimbabwe order using the Solar Activity GOES X-ray and Heliospheric Monitor graphs, then local VTEC / CORS / GNSS
           </p>
 
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.5rem 0.8rem", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "0.85rem", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase" }}>
+            <span className={`dot ${solarFeedLive ? "dot-ok" : "dot-warn"}`} style={{ width: "7px", height: "7px" }} />
+            <span>NOAA SWPC · {solarFeedLabel}</span>
+          </div>
+
+          <GoesSolarXrayCard
+            title="1 · SOLAR X-RAY FLUX (GOES-16) · 0.1–0.8 nm"
+            xraySlice={xraySlice}
+            xrayLabels={xrayLabels}
+            xrayEpochs={xrayEpochs}
+            xrayAxis={xrayAxis}
+            xrayRange={xrayRange}
+            onRangeChange={setXrayRange}
+            explanationOpen={xrayExplanationOpen}
+            onToggle={() => toggleGraph("xray")}
+            analysis={xrayAnalysis}
+          />
+
+          <TimelineCard
+            graphId="f107"
+            title="2 · Live NOAA F10.7 Solar Flux Timeline"
+            pts={f107Points}
+            color="#ffcc00"
+            yLabel="F10.7 (sfu)"
+            threshold={{ value: 150, label: "High activity (150 sfu)" }}
+            source="NOAA SWPC F10.7 cm flux feed"
+            analysis={timelineAnalyses.f107}
+            expanded={selectedGraph === "f107"}
+            onToggle={toggleGraph}
+            ekfPoints={ekf?.series.f107?.points}
+            ekfColor="#fde68a"
+            emptyMsg="Live NOAA F10.7 feed unavailable."
+            {...liveMetricSync}
+          />
+
+          <DeferredMount
+            className="sw-deferred-block"
+            minHeight={280}
+            rootMargin="120px 0px"
+            fallback={sectionFallback}
+          >
+            <HeliosphericMonitorStack />
+          </DeferredMount>
+
           <CauseEffectTimelineStack
-            variant="liveMetric"
-            afterSun={
-              <TimelineCard
-                graphId="f107"
-                title="2 · Live NOAA F10.7 Solar Flux Timeline"
-                pts={f107Points}
-                color="#ffcc00"
-                yLabel="F10.7 (sfu)"
-                threshold={{ value: 150, label: "High activity (150 sfu)" }}
-                source="NOAA SWPC F10.7 cm flux feed"
-                analysis={timelineAnalyses.f107}
-                expanded={selectedGraph === "f107"}
-                onToggle={toggleGraph}
-                ekfPoints={ekf?.series.f107?.points}
-                ekfColor="#fde68a"
-                emptyMsg="Live NOAA F10.7 feed unavailable."
-                {...liveMetricSync}
-              />
-            }
+            variant="local"
+            localStartNumber={4}
             afterVtec={
               stationsOnlinePoints.length > 0 ? (
                 <TimelineCard
                   graphId="cors-online"
-                  title="7 · Live CORS Stations Online Timeline"
+                  title="5 · Live CORS Stations Online Timeline"
                   pts={stationsOnlinePoints}
                   color="#00ff88"
                   yLabel="Stations online"
@@ -875,7 +905,7 @@ export default function SpaceWeatherPage() {
                 />
               ) : (
                 <div className="card">
-                  <div className="metric-label" style={{ marginBottom: "0.6rem" }}>7 · Live CORS Stations Online Timeline</div>
+                  <div className="metric-label" style={{ marginBottom: "0.6rem" }}>5 · Live CORS Stations Online Timeline</div>
                   <div className="banner banner-info">Live CORS telemetry is unavailable — no station count timeline.</div>
                 </div>
               )
@@ -894,59 +924,17 @@ export default function SpaceWeatherPage() {
             <span>NOAA SWPC · {solarFeedLabel}</span>
           </div>
 
-          {/* GOES X-Ray Flux chart */}
-          <div
-            className="card"
-            role={xraySlice.length > 0 ? "button" : undefined}
-            tabIndex={xraySlice.length > 0 ? 0 : undefined}
-            aria-expanded={xraySlice.length > 0 ? xrayExplanationOpen : undefined}
-            aria-label={xraySlice.length > 0 ? "GOES X-ray flux graph" : undefined}
-            onClick={() => xraySlice.length > 0 && toggleGraph("xray")}
-            onKeyDown={(event) => {
-              if (xraySlice.length > 0 && (event.key === "Enter" || event.key === " ")) {
-                event.preventDefault();
-                toggleGraph("xray");
-              }
-            }}
-            style={{ cursor: xraySlice.length > 0 ? "pointer" : "default" }}
-          >
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.7rem", flexWrap: "wrap", gap: "0.5rem" }}>
-              <div className="metric-label">SOLAR X-RAY FLUX (GOES-16) · 0.1–0.8 nm</div>
-              <div style={{ display: "flex", gap: "0.4rem" }}>
-                {(["6H", "24H"] as const).map((r) => (
-                  <button key={r} onClick={(event) => { event.stopPropagation(); setXrayRange(r); }}
-                    style={{ padding: "0.2rem 0.7rem", fontSize: "0.85rem", fontWeight: 700, borderRadius: "5px", border: `1px solid ${xrayRange === r ? "var(--accent)" : "var(--border)"}`, background: xrayRange === r ? "var(--accent)" : "var(--surface)", color: "#fff", cursor: "pointer" }}>
-                    {r}
-                  </button>
-                ))}
-              </div>
-            </div>
-            {xraySlice.length > 0 ? (
-              <>
-                <LineChart
-                  labels={xrayLabels}
-                  datasets={[{ label: "0.1–0.8 nm X-Ray Flux (×10⁻⁷ W/m²)", data: xraySlice, color: "#60a5fa" }]}
-                  yLabel="Flux ×10⁻⁷ W/m²"
-                  height={240}
-                  xValues={xrayEpochs}
-                  epochMs={xrayEpochs}
-                  {...xrayAxis}
-                />
-                {/* Flare class reference lines */}
-                <div style={{ display: "flex", gap: "1.5rem", flexWrap: "wrap", marginTop: "0.6rem", fontSize: "0.85rem" }}>
-                  {FLARE_SCALE.map((f) => (
-                    <span key={f.cls} style={{ display: "flex", alignItems: "center", gap: "3px" }}>
-                      <span style={{ display: "inline-block", width: "10px", height: "3px", background: f.color, borderRadius: "2px" }} />
-                      {f.label}
-                    </span>
-                  ))}
-                </div>
-                {xrayExplanationOpen && <ChartAnalysisBox block={xrayAnalysis} title="Scientific interpretation" />}
-              </>
-            ) : (
-              <div className="banner banner-info">GOES X-ray flux data unavailable — NOAA SWPC feed offline or rate-limited.</div>
-            )}
-          </div>
+          <GoesSolarXrayCard
+            xraySlice={xraySlice}
+            xrayLabels={xrayLabels}
+            xrayEpochs={xrayEpochs}
+            xrayAxis={xrayAxis}
+            xrayRange={xrayRange}
+            onRangeChange={setXrayRange}
+            explanationOpen={xrayExplanationOpen}
+            onToggle={() => toggleGraph("xray")}
+            analysis={xrayAnalysis}
+          />
 
           {/* KNMI-style heliospheric stack: protons, IMF, solar wind, Kp forecast */}
           <DeferredMount
