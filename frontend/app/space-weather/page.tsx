@@ -16,12 +16,9 @@ import AdvancedScientificIndices from "@/components/spaceWeather/AdvancedScienti
 import HomeStormAlertBanner from "@/components/layout/HomeStormAlertBanner";
 import type { ChartAnalysisBlock } from "@/lib/multiSourceChartAnalysis";
 import {
-  analyzeDstTimeline,
   analyzeF107Timeline,
   analyzeGnssRiskTimeline,
-  analyzeKpTimeline,
   analyzeS4Timeline,
-  analyzeSolarWindTimeline,
   analyzeStationsOnlineTimeline,
 } from "@/lib/dashboardChartAnalysis";
 import { analyzeGoesXrayExplanation } from "@/lib/heliosphericChartAnalysis";
@@ -498,17 +495,12 @@ export default function SpaceWeatherPage() {
 
   // ── Derived values ────────────────────────────────────────────────────────
   const kp    = sw?.kp ?? null;
-  const dst   = sw?.dst ?? null;
   const f107  = sw?.f107 ?? null;
-  const wind  = sw?.plasma_speed ?? sa?.solar_wind?.speed ?? null;
   const s4    = sw?.s4 ?? null;
   const risk  = sw?.gnss_risk ?? null;
   const currentTimestamp = sw?.updated_utc ?? null;
 
-  const kpPoints = withCurrentFallback(safePoints(tl?.kp), currentPoint(kp, currentTimestamp));
-  const dstPoints = withCurrentFallback(safePoints(tl?.dst), currentPoint(dst, currentTimestamp));
   const f107Points = withCurrentFallback(safePoints(tl?.f107), currentPoint(f107, currentTimestamp));
-  const solarWindPoints = withCurrentFallback(safePoints(tl?.solar_wind), currentPoint(wind, currentTimestamp));
   const s4Points = withCurrentFallback(safePoints(tl?.s4), currentPoint(s4, currentTimestamp));
   const gnssPoints = withCurrentFallback(safePoints(tl?.gnss_risk), currentPoint(riskScore(risk), currentTimestamp));
   const streamCount = liveStationCounts
@@ -520,24 +512,19 @@ export default function SpaceWeatherPage() {
   );
 
   const timelineAnalyses = useMemo(() => ({
-    kp: analyzeKpTimeline(kpPoints),
-    dst: analyzeDstTimeline(dstPoints),
     f107: analyzeF107Timeline(f107Points),
-    solarWind: analyzeSolarWindTimeline(solarWindPoints),
     s4: analyzeS4Timeline(s4Points),
     gnss: analyzeGnssRiskTimeline(gnssPoints),
     stations: analyzeStationsOnlineTimeline(stationsOnlinePoints),
-  }), [kpPoints, dstPoints, f107Points, solarWindPoints, s4Points, gnssPoints, stationsOnlinePoints]);
+  }), [f107Points, s4Points, gnssPoints, stationsOnlinePoints]);
 
-  /** Prefer solar-wind UTC span so Kp/Dst share the same live window as L1 graphs. */
+  /** Shared UTC span for secondary Live Metric cards (drivers use their own synced stack). */
   const liveMetricTimeDomain = useMemo(() => {
-    const windEpochs = chronologicalPoints(solarWindPoints).map((p) => p.ms);
-    if (windEpochs.length > 1) return sharedTimeDomain([windEpochs]);
-    const lists = [kpPoints, dstPoints, f107Points, solarWindPoints, s4Points, gnssPoints, stationsOnlinePoints]
+    const lists = [f107Points, s4Points, gnssPoints, stationsOnlinePoints]
       .map((pts) => chronologicalPoints(pts).map((p) => p.ms))
       .filter((epochs) => epochs.length > 0);
     return sharedTimeDomain(lists);
-  }, [kpPoints, dstPoints, f107Points, solarWindPoints, s4Points, gnssPoints, stationsOnlinePoints]);
+  }, [f107Points, s4Points, gnssPoints, stationsOnlinePoints]);
 
   const liveMetricSync = {
     syncHoverMs: timelineSyncMs,
@@ -828,7 +815,8 @@ export default function SpaceWeatherPage() {
         rootMargin="180px 0px"
         fallback={sectionFallback}
       >
-        <CauseEffectTimelineStack />
+        {/* Drivers 1–4 live under Live Metric Timelines; keep local response here. */}
+        <CauseEffectTimelineStack variant="local" />
       </DeferredMount>
       <DeferredMount
         className="sw-deferred-block"
@@ -851,30 +839,11 @@ export default function SpaceWeatherPage() {
       {tab === 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
           <p style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>
-            Live NOAA feeds and derived indices — shared UTC axis with solar wind (synced crosshair)
+            Live NOAA feeds and derived indices — Sun→Earth drivers first (X-ray → wind → IMF → geomagnetic), then secondary metrics on a shared UTC axis
           </p>
 
-          <TimelineCard graphId="kp" title="Live NOAA Kp Timeline"
-            pts={kpPoints} color="#168bd2" yLabel="Kp Index"
-            threshold={{ value: 5, label: "Storm threshold (5)" }}
-            source="NOAA SWPC Planetary K-index 1-minute feed"
-            analysis={timelineAnalyses.kp}
-            expanded={selectedGraph === "kp"} onToggle={toggleGraph}
-            ekfPoints={ekf?.series.kp?.points}
-            ekfColor="#7dd3fc"
-            emptyMsg="Live NOAA Kp feed unavailable."
-            {...liveMetricSync} />
-
-          <TimelineCard graphId="dst" title="Live NOAA Dst Timeline"
-            pts={dstPoints} color="#a78bfa" yLabel="Dst (nT)"
-            threshold={{ value: -50, label: "Storm threshold (−50 nT)" }}
-            source="NOAA SWPC Kyoto Dst index (hourly)"
-            analysis={timelineAnalyses.dst}
-            expanded={selectedGraph === "dst"} onToggle={toggleGraph}
-            ekfPoints={ekf?.series.dst?.points}
-            ekfColor="#d8b4fe"
-            emptyMsg="Live NOAA Dst feed unavailable."
-            {...liveMetricSync} />
+          {/* Image-1 measurement flow: 1 X-ray → 2 solar wind → 3 IMF → 4 geomagnetic */}
+          <CauseEffectTimelineStack variant="drivers" />
 
           <TimelineCard graphId="f107" title="Live NOAA F10.7 Solar Flux Timeline"
             pts={f107Points} color="#ffcc00" yLabel="F10.7 (sfu)"
@@ -885,17 +854,6 @@ export default function SpaceWeatherPage() {
             ekfPoints={ekf?.series.f107?.points}
             ekfColor="#fde68a"
             emptyMsg="Live NOAA F10.7 feed unavailable."
-            {...liveMetricSync} />
-
-          <TimelineCard graphId="solar-wind" title="Live NOAA Solar Wind Timeline"
-            pts={solarWindPoints} color="#00cc88" yLabel="Speed (km/s)"
-            threshold={{ value: 500, label: "Fast stream (500 km/s)", color: "#ff8c00", fillAbove: true }}
-            source="NOAA SWPC solar-wind plasma 1-day feed"
-            analysis={timelineAnalyses.solarWind}
-            expanded={selectedGraph === "solar-wind"} onToggle={toggleGraph}
-            ekfPoints={ekf?.series.solar_wind?.points}
-            ekfColor="#86efac"
-            emptyMsg="Live solar wind feed unavailable."
             {...liveMetricSync} />
 
           <TimelineCard graphId="s4" title="Archived Scintillation S4 Timeline"
