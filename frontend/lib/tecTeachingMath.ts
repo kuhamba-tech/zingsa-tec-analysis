@@ -17,38 +17,6 @@ export function thinShellMappingFactor(
   return 1 / Math.sqrt(inside);
 }
 
-/** Thin-shell IPP geographic coordinates from receiver + look angles. */
-export function ionosphericPiercePoint(
-  recvLatDeg: number,
-  recvLonDeg: number,
-  elevationDeg: number,
-  azimuthDeg: number,
-  shellHeightKm = IONO_SHELL_KM,
-  earthRadiusKm = EARTH_RADIUS_KM,
-): { lat: number; lon: number } | null {
-  const el = Math.max(1, Math.min(89.9, elevationDeg));
-  const az = ((azimuthDeg % 360) + 360) % 360;
-  const E = (el * Math.PI) / 180;
-  const A = (az * Math.PI) / 180;
-  const phiU = (recvLatDeg * Math.PI) / 180;
-  const lamU = (recvLonDeg * Math.PI) / 180;
-  const ratio = earthRadiusKm / (earthRadiusKm + shellHeightKm);
-  // Standard: ψ_pp = π/2 − E − arcsin((RE/(RE+h)) cos E)
-  const psiPp = Math.PI / 2 - E - Math.asin(Math.min(1, Math.max(-1, ratio * Math.cos(E))));
-  const sinPhiPp = Math.sin(phiU) * Math.cos(psiPp) + Math.cos(phiU) * Math.sin(psiPp) * Math.cos(A);
-  const phiPp = Math.asin(Math.min(1, Math.max(-1, sinPhiPp)));
-  const dLam = Math.asin(
-    Math.min(1, Math.max(-1, (Math.sin(psiPp) * Math.sin(A)) / Math.max(1e-9, Math.cos(phiPp)))),
-  );
-  const lamPp = lamU + dLam;
-  const lat = (phiPp * 180) / Math.PI;
-  let lon = (lamPp * 180) / Math.PI;
-  if (lon > 180) lon -= 360;
-  if (lon < -180) lon += 360;
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-  return { lat, lon };
-}
-
 export function stecFromVtec(vtec: number, elevationDeg: number): number {
   return vtec * thinShellMappingFactor(elevationDeg);
 }

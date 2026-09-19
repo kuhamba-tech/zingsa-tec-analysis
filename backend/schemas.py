@@ -1070,7 +1070,6 @@ class LiveObservation(BaseModel):
     vtec_tecu: float | None = None
     stec_tecu: float | None = None
     elevation_deg: float | None = None
-    azimuth_deg: float | None = None
     constellation: str | None = None
     prn: str | None = None
 

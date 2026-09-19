@@ -1107,7 +1107,6 @@ export interface LiveObservation {
   vtec_tecu: number | null;
   stec_tecu: number | null;
   elevation_deg: number | null;
-  azimuth_deg?: number | null;
   constellation: string | null;
   prn: string | null;
 }

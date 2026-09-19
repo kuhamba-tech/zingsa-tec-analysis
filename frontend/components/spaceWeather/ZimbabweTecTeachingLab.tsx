@@ -131,12 +131,18 @@ export default function ZimbabweTecTeachingLab() {
         // Cover from today's UTC midnight so the diurnal chart is one calendar day.
         getLiveVtecByStation(dayHours, 10, 90_000),
         getLiveVtec(Math.min(6, dayHours), undefined, 90_000, 8000),
-        getStations(),
+        getStations(false),
       ]).then(([st, live, cat]) => {
         if (cancelled) return;
         if (st.status === "fulfilled") setStations(Array.isArray(st.value) ? st.value : []);
         if (live.status === "fulfilled") setObs(Array.isArray(live.value) ? live.value : []);
         if (cat.status === "fulfilled") setCatalog(Array.isArray(cat.value) ? cat.value : []);
+        // Fallback: if Spider cache is empty, still try a plain stations list for IPP coords.
+        if (cat.status !== "fulfilled" || !Array.isArray(cat.value) || cat.value.length === 0) {
+          getStations(false).then((rows) => {
+            if (!cancelled && Array.isArray(rows) && rows.length) setCatalog(rows);
+          }).catch(() => {});
+        }
         const fails = [st, live].filter((r) => r.status === "rejected").length;
         setError(fails === 2 ? "Live CORS VTEC feeds unavailable right now." : null);
         setUpdatedAt(new Date().toISOString());
@@ -257,14 +263,20 @@ export default function ZimbabweTecTeachingLab() {
   }, [obs]);
 
   const ippTracks = useMemo(() => {
-    const byCode = new Map(catalog.map((s) => [s.code.toLowerCase(), s]));
+    const byCode = new Map<string, Station>();
+    for (const s of catalog) {
+      const code = s.code.toLowerCase().replace(/_+$/, "");
+      byCode.set(code, s);
+      byCode.set(s.code.toLowerCase(), s);
+    }
     const pts: { lon: number; lat: number; vtec: number; hour: number }[] = [];
     for (const o of obs) {
       const el = o.elevation_deg;
       const az = o.azimuth_deg;
       if (el == null || az == null || !Number.isFinite(el) || !Number.isFinite(az)) continue;
       if (o.vtec_tecu == null || !Number.isFinite(o.vtec_tecu)) continue;
-      const meta = byCode.get(o.station.toLowerCase());
+      const key = o.station.toLowerCase().replace(/_+$/, "");
+      const meta = byCode.get(key) ?? byCode.get(o.station.toLowerCase());
       if (!meta || !Number.isFinite(meta.lat) || !Number.isFinite(meta.lon)) continue;
       const ipp = ionosphericPiercePoint(meta.lat, meta.lon, el, az, IONO_SHELL_KM);
       if (!ipp) continue;
@@ -717,17 +729,15 @@ function IppGroundTracks({
 }: {
   points: { lon: number; lat: number; vtec: number; hour: number }[];
 }) {
-  const lonMin = 24;
-  const lonMax = 34;
-  const latMin = -23;
-  const latMax = -15.5;
+  const lonMin = 22;
+  const lonMax = 36;
+  const latMin = -24;
+  const latMax = -14;
   const project = (lon: number, lat: number) => ({
-    x: ((lon - lonMin) / (lonMax - lonMin)) * 100,
-    y: ((latMax - lat) / (latMax - latMin)) * 100,
+    x: Math.max(1, Math.min(99, ((lon - lonMin) / (lonMax - lonMin)) * 100)),
+    y: Math.max(1, Math.min(99, ((latMax - lat) / (latMax - latMin)) * 100)),
   });
-  const inFrame = points.filter(
-    (p) => p.lon >= lonMin && p.lon <= lonMax && p.lat >= latMin && p.lat <= latMax,
-  );
+  const draw = points.length ? points : [];
 
   const renderMap = (
     title: string,
@@ -742,7 +752,7 @@ function IppGroundTracks({
           <text x="2" y="98" fill="#64748b" fontSize="3.2">{Math.abs(latMin).toFixed(1)}°S</text>
           <text x="2" y="99.5" fill="#64748b" fontSize="2.8">{lonMin}°E</text>
           <text x="88" y="99.5" fill="#64748b" fontSize="2.8">{lonMax}°E</text>
-          {inFrame.map((p, i) => {
+          {draw.map((p, i) => {
             const { x, y } = project(p.lon, p.lat);
             return (
               <circle
