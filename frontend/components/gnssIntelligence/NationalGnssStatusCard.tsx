@@ -9,6 +9,8 @@ import {
 import type { ForecastStatus, GnssForecastCity } from "@/lib/gnssWeatherIntelligence";
 import type { SpaceWeatherCurrent } from "@/lib/types";
 
+import { safeClipboardWrite } from "@/lib/safeClipboard";
+
 interface NationalGnssStatusCardProps {
   forecasts: GnssForecastCity[];
   tone: ForecastStatus;
@@ -20,13 +22,10 @@ function CopyStatusButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
 
   async function copy() {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      /* clipboard unavailable */
-    }
+    const ok = await safeClipboardWrite(text);
+    if (!ok) return;
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   }
 
   return (

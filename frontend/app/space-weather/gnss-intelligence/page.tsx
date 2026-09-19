@@ -23,6 +23,7 @@ import {
 import BroadcastRecipientsPanel from "@/components/gnssIntelligence/BroadcastRecipientsPanel";
 import FacebookPostPanel from "@/components/gnssIntelligence/FacebookPostPanel";
 import NationalGnssStatusCard from "@/components/gnssIntelligence/NationalGnssStatusCard";
+import { safeClipboardWrite } from "@/lib/safeClipboard";
 import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
 import { analyzeNavigationNewsBrief, analyzeNavigationNewsSection } from "@/lib/navigationNewsAnalysis";
 import { effectiveNavigationTone } from "@/lib/gnssAudienceNews";
@@ -177,13 +178,10 @@ function CopyScriptButton({ text, label }: { text: string; label: string }) {
   const [copied, setCopied] = useState(false);
 
   async function copy() {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      /* clipboard unavailable */
-    }
+    const ok = await safeClipboardWrite(text);
+    if (!ok) return;
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   }
 
   return (

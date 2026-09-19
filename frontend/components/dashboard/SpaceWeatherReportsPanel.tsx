@@ -184,8 +184,8 @@ export default function SpaceWeatherReportsPanel({
             type="button"
             className="btn sw-report-share-btn"
             onClick={() => {
-              navigator.clipboard?.writeText(window.location.href).catch(() => {
-                /* clipboard unavailable */
+              void import("@/lib/safeClipboard").then(({ safeClipboardWrite }) => {
+                void safeClipboardWrite(window.location.href);
               });
             }}
           >
