@@ -18,6 +18,8 @@ import {
   diurnalPercentilesFullDay,
   flatLayerStec,
   hourOfDayUtc,
+  ionosphericPiercePoint,
+  IONO_SHELL_KM,
 } from "@/lib/tecTeachingMath";
 import type { LiveObservation, LiveStationVtecSeries, Station } from "@/lib/types";
 
@@ -31,6 +33,45 @@ const CONST_COLORS: Record<string, string> = {
   C: "#34d399",
   J: "#fbbf24",
 };
+
+/** Plasma-like colour stops (dark purple → magenta → orange → yellow). */
+const PLASMA_STOPS: [number, number, number][] = [
+  [13, 8, 135],
+  [84, 2, 163],
+  [139, 10, 165],
+  [185, 50, 137],
+  [219, 92, 104],
+  [244, 136, 73],
+  [254, 188, 43],
+  [240, 249, 33],
+];
+
+function plasmaColor(t: number): string {
+  const x = Math.max(0, Math.min(1, t));
+  const n = PLASMA_STOPS.length - 1;
+  const f = x * n;
+  const i = Math.min(n - 1, Math.floor(f));
+  const u = f - i;
+  const a = PLASMA_STOPS[i];
+  const b = PLASMA_STOPS[i + 1];
+  const r = Math.round(a[0] + (b[0] - a[0]) * u);
+  const g = Math.round(a[1] + (b[1] - a[1]) * u);
+  const bl = Math.round(a[2] + (b[2] - a[2]) * u);
+  return `rgb(${r},${g},${bl})`;
+}
+
+function vtecPlasma(vtec: number, vmin = 10, vmax = 35): string {
+  const t = vmax === vmin ? 0.5 : (vtec - vmin) / (vmax - vmin);
+  return plasmaColor(t);
+}
+
+function hourColor(hourUt: number): string {
+  const t = Math.max(0, Math.min(1, hourUt / 24));
+  // Cool midnight → warm noon → cool evening
+  const hue = 220 - t * 160;
+  const light = 38 + Math.sin(t * Math.PI) * 22;
+  return `hsl(${hue}, 78%, ${light}%)`;
+}
 
 function startOfUtcDayMs(now = Date.now()): number {
   const d = new Date(now);
@@ -196,6 +237,45 @@ export default function ZimbabweTecTeachingLab() {
     ? elRange.map((el) => ({ x: el, y: flatLayerStec(elevScatter.medianVtec!, el) }))
     : [];
 
+  const skyplotPoints = useMemo(() => {
+    const pts: { az: number; el: number; vtec: number; key: string }[] = [];
+    for (const o of obs) {
+      const el = o.elevation_deg;
+      const az = o.azimuth_deg;
+      if (el == null || az == null || !Number.isFinite(el) || !Number.isFinite(az)) continue;
+      if (o.vtec_tecu == null || !Number.isFinite(o.vtec_tecu)) continue;
+      if (el < 0 || el > 90) continue;
+      pts.push({
+        az,
+        el,
+        vtec: o.vtec_tecu,
+        key: `${o.station}-${o.prn ?? "?"}-${o.time}`,
+      });
+    }
+    const step = Math.max(1, Math.floor(pts.length / 1200));
+    return pts.filter((_, i) => i % step === 0);
+  }, [obs]);
+
+  const ippTracks = useMemo(() => {
+    const byCode = new Map(catalog.map((s) => [s.code.toLowerCase(), s]));
+    const pts: { lon: number; lat: number; vtec: number; hour: number }[] = [];
+    for (const o of obs) {
+      const el = o.elevation_deg;
+      const az = o.azimuth_deg;
+      if (el == null || az == null || !Number.isFinite(el) || !Number.isFinite(az)) continue;
+      if (o.vtec_tecu == null || !Number.isFinite(o.vtec_tecu)) continue;
+      const meta = byCode.get(o.station.toLowerCase());
+      if (!meta || !Number.isFinite(meta.lat) || !Number.isFinite(meta.lon)) continue;
+      const ipp = ionosphericPiercePoint(meta.lat, meta.lon, el, az, IONO_SHELL_KM);
+      if (!ipp) continue;
+      const hour = hourOfDayUtc(o.time);
+      if (hour == null) continue;
+      pts.push({ lon: ipp.lon, lat: ipp.lat, vtec: o.vtec_tecu, hour });
+    }
+    const step = Math.max(1, Math.floor(pts.length / 1500));
+    return pts.filter((_, i) => i % step === 0);
+  }, [obs, catalog]);
+
   const diurnalLive = useMemo(() => {
     const dayStart = utcDayStart;
     const hoursArr: number[] = [];
@@ -245,48 +325,13 @@ export default function ZimbabweTecTeachingLab() {
     return { ...fan, veq, dayLabel: utcDayTitle };
   }, [stations, obs, utcDayStart, utcDayTitle]);
 
-  const constellationSeries = useMemo(() => {
-    const byConst = new Map<string, { x: number; y: number }[]>();
-    for (const o of obs) {
-      if (o.vtec_tecu == null || !Number.isFinite(o.vtec_tecu)) continue;
-      const ms = Date.parse(o.time);
-      if (!Number.isFinite(ms)) continue;
-      const key = (o.constellation || "UNK").toUpperCase();
-      const arr = byConst.get(key) ?? [];
-      arr.push({ x: ms, y: o.vtec_tecu });
-      byConst.set(key, arr);
-    }
-    return [...byConst.entries()].map(([label, pts], i) => {
-      const step = Math.max(1, Math.floor(pts.length / 600));
-      return {
-        label,
-        data: pts.filter((_, idx) => idx % step === 0),
-        backgroundColor: CONST_COLORS[label.charAt(0)] ?? STATION_COLORS[i % STATION_COLORS.length],
-        pointRadius: 1.3,
-      };
-    });
-  }, [obs]);
-
-  const stationMap = useMemo(() => {
-    const byCode = new Map(catalog.map((s) => [s.code.toLowerCase(), s]));
-    return stationSeries
-      .map((s) => {
-        const meta = byCode.get(s.station.toLowerCase());
-        if (!meta || !Number.isFinite(meta.lat) || !Number.isFinite(meta.lon)) return null;
-        const vtec = s.latest ?? s.mean;
-        if (vtec == null || !Number.isFinite(vtec)) return null;
-        return { code: s.station.toUpperCase(), lat: meta.lat, lon: meta.lon, vtec, color: s.color };
-      })
-      .filter(Boolean) as { code: string; lat: number; lon: number; vtec: number; color: string }[];
-  }, [catalog, stationSeries]);
-
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
       <div className="card">
         <div className="metric-label" style={{ marginBottom: "0.35rem" }}>Live CORS ionosphere graphs</div>
         <p className="sw-supporting-text" style={{ margin: 0 }}>
-          Zimbabwe CORS NTRIP VTEC / STEC from the live pipeline — station timelines, elevation geometry,
-          constellation samples, station map, and diurnal distribution.
+          Zimbabwe CORS NTRIP VTEC / STEC from the live pipeline — VTEC time series, STEC/VTEC versus
+          elevation, satellite skyplot coloured by VTEC, IPP ground tracks, and diurnal VTEC distribution.
         </p>
         {loading && <div className="banner banner-info" style={{ marginTop: "0.75rem" }}>Loading live CORS VTEC…</div>}
         {error && <div className="banner banner-warn" style={{ marginTop: "0.75rem" }}>{error}</div>}
@@ -298,8 +343,8 @@ export default function ZimbabweTecTeachingLab() {
       </div>
 
       <Section
-        title="1 · Live VTEC time series"
-        subtitle="Vertical TEC vs UT from Zimbabwe CORS stations (live NTRIP pipeline)."
+        title="1 · VTEC Time Series"
+        subtitle="Vertical Total Electron Content (VTEC) versus Universal Time (UT)."
       >
         {stationSeries.length > 0 ? (
           <LineChart
@@ -326,8 +371,8 @@ export default function ZimbabweTecTeachingLab() {
       </Section>
 
       <Section
-        title="2 · Live STEC and VTEC versus elevation"
-        subtitle="Slant and vertical TEC from live CORS observations. Dashed curve: STEC ≈ median(VTEC) / sin(E)."
+        title="2 · STEC and VTEC versus Satellite Elevation"
+        subtitle="Two panels: STEC versus elevation and VTEC versus elevation."
       >
         {elevScatter.stecCount > 0 ? (
           <div className="sw-double-grid">
@@ -385,53 +430,38 @@ export default function ZimbabweTecTeachingLab() {
       </Section>
 
       <Section
-        title="3 · Live VTEC by constellation"
-        subtitle="Live CORS samples coloured by GNSS constellation (GPS / GLONASS / Galileo / BeiDou)."
+        title="3 · Satellite Skyplot Coloured by VTEC"
+        subtitle="Satellite azimuth and elevation, with colour representing VTEC."
       >
-        {constellationSeries.length > 0 ? (
-          <Scatter
-            data={{ datasets: constellationSeries }}
-            options={{
-              responsive: true,
-              plugins: { legend: { labels: { color: "#94a3b8", boxWidth: 10, font: { size: 10 } } } },
-              scales: {
-                x: {
-                  type: "linear",
-                  title: { display: true, text: "UT", color: "#94a3b8" },
-                  ticks: {
-                    color: "#94a3b8",
-                    maxTicksLimit: 8,
-                    callback: (v) => formatKnmiUtcTick(Number(v)),
-                  },
-                },
-                y: { title: { display: true, text: "VTEC (TECU)", color: "#94a3b8" }, ticks: { color: "#94a3b8" } },
-              },
-            }}
-            height={120}
-          />
+        {skyplotPoints.length > 0 ? (
+          <SkyplotByVtec points={skyplotPoints} />
         ) : (
           <div className="banner banner-info">
-            {loading ? "Waiting for constellation samples…" : "No live constellation VTEC samples yet."}
+            {loading
+              ? "Geometry enrichment is loading — waiting for elevation/azimuth samples…"
+              : "Geometry enrichment unavailable — no live samples with elevation and azimuth yet."}
           </div>
         )}
       </Section>
 
       <Section
-        title="4 · Live CORS stations by VTEC"
-        subtitle="Station locations coloured by latest live VTEC from the CORS network."
+        title="4 · Ionospheric Pierce Point (IPP) Ground Tracks"
+        subtitle="Two panels: IPP locations coloured by VTEC and by observation time."
       >
-        {stationMap.length > 0 ? (
-          <CorsVtecMap points={stationMap} />
+        {ippTracks.length > 0 ? (
+          <IppGroundTracks points={ippTracks} />
         ) : (
           <div className="banner banner-info">
-            {loading ? "Waiting for station coordinates and VTEC…" : "No stations with both coordinates and live VTEC."}
+            {loading
+              ? "Waiting for station coordinates and azimuth/elevation geometry…"
+              : "No IPP tracks yet — need station catalog plus elevation and azimuth on live observations."}
           </div>
         )}
       </Section>
 
       <Section
-        title="Diurnal VTEC distribution — Live CORS"
-        subtitle={`One UTC day only (${diurnalLive?.dayLabel ?? utcDayTitle}) · live Zimbabwe CORS · 10–90th / 25–75th bands, median, VEq (zenith).`}
+        title="5 · Diurnal VTEC Distribution"
+        subtitle="Daily VTEC median and variability, including the 10th–90th and 25th–75th percentile bands."
       >
         {diurnalLive ? (
           <div style={{ background: "#0b1220", borderRadius: 8, padding: "0.65rem 0.5rem 0.35rem", height: 340 }}>
@@ -604,10 +634,88 @@ function DiurnalFanChart({
   );
 }
 
-function CorsVtecMap({
+function SkyplotByVtec({
   points,
 }: {
-  points: { code: string; lat: number; lon: number; vtec: number; color: string }[];
+  points: { az: number; el: number; vtec: number; key: string }[];
+}) {
+  const size = 100;
+  const cx = 50;
+  const cy = 50;
+  const maxR = 42;
+  const vmin = 10;
+  const vmax = 35;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+      <div style={{ position: "relative", maxWidth: 420, margin: "0 auto", width: "100%" }}>
+        <svg
+          width="100%"
+          viewBox={`0 0 ${size} ${size}`}
+          style={{ background: "#071422", borderRadius: 8, border: "1px solid var(--border)", aspectRatio: "1 / 1" }}
+        >
+          {[30, 60, 90].map((elRing) => {
+            const r = ((90 - elRing) / 90) * maxR;
+            return (
+              <circle
+                key={elRing}
+                cx={cx}
+                cy={cy}
+                r={r}
+                fill="none"
+                stroke="rgba(148,163,184,0.28)"
+                strokeWidth="0.35"
+              />
+            );
+          })}
+          <line x1={cx} y1={cy - maxR} x2={cx} y2={cy + maxR} stroke="rgba(148,163,184,0.22)" strokeWidth="0.3" />
+          <line x1={cx - maxR} y1={cy} x2={cx + maxR} y2={cy} stroke="rgba(148,163,184,0.22)" strokeWidth="0.3" />
+          <text x={cx} y={cy - maxR - 2.5} textAnchor="middle" fill="#94a3b8" fontSize="3.2" fontWeight="700">N</text>
+          <text x={cx + maxR + 2.5} y={cy + 1.2} textAnchor="middle" fill="#94a3b8" fontSize="3.2" fontWeight="700">E</text>
+          <text x={cx} y={cy + maxR + 4.2} textAnchor="middle" fill="#94a3b8" fontSize="3.2" fontWeight="700">S</text>
+          <text x={cx - maxR - 2.5} y={cy + 1.2} textAnchor="middle" fill="#94a3b8" fontSize="3.2" fontWeight="700">W</text>
+          <text x={cx + 1} y={cy - ((90 - 30) / 90) * maxR + 1} fill="#64748b" fontSize="2.2">30°</text>
+          <text x={cx + 1} y={cy - ((90 - 60) / 90) * maxR + 1} fill="#64748b" fontSize="2.2">60°</text>
+          {points.map((p) => {
+            const azRad = (p.az * Math.PI) / 180;
+            const r = ((90 - Math.max(0, Math.min(90, p.el))) / 90) * maxR;
+            // N at top, azimuth clockwise: x = sin(az), y = −cos(az)
+            const x = cx + r * Math.sin(azRad);
+            const y = cy - r * Math.cos(azRad);
+            return (
+              <circle
+                key={p.key}
+                cx={x}
+                cy={y}
+                r="0.85"
+                fill={vtecPlasma(p.vtec, vmin, vmax)}
+                opacity={0.85}
+              />
+            );
+          })}
+        </svg>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: "0.65rem", justifyContent: "center", flexWrap: "wrap" }}>
+        <span style={{ fontSize: "0.72rem", color: "#94a3b8" }}>VTEC (TECU)</span>
+        <div
+          style={{
+            width: 140,
+            height: 10,
+            borderRadius: 4,
+            background: `linear-gradient(90deg, ${vtecPlasma(vmin)}, ${vtecPlasma((vmin + vmax) / 2)}, ${vtecPlasma(vmax)})`,
+          }}
+        />
+        <span style={{ fontSize: "0.72rem", color: "#94a3b8" }}>{vmin} – {vmax}</span>
+        <span style={{ fontSize: "0.72rem", color: "#64748b" }}>· {points.length.toLocaleString()} samples · zenith at centre</span>
+      </div>
+    </div>
+  );
+}
+
+function IppGroundTracks({
+  points,
+}: {
+  points: { lon: number; lat: number; vtec: number; hour: number }[];
 }) {
   const lonMin = 24;
   const lonMax = 34;
@@ -617,31 +725,69 @@ function CorsVtecMap({
     x: ((lon - lonMin) / (lonMax - lonMin)) * 100,
     y: ((latMax - lat) / (latMax - latMin)) * 100,
   });
-  const vmax = Math.max(...points.map((p) => p.vtec), 1);
-  const vmin = Math.min(...points.map((p) => p.vtec), 0);
+  const inFrame = points.filter(
+    (p) => p.lon >= lonMin && p.lon <= lonMax && p.lat >= latMin && p.lat <= latMax,
+  );
+
+  const renderMap = (
+    title: string,
+    colorFn: (p: (typeof points)[0]) => string,
+    legend: React.ReactNode,
+  ) => (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
+      <div style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>{title}</div>
+      <div style={{ position: "relative", height: 260, border: "1px solid var(--border)", borderRadius: 8, background: "#071422", overflow: "hidden" }}>
+        <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">
+          <text x="2" y="6" fill="#64748b" fontSize="3.2">{Math.abs(latMax).toFixed(1)}°S</text>
+          <text x="2" y="98" fill="#64748b" fontSize="3.2">{Math.abs(latMin).toFixed(1)}°S</text>
+          <text x="2" y="99.5" fill="#64748b" fontSize="2.8">{lonMin}°E</text>
+          <text x="88" y="99.5" fill="#64748b" fontSize="2.8">{lonMax}°E</text>
+          {inFrame.map((p, i) => {
+            const { x, y } = project(p.lon, p.lat);
+            return (
+              <circle
+                key={`${p.lon.toFixed(3)}-${p.lat.toFixed(3)}-${i}`}
+                cx={x}
+                cy={y}
+                r="0.7"
+                fill={colorFn(p)}
+                opacity={0.8}
+              />
+            );
+          })}
+        </svg>
+      </div>
+      {legend}
+    </div>
+  );
 
   return (
-    <div style={{ position: "relative", height: 280, border: "1px solid var(--border)", borderRadius: 8, background: "#071422", overflow: "hidden" }}>
-      <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">
-        <text x="2" y="6" fill="#64748b" fontSize="3.2">{latMax.toFixed(1)}°S</text>
-        <text x="2" y="98" fill="#64748b" fontSize="3.2">{Math.abs(latMin).toFixed(1)}°S</text>
-        <text x="2" y="99.5" fill="#64748b" fontSize="2.8">{lonMin}°E</text>
-        <text x="88" y="99.5" fill="#64748b" fontSize="2.8">{lonMax}°E</text>
-        {points.map((p) => {
-          const { x, y } = project(p.lon, p.lat);
-          const t = vmax === vmin ? 0.5 : (p.vtec - vmin) / (vmax - vmin);
-          const fill = `hsl(${210 - t * 160}, 85%, ${45 + t * 15}%)`;
-          return (
-            <g key={p.code}>
-              <circle cx={x} cy={y} r="1.8" fill={fill} stroke="#fff" strokeWidth="0.4" vectorEffect="non-scaling-stroke" />
-              <text x={Math.min(x + 2.2, 88)} y={y + 1} fill="#cbd5e1" fontSize="2.3">{p.code} {p.vtec.toFixed(1)}</text>
-            </g>
-          );
-        })}
-      </svg>
-      <div style={{ position: "absolute", left: 8, bottom: 6, fontSize: "0.7rem", color: "#94a3b8" }}>
-        Latest live VTEC (TECU) · {points.length} stations
-      </div>
+    <div className="sw-double-grid">
+      {renderMap(
+        `IPP coloured by VTEC · shell ${IONO_SHELL_KM} km`,
+        (p) => vtecPlasma(p.vtec),
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.7rem", color: "#94a3b8" }}>
+          <span>10</span>
+          <div style={{ flex: 1, height: 8, borderRadius: 3, background: `linear-gradient(90deg, ${vtecPlasma(10)}, ${vtecPlasma(35)})` }} />
+          <span>35 TECU</span>
+        </div>,
+      )}
+      {renderMap(
+        "IPP coloured by observation UT hour",
+        (p) => hourColor(p.hour),
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.7rem", color: "#94a3b8" }}>
+          <span>0h</span>
+          <div
+            style={{
+              flex: 1,
+              height: 8,
+              borderRadius: 3,
+              background: `linear-gradient(90deg, ${hourColor(0)}, ${hourColor(6)}, ${hourColor(12)}, ${hourColor(18)}, ${hourColor(23)})`,
+            }}
+          />
+          <span>24h</span>
+        </div>,
+      )}
     </div>
   );
 }

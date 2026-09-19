@@ -49,6 +49,7 @@ async def live_vtec(
     hours: float = Query(2.0, ge=0.1, le=48),
     station: str | None = Query(None),
     limit: int = Query(4000, ge=100, le=20000),
+    enrich_geometry: bool = Query(True),
     _=Depends(require_api_key),
 ):
     """Live NTRIP VTEC only — DLR Global TEC and RINEX archive rows are excluded."""
@@ -73,14 +74,40 @@ async def live_vtec(
         if len(df) > limit:
             step = max(1, len(df) // limit)
             df = df.iloc[::step].head(limit)
+
+        nav = None
+        if enrich_geometry:
+            try:
+                from backend.live_manager import get_nav_cache
+                nav = get_nav_cache()
+            except Exception:
+                nav = None
+
+        from datetime import datetime
+
         result = []
         for _, row in df.iterrows():
+            elev = float(row["elevation_deg"]) if "elevation_deg" in row and row["elevation_deg"] is not None else None
+            az = None
+            if nav is not None:
+                prn = str(row.get("prn", "") or "")
+                stn = str(row.get("station", "") or "")
+                try:
+                    epoch = datetime.fromisoformat(str(row.get("time", "")).replace("Z", "+00:00"))
+                except Exception:
+                    epoch = None
+                look = nav.look_angles(stn, prn, epoch)
+                if look is not None:
+                    if elev is None:
+                        elev = look[0]
+                    az = look[1]
             result.append(LiveObservation(
                 time=str(row.get("time", "")),
                 station=str(row.get("station", "")),
                 vtec_tecu=float(row["vtec_tecu"]) if "vtec_tecu" in row else None,
                 stec_tecu=float(row["stec_tecu"]) if "stec_tecu" in row else None,
-                elevation_deg=float(row["elevation_deg"]) if "elevation_deg" in row else None,
+                elevation_deg=elev,
+                azimuth_deg=az,
                 constellation=str(row["constellation"]) if "constellation" in row else None,
                 prn=str(row["prn"]) if "prn" in row else None,
             ))
