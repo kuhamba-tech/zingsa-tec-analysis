@@ -114,6 +114,9 @@ export default function SiteTranslator() {
       const script = document.createElement("script");
       script.src = "//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit";
       script.async = true;
+      script.onerror = () => {
+        /* Google Translate CDN blocked — keep English UI. */
+      };
       document.body.appendChild(script);
     }
   }, [active, includedLanguages, open]);

@@ -19,6 +19,17 @@ export const viewport: Viewport = {
 const SPACE_WEATHER_BOOT_SCRIPT = `
 (function () {
   try {
+    window.addEventListener("unhandledrejection", function (event) {
+      try {
+        var reason = event && event.reason;
+        if (reason instanceof Event) { event.preventDefault(); return; }
+        var msg = reason && reason.message ? String(reason.message) : String(reason || "");
+        var name = reason && reason.name ? String(reason.name) : "";
+        if (name === "NotAllowedError" || /clipboard|Document is not focused|writeText/i.test(msg)) {
+          event.preventDefault();
+        }
+      } catch (e) {}
+    });
     var host = location.hostname;
     var port = location.port;
     var origin = location.origin;

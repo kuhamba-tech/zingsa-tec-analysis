@@ -158,6 +158,16 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  // Clipboard / Event rejections must not open the Next.js runtime overlay
+  // (that freezes the National Dashboard on Unavailable / Loading…).
+  useEffect(() => {
+    let dispose: (() => void) | undefined;
+    void import("@/lib/safeClipboard").then(({ installClientRejectionGuards }) => {
+      dispose = installClientRejectionGuards();
+    });
+    return () => dispose?.();
+  }, []);
+
   const closeMobile = () => setMobileOpen(false);
 
   return (
