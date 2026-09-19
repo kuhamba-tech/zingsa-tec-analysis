@@ -961,13 +961,17 @@ export const getLiveVtec = (
 export const getTecMethodComparison = (
   hours = 6,
   station?: string,
-  limit = 2500,
-  timeoutMs = 60_000,
+  limit = 1500,
+  timeoutMs = 45_000,
 ) =>
-  get<TecMethodComparisonResponse>(
-    "/live/tec-method-comparison",
-    { hours, station, limit, _ts: Date.now() },
-    timeoutMs,
+  dedupeGet(
+    `live/tec-method-comparison:${hours}:${station ?? ""}:${limit}`,
+    () =>
+      get<TecMethodComparisonResponse>(
+        "/live/tec-method-comparison",
+        { hours, station, limit, _ts: Date.now() },
+        timeoutMs,
+      ),
   );
 export const getLiveVtecByStation = (hours = 6, resampleMinutes = 2, timeoutMs?: number) =>
   get<LiveStationVtecSeries[]>(
