@@ -59,6 +59,10 @@ const SolarCycleFullRecordCharts = dynamic(
   () => import("@/components/spaceWeather/SolarCycleFullRecordCharts"),
   { ssr: false, loading: () => sectionFallback },
 );
+const ZimbabweTecTeachingLab = dynamic(
+  () => import("@/components/spaceWeather/ZimbabweTecTeachingLab"),
+  { ssr: false, loading: () => sectionFallback },
+);
 const LineChart = dynamic(() => import("@/components/charts/LineChart"), {
   ssr: false,
   loading: () => <div className="banner banner-info" role="status">Loading chart…</div>,
@@ -1116,7 +1120,7 @@ export default function SpaceWeatherPage() {
       {tab === 3 && (
         <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
           <p style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>
-            Local ionospheric response after Sun→Earth drivers — Zimbabwe CORS VTEC, station availability, and scintillation / GNSS risk context
+            Local ionospheric response after Sun→Earth drivers — Zimbabwe CORS VTEC, Step 5 TEC teaching graphs, and scintillation / GNSS risk context
           </p>
           <CauseEffectTimelineStack
             variant="local"
@@ -1145,6 +1149,7 @@ export default function SpaceWeatherPage() {
               )
             }
           />
+          <ZimbabweTecTeachingLab />
         </div>
       )}
 
