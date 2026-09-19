@@ -78,6 +78,8 @@ interface Props {
   xStepSize?: number;
   /** Format numeric x-axis tick labels (used with `xValues`). */
   formatXTick?: (value: number) => string;
+  /** Format left Y-axis tick labels (avoids float noise like 2.9000000000000004). */
+  formatYTick?: (value: number) => string;
   /**
    * When set with hourly `xStepSize`, only these hours get strong grid lines;
    * other hourly ticks stay as faint demarcations (KNMI-style).
@@ -182,6 +184,7 @@ export default function LineChart({
   xMax,
   xStepSize,
   formatXTick,
+  formatYTick,
   xMajorStepMs,
   epochMs,
   syncHoverMs = null,
@@ -514,7 +517,22 @@ export default function LineChart({
               suggestedMin: ySuggestedMin,
               suggestedMax: ySuggestedMax,
               title: { display: true, text: yLabel, color: "#ffffff" },
-              ticks: { color: "#ffffff" },
+              ticks: {
+                color: "#ffffff",
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                callback: (value: any) => {
+                  const n = typeof value === "number" ? value : Number(value);
+                  if (!Number.isFinite(n)) return "";
+                  if (formatYTick) return formatYTick(n);
+                  // Strip binary float noise (2.9000000000000004 → 2.9)
+                  const abs = Math.abs(n);
+                  if (abs === 0) return "0";
+                  if (abs >= 100) return String(Math.round(n));
+                  if (abs >= 10) return String(Math.round(n * 10) / 10);
+                  if (abs >= 1) return String(Math.round(n * 100) / 100);
+                  return String(Math.round(n * 1000) / 1000);
+                },
+              },
               grid: { color: "#244d73" },
             },
             ...(useSecondary

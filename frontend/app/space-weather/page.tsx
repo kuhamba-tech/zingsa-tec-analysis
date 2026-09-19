@@ -33,6 +33,7 @@ import {
   formatKnmiUtcTick,
   parseTimelineEpoch,
   sharedTimeDomain,
+  startOfUtcDay,
   utcTimeAxisProps,
 } from "@/lib/chartTimeAxis";
 import { alignEkfToPoints } from "@/lib/ekfAlign";
@@ -544,11 +545,17 @@ export default function SpaceWeatherPage() {
     timeDomain: liveMetricTimeDomain,
   };
 
-  const snapshotStatus = monitoringFreshness(sw?.updated_utc, now, Boolean(sw), feedStatus !== "ok");
-  const solarStatus = monitoringFreshness(sa?.updated, now, Boolean(sa && sa.mode !== "unavailable"), Boolean(saError) || sa?.mode !== "live");
+  const snapshotStatus = monitoringFreshness(sw?.updated_utc, now, Boolean(sw), feedStatus === "down");
+  const solarStatus = monitoringFreshness(
+    sa?.updated,
+    now,
+    Boolean(sa && sa.mode !== "unavailable"),
+    Boolean(saError) || sa?.mode === "unavailable",
+  );
   const overallStatus = snapshotStatus === "LIVE" && solarStatus === "LIVE" ? "LIVE"
     : snapshotStatus === "UNAVAILABLE" && solarStatus === "UNAVAILABLE" ? "UNAVAILABLE" : "DELAYED";
-  const solarFeedLive = solarStatus === "LIVE";
+  const hasSolarPayload = Boolean(sa && (sa.xray_series?.length || sa.flare_class || sa.solar_wind));
+  const solarFeedLive = solarStatus === "LIVE" || (hasSolarPayload && !saError && sa?.mode !== "unavailable");
   const solarFeedLabel = saLoading && !sa
     ? "Loading solar data…"
     : solarFeedLive
@@ -559,7 +566,9 @@ export default function SpaceWeatherPage() {
           ? "Partial feeds"
       : saError
         ? "Connection issue"
-        : "Feed unavailable";
+        : hasSolarPayload
+          ? "Partial feeds"
+          : "Feed unavailable";
   const flareClassRaw = sa?.flare_class?.trim();
   const flareClass = saLoading && !sa
     ? "Loading…"
@@ -583,21 +592,33 @@ export default function SpaceWeatherPage() {
 
   // ── X-Ray series for charts ───────────────────────────────────────────────
   const xrayRaw = sa?.xray_series ?? [];
-  // multiply by 1e7 for readability (so "0" becomes 0.00 not "5e-8")
-  const xrayScaled = xrayRaw.map((v) => parseFloat((v * 1e7).toFixed(3)));
-  const xraySlice = xrayRange === "6H" ? xrayScaled.slice(-9) : xrayScaled;
+  // Scale ×10⁻⁷ and round so Chart.js never prints 2.9000000000000004
+  const xrayScaledAll = xrayRaw.map((v) => Math.round(v * 1e7 * 1000) / 1000);
   const xraySampleStepMs = 40 * 60 * 1000;
   const xrayEndMs = parseTimelineEpoch(sa?.updated ?? "") ?? Date.now();
-  const xrayEpochs = xraySlice.map(
-    (_, i) => xrayEndMs - (xraySlice.length - 1 - i) * xraySampleStepMs,
+  const xrayEpochsAll = xrayScaledAll.map(
+    (_, i) => xrayEndMs - (xrayScaledAll.length - 1 - i) * xraySampleStepMs,
   );
+  const xrayWindow = useMemo(() => {
+    if (xrayRange === "6H") {
+      const end = xrayEndMs;
+      const start = end - 6 * ONE_H_MS;
+      return { start, end, majorHours: 1 as const };
+    }
+    // 24H = UTC calendar day of the latest sample, 00:00 → 24:00
+    const start = startOfUtcDay(xrayEndMs);
+    return { start, end: start + 24 * ONE_H_MS, majorHours: 4 as const };
+  }, [xrayRange, xrayEndMs]);
+  const xrayPairs = xrayEpochsAll
+    .map((ms, i) => ({ ms, v: xrayScaledAll[i] }))
+    .filter((p) => p.ms >= xrayWindow.start && p.ms <= xrayWindow.end);
+  const xraySlice = xrayPairs.map((p) => p.v);
+  const xrayEpochs = xrayPairs.map((p) => p.ms);
   const xrayLabels = xrayEpochs.map((ms) => new Date(ms).toISOString());
-  const xrayDomain =
-    xrayEpochs.length > 1
-      ? alignTimeDomain(xrayEpochs[0], xrayEpochs[xrayEpochs.length - 1])
-      : null;
+  const xrayDomain = { min: xrayWindow.start, max: xrayWindow.end };
   const xrayAxis = utcTimeAxisProps(xrayDomain, {
     rangeHours: xrayRange === "6H" ? 6 : 24,
+    majorHours: xrayWindow.majorHours,
   });
   const xrayAnalysis = useMemo<ChartAnalysisBlock>(() => {
     if (!xraySlice.length) {
