@@ -14,9 +14,18 @@ const nextConfig: NextConfig = {
   images: {
     unoptimized: true,
   },
-  // Next 16 blocks 127.0.0.1 ↔ localhost as cross-origin for /_next/* in
-  // development, which prevents hydration and all client API fetches.
-  allowedDevOrigins: ["127.0.0.1", "localhost"],
+  // Next 16 blocks disallowed hosts for /_next/* in development, which can
+  // prevent hydration and leave Live Metric stuck on "Connecting".
+  // Allow local + Cursor/cloud preview hostnames used to open the forwarded port.
+  allowedDevOrigins: [
+    "127.0.0.1",
+    "localhost",
+    "*.cursor.sh",
+    "*.cursorapi.com",
+    "*.cursorusercontent.com",
+    "*.ngrok-free.app",
+    "*.ngrok.io",
+  ],
   async rewrites() {
     if (!isDev) return [];
     return [

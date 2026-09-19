@@ -239,6 +239,9 @@ export default function CauseEffectTimelineStack({
   const [syncHoverMs, setSyncHoverMs] = useState<number | null>(null);
   const [geoTab, setGeoTab] = useState<GeoTab>("kp");
   const [rangeHours, setRangeHours] = useState<6 | 24 | 72>(24);
+  // Overview only needs a light station snapshot for the readings strip — keep it cheap.
+  const vtecHours = showChrome && !showLocal ? Math.min(rangeHours, 6) : Math.min(rangeHours, 48);
+  const vtecResample = showChrome && !showLocal ? 10 : 2;
   const [now, setNow] = useState(0);
   const [vtecRefreshFailed, setVtecRefreshFailed] = useState(false);
   const [openPanel, setOpenPanel] = useState<string | null>(null);
@@ -292,7 +295,7 @@ export default function CauseEffectTimelineStack({
         feedCount += 1;
         if (!cancelled && showChrome && !showLocal) setVtecLoading(true);
         tasks.push(
-          getLiveVtecByStation(Math.min(rangeHours, 48), 2)
+          getLiveVtecByStation(vtecHours, vtecResample)
             .then((v) => {
               if (cancelled) return;
               setVtec(Array.isArray(v) ? v : []);
@@ -326,7 +329,7 @@ export default function CauseEffectTimelineStack({
     const poll = window.setInterval(() => { void refresh(); }, 60_000);
     const clock = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => { cancelled = true; window.clearInterval(poll); window.clearInterval(clock); };
-  }, [rangeHours, showDrivers, showLocal, fetchVtec, showChrome]);
+  }, [rangeHours, showDrivers, showLocal, fetchVtec, showChrome, vtecHours, vtecResample]);
 
   const plottedStations = useMemo(() => {
     const available = vtec.filter((station) => station.points?.length);
