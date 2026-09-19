@@ -13,7 +13,7 @@ import {
 import { Scatter, Line } from "react-chartjs-2";
 import LineChart from "@/components/charts/LineChart";
 import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
-import { getLiveVtec, getLiveVtecByStation, getStations } from "@/lib/api";
+import { getLiveVtec, getLiveVtecByStation, getStations, getTecMethodComparison } from "@/lib/api";
 import { formatKnmiUtcTick, sharedTimeDomain, utcTimeAxisProps } from "@/lib/chartTimeAxis";
 import type { ChartAnalysisBlock } from "@/lib/multiSourceChartAnalysis";
 import {
@@ -23,7 +23,7 @@ import {
   ionosphericPiercePoint,
   IONO_SHELL_KM,
 } from "@/lib/tecTeachingMath";
-import type { LiveObservation, LiveStationVtecSeries, Station } from "@/lib/types";
+import type { LiveObservation, LiveStationVtecSeries, Station, TecMethodComparisonResponse } from "@/lib/types";
 
 ChartJS.register(LinearScale, PointElement, LineElement, Tooltip, Legend, Filler);
 
@@ -136,12 +136,12 @@ const GRAPH_EXPLANATIONS: Record<GraphId, ChartAnalysisBlock> = {
     ],
   },
   diurnal: {
-    lead: "The diurnal fan chart summarises today’s UTC-day VTEC: median behaviour plus how much stations disagree hour by hour.",
+    lead: "Diurnal fan chart comparing GOPI / Seemala (cyan) and Gg / Ciraolo–Cesaroni (amber) on the same UTC day.",
     bullets: [
-      "Solid blue line = median VTEC. Shaded bands = 25th–75th (inner) and 10th–90th (outer) percentile envelopes across stations/samples.",
-      "Dashed white VEq is a zenith-equivalent reference when available — useful for comparing mapped vertical content.",
+      "Cyan median + bands = GOPI live CORS VTEC. Amber median + bands = Gg arc-bias calibrated VTEC.",
+      "Offsets between the two medians are calibration differences (DCB / arc bias), not a different ionosphere.",
       "Only the current UTC calendar day is shown, so the chart builds as the day progresses.",
-      "A wide band means high spatial or inter-station variability; a narrow band means stations agree on the diurnal shape.",
+      "Toggle methods in the comparison section below for STEC/elevation, skyplot, and ΔVTEC views.",
     ],
   },
 };
@@ -201,6 +201,7 @@ export default function ZimbabweTecTeachingLab() {
   const [stations, setStations] = useState<LiveStationVtecSeries[]>([]);
   const [obs, setObs] = useState<LiveObservation[]>([]);
   const [catalog, setCatalog] = useState<Station[]>([]);
+  const [methodCmp, setMethodCmp] = useState<TecMethodComparisonResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
@@ -218,11 +219,14 @@ export default function ZimbabweTecTeachingLab() {
         // Cap samples so look-angle enrichment cannot starve Live Metric cards.
         getLiveVtec(Math.min(6, dayHours), undefined, 45_000, 2500),
         getStations(false),
-      ]).then(([st, live, cat]) => {
+        // GOPI vs Gg samples for the diurnal overlay.
+        getTecMethodComparison(Math.min(14, Math.max(6, dayHours)), undefined, 2500, 60_000),
+      ]).then(([st, live, cat, cmp]) => {
         if (cancelled) return;
         if (st.status === "fulfilled") setStations(Array.isArray(st.value) ? st.value : []);
         if (live.status === "fulfilled") setObs(Array.isArray(live.value) ? live.value : []);
         if (cat.status === "fulfilled") setCatalog(Array.isArray(cat.value) ? cat.value : []);
+        if (cmp.status === "fulfilled") setMethodCmp(cmp.value);
         // Fallback: if Spider cache is empty, still try a plain stations list for IPP coords.
         if (cat.status !== "fulfilled" || !Array.isArray(cat.value) || cat.value.length === 0) {
           getStations(false).then((rows) => {
@@ -376,30 +380,70 @@ export default function ZimbabweTecTeachingLab() {
 
   const diurnalLive = useMemo(() => {
     const dayStart = utcDayStart;
-    const hoursArr: number[] = [];
-    const vals: number[] = [];
-    for (const s of stations) {
-      for (const p of s.points ?? []) {
-        if (!isUtcCalendarDay(p.time, dayStart)) continue;
-        const h = hourOfDayUtc(p.time);
-        if (h == null || !Number.isFinite(p.vtec_tecu)) continue;
-        hoursArr.push(h);
-        vals.push(p.vtec_tecu);
-      }
-    }
-    for (const o of obs) {
-      if (!isUtcCalendarDay(o.time, dayStart)) continue;
-      if (o.vtec_tecu == null || !Number.isFinite(o.vtec_tecu)) continue;
-      const h = hourOfDayUtc(o.time);
-      if (h == null) continue;
-      hoursArr.push(h);
-      vals.push(o.vtec_tecu);
-    }
-    if (hoursArr.length < 8) return null;
-    const fan = diurnalPercentilesFullDay(hoursArr, vals, { maxVtec: 70 });
-    const hasAny = fan.p50.some((v) => v != null);
-    if (!hasAny) return null;
 
+    const collectHoursVals = (rows: LiveObservation[]) => {
+      const hoursArr: number[] = [];
+      const vals: number[] = [];
+      for (const o of rows) {
+        if (!isUtcCalendarDay(o.time, dayStart)) continue;
+        if (o.vtec_tecu == null || !Number.isFinite(o.vtec_tecu)) continue;
+        const h = hourOfDayUtc(o.time);
+        if (h == null) continue;
+        hoursArr.push(h);
+        vals.push(o.vtec_tecu);
+      }
+      return { hoursArr, vals };
+    };
+
+    // Prefer dual-method comparison samples when available.
+    const gopiCmp = collectHoursVals(methodCmp?.gopi ?? []);
+    const ggCmp = collectHoursVals(methodCmp?.gg ?? []);
+
+    // Fallback GOPI from live CORS station series + observations.
+    let gopiHours = gopiCmp.hoursArr;
+    let gopiVals = gopiCmp.vals;
+    if (gopiHours.length < 8) {
+      const hoursArr: number[] = [];
+      const vals: number[] = [];
+      for (const s of stations) {
+        for (const p of s.points ?? []) {
+          if (!isUtcCalendarDay(p.time, dayStart)) continue;
+          const h = hourOfDayUtc(p.time);
+          if (h == null || !Number.isFinite(p.vtec_tecu)) continue;
+          hoursArr.push(h);
+          vals.push(p.vtec_tecu);
+        }
+      }
+      for (const o of obs) {
+        if (!isUtcCalendarDay(o.time, dayStart)) continue;
+        if (o.vtec_tecu == null || !Number.isFinite(o.vtec_tecu)) continue;
+        const h = hourOfDayUtc(o.time);
+        if (h == null) continue;
+        hoursArr.push(h);
+        vals.push(o.vtec_tecu);
+      }
+      gopiHours = hoursArr;
+      gopiVals = vals;
+    }
+
+    if (gopiHours.length < 8 && ggCmp.hoursArr.length < 8) return null;
+
+    const gopiFan =
+      gopiHours.length >= 8
+        ? diurnalPercentilesFullDay(gopiHours, gopiVals, { maxVtec: 70 })
+        : null;
+    const ggFan =
+      ggCmp.hoursArr.length >= 8
+        ? diurnalPercentilesFullDay(ggCmp.hoursArr, ggCmp.vals, { maxVtec: 70 })
+        : null;
+
+    const hours = gopiFan?.hours ?? ggFan?.hours ?? [];
+    if (!hours.length) return null;
+    const hasGopi = gopiFan?.p50.some((v) => v != null) ?? false;
+    const hasGg = ggFan?.p50.some((v) => v != null) ?? false;
+    if (!hasGopi && !hasGg) return null;
+
+    // Zenith VEq from live observations (GOPI-calibrated pipeline).
     const veqBuckets = new Map<number, number[]>();
     for (const o of obs) {
       if (!isUtcCalendarDay(o.time, dayStart)) continue;
@@ -413,15 +457,23 @@ export default function ZimbabweTecTeachingLab() {
       arr.push(o.vtec_tecu);
       veqBuckets.set(bin, arr);
     }
-    const veq = fan.hours.map((h) => {
+    const veq = hours.map((h) => {
       const arr = veqBuckets.get(h);
       if (!arr?.length) return null;
       const sorted = arr.slice().sort((a, b) => a - b);
       return sorted[Math.floor(sorted.length / 2)];
     });
 
-    return { ...fan, veq, dayLabel: utcDayTitle };
-  }, [stations, obs, utcDayStart, utcDayTitle]);
+    return {
+      hours,
+      gopi: gopiFan,
+      gg: ggFan,
+      veq,
+      dayLabel: utcDayTitle,
+      hasGopi,
+      hasGg,
+    };
+  }, [stations, obs, methodCmp, utcDayStart, utcDayTitle]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
@@ -572,7 +624,7 @@ export default function ZimbabweTecTeachingLab() {
 
       <Section
         title="5 · Diurnal VTEC Distribution"
-        subtitle="Daily VTEC median and variability, including the 10th–90th and 25th–75th percentile bands."
+        subtitle="GOPI (cyan) vs Gg (amber) daily medians and 10th–90th percentile bands on the same UTC day."
         open={openGraph === "diurnal"}
         onToggle={() => toggleGraph("diurnal")}
         analysis={GRAPH_EXPLANATIONS.diurnal}
@@ -581,13 +633,12 @@ export default function ZimbabweTecTeachingLab() {
           <div style={{ background: "#0b1220", borderRadius: 8, padding: "0.65rem 0.5rem 0.35rem", height: 340 }}>
             <DiurnalFanChart
               hours={diurnalLive.hours}
-              p10={diurnalLive.p10}
-              p25={diurnalLive.p25}
-              p50={diurnalLive.p50}
-              p75={diurnalLive.p75}
-              p90={diurnalLive.p90}
+              gopi={diurnalLive.gopi}
+              gg={diurnalLive.gg}
               veq={diurnalLive.veq}
               dayLabel={diurnalLive.dayLabel}
+              hasGopi={diurnalLive.hasGopi}
+              hasGg={diurnalLive.hasGg}
             />
           </div>
         ) : (
@@ -607,76 +658,64 @@ function xy(
   return hours.map((h, i) => ({ x: h, y: values[i] ?? null }));
 }
 
-function DiurnalFanChart({
-  hours,
-  p10,
-  p25,
-  p50,
-  p75,
-  p90,
-  veq,
-  dayLabel,
-}: {
+const GOPI_COLOR = "#38bdf8";
+const GG_COLOR = "#f59e0b";
+
+type FanBands = {
   hours: number[];
   p10: (number | null)[];
   p25: (number | null)[];
   p50: (number | null)[];
   p75: (number | null)[];
   p90: (number | null)[];
+};
+
+function DiurnalFanChart({
+  hours,
+  gopi,
+  gg,
+  veq,
+  dayLabel,
+  hasGopi,
+  hasGg,
+}: {
+  hours: number[];
+  gopi: FanBands | null;
+  gg: FanBands | null;
   veq: (number | null)[];
   dayLabel: string;
+  hasGopi: boolean;
+  hasGg: boolean;
 }) {
-  return (
-    <Line
-      data={{
-        datasets: [
+  const datasets = [
+    ...(hasGopi && gopi
+      ? [
           {
-            label: "10-90th pct",
-            data: xy(hours, p90),
+            label: "GOPI 10–90%",
+            data: xy(hours, gopi.p90),
             borderColor: "transparent",
-            backgroundColor: "rgba(37, 99, 180, 0.38)",
-            fill: "+1",
+            backgroundColor: "rgba(56, 189, 248, 0.22)",
+            fill: "+1" as const,
             pointRadius: 0,
             tension: 0.3,
             spanGaps: false,
-            order: 4,
+            order: 5,
           },
           {
-            label: "p10",
-            data: xy(hours, p10),
+            label: "GOPI p10",
+            data: xy(hours, gopi.p10),
             borderColor: "transparent",
             backgroundColor: "transparent",
             fill: false,
             pointRadius: 0,
             spanGaps: false,
-            order: 4,
+            order: 5,
           },
           {
-            label: "25-75th pct",
-            data: xy(hours, p75),
-            borderColor: "transparent",
-            backgroundColor: "rgba(56, 160, 230, 0.45)",
-            fill: "+1",
-            pointRadius: 0,
-            tension: 0.3,
-            spanGaps: false,
-            order: 3,
-          },
-          {
-            label: "p25",
-            data: xy(hours, p25),
-            borderColor: "transparent",
-            backgroundColor: "transparent",
-            fill: false,
-            pointRadius: 0,
-            spanGaps: false,
-            order: 3,
-          },
-          {
-            label: "Median VTEC",
-            data: xy(hours, p50),
-            borderColor: "#3b9eff",
-            backgroundColor: "#3b9eff",
+            label: "GOPI median",
+            data: xy(hours, gopi.p50),
+            borderColor: GOPI_COLOR,
+            backgroundColor: GOPI_COLOR,
             borderWidth: 2.5,
             fill: false,
             tension: 0.35,
@@ -684,21 +723,71 @@ function DiurnalFanChart({
             spanGaps: false,
             order: 2,
           },
+        ]
+      : []),
+    ...(hasGg && gg
+      ? [
           {
-            label: "VEq (zenith)",
-            data: xy(hours, veq),
-            borderColor: "#e8eef7",
-            backgroundColor: "#e8eef7",
-            borderWidth: 1.6,
-            borderDash: [6, 4],
+            label: "Gg 10–90%",
+            data: xy(hours, gg.p90),
+            borderColor: "transparent",
+            backgroundColor: "rgba(245, 158, 11, 0.22)",
+            fill: "+1" as const,
+            pointRadius: 0,
+            tension: 0.3,
+            spanGaps: false,
+            order: 4,
+          },
+          {
+            label: "Gg p10",
+            data: xy(hours, gg.p10),
+            borderColor: "transparent",
+            backgroundColor: "transparent",
+            fill: false,
+            pointRadius: 0,
+            spanGaps: false,
+            order: 4,
+          },
+          {
+            label: "Gg median",
+            data: xy(hours, gg.p50),
+            borderColor: GG_COLOR,
+            backgroundColor: GG_COLOR,
+            borderWidth: 2.5,
+            borderDash: [5, 3] as number[],
             fill: false,
             tension: 0.35,
             pointRadius: 0,
             spanGaps: false,
             order: 1,
           },
-        ],
-      }}
+        ]
+      : []),
+    {
+      label: "VEq (zenith)",
+      data: xy(hours, veq),
+      borderColor: "#e8eef7",
+      backgroundColor: "#e8eef7",
+      borderWidth: 1.6,
+      borderDash: [6, 4] as number[],
+      fill: false,
+      tension: 0.35,
+      pointRadius: 0,
+      spanGaps: false,
+      order: 0,
+    },
+  ];
+
+  const methodTag =
+    hasGopi && hasGg
+      ? "GOPI (cyan) vs Gg (amber)"
+      : hasGg
+        ? "Gg only"
+        : "GOPI / Live CORS";
+
+  return (
+    <Line
+      data={{ datasets }}
       options={{
         responsive: true,
         maintainAspectRatio: false,
@@ -712,12 +801,12 @@ function DiurnalFanChart({
               boxWidth: 14,
               boxHeight: 8,
               font: { size: 11 },
-              filter: (item) => !["p10", "p25"].includes(String(item.text)),
+              filter: (item) => !["GOPI p10", "Gg p10"].includes(String(item.text)),
             },
           },
           title: {
             display: true,
-            text: `Diurnal VTEC distribution — Live CORS | ${dayLabel}`,
+            text: `Diurnal VTEC — ${methodTag} | ${dayLabel}`,
             color: "#f8fafc",
             font: { size: 14, weight: "bold" },
             padding: { bottom: 10 },
