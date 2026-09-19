@@ -19,6 +19,9 @@ from backend.schemas import (
     LiveVtecStationHealth,
     NtripProbeResponse,
     StationLiveStatus,
+    TecMethodComparisonResponse,
+    TecMethodInfo,
+    TecMethodReference,
 )
 
 router = APIRouter(prefix="/live", tags=["live"])
@@ -153,6 +156,8 @@ def _build_live_vtec(
                     azimuth_deg=az,
                     constellation=_safe_str(getattr(row, "constellation", None)) if has_const else None,
                     prn=prn,
+                    tec_method=_safe_str(getattr(row, "tec_method", None)) if "tec_method" in cols else "gopi_live",
+                    bias_method=_safe_str(getattr(row, "bias_method", None)) if "bias_method" in cols else None,
                 )
             )
         return result
@@ -176,6 +181,108 @@ async def live_vtec(
         station=station,
         limit=limit,
         enrich_geometry=enrich_geometry,
+    )
+
+
+def _build_tec_method_comparison(
+    *,
+    hours: float,
+    station: str | None,
+    limit: int,
+) -> TecMethodComparisonResponse:
+    from zgiis.processing.gg_calibration import (
+        calibrate_gg_from_observations,
+        method_catalog,
+        references,
+        try_pytecgg_available,
+    )
+
+    gopi_rows = _build_live_vtec(
+        hours=hours,
+        station=station,
+        limit=limit,
+        enrich_geometry=True,
+    )
+    # Tag as GOPI for comparison UI even when DB method strings vary.
+    gopi: list[LiveObservation] = []
+    for obs in gopi_rows:
+        gopi.append(
+            obs.model_copy(
+                update={
+                    "tec_method": obs.tec_method or "gopi_live",
+                    "bias_method": obs.bias_method or "gopi_seemala_or_live_code",
+                }
+            )
+        )
+
+    gg_raw = calibrate_gg_from_observations(
+        [
+            {
+                "time": o.time,
+                "station": o.station,
+                "prn": o.prn,
+                "constellation": o.constellation,
+                "elevation_deg": o.elevation_deg,
+                "azimuth_deg": o.azimuth_deg,
+                "stec_tecu": o.stec_tecu,
+                "vtec_tecu": o.vtec_tecu,
+            }
+            for o in gopi
+        ]
+    )
+    gg = [
+        LiveObservation(
+            time=str(r.get("time") or ""),
+            station=str(r.get("station") or ""),
+            vtec_tecu=r.get("vtec_tecu"),
+            stec_tecu=r.get("stec_tecu"),
+            elevation_deg=r.get("elevation_deg"),
+            azimuth_deg=r.get("azimuth_deg"),
+            constellation=r.get("constellation"),
+            prn=r.get("prn"),
+            tec_method=str(r.get("tec_method") or "gg_ciraolo_window_ls"),
+            bias_method=str(r.get("bias_method") or "gg_arc_bias_lt_poly"),
+            arc_bias_tecu=r.get("arc_bias_tecu"),
+        )
+        for r in gg_raw
+    ]
+
+    engine = "pytecgg" if try_pytecgg_available() else "gg_window_ls_fallback"
+    note = (
+        "GOPI series are live CORS dual-frequency TEC (Seemala/Gopi path). "
+        "Gg series re-calibrate the same samples with Ciraolo/Cesaroni-style "
+        f"arc-bias + local-time polynomial least squares ({engine}). "
+        "Full-day RINEX PyTECGg remains available for offline processing sessions."
+    )
+    return TecMethodComparisonResponse(
+        available=bool(gopi),
+        hours=hours,
+        sample_limit=limit,
+        gopi=gopi,
+        gg=gg,
+        methods=[TecMethodInfo(**m) for m in method_catalog()],
+        references=[TecMethodReference(**r) for r in references()],
+        note=note,
+    )
+
+
+@router.get("/tec-method-comparison", response_model=TecMethodComparisonResponse)
+async def tec_method_comparison(
+    hours: float = Query(6.0, ge=0.5, le=48),
+    station: str | None = Query(None),
+    limit: int = Query(2500, ge=100, le=10000),
+    _=Depends(require_api_key),
+):
+    """Compare GOPI / Seemala live TEC with Gg (Ciraolo–Cesaroni) calibration.
+
+    Same underlying CORS samples; Gg applies arc-bias + windowed VTEC polynomial
+    calibration so differences reflect calibration method, not a different network.
+    """
+    return await asyncio.to_thread(
+        _build_tec_method_comparison,
+        hours=hours,
+        station=station,
+        limit=limit,
     )
 
 

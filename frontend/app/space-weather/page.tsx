@@ -64,6 +64,10 @@ const ZimbabweTecTeachingLab = dynamic(
   () => import("@/components/spaceWeather/ZimbabweTecTeachingLab"),
   { ssr: false, loading: () => sectionFallback },
 );
+const TecMethodComparisonLab = dynamic(
+  () => import("@/components/spaceWeather/TecMethodComparisonLab"),
+  { ssr: false, loading: () => sectionFallback },
+);
 const LineChart = dynamic(() => import("@/components/charts/LineChart"), {
   ssr: false,
   loading: () => <div className="banner banner-info" role="status">Loading chart…</div>,
@@ -1170,6 +1174,7 @@ export default function SpaceWeatherPage() {
             }
           />
           <ZimbabweTecTeachingLab />
+          <TecMethodComparisonLab />
         </div>
       )}
 
