@@ -14,6 +14,7 @@ import {
   type MetricDetailRow,
   type MetricKey,
 } from "@/lib/spaceWeatherMetrics";
+import TecPrimerBlock from "./TecPrimerBlock";
 
 interface Props {
   sw: SpaceWeatherCurrent | null;
@@ -199,6 +200,11 @@ function ExplanationPanel({
       <div className="sw-metric-explain-current">Current value: {value}</div>
       <div className="sw-metric-explain-heading">Explanation</div>
       <p className="sw-metric-explain-body">{METRIC_EXPLANATIONS[metricKey]}</p>
+      {metricKey === "zimbabwe_iono" && (
+        <div style={{ marginTop: "0.75rem" }}>
+          <TecPrimerBlock />
+        </div>
+      )}
       <div className="sw-metric-explain-heading">Current Metric Interpretation</div>
       <p className="sw-metric-explain-body">
         {interpretMetric(sw, metricKey, { solar, liveMeanVtec })}
