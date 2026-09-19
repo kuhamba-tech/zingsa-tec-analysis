@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import threading
 import os
 
@@ -30,6 +31,7 @@ from backend.space_weather_logger import log_snapshot, status as log_status
 from backend.timeline_builder import build_timelines, limit_timelines
 
 router = APIRouter(prefix="/space-weather", tags=["space-weather"])
+log = logging.getLogger(__name__)
 
 
 def _sw() -> dict:
@@ -136,13 +138,16 @@ def _ntrip_stream_counts() -> tuple[int | None, int | None]:
 
 @router.get("/current", response_model=SpaceWeatherCurrent)
 def current(_=Depends(require_api_key)):
+    """Dashboard snapshot — keep this path free of Spider login / Neon stalls."""
     sw = _sw()
-    ntrip_online, ntrip_total = _ntrip_stream_counts()
-    if ntrip_online is not None and ntrip_total:
-        sw["stations_online"] = ntrip_online
-        sw["stations_total"] = ntrip_total
-    # Attach live network mean VTEC when available (never invent values).
-    # Prefer in-memory collector samples — TecDB/Supabase must never stall /current.
+    try:
+        ntrip_online, ntrip_total = _ntrip_stream_counts()
+        if ntrip_online is not None and ntrip_total:
+            sw["stations_online"] = ntrip_online
+            sw["stations_total"] = ntrip_total
+    except Exception:
+        log.exception("station count overlay failed on /space-weather/current")
+    # Prefer in-memory collector samples — never block /current on TecDB/Neon.
     if sw.get("mean_vtec") is None and sw.get("vtec_tecu") is None:
         try:
             from backend.live_manager import latest_vtec_by_station
@@ -154,27 +159,6 @@ def current(_=Depends(require_api_key)):
             ]
             if vals:
                 sw["mean_vtec"] = round(sum(vals) / len(vals), 2)
-        except Exception:
-            pass
-    if sw.get("mean_vtec") is None and sw.get("vtec_tecu") is None:
-        try:
-            from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
-            from zgiis.db.timescale import TecDB
-
-            def _mean_from_db() -> float | None:
-                series = TecDB().mean_vtec_timeseries(hours=2.0, resample="15min")
-                if series is not None and not series.empty:
-                    return float(series.iloc[-1])
-                return None
-
-            with ThreadPoolExecutor(max_workers=1) as pool:
-                fut = pool.submit(_mean_from_db)
-                try:
-                    value = fut.result(timeout=0.35)
-                except FuturesTimeout:
-                    value = None
-                if value is not None:
-                    sw["mean_vtec"] = value
         except Exception:
             pass
     threading.Thread(
