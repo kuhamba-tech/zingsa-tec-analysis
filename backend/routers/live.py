@@ -30,6 +30,11 @@ log = logging.getLogger(__name__)
 _VTEC_BY_STATION_CACHE: dict[tuple[float, int], tuple[float, list[LiveStationVtecSeries]]] = {}
 _VTEC_BY_STATION_CACHE_TTL_S = 75.0
 
+# Heavy Gg re-calibration — short TTL so Zimbabwe tab does not stampede the worker.
+_TEC_METHOD_CMP_CACHE: dict[tuple[float, str | None, int], tuple[float, TecMethodComparisonResponse]] = {}
+_TEC_METHOD_CMP_CACHE_TTL_S = 90.0
+_TEC_METHOD_CMP_INFLIGHT: dict[tuple[float, str | None, int], asyncio.Future] = {}
+
 
 def _db():
     try:
@@ -278,12 +283,45 @@ async def tec_method_comparison(
     Same underlying CORS samples; Gg applies arc-bias + windowed VTEC polynomial
     calibration so differences reflect calibration method, not a different network.
     """
-    return await asyncio.to_thread(
-        _build_tec_method_comparison,
-        hours=hours,
-        station=station,
-        limit=limit,
-    )
+    # Cap work: comparison UI does not need 10k samples and two parallel builds
+    # were hanging the single uvicorn worker (socket hang-ups → blank page).
+    hours = float(min(12.0, max(0.5, hours)))
+    limit = int(min(1500, max(100, limit)))
+    cache_key = (round(hours, 1), (station or "").lower() or None, limit)
+    now = time.time()
+    cached = _TEC_METHOD_CMP_CACHE.get(cache_key)
+    if cached and (now - cached[0]) < _TEC_METHOD_CMP_CACHE_TTL_S:
+        return cached[1]
+
+    inflight = _TEC_METHOD_CMP_INFLIGHT.get(cache_key)
+    if inflight is not None and not inflight.done():
+        return await inflight
+
+    loop = asyncio.get_running_loop()
+    fut: asyncio.Future = loop.create_future()
+    _TEC_METHOD_CMP_INFLIGHT[cache_key] = fut
+
+    async def _run() -> TecMethodComparisonResponse:
+        try:
+            result = await asyncio.to_thread(
+                _build_tec_method_comparison,
+                hours=hours,
+                station=station,
+                limit=limit,
+            )
+            _TEC_METHOD_CMP_CACHE[cache_key] = (time.time(), result)
+            if not fut.done():
+                fut.set_result(result)
+            return result
+        except Exception as exc:
+            if not fut.done():
+                fut.set_exception(exc)
+            raise
+        finally:
+            if _TEC_METHOD_CMP_INFLIGHT.get(cache_key) is fut:
+                _TEC_METHOD_CMP_INFLIGHT.pop(cache_key, None)
+
+    return await _run()
 
 
 @router.get("/vtec-by-station", response_model=list[LiveStationVtecSeries])

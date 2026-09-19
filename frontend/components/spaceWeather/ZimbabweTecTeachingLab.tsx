@@ -228,7 +228,8 @@ export default function ZimbabweTecTeachingLab() {
         if (!cancelled && Array.isArray(rows) && rows.length) setCatalog(rows);
         return rows;
       });
-      getTecMethodComparison(Math.min(14, Math.max(6, dayHours)), undefined, 2500, 60_000)
+        // Shared params with TecMethodComparisonLab so both hit one cached API call.
+        getTecMethodComparison(8, undefined, 1500, 45_000)
         .then((cmp) => {
           if (!cancelled) setMethodCmp(cmp);
         })

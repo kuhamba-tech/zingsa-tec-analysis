@@ -138,7 +138,7 @@ export default function TecMethodComparisonLab() {
     let cancelled = false;
     const load = () => {
       setLoading(true);
-      getTecMethodComparison(6, undefined, 2500, 60_000)
+      getTecMethodComparison(8, undefined, 1500, 45_000)
         .then((payload) => {
           if (cancelled) return;
           setData(payload);
