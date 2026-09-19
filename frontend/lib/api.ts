@@ -950,7 +950,7 @@ export const getLiveVtec = (
   hours = 2,
   station?: string,
   timeoutMs = FETCH_TIMEOUT_MS,
-  limit = 4000,
+  limit = 2500,
 ) =>
   get<LiveObservation[]>(
     "/live/vtec",

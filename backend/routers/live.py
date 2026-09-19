@@ -44,21 +44,47 @@ def _monitor():
         return None
 
 
-@router.get("/vtec", response_model=list[LiveObservation])
-async def live_vtec(
-    hours: float = Query(2.0, ge=0.1, le=48),
-    station: str | None = Query(None),
-    limit: int = Query(4000, ge=100, le=20000),
-    enrich_geometry: bool = Query(True),
-    _=Depends(require_api_key),
-):
-    """Live NTRIP VTEC only — DLR Global TEC and RINEX archive rows are excluded."""
+def _safe_float(value) -> float | None:
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return None
+    return out if out == out else None  # NaN check
+
+
+def _safe_str(value) -> str | None:
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    text = str(value).strip()
+    return text or None
+
+
+def _build_live_vtec(
+    *,
+    hours: float,
+    station: str | None,
+    limit: int,
+    enrich_geometry: bool,
+) -> list[LiveObservation]:
+    """Sync builder — run via asyncio.to_thread so look-angle math cannot stall the event loop."""
     db = _db()
     if db is None:
         return []
     try:
         df = db.query_recent(hours=hours, station=station)
-        if df.empty:
+        if df is None or getattr(df, "empty", True):
             return []
         if "tec_method" in df.columns:
             method = df["tec_method"].astype(str)
@@ -83,39 +109,74 @@ async def live_vtec(
             except Exception:
                 nav = None
 
-        result = []
-        for _, row in df.iterrows():
-            elev = (
-                float(row["elevation_deg"])
-                if "elevation_deg" in row and row["elevation_deg"] is not None
-                else None
-            )
+        look_cache: dict[tuple[str, str, int], tuple[float, float] | None] = {}
+        cols = set(df.columns)
+        has_elev = "elevation_deg" in cols
+        has_vtec = "vtec_tecu" in cols
+        has_stec = "stec_tecu" in cols
+        has_const = "constellation" in cols
+        has_prn = "prn" in cols
+        has_station = "station" in cols
+        has_time = "time" in cols
+
+        result: list[LiveObservation] = []
+        for row in df.itertuples(index=False):
+            elev = _safe_float(getattr(row, "elevation_deg", None)) if has_elev else None
             az = None
-            if nav is not None:
-                prn = str(row.get("prn", "") or "")
-                stn = str(row.get("station", "") or "")
+            prn = _safe_str(getattr(row, "prn", None)) if has_prn else None
+            stn = _safe_str(getattr(row, "station", None)) if has_station else None
+            time_raw = getattr(row, "time", "") if has_time else ""
+            if nav is not None and prn and stn:
                 try:
-                    epoch = datetime.fromisoformat(str(row.get("time", "")).replace("Z", "+00:00"))
+                    epoch = datetime.fromisoformat(str(time_raw).replace("Z", "+00:00"))
+                    bucket = int(epoch.timestamp() // 60)
                 except Exception:
                     epoch = None
-                look = nav.look_angles(stn, prn, epoch)
+                    bucket = -1
+                cache_key = (stn.lower(), prn.upper(), bucket)
+                if cache_key in look_cache:
+                    look = look_cache[cache_key]
+                else:
+                    look = nav.look_angles(stn, prn, epoch)
+                    look_cache[cache_key] = look
                 if look is not None:
                     if elev is None:
                         elev = look[0]
                     az = look[1]
-            result.append(LiveObservation(
-                time=str(row.get("time", "")),
-                station=str(row.get("station", "")),
-                vtec_tecu=float(row["vtec_tecu"]) if "vtec_tecu" in row else None,
-                stec_tecu=float(row["stec_tecu"]) if "stec_tecu" in row else None,
-                elevation_deg=elev,
-                azimuth_deg=az,
-                constellation=str(row["constellation"]) if "constellation" in row else None,
-                prn=str(row["prn"]) if "prn" in row else None,
-            ))
+            result.append(
+                LiveObservation(
+                    time=str(time_raw or ""),
+                    station=stn or "",
+                    vtec_tecu=_safe_float(getattr(row, "vtec_tecu", None)) if has_vtec else None,
+                    stec_tecu=_safe_float(getattr(row, "stec_tecu", None)) if has_stec else None,
+                    elevation_deg=elev,
+                    azimuth_deg=az,
+                    constellation=_safe_str(getattr(row, "constellation", None)) if has_const else None,
+                    prn=prn,
+                )
+            )
         return result
     except Exception:
+        log.exception("live vtec build failed")
         return []
+
+
+@router.get("/vtec", response_model=list[LiveObservation])
+async def live_vtec(
+    hours: float = Query(2.0, ge=0.1, le=48),
+    station: str | None = Query(None),
+    limit: int = Query(2500, ge=100, le=20000),
+    enrich_geometry: bool = Query(True),
+    _=Depends(require_api_key),
+):
+    """Live NTRIP VTEC only — DLR Global TEC and RINEX archive rows are excluded."""
+    return await asyncio.to_thread(
+        _build_live_vtec,
+        hours=hours,
+        station=station,
+        limit=limit,
+        enrich_geometry=enrich_geometry,
+    )
 
 
 @router.get("/vtec-by-station", response_model=list[LiveStationVtecSeries])

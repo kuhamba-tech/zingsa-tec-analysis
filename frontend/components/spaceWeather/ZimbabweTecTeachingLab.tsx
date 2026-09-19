@@ -130,7 +130,8 @@ export default function ZimbabweTecTeachingLab() {
       Promise.allSettled([
         // Cover from today's UTC midnight so the diurnal chart is one calendar day.
         getLiveVtecByStation(dayHours, 10, 90_000),
-        getLiveVtec(Math.min(6, dayHours), undefined, 90_000, 8000),
+        // Cap samples so look-angle enrichment cannot starve Live Metric cards.
+        getLiveVtec(Math.min(6, dayHours), undefined, 45_000, 2500),
         getStations(false),
       ]).then(([st, live, cat]) => {
         if (cancelled) return;
