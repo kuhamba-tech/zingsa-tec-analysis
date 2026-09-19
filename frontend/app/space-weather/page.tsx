@@ -833,39 +833,54 @@ export default function SpaceWeatherPage() {
       {tab === 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
           <p style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>
-            Live NOAA feeds and derived indices — Sun→Earth drivers, then Zimbabwe VTEC / GNSS response, then secondary metrics on a shared UTC axis
+            Chronological Sun→Earth→Zimbabwe order: solar drivers first, then local VTEC / CORS, then scintillation and GNSS risk
           </p>
 
-          {/* 1–4 drivers → 5 VTEC → 6 scintillation / GNSS risk */}
-          <CauseEffectTimelineStack variant="liveMetric" />
-
-          <TimelineCard graphId="f107" title="Live NOAA F10.7 Solar Flux Timeline"
-            pts={f107Points} color="#ffcc00" yLabel="F10.7 (sfu)"
-            threshold={{ value: 150, label: "High activity (150 sfu)" }}
-            source="NOAA SWPC F10.7 cm flux feed"
-            analysis={timelineAnalyses.f107}
-            expanded={selectedGraph === "f107"} onToggle={toggleGraph}
-            ekfPoints={ekf?.series.f107?.points}
-            ekfColor="#fde68a"
-            emptyMsg="Live NOAA F10.7 feed unavailable."
-            {...liveMetricSync} />
-
-          {stationsOnlinePoints.length > 0 ? (
-            <TimelineCard graphId="cors-online" title="Live CORS Stations Online Timeline"
-              pts={stationsOnlinePoints} color="#00ff88" yLabel="Stations online"
-              source="ZINGSA CORS station-health — current live count"
-              analysis={timelineAnalyses.stations}
-              expanded={selectedGraph === "cors-online"} onToggle={toggleGraph}
-              ekfPoints={ekf?.series.stations_online?.points}
-              ekfColor="#86efac"
-              emptyMsg="Live CORS telemetry unavailable."
-              {...liveMetricSync} />
-          ) : (
-            <div className="card">
-              <div className="metric-label" style={{ marginBottom: "0.6rem" }}>Live CORS Stations Online Timeline</div>
-              <div className="banner banner-info">Live CORS telemetry is unavailable — no station count timeline.</div>
-            </div>
-          )}
+          <CauseEffectTimelineStack
+            variant="liveMetric"
+            afterSun={
+              <TimelineCard
+                graphId="f107"
+                title="2 · Live NOAA F10.7 Solar Flux Timeline"
+                pts={f107Points}
+                color="#ffcc00"
+                yLabel="F10.7 (sfu)"
+                threshold={{ value: 150, label: "High activity (150 sfu)" }}
+                source="NOAA SWPC F10.7 cm flux feed"
+                analysis={timelineAnalyses.f107}
+                expanded={selectedGraph === "f107"}
+                onToggle={toggleGraph}
+                ekfPoints={ekf?.series.f107?.points}
+                ekfColor="#fde68a"
+                emptyMsg="Live NOAA F10.7 feed unavailable."
+                {...liveMetricSync}
+              />
+            }
+            afterVtec={
+              stationsOnlinePoints.length > 0 ? (
+                <TimelineCard
+                  graphId="cors-online"
+                  title="7 · Live CORS Stations Online Timeline"
+                  pts={stationsOnlinePoints}
+                  color="#00ff88"
+                  yLabel="Stations online"
+                  source="ZINGSA CORS station-health — current live count"
+                  analysis={timelineAnalyses.stations}
+                  expanded={selectedGraph === "cors-online"}
+                  onToggle={toggleGraph}
+                  ekfPoints={ekf?.series.stations_online?.points}
+                  ekfColor="#86efac"
+                  emptyMsg="Live CORS telemetry unavailable."
+                  {...liveMetricSync}
+                />
+              ) : (
+                <div className="card">
+                  <div className="metric-label" style={{ marginBottom: "0.6rem" }}>7 · Live CORS Stations Online Timeline</div>
+                  <div className="banner banner-info">Live CORS telemetry is unavailable — no station count timeline.</div>
+                </div>
+              )
+            }
+          />
         </div>
       )}
 
