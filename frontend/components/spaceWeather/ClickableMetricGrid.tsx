@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import type { SolarActivityFull, SpaceWeatherCurrent } from "@/lib/types";
 import type { LiveStationCounts } from "@/lib/liveStationStatus";
 import { FLARE_SCALE } from "@/lib/solarEventColors";
@@ -186,6 +186,7 @@ function ExplanationPanel({
   sw,
   solar,
   liveMeanVtec,
+  panelRef,
 }: {
   label: string;
   value: string;
@@ -193,9 +194,10 @@ function ExplanationPanel({
   sw: SpaceWeatherCurrent | null;
   solar?: SolarActivityFull | null;
   liveMeanVtec?: number | null;
+  panelRef?: RefObject<HTMLDivElement | null>;
 }) {
   return (
-    <div className="sw-metric-explain">
+    <div className="sw-metric-explain" ref={panelRef}>
       <div className="sw-metric-explain-title">{label}</div>
       <div className="sw-metric-explain-current">Current value: {value}</div>
       <div className="sw-metric-explain-heading">Explanation</div>
@@ -339,6 +341,7 @@ export default function ClickableMetricGrid({
   solarRefreshFailed = false,
 }: Props) {
   const [selected, setSelected] = useState<MetricKey | null>(null);
+  const explainRef = useRef<HTMLDivElement | null>(null);
   const cards = buildMetricCards(sw, {
     liveStationCounts,
     solar,
@@ -357,6 +360,25 @@ export default function ClickableMetricGrid({
   const selectedCard = selected ? cards.find((c) => c.key === selected) : null;
 
   const bootstrapping = loading && !sw && !solar;
+
+  // Close the explanation once the user scrolls down past it.
+  useEffect(() => {
+    if (!selected) return;
+    const el = explainRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        // Fully above the viewport → scrolled past while going down.
+        if (!entry.isIntersecting && entry.boundingClientRect.bottom < 0) {
+          setSelected(null);
+        }
+      },
+      { threshold: 0, root: null, rootMargin: "0px" },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [selected]);
 
   return (
     <div className="sw-metric-section">
@@ -397,6 +419,7 @@ export default function ClickableMetricGrid({
           sw={sw}
           solar={solar}
           liveMeanVtec={liveMeanVtec}
+          panelRef={explainRef}
         />
       )}
     </div>
