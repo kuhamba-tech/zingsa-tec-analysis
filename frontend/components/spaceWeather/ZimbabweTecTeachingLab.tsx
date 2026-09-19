@@ -122,8 +122,8 @@ export default function ZimbabweTecTeachingLab() {
     // Station series for Graphs 1 & 5; one-station short lookback for STEC/elevation
     // (full /live/vtec can be tens of MB and block the teaching UI).
     Promise.allSettled([
-      getLiveVtecByStation(6, 15),
-      getLiveVtec(0.25, "kari"),
+      getLiveVtecByStation(6, 15, 90_000),
+      getLiveVtec(0.25, "kari", 90_000),
     ]).then(([st, live]) => {
       if (cancelled) return;
       if (st.status === "fulfilled") setStations(Array.isArray(st.value) ? st.value : []);
