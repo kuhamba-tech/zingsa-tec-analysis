@@ -5,7 +5,7 @@ import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { getSpaceWeather, getSolarActivity, getTimelines, refreshSpaceWeather, getStations, getEkfStatus } from "@/lib/api";
 import { peekSpaceWeather, subscribeSpaceWeather } from "@/lib/spaceWeatherStore";
-import { absorbInlineBootPayload } from "@/lib/bootSpaceWeather";
+import { absorbInlineBootPayload, bootSpaceWeather } from "@/lib/bootSpaceWeather";
 import { peekSolarActivity, subscribeSolarActivity, absorbInlineSolarBootPayload } from "@/lib/solarActivityStore";
 import { peekStations, subscribeStations } from "@/lib/stationsStore";
 import ClickableMetricGrid from "@/components/spaceWeather/ClickableMetricGrid";
@@ -500,24 +500,40 @@ export default function SpaceWeatherPage() {
 
   useEffect(() => {
     const profile = getLoadProfile();
+    // Kick the lightweight boot fetch immediately (deduped with layout script).
+    void bootSpaceWeather().then((boot) => {
+      if (!boot) return;
+      setSw(boot);
+      setTl((prev) => prev ?? snapshotTimelines(boot));
+      setFeedStatus("ok");
+      setLastFetched(new Date().toISOString());
+    });
     fetchAll(false);
     const id = window.setInterval(() => fetchAll(true), profile.pollIntervalMs);
     const onVisibility = () => {
       if (isDocumentVisible()) fetchAll(true);
     };
     document.addEventListener("visibilitychange", onVisibility);
-    // Leave "Connecting" within 10s even if a fetch is stuck — show unavailable
-    // rather than an infinite Updating… grid (aligned with SW_FAST + retry budget).
+    // Leave "Connecting" quickly when the API/proxy is down (matches SW_BOOT budget).
     const watchdog = window.setTimeout(() => {
       setFeedStatus((prev) => {
         if (prev !== "pending") return prev;
         return peekSpaceWeather() ? "stale" : "down";
       });
       setSaLoading(false);
-    }, 10_000);
+    }, 7_000);
+    // Auto-retry a couple of times if the first paint never got data.
+    const retry1 = window.setTimeout(() => {
+      if (!peekSpaceWeather()) fetchAll(false);
+    }, 2_500);
+    const retry2 = window.setTimeout(() => {
+      if (!peekSpaceWeather()) fetchAll(false);
+    }, 5_500);
     return () => {
       window.clearInterval(id);
       window.clearTimeout(watchdog);
+      window.clearTimeout(retry1);
+      window.clearTimeout(retry2);
       document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [fetchAll]);
@@ -816,6 +832,17 @@ export default function SpaceWeatherPage() {
       </div>
       <p className="sw-supporting-text">Background checks pause while this tab is hidden and run less often on mobile or slow networks. Snapshot time is separate from each source’s observation time; check the timestamp on each reading.</p>
       {freshnessMsg && <div className="banner banner-warn">{freshnessMsg}</div>}
+      {feedStatus === "down" && !sw && (
+        <div className="banner banner-alert" role="alert">
+          Live API is not reachable through <code>/backend</code>. Start FastAPI on port 8000
+          (or wait for it to recover), then click Refresh.
+          <div style={{ marginTop: "0.5rem" }}>
+            <button type="button" className="btn" onClick={() => fetchAll(false)}>
+              Retry connection
+            </button>
+          </div>
+        </div>
+      )}
       <HomeStormAlertBanner sw={sw} />
 
       <ClickableMetricGrid

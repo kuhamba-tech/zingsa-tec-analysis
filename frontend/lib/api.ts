@@ -100,6 +100,8 @@ function apiBase(): string {
 const KEY = process.env.NEXT_PUBLIC_API_KEY ?? "";
 const FETCH_TIMEOUT_MS = 18_000;
 const ANALYSIS_TIMEOUT_MS = 120_000;
+/** First paint for /current — fail fast so UI leaves "Connecting". */
+const SW_BOOT_TIMEOUT_MS = 6_000;
 const SW_FAST_TIMEOUT_MS = 8_000;
 /** Solar monitor hits NOAA + NASA DONKI; allow cold-start headroom + one retry. */
 const SOLAR_TIMEOUT_MS = 55_000;
@@ -229,7 +231,8 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 function refreshSpaceWeatherNetwork(): Promise<SpaceWeatherCurrent> {
   return dedupeGet("space-weather/current", () => {
     const hasCache = Boolean(peekSpaceWeather());
-    const timeoutMs = hasCache ? SW_FAST_TIMEOUT_MS : FETCH_TIMEOUT_MS;
+    // Cold start must not sit on Connecting for 18s×2 when the API is down.
+    const timeoutMs = hasCache ? SW_FAST_TIMEOUT_MS : SW_BOOT_TIMEOUT_MS;
     return getWithRetry<SpaceWeatherCurrent>(
       "/space-weather/current",
       { _ts: Date.now() },
