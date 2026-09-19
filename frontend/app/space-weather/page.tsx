@@ -1120,7 +1120,7 @@ export default function SpaceWeatherPage() {
       {tab === 3 && (
         <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
           <p style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>
-            Local ionospheric response after Sun→Earth drivers — Zimbabwe CORS VTEC, Step 5 TEC teaching graphs, and scintillation / GNSS risk context
+            Local ionospheric response after Sun→Earth drivers — live Zimbabwe CORS VTEC graphs and scintillation / GNSS risk context
           </p>
           <CauseEffectTimelineStack
             variant="local"

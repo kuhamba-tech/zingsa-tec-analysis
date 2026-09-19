@@ -946,8 +946,17 @@ export const getPrnConstellations = () =>
   get<PrnConstellationPayload>("/theory/prn-constellations");
 
 // ── Live ──────────────────────────────────────────────────────────────────────
-export const getLiveVtec = (hours = 2, station?: string, timeoutMs = FETCH_TIMEOUT_MS) =>
-  get<LiveObservation[]>("/live/vtec", { hours, station, _ts: Date.now() }, timeoutMs);
+export const getLiveVtec = (
+  hours = 2,
+  station?: string,
+  timeoutMs = FETCH_TIMEOUT_MS,
+  limit = 4000,
+) =>
+  get<LiveObservation[]>(
+    "/live/vtec",
+    { hours, station, limit, _ts: Date.now() },
+    timeoutMs,
+  );
 export const getLiveVtecByStation = (hours = 6, resampleMinutes = 2, timeoutMs?: number) =>
   get<LiveStationVtecSeries[]>(
     "/live/vtec-by-station",
