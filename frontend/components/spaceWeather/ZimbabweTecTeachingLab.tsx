@@ -119,18 +119,31 @@ export default function ZimbabweTecTeachingLab() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    // Station series for Graphs 1 & 5; one-station short lookback for STEC/elevation
+    // (full /live/vtec can be tens of MB and block the teaching UI).
     Promise.allSettled([
-      getLiveVtecByStation(24, 5),
-      getLiveVtec(6),
+      getLiveVtecByStation(6, 15),
+      getLiveVtec(0.25, "kari"),
     ]).then(([st, live]) => {
       if (cancelled) return;
       if (st.status === "fulfilled") setStations(Array.isArray(st.value) ? st.value : []);
-      if (live.status === "fulfilled") setObs(Array.isArray(live.value) ? live.value : []);
+      if (live.status === "fulfilled") {
+        const rows = Array.isArray(live.value) ? live.value : [];
+        // Cap client-side so Chart.js stays responsive
+        const step = Math.max(1, Math.floor(rows.length / 2500));
+        setObs(step > 1 ? rows.filter((_, i) => i % step === 0) : rows);
+      }
       const fails = [st, live].filter((r) => r.status === "rejected").length;
       setError(fails === 2 ? "Live VTEC feeds unavailable — teaching models still work." : null);
       setLoading(false);
     });
-    return () => { cancelled = true; };
+    const unlock = window.setTimeout(() => {
+      if (!cancelled) setLoading(false);
+    }, 6000);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(unlock);
+    };
   }, []);
 
   const hours = useMemo(() => Array.from({ length: 49 }, (_, i) => i * 0.5), []);
@@ -165,28 +178,43 @@ export default function ZimbabweTecTeachingLab() {
   }, [stations]);
 
   const elevScatter = useMemo(() => {
-    const stecPts: { x: number; y: number }[] = [];
-    const vtecPts: { x: number; y: number }[] = [];
+    const stecByConst: Record<string, { x: number; y: number }[]> = {};
+    const vtecByConst: Record<string, { x: number; y: number }[]> = {};
+    const allVtec: number[] = [];
     for (const o of obs) {
       const el = o.elevation_deg;
       if (el == null || el < 15) continue;
+      const key = (o.constellation || "?").charAt(0).toUpperCase();
       if (o.stec_tecu != null && Number.isFinite(o.stec_tecu)) {
-        stecPts.push({ x: el, y: o.stec_tecu });
+        (stecByConst[key] ??= []).push({ x: el, y: o.stec_tecu });
       }
       if (o.vtec_tecu != null && Number.isFinite(o.vtec_tecu)) {
-        vtecPts.push({ x: el, y: o.vtec_tecu });
+        (vtecByConst[key] ??= []).push({ x: el, y: o.vtec_tecu });
+        allVtec.push(o.vtec_tecu);
       }
     }
-    // Downsample for chart performance
-    const step = Math.max(1, Math.floor(stecPts.length / 800));
+    const downsample = (pts: { x: number; y: number }[]) => {
+      const step = Math.max(1, Math.floor(pts.length / 600));
+      return pts.filter((_, i) => i % step === 0);
+    };
+    const stecDatasets = Object.entries(stecByConst).map(([k, pts]) => ({
+      label: `STEC ${k}`,
+      data: downsample(pts),
+      backgroundColor: CONST_COLORS[k] ?? "#94a3b8",
+      pointRadius: 1.5,
+    }));
+    const vtecDatasets = Object.entries(vtecByConst).map(([k, pts]) => ({
+      label: `VTEC ${k}`,
+      data: downsample(pts),
+      backgroundColor: CONST_COLORS[k] ?? "#94a3b8",
+      pointRadius: 1.5,
+    }));
+    const sorted = allVtec.slice().sort((a, b) => a - b);
     return {
-      stec: stecPts.filter((_, i) => i % step === 0),
-      vtec: vtecPts.filter((_, i) => i % step === 0),
-      medianVtec: (() => {
-        const vals = vtecPts.map((p) => p.y).sort((a, b) => a - b);
-        if (!vals.length) return null;
-        return vals[Math.floor(vals.length / 2)];
-      })(),
+      stecDatasets,
+      vtecDatasets,
+      stecCount: Object.values(stecByConst).reduce((n, a) => n + a.length, 0),
+      medianVtec: sorted.length ? sorted[Math.floor(sorted.length / 2)] : null,
     };
   }, [obs]);
 
@@ -312,12 +340,7 @@ export default function ZimbabweTecTeachingLab() {
             <Scatter
               data={{
                 datasets: [
-                  {
-                    label: "Measured STEC",
-                    data: elevScatter.stec,
-                    backgroundColor: "rgba(249,115,22,0.55)",
-                    pointRadius: 1.5,
-                  },
+                  ...elevScatter.stecDatasets,
                   {
                     label: "Flat-layer STEC ≈ VTEC / sin(E)",
                     data: flatRef,
@@ -344,12 +367,14 @@ export default function ZimbabweTecTeachingLab() {
             <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginBottom: 6 }}>VTEC vs elevation</div>
             <Scatter
               data={{
-                datasets: [{
-                  label: "Measured VTEC",
-                  data: elevScatter.vtec,
-                  backgroundColor: "rgba(56,189,248,0.55)",
-                  pointRadius: 1.5,
-                }],
+                datasets: elevScatter.vtecDatasets.length
+                  ? elevScatter.vtecDatasets
+                  : [{
+                      label: "Measured VTEC",
+                      data: [],
+                      backgroundColor: "rgba(56,189,248,0.55)",
+                      pointRadius: 1.5,
+                    }],
               }}
               options={{
                 responsive: true,
@@ -363,7 +388,7 @@ export default function ZimbabweTecTeachingLab() {
             />
           </div>
         </div>
-        {!elevScatter.stec.length && (
+        {!elevScatter.stecCount && (
           <div className="banner banner-info">Live STEC/elevation samples are sparse — the interactive thin-shell model below still teaches the geometry.</div>
         )}
         <ChartAnalysisBox
