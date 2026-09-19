@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Suspense } from "react";
 import "./globals.css";
 import AppShell from "@/components/layout/AppShell";
+import ChunkLoadRecovery from "@/components/ChunkLoadRecovery";
 
 export const metadata: Metadata = {
   title: "Zimbabwe Space Weather & Navigation",
@@ -76,6 +77,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: SPACE_WEATHER_BOOT_SCRIPT }} />
       </head>
       <body>
+        <ChunkLoadRecovery />
         <Suspense fallback={<div className="app-main">{children}</div>}>
           <AppShell>{children}</AppShell>
         </Suspense>
