@@ -58,6 +58,27 @@ export function peekSolarActivity(): SolarActivityFull | null {
   return latest;
 }
 
+/** Subscribe without an immediate callback (for useSyncExternalStore). */
+export function subscribeSolarActivityStore(onStoreChange: () => void): () => void {
+  ensureSeeded();
+  const listener: Listener = () => onStoreChange();
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+/** Client snapshot — layout boot → memory → localStorage. */
+export function getSolarActivityClientSnapshot(): SolarActivityFull | null {
+  if (typeof window !== "undefined") {
+    const boot = (window as Window & { __ZGIIS_SA_BOOT?: unknown }).__ZGIIS_SA_BOOT;
+    if (isUsable(boot)) {
+      return publishSolarActivity(boot);
+    }
+  }
+  return peekSolarActivity();
+}
+
 /** Apply pre-React layout boot payload into the shared solar store. */
 export function absorbInlineSolarBootPayload(): SolarActivityFull | null {
   if (typeof window === "undefined") return null;

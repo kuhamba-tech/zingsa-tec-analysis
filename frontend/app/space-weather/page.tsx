@@ -2,11 +2,20 @@
 
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type CSSProperties, type KeyboardEvent } from "react";
 import { getSpaceWeather, getSolarActivity, getTimelines, refreshSpaceWeather, getStations, getEkfStatus } from "@/lib/api";
-import { peekSpaceWeather, subscribeSpaceWeather } from "@/lib/spaceWeatherStore";
+import {
+  getSpaceWeatherClientSnapshot,
+  peekSpaceWeather,
+  subscribeSpaceWeatherStore,
+} from "@/lib/spaceWeatherStore";
 import { absorbInlineBootPayload, bootSpaceWeather } from "@/lib/bootSpaceWeather";
-import { peekSolarActivity, subscribeSolarActivity, absorbInlineSolarBootPayload } from "@/lib/solarActivityStore";
+import { bootSolarActivity } from "@/lib/bootSolarActivity";
+import {
+  getSolarActivityClientSnapshot,
+  peekSolarActivity,
+  subscribeSolarActivityStore,
+} from "@/lib/solarActivityStore";
 import { peekStations, subscribeStations } from "@/lib/stationsStore";
 import ClickableMetricGrid from "@/components/spaceWeather/ClickableMetricGrid";
 import DeferredMount from "@/components/spaceWeather/DeferredMount";
@@ -14,7 +23,6 @@ import SwSectionBanner from "@/components/spaceWeather/SwSectionBanner";
 import { monitoringFreshness, observationTime } from "@/lib/monitoringStatus";
 import HomeStormAlertBanner from "@/components/layout/HomeStormAlertBanner";
 import {
-  afterNextPaint,
   getLoadProfile,
   isDocumentVisible,
   scheduleSecondary,
@@ -372,8 +380,17 @@ function solarEventFeedLabel(source: string | undefined): string {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function SpaceWeatherPage() {
-  const [sw, setSw]         = useState<SpaceWeatherCurrent | null>(null);
-  const [sa, setSa]         = useState<SolarActivityFull | null>(null);
+  // Paint metric cards from boot/localStorage on the first client frame.
+  const sw = useSyncExternalStore(
+    subscribeSpaceWeatherStore,
+    getSpaceWeatherClientSnapshot,
+    () => null,
+  );
+  const sa = useSyncExternalStore(
+    subscribeSolarActivityStore,
+    getSolarActivityClientSnapshot,
+    () => null,
+  );
   const [saError, setSaError] = useState<string | null>(null);
   const [saLoading, setSaLoading] = useState(true);
   const [tl, setTl]         = useState<SpaceWeatherTimelines | null>(null);
@@ -388,44 +405,34 @@ export default function SpaceWeatherPage() {
   const [selectedSolarInfo, setSelectedSolarInfo] = useState<SolarInfoKey>("summary");
   const [selectedGraph, setSelectedGraph] = useState<string | null>(null);
   const [timelineSyncMs, setTimelineSyncMs] = useState<number | null>(null);
-  const [hasMounted, setHasMounted] = useState(false);
   const toggleGraph = (graphId: string) => setSelectedGraph((current) => current === graphId ? null : graphId);
 
   useEffect(() => {
-    setHasMounted(true);
-  }, []);
-
-  useEffect(() => {
-    // Seed after mount (not in useState) so SSR HTML matches the first client render.
-    const cached = absorbInlineBootPayload() ?? peekSpaceWeather();
-    if (cached) {
-      setSw(cached);
-      setTl(snapshotTimelines(cached));
-      setFeedStatus("stale");
+    absorbInlineBootPayload();
+    if (peekSpaceWeather()) {
+      setFeedStatus((prev) => (prev === "pending" ? "stale" : prev));
+      setTl((prev) => prev ?? snapshotTimelines(peekSpaceWeather()!));
     }
-    const cachedSa = absorbInlineSolarBootPayload() ?? peekSolarActivity();
-    if (cachedSa) {
-      setSa(cachedSa);
-      setSaLoading(false);
-    }
+    if (peekSolarActivity()) setSaLoading(false);
     const cachedStations = peekStations();
     if (cachedStations.length) {
       setLiveStationCounts(countSpiderLiveStationStatuses(cachedStations));
     }
   }, []);
 
-  useEffect(() => subscribeSpaceWeather((next) => {
-    setSw(next);
-    setTl((prev) => prev ?? snapshotTimelines(next));
-    setFeedStatus("ok");
+  useEffect(() => {
+    if (!sw) return;
+    setTl((prev) => prev ?? snapshotTimelines(sw));
+    setFeedStatus((prev) => (prev === "pending" ? "ok" : prev === "stale" ? "ok" : prev));
     setLastFetched(new Date().toISOString());
-  }), []);
+  }, [sw]);
 
-  useEffect(() => subscribeSolarActivity((next) => {
-    setSa(next);
-    setSaLoading(false);
-    setSaError(next?.error ?? null);
-  }), []);
+  useEffect(() => {
+    if (sa) {
+      setSaLoading(false);
+      setSaError(sa.error ?? null);
+    }
+  }, [sa]);
 
   useEffect(() => {
     const tick = () => setNow(Date.now());
@@ -442,10 +449,9 @@ export default function SpaceWeatherPage() {
       setFeedStatus("pending");
     }
 
-    // Phase 1 — critical path only: paint Live Metric cards ASAP.
+    // Phase 1 — current + solar in parallel so all metric cards fill together.
     getSpaceWeather(false)
       .then((s) => {
-        setSw(s);
         setTl((prev) => prev ?? snapshotTimelines(s));
         setFeedStatus("ok");
         setLastFetched(new Date().toISOString());
@@ -453,7 +459,6 @@ export default function SpaceWeatherPage() {
       .catch(() => {
         const cached = peekSpaceWeather();
         if (cached) {
-          setSw(cached);
           setTl((prev) => prev ?? snapshotTimelines(cached));
           setFeedStatus("stale");
         } else {
@@ -461,21 +466,17 @@ export default function SpaceWeatherPage() {
         }
       });
 
-    // Phase 2 — solar monitor right after first paint (drives flare / wind cards).
-    const runSolar = () => {
-      if (!background) setSaLoading((prev) => (peekSolarActivity() ? false : prev || true));
-      getSolarActivity(false, false)
-        .then((payload) => {
-          setSa(payload);
-          setSaError(payload?.error ?? null);
-        })
-        .catch((error: unknown) => {
-          setSaError(error instanceof Error ? error.message : "Solar monitor API unreachable");
-        })
-        .finally(() => setSaLoading(false));
-    };
+    if (!background) setSaLoading((prev) => (peekSolarActivity() ? false : prev || true));
+    getSolarActivity(false, false)
+      .then((payload) => {
+        setSaError(payload?.error ?? null);
+      })
+      .catch((error: unknown) => {
+        setSaError(error instanceof Error ? error.message : "Solar monitor API unreachable");
+      })
+      .finally(() => setSaLoading(false));
 
-    // Phase 3 — charts / stations / EKF after paint (lighter + later on mobile).
+    // Phase 2 — charts / stations / EKF after paint.
     const runSecondary = () => {
       getTimelines(profile.timelineMaxPoints)
         .then(setTl)
@@ -489,24 +490,24 @@ export default function SpaceWeatherPage() {
     };
 
     if (background) {
-      runSolar();
       runSecondary();
       return;
     }
 
-    afterNextPaint(runSolar, profile.lightPayload ? 80 : 32);
     scheduleSecondary(runSecondary, profile);
   }, []);
 
   useEffect(() => {
     const profile = getLoadProfile();
-    // Kick the lightweight boot fetch immediately (deduped with layout script).
+    // Lightweight boots race ahead of the heavier api.ts path.
     void bootSpaceWeather().then((boot) => {
       if (!boot) return;
-      setSw(boot);
       setTl((prev) => prev ?? snapshotTimelines(boot));
       setFeedStatus("ok");
       setLastFetched(new Date().toISOString());
+    });
+    void bootSolarActivity().then((boot) => {
+      if (boot) setSaLoading(false);
     });
     fetchAll(false);
     const id = window.setInterval(() => fetchAll(true), profile.pollIntervalMs);
@@ -514,7 +515,6 @@ export default function SpaceWeatherPage() {
       if (isDocumentVisible()) fetchAll(true);
     };
     document.addEventListener("visibilitychange", onVisibility);
-    // Leave "Connecting" quickly when the API/proxy is down (matches SW_BOOT budget).
     const watchdog = window.setTimeout(() => {
       setFeedStatus((prev) => {
         if (prev !== "pending") return prev;
@@ -522,7 +522,6 @@ export default function SpaceWeatherPage() {
       });
       setSaLoading(false);
     }, 7_000);
-    // Auto-retry a couple of times if the first paint never got data.
     const retry1 = window.setTimeout(() => {
       if (!peekSpaceWeather()) fetchAll(false);
     }, 2_500);
@@ -811,10 +810,10 @@ export default function SpaceWeatherPage() {
 
       <div className="sw-monitor-status" role="status">
         <span
-          className={`sw-feed-state sw-feed-state-${!hasMounted ? "unavailable" : overallStatus.toLowerCase()}`}
+          className={`sw-feed-state sw-feed-state-${!sw && !sa ? "unavailable" : overallStatus.toLowerCase()}`}
           suppressHydrationWarning
         >
-          {!hasMounted || (feedStatus === "pending" && !sw && !sa)
+          {feedStatus === "pending" && !sw && !sa
             ? "Connecting"
             : overallStatus === "LIVE"
               ? "Feeds current"
@@ -823,12 +822,12 @@ export default function SpaceWeatherPage() {
                 : "Feeds unavailable"}
         </span>
         <span suppressHydrationWarning>
-          Indices: {!hasMounted ? "unavailable" : snapshotStatus === "DELAYED" ? "partial" : snapshotStatus.toLowerCase()}
+          Indices: {!sw ? "unavailable" : snapshotStatus === "DELAYED" ? "partial" : snapshotStatus.toLowerCase()}
           {" · "}
-          Solar: {!hasMounted ? "unavailable" : solarStatus === "DELAYED" ? "partial" : solarStatus.toLowerCase()}
+          Solar: {!sa ? "unavailable" : solarStatus === "DELAYED" ? "partial" : solarStatus.toLowerCase()}
         </span>
-        <span suppressHydrationWarning>Snapshot: {!hasMounted ? "Time unavailable" : observationTime(sw?.updated_utc)}</span>
-        {hasMounted && lastFetched && <span>Last successful fetch: {observationTime(lastFetched)}</span>}
+        <span suppressHydrationWarning>Snapshot: {!sw?.updated_utc ? "Time unavailable" : observationTime(sw.updated_utc)}</span>
+        {lastFetched && <span>Last successful fetch: {observationTime(lastFetched)}</span>}
       </div>
       <p className="sw-supporting-text">Background checks pause while this tab is hidden and run less often on mobile or slow networks. Snapshot time is separate from each source’s observation time; check the timestamp on each reading.</p>
       {freshnessMsg && <div className="banner banner-warn">{freshnessMsg}</div>}
@@ -850,7 +849,7 @@ export default function SpaceWeatherPage() {
         updatedUtc={sw?.updated_utc}
         liveStationCounts={liveStationCounts}
         solar={sa}
-        solarLoading={saLoading}
+        solarLoading={Boolean(saLoading && !sa)}
         now={now}
         refreshFailed={feedStatus === "down"}
         solarRefreshFailed={Boolean(saError)}
