@@ -68,7 +68,11 @@ GOPI_META = MethodMeta(
     id="gopi",
     label="GOPI / Seemala GPS_TEC",
     short="GOPI",
-    calibration="Dual-frequency code/phase TEC with Seemala-style DCB / σ-minimisation (Gopi Ch. 4). Live CORS uses code TEC without monthly DCB files.",
+    calibration=(
+        "Dual-frequency code/phase TEC with Seemala-style DCB / σ-minimisation (Gopi Ch. 4). "
+        "Live CORS often uses code TEC without monthly DCB files — fast operational VTEC, "
+        "absolute scale can retain residual bias."
+    ),
     color="#38bdf8",
 )
 
@@ -76,7 +80,11 @@ GG_META = MethodMeta(
     id="gg",
     label="Gg / Ciraolo–Cesaroni (PyTECGg)",
     short="Gg",
-    calibration="Geometry-free arcs with windowed VTEC polynomial + joint arc-bias least squares (Ciraolo/Cesaroni Gg; PyTECGg when RINEX is available).",
+    calibration=(
+        "Geometry-free arcs; 15-min windows; joint least squares for VTEC(MODIP, LT) polynomial "
+        "+ arc biases / receiver DCB (Ciraolo/Cesaroni Gg; PyTECGg on full RINEX). "
+        "Same ionosphere as GOPI — different bias removal."
+    ),
     color="#f59e0b",
 )
 

@@ -36,9 +36,15 @@ export default function TecPrimerBlock({ compact = false }: { compact?: boolean 
         </tbody>
       </table>
       {!compact && (
-        <p className="sw-metric-explain-body" style={{ marginTop: "0.65rem" }}>
-          {TEC_OPERATIONAL_NOTE}
-        </p>
+        <>
+          <p className="sw-metric-explain-body" style={{ marginTop: "0.65rem" }}>
+            {TEC_OPERATIONAL_NOTE}
+          </p>
+          <p className="sw-metric-explain-body" style={{ marginTop: "0.45rem", fontSize: "0.78rem" }}>
+            On Zimbabwe Ionospheric Response, open the teaching guide for STEC vs VTEC classification
+            and the GOPI vs Gg calculation differences from TEC_GNSS_Notebook_v5.
+          </p>
+        </>
       )}
     </div>
   );

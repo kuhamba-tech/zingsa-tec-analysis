@@ -28,13 +28,14 @@ const GRAPH_HELP: Record<GraphId, ChartAnalysisBlock> = {
   "cmp-vtec": {
     lead: "Same CORS samples, two calibrations: GOPI/Seemala (cyan) versus Gg/Ciraolo–Cesaroni (amber).",
     bullets: [
-      "GOPI uses dual-frequency code/phase TEC with Seemala-style bias handling (live path: code TEC).",
-      "Gg removes arc biases with a windowed local-time VTEC polynomial (Ciraolo/Cesaroni; PyTECGg on full RINEX).",
-      "Offsets between traces are calibration differences — not a different ionosphere.",
+      "Both start from dual-frequency geometry-free TEC; they diverge in how hardware biases are removed.",
+      "GOPI: Seemala-style DCB / σ handling (live path often code TEC without monthly DCB files).",
+      "Gg: windowed least squares for a VTEC(MODIP, LT) polynomial + arc biases (notebook / PyTECGg).",
+      "Vertical offset between cyan and amber is usually calibration — not a second ionosphere.",
     ],
   },
   "cmp-elev": {
-    lead: "Elevation dependence should weaken after mapping; residual trends can expose mapping or bias errors.",
+    lead: "Classify STEC vs VTEC here: STEC grows at low elevation; VTEC should be flatter after thin-shell mapping.",
     bullets: [
       "Left: STEC vs elevation for both methods. Right: VTEC vs elevation.",
       "Gg arc-bias correction often tightens the VTEC cloud relative to raw GOPI code TEC.",
@@ -44,22 +45,24 @@ const GRAPH_HELP: Record<GraphId, ChartAnalysisBlock> = {
   "cmp-sky": {
     lead: "Skyplot of look angles coloured by method: cyan = GOPI VTEC, amber = Gg VTEC (paired samples).",
     bullets: [
-      "Each point is a satellite direction (azimuth / elevation).",
-      "Compare colour clusters to see where the two calibrations diverge on the sky.",
+      "Each point is a satellite direction (azimuth / elevation) — same geometry, two calibrations.",
+      "Colour clusters show where absolute TECU disagree on the sky after bias treatment.",
     ],
   },
   "cmp-diff": {
-    lead: "ΔVTEC = Gg − GOPI for matched samples. Systematic offsets highlight DCB / arc-bias treatment differences.",
+    lead: "ΔVTEC = Gg − GOPI for matched samples. This is the clearest view of calculation differences.",
     bullets: [
-      "Near-zero scatter means the methods agree after mapping.",
-      "A stable bias band is expected when absolute calibration differs; large time-varying ΔVTEC needs investigation.",
+      "A stable bias band means absolute scales differ (DCB / arc-bias) while the ionosphere is shared.",
+      "Near-zero scatter means the methods agree after mapping and calibration.",
+      "Large time-varying ΔVTEC needs investigation (arcs, elevation mask, or sparse windows).",
     ],
   },
   "cmp-diurnal": {
-    lead: "Diurnal median ribbons for each method on the current UTC day.",
+    lead: "Diurnal median ribbons for each method on the current UTC day — same day shape, two absolute scales.",
     bullets: [
       "Cyan ribbon = GOPI percentiles; amber ribbon = Gg percentiles.",
-      "Median lines show how the daily shape shifts under each calibration.",
+      "Similar shape with offset = bias model difference (Seemala/GOPI vs Gg joint fit).",
+      "Read this together with the teaching guide above (classify VTEC, then compare methods).",
     ],
   },
 };
@@ -258,14 +261,15 @@ export default function TecMethodComparisonLab() {
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
       <div className="card">
         <div className="metric-label" style={{ marginBottom: "0.35rem" }}>
-          GOPI vs Gg TEC calibration comparison
+          GOPI vs Gg TEC calibration comparison — live graphs
         </div>
         <p className="sw-supporting-text" style={{ margin: 0 }}>
-          Two methods on the same Zimbabwe CORS samples so you can distinguish calibration effects:
+          Same Zimbabwe CORS samples, two calculation paths so you can see the difference:
           {" "}
           <span style={{ color: GOPI_COLOR, fontWeight: 700 }}>GOPI / Seemala</span>
-          {" "}versus{" "}
-          <span style={{ color: GG_COLOR, fontWeight: 700 }}>Gg / Ciraolo–Cesaroni (PyTECGg)</span>.
+          {" "}(live operational) versus{" "}
+          <span style={{ color: GG_COLOR, fontWeight: 700 }}>Gg / Ciraolo–Cesaroni (PyTECGg)</span>
+          {" "}(notebook calibration). Cyan–amber offsets are mostly bias handling, not a different ionosphere.
           Click any graph for the scientific explanation.
         </p>
         <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", marginTop: "0.75rem", alignItems: "center" }}>
