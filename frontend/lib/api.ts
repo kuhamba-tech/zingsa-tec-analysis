@@ -84,7 +84,7 @@ import type {
 import { peekSpaceWeather, publishSpaceWeather } from "./spaceWeatherStore";
 import { peekSolarActivity, publishSolarActivity } from "./solarActivityStore";
 import { peekHeliosphericMonitor, rememberHeliosphericMonitor } from "./heliosphericStore";
-import { peekStations, publishStations, purgeStaleStationsCache, stationsAreLiveAuthoritative, stationsAreSpiderAuthoritative } from "./stationsStore";
+import { peekStations, publishStations, purgeStaleStationsCache, stationsAreLiveAuthoritative } from "./stationsStore";
 import {
   getSpaceWeatherNetworkAt,
   noteSpaceWeatherNetworkOk,
