@@ -45,7 +45,10 @@ const sectionFallback = (
 );
 
 const CauseEffectTimelineStack = dynamic(
-  () => import("@/components/spaceWeather/CauseEffectTimelineStack"),
+  () =>
+    import("@/lib/loadCauseEffectTimeline").then(({ loadCauseEffectTimelineStack }) =>
+      loadCauseEffectTimelineStack().then((m) => m.default),
+    ),
   { ssr: false, loading: () => sectionFallback },
 );
 const HeliosphericMonitorStack = dynamic(
