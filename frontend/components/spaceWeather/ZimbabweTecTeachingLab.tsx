@@ -213,21 +213,31 @@ export default function ZimbabweTecTeachingLab() {
     const load = () => {
       setLoading(true);
       const dayHours = Math.min(24, Math.ceil(hoursSinceUtcMidnight() * 2) / 2 + 0.5);
-      Promise.allSettled([
-        // Cover from today's UTC midnight so the diurnal chart is one calendar day.
-        getLiveVtecByStation(dayHours, 10, 90_000),
-        // Cap samples so look-angle enrichment cannot starve Live Metric cards.
-        getLiveVtec(Math.min(6, dayHours), undefined, 45_000, 2500),
-        getStations(false),
-        // GOPI vs Gg samples for the diurnal overlay.
-        getTecMethodComparison(Math.min(14, Math.max(6, dayHours)), undefined, 2500, 60_000),
-      ]).then(([st, live, cat, cmp]) => {
+
+      // Apply each feed as it lands so the slow GOPI/Gg comparison cannot block
+      // graphs 1–5 (diurnal used to stay empty until comparison finished).
+      const stP = getLiveVtecByStation(dayHours, 10, 90_000).then((rows) => {
+        if (!cancelled) setStations(Array.isArray(rows) ? rows : []);
+        return rows;
+      });
+      const liveP = getLiveVtec(Math.min(6, dayHours), undefined, 45_000, 2500).then((rows) => {
+        if (!cancelled) setObs(Array.isArray(rows) ? rows : []);
+        return rows;
+      });
+      const catP = getStations(false).then((rows) => {
+        if (!cancelled && Array.isArray(rows) && rows.length) setCatalog(rows);
+        return rows;
+      });
+      getTecMethodComparison(Math.min(14, Math.max(6, dayHours)), undefined, 2500, 60_000)
+        .then((cmp) => {
+          if (!cancelled) setMethodCmp(cmp);
+        })
+        .catch(() => {
+          /* Comparison is optional for GOPI-only diurnal fallback. */
+        });
+
+      Promise.allSettled([stP, liveP, catP]).then(([st, live, cat]) => {
         if (cancelled) return;
-        if (st.status === "fulfilled") setStations(Array.isArray(st.value) ? st.value : []);
-        if (live.status === "fulfilled") setObs(Array.isArray(live.value) ? live.value : []);
-        if (cat.status === "fulfilled") setCatalog(Array.isArray(cat.value) ? cat.value : []);
-        if (cmp.status === "fulfilled") setMethodCmp(cmp.value);
-        // Fallback: if Spider cache is empty, still try a plain stations list for IPP coords.
         if (cat.status !== "fulfilled" || !Array.isArray(cat.value) || cat.value.length === 0) {
           getStations(false).then((rows) => {
             if (!cancelled && Array.isArray(rows) && rows.length) setCatalog(rows);
