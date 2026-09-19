@@ -81,8 +81,38 @@ def _cached_s4() -> tuple[float | None, float, str, str]:
         return None, 0.0, "unavailable", "No observed ionosphere record available."
 
 
+def _archived_online_total() -> tuple[int, int] | None:
+    """Neon/SQLite collector snapshots — honest when Spider SBC is blocked."""
+    try:
+        from backend.routers.cors_network import _archived_status_counts
+
+        archived = _archived_status_counts()
+        if archived is not None:
+            online, _, _offline, total = archived
+            return int(online), int(total)
+    except Exception:
+        pass
+    try:
+        from backend.station_status_logger import get_db as get_status_db
+        from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
+
+        latest = get_status_db().latest_snapshots(hours=1.0)
+        if latest:
+            online = sum(1 for row in latest.values() if row.get("status") == "online")
+            return online, len(ZIMBABWE_CORS_STATIONS)
+    except Exception:
+        pass
+    return None
+
+
 def _ntrip_stream_counts() -> tuple[int | None, int | None]:
-    """Station counts from cached Spider (never block page load on SBC login)."""
+    """Station counts for the CORS Connected card (never block on SBC login).
+
+    Prefer live Spider when it reports any online sites. A cached Spider map of
+    all-offline (common after Cloudflare 403 from cloud IPs) must not paint
+    0/25 over a healthier Neon/NTRIP archive snapshot.
+    """
+    spider_counts: tuple[int, int] | None = None
     try:
         from zgiis.live.spider_site_status import get_cached_spider_site_statuses, spider_status_enabled
 
@@ -92,7 +122,9 @@ def _ntrip_stream_counts() -> tuple[int | None, int | None]:
             by_station = payload.get("by_station") or {}
             if by_station:
                 online = sum(1 for row in by_station.values() if row.get("status") == "online")
-                return online, len(by_station)
+                spider_counts = (online, len(by_station))
+                if online > 0:
+                    return spider_counts
     except Exception:
         pass
 
@@ -109,31 +141,20 @@ def _ntrip_stream_counts() -> tuple[int | None, int | None]:
                     online = sum(
                         1 for row in rows if str(row.get("verdict") or "").lower() == "msm_streaming"
                     )
-                    return online, len(rows) or 24
+                    if online > 0 or spider_counts is None:
+                        return online, len(rows) or 24
         except Exception:
             pass
 
-    try:
-        from backend.routers.cors_network import _archived_status_counts
-
-        archived = _archived_status_counts()
-        if archived is not None:
-            online, _, _offline, total = archived
-            # Only MSM-streaming stations count as online — no data ⇒ offline.
+    archived = _archived_online_total()
+    if archived is not None:
+        online, total = archived
+        # Archive wins over a Spider all-offline cache.
+        if online > 0 or spider_counts is None:
             return online, total
-    except Exception:
-        pass
 
-    try:
-        from backend.station_status_logger import get_db as get_status_db
-        from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
-
-        latest = get_status_db().latest_snapshots(hours=1.0)
-        if latest:
-            online = sum(1 for row in latest.values() if row.get("status") == "online")
-            return online, len(ZIMBABWE_CORS_STATIONS)
-    except Exception:
-        pass
+    if spider_counts is not None:
+        return spider_counts
 
     try:
         from zgiis.live.ntrip_status_cache import get_cached_ntrip_probe
@@ -163,7 +184,8 @@ def current(_=Depends(require_api_key)):
             sw["stations_total"] = ntrip_total
     except Exception:
         log.exception("station count overlay failed on /space-weather/current")
-    # Prefer in-memory collector samples — never block /current on TecDB/Neon.
+    # Prefer in-memory collector samples; fall back to recent station VTEC so the
+    # Zimbabwe Ionosphere card is not stuck on Unavailable when Spider is down.
     if sw.get("mean_vtec") is None and sw.get("vtec_tecu") is None:
         try:
             from backend.live_manager import latest_vtec_by_station
@@ -171,6 +193,20 @@ def current(_=Depends(require_api_key)):
             vals = [
                 float(v)
                 for v in latest_vtec_by_station().values()
+                if v is not None and float(v) > 1.0
+            ]
+            if vals:
+                sw["mean_vtec"] = round(sum(vals) / len(vals), 2)
+        except Exception:
+            pass
+    if sw.get("mean_vtec") is None and sw.get("vtec_tecu") is None:
+        try:
+            from backend.routers.cors_network import _safe_station_live_vtec
+
+            # allow_db=True on /current — this path already hits archive counts.
+            vals = [
+                float(v)
+                for v in _safe_station_live_vtec(0.25, allow_db=True).values()
                 if v is not None and float(v) > 1.0
             ]
             if vals:

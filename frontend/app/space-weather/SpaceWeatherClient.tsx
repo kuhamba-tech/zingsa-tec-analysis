@@ -331,6 +331,24 @@ function TimelineCard({
   );
 }
 
+function meanStationVtec(stations: { current_tec?: number | null }[]): number | null {
+  const vals = stations
+    .map((s) => (s.current_tec != null ? Number(s.current_tec) : NaN))
+    .filter((v) => Number.isFinite(v) && v > 1.0);
+  if (!vals.length) return null;
+  return Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 100) / 100;
+}
+
+function applyStationsSnapshot(
+  stations: Parameters<typeof countSpiderLiveStationStatuses>[0],
+  setLiveStationCounts: (c: LiveStationCounts | null) => void,
+  setLiveMeanVtec: (v: number | null) => void,
+) {
+  setLiveStationCounts(countSpiderLiveStationStatuses(stations));
+  const mean = meanStationVtec(stations);
+  if (mean != null) setLiveMeanVtec(mean);
+}
+
 function DataTable({ headers, rows, emptyMsg }: { headers: string[]; rows: string[][]; emptyMsg?: string }) {
   return (
     <div style={{ overflowX: "auto" }}>
@@ -404,6 +422,7 @@ export default function SpaceWeatherClient({
     initialSw ? "stale" : "pending",
   );
   const [liveStationCounts, setLiveStationCounts] = useState<LiveStationCounts | null>(null);
+  const [liveMeanVtec, setLiveMeanVtec] = useState<number | null>(null);
   const [selectedSolarInfo, setSelectedSolarInfo] = useState<SolarInfoKey>("summary");
   const [selectedGraph, setSelectedGraph] = useState<string | null>(null);
   const [timelineSyncMs, setTimelineSyncMs] = useState<number | null>(null);
@@ -433,7 +452,7 @@ export default function SpaceWeatherClient({
     }
     const cachedStations = peekStations();
     if (cachedStations.length) {
-      setLiveStationCounts(countSpiderLiveStationStatuses(cachedStations));
+      applyStationsSnapshot(cachedStations, setLiveStationCounts, setLiveMeanVtec);
     }
     // Layout boot may finish after first paint — pull into React state.
     const bootPoll = window.setInterval(() => {
@@ -529,7 +548,7 @@ export default function SpaceWeatherClient({
         .then(setTl)
         .catch(() => null);
       getStations(false)
-        .then((stations) => setLiveStationCounts(countSpiderLiveStationStatuses(stations)))
+        .then((stations) => applyStationsSnapshot(stations, setLiveStationCounts, setLiveMeanVtec))
         .catch(() => null);
       getEkfStatus()
         .then(setEkf)
@@ -587,7 +606,7 @@ export default function SpaceWeatherClient({
   }, [fetchAll]);
 
   useEffect(() => subscribeStations((next) => {
-    if (next.length) setLiveStationCounts(countSpiderLiveStationStatuses(next));
+    if (next.length) applyStationsSnapshot(next, setLiveStationCounts, setLiveMeanVtec);
   }), []);
 
   const freshnessMsg = useFeedFreshness("space-weather", feedStatus);
@@ -897,6 +916,7 @@ export default function SpaceWeatherClient({
         sw={sw}
         updatedUtc={sw?.updated_utc}
         liveStationCounts={liveStationCounts}
+        liveMeanVtec={liveMeanVtec}
         solar={sa}
         solarLoading={Boolean(saLoading && !sa)}
         now={now}

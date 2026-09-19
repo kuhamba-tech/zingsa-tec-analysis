@@ -44,7 +44,8 @@ export function purgeStaleStationsCache(): void {
 export function publishStations(stations: Station[]): Station[] {
   if (!isUsable(stations)) return stations;
   // Catalog/unknown must never become the shared "latest" snapshot.
-  if (!stationsAreSpiderAuthoritative(stations)) {
+  // NTRIP/archive rows are honest when Spider SBC is blocked.
+  if (!stationsAreLiveAuthoritative(stations)) {
     clearPersisted();
     return stations;
   }
@@ -60,11 +61,11 @@ export function peekStations(): Station[] {
   return latest ?? [];
 }
 
-/** Always stale unless we just received Spider rows in this page session. */
+/** Always stale unless we just received live Spider/NTRIP rows in this page session. */
 export function stationsCacheIsStale(maxAgeMs = STATIONS_CACHE_MAX_AGE_MS): boolean {
   if (!latest?.length) return true;
   if (!latestSavedAt) return true;
-  if (!stationsAreSpiderAuthoritative(latest)) return true;
+  if (!stationsAreLiveAuthoritative(latest)) return true;
   return Date.now() - latestSavedAt > maxAgeMs;
 }
 
@@ -73,6 +74,15 @@ export function stationsAreSpiderAuthoritative(stations: Station[]): boolean {
   if (!stations.length) return false;
   const spider = stations.filter((s) => s.status_source === "spider").length;
   return spider >= Math.ceil(stations.length / 2);
+}
+
+/** Spider or NTRIP/archive majority — honest live online/offline (not catalog). */
+export function stationsAreLiveAuthoritative(stations: Station[]): boolean {
+  if (!stations.length) return false;
+  const live = stations.filter(
+    (s) => s.status_source === "spider" || s.status_source === "ntrip",
+  ).length;
+  return live >= Math.ceil(stations.length / 2);
 }
 
 export function subscribeStations(fn: Listener): () => void {

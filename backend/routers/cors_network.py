@@ -204,6 +204,18 @@ def _stations_are_spider_authoritative(stations: list) -> bool:
     return spider >= max(1, (len(stations) + 1) // 2)
 
 
+def _stations_are_live_authoritative(stations: list) -> bool:
+    """Spider Site Status or NTRIP/archive rows — safe to show as live online/offline."""
+    if not stations:
+        return False
+    live = sum(
+        1
+        for s in stations
+        if getattr(s, "status_source", "") in {"spider", "ntrip"}
+    )
+    return live >= max(1, (len(stations) + 1) // 2)
+
+
 def _hold_non_spider_as_unknown(stations: list) -> list:
     """Never paint catalog greens/reds as live Spider Site Status.
 
@@ -421,19 +433,21 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
     spider_ready = _stations_are_spider_authoritative(stations)
 
     archive_applied = False
-    # Archive/Supabase reads can stall for tens of seconds under SQLite locks.
-    # Only use them on an explicit refresh — normal page loads wait for Spider
-    # cache (disk/memory) and never block the map on the status DB.
-    if not pipeline_configured and refresh_ntrip and not spider_ready:
+    # When Spider SBC is unreachable (Cloudflare 403 from cloud IPs), Neon/SQLite
+    # collector snapshots are the only honest online/offline signal. Merge them on
+    # normal page loads too — otherwise every card paints unknown / 0/25.
+    # Archive/Supabase reads can stall under SQLite locks; keep them off the path
+    # when Spider is already authoritative.
+    if not pipeline_configured and not spider_ready:
         stations, archive_applied = _merge_archived_live_statuses(stations)
         stations = _hold_non_spider_as_unknown(stations)
         # Re-apply Spider after archive so catalog/archive greens never win.
         stations = _merge_spider_site_statuses(stations, refresh=refresh_ntrip)
         spider_ready = _stations_are_spider_authoritative(stations)
-        if archive_applied and _is_serverless_runtime():
+        if archive_applied and _is_serverless_runtime() and refresh_ntrip:
             # Keep Spider status overlay, but still attach recent live VTEC from the
             # shared DB so TEC heat-map / station cards are not stuck on zeros.
-            vtec_by_station = _safe_station_live_vtec(0.25, allow_db=refresh_ntrip)
+            vtec_by_station = _safe_station_live_vtec(0.25, allow_db=True)
             vtec_by_station, sample_probe, sample_at = _supplement_live_ntrip_vtec(
                 vtec_by_station,
                 refresh=refresh_ntrip,
@@ -452,11 +466,12 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
             )
             return stations
 
-    # Fast path for normal page loads: Spider if ready, otherwise unknowns.
-    # Never open NTRIP sockets, TecDB, or archive DB here — that is what made
-    # the dashboard feel stuck on a long "login".
+    # Fast path for normal page loads: Spider if ready, else archive/NTRIP rows.
+    # Never open NTRIP sockets here — that is what made the dashboard feel stuck
+    # on a long "login". Archive merge above is a short status-DB read only.
     if not refresh_ntrip:
-        vtec_by_station = _safe_station_live_vtec(0.25, allow_db=False)
+        # allow_db when archive filled statuses — ionosphere card needs TECU.
+        vtec_by_station = _safe_station_live_vtec(0.25, allow_db=archive_applied)
         try:
             from backend.live_manager import latest_vtec_by_station
 
@@ -751,12 +766,12 @@ def _stations(*, refresh_ntrip: bool = False) -> list:
         cached is not None
         and (now - float(_stations_cache["ts"])) < ttl
         and _stations_cache.get("key") == cache_key
-        and _stations_are_spider_authoritative(cached)  # type: ignore[arg-type]
+        and _stations_are_live_authoritative(cached)  # type: ignore[arg-type]
     ):
         return cached  # type: ignore[return-value]
     rows = _stations_impl(refresh_ntrip=refresh_ntrip)
-    # Never remember a catalog/unknown snapshot — that re-served false 9/25.
-    if _stations_are_spider_authoritative(rows):
+    # Remember Spider or NTRIP/archive snapshots — never catalog/unknown.
+    if _stations_are_live_authoritative(rows):
         _stations_cache["rows"] = rows
         _stations_cache["ts"] = now
         _stations_cache["key"] = cache_key

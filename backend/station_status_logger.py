@@ -232,13 +232,24 @@ def poll_and_log(*, source: str = "scheduler", force: bool = False) -> dict[str,
         pipeline_status = {}
 
     if pipeline_status.get("configured") or pipeline_status.get("active_streams"):
-        _last_poll_at = now
-        return log_streams(pipeline_status.get("streams", {}), source=source)
+        streams = pipeline_status.get("streams") or {}
+        # Configured-but-empty (or all-offline cold start) must not wipe a healthier
+        # Neon/archive snapshot to 0/25 — that is what painted CORS Connected empty.
+        derived = _status_from_streams(streams) if streams else {}
+        online = sum(1 for status in derived.values() if status == "online")
+        if streams and online > 0:
+            _last_poll_at = now
+            return log_streams(streams, source=source)
+        if not streams:
+            return {"skipped": True, "reason": "live pipeline configured but no streams yet"}
 
     spider_status = _status_from_spider()
     if spider_status:
-        _last_poll_at = now
-        return log_status_map(spider_status, source=f"{source}_spider", api_reachable=True)
+        online = sum(1 for status in spider_status.values() if status == "online")
+        if online > 0:
+            _last_poll_at = now
+            return log_status_map(spider_status, source=f"{source}_spider", api_reachable=True)
+        return {"skipped": True, "reason": "Spider cache is all-offline; keep archive"}
 
     return {"skipped": True, "reason": "live pipeline and Spider status both unavailable"}
 
