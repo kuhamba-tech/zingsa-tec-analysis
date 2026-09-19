@@ -946,15 +946,14 @@ export const getPrnConstellations = () =>
   get<PrnConstellationPayload>("/theory/prn-constellations");
 
 // ── Live ──────────────────────────────────────────────────────────────────────
-export const getLiveVtec = (hours = 2, station?: string) =>
-  get<LiveObservation[]>("/live/vtec", { hours, station, _ts: Date.now() });
-export const getLiveVtecByStation = (hours = 6, resampleMinutes = 2) =>
+export const getLiveVtec = (hours = 2, station?: string, timeoutMs = FETCH_TIMEOUT_MS) =>
+  get<LiveObservation[]>("/live/vtec", { hours, station, _ts: Date.now() }, timeoutMs);
+export const getLiveVtecByStation = (hours = 6, resampleMinutes = 2, timeoutMs?: number) =>
   get<LiveStationVtecSeries[]>(
     "/live/vtec-by-station",
     { hours, resample_minutes: resampleMinutes, _ts: Date.now() },
-    // Endpoint is usually <100ms; keep a short budget so CauseEffect panels
-    // never sit on "Retrying automatically" for up to two minutes.
-    hours >= 24 ? 20_000 : hours >= 12 ? 15_000 : Math.max(FETCH_TIMEOUT_MS, 12_000),
+    // Endpoint is usually fast; allow an override for teaching/slow environments.
+    timeoutMs ?? (hours >= 24 ? 20_000 : hours >= 12 ? 15_000 : Math.max(FETCH_TIMEOUT_MS, 12_000)),
   );
 export const getLiveStations = () => get<StationLiveStatus[]>("/live/stations");
 export const getLivePipelineStatus = () => get<LivePipelineStatus>("/live/pipeline-status");
