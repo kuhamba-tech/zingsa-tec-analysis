@@ -15,6 +15,7 @@ import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
 import LineChart from "@/components/charts/LineChart";
 import TecPrimerBlock from "@/components/spaceWeather/TecPrimerBlock";
 import { getLiveVtec, getLiveVtecByStation } from "@/lib/api";
+import { formatKnmiUtcTick, sharedTimeDomain, utcTimeAxisProps } from "@/lib/chartTimeAxis";
 import {
   diurnalPercentiles,
   diurnalVtecModel,
@@ -177,6 +178,13 @@ export default function ZimbabweTecTeachingLab() {
       });
   }, [stations]);
 
+  const vtecTimeAxis = useMemo(() => {
+    const domain = sharedTimeDomain(stationSeries.map((s) => s.epochs));
+    if (!domain) return null;
+    const rangeHours = Math.max(6, (domain.max - domain.min) / 3_600_000);
+    return utcTimeAxisProps(domain, { rangeHours });
+  }, [stationSeries]);
+
   const elevScatter = useMemo(() => {
     const stecByConst: Record<string, { x: number; y: number }[]> = {};
     const vtecByConst: Record<string, { x: number; y: number }[]> = {};
@@ -272,6 +280,8 @@ export default function ZimbabweTecTeachingLab() {
             yLabel="VTEC (TECU)"
             height={220}
             toggleableLegend
+            formatXTick={formatKnmiUtcTick}
+            {...(vtecTimeAxis ?? {})}
             datasets={stationSeries.map((s) => ({
               label: `${s.station.toUpperCase()} VTEC`,
               data: s.values,
