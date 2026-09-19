@@ -2,9 +2,10 @@
 
 import { Component, type ReactNode } from "react";
 import dynamic from "next/dynamic";
+import { loadCauseEffectTimelineStack } from "@/lib/loadCauseEffectTimeline";
 
 const CauseEffectTimelineStack = dynamic(
-  () => import("@/components/spaceWeather/CauseEffectTimelineStack"),
+  () => loadCauseEffectTimelineStack().then((m) => m.default),
   {
     ssr: false,
     loading: () => (
@@ -28,6 +29,21 @@ export default class HomeTimelinesGate extends Component<object, State> {
     return { error };
   }
 
+  componentDidCatch(error: Error) {
+    const message = error?.message ?? "";
+    if (/ChunkLoadError|Loading chunk/i.test(message) || error?.name === "ChunkLoadError") {
+      try {
+        const key = "zgiis:cause-effect-chunk-reload";
+        if (sessionStorage.getItem(key) !== "1") {
+          sessionStorage.setItem(key, "1");
+          window.location.reload();
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
   render(): ReactNode {
     if (this.state.error) {
       return (
@@ -37,7 +53,14 @@ export default class HomeTimelinesGate extends Component<object, State> {
             type="button"
             className="btn"
             style={{ marginLeft: "0.75rem" }}
-            onClick={() => this.setState((s) => ({ error: null, retry: s.retry + 1 }))}
+            onClick={() => {
+              try {
+                sessionStorage.removeItem("zgiis:cause-effect-chunk-reload");
+              } catch {
+                /* ignore */
+              }
+              this.setState((s) => ({ error: null, retry: s.retry + 1 }));
+            }}
           >
             Retry
           </button>

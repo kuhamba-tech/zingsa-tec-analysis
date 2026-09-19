@@ -204,8 +204,10 @@ export default function HomePage() {
     void bootSpaceWeather().then((sw) => {
       if (sw) applySw(sw, "ok");
     });
-    // Prefetch the heavy timeline/map chunk while metrics paint.
-    void import("@/components/spaceWeather/CauseEffectTimelineStack").catch(() => null);
+    // Prefetch the heavy timeline/map chunk while metrics paint (retry-safe).
+    void import("@/lib/loadCauseEffectTimeline").then(({ prefetchCauseEffectTimelineStack }) => {
+      prefetchCauseEffectTimelineStack();
+    }).catch(() => null);
 
     return () => {
       cancelled = true;
