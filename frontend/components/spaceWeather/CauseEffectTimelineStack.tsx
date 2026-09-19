@@ -207,12 +207,15 @@ export default function CauseEffectTimelineStack({
   variant = "full",
   afterSun = null,
   afterVtec = null,
+  localStartNumber = 1,
 }: {
   variant?: CauseEffectVariant;
   /** Inserted after GOES X-ray (e.g. F10.7 sun metric on Live Metric). */
   afterSun?: ReactNode;
   /** Inserted after Zimbabwe VTEC (e.g. CORS online timeline on Live Metric). */
   afterVtec?: ReactNode;
+  /** First panel number for local VTEC/GNSS when drivers are omitted (default 1). */
+  localStartNumber?: number;
 }) {
   const showDrivers = variant === "full" || variant === "drivers" || variant === "liveMetric";
   const showLocal = variant === "full" || variant === "local" || variant === "liveMetric";
@@ -224,8 +227,8 @@ export default function CauseEffectTimelineStack({
   const nWind = isLiveMetric ? 3 : 2;
   const nImf = isLiveMetric ? 4 : 3;
   const nGeo = isLiveMetric ? 5 : 4;
-  const nVtec = isLiveMetric ? 6 : showDrivers ? 5 : 1;
-  const nGnss = isLiveMetric ? 8 : showDrivers ? 6 : 2;
+  const nVtec = isLiveMetric ? 6 : showDrivers ? 5 : localStartNumber;
+  const nGnss = isLiveMetric ? 8 : showDrivers ? 6 : localStartNumber + (afterVtec ? 2 : 1);
 
   const [helio, setHelio] = useState<HeliosphericMonitorResponse | null>(null);
   const [timelines, setTimelines] = useState<SpaceWeatherTimelines | null>(null);
@@ -529,9 +532,11 @@ export default function CauseEffectTimelineStack({
     variant === "drivers"
       ? "Measurement flow: GOES X-ray → solar wind → IMF → geomagnetic activity. Shared UTC window and synchronized crosshair across panels 1–4."
       : variant === "local"
-        ? "Local CORS VTEC and GNSS context after Kp / magnetosphere. Shared UTC window with synchronized crosshair. Up to five station traces; VTEC history up to 48 hours."
+        ? localStartNumber > 1
+          ? "Local CORS VTEC and GNSS context after the Heliospheric Monitor (Kp). Shared UTC window with synchronized crosshair."
+          : "Local CORS VTEC and GNSS context after Kp / magnetosphere. Shared UTC window with synchronized crosshair. Up to five station traces; VTEC history up to 48 hours."
         : variant === "liveMetric"
-          ? "Measurement flow: GOES X-ray → F10.7 → solar wind → IMF → geomagnetic → Zimbabwe VTEC → CORS online → scintillation / GNSS risk. Shared UTC window; interpret Sun drivers before local response."
+          ? "Measurement flow: GOES X-ray → F10.7 → Heliospheric Monitor → Zimbabwe VTEC → CORS online → scintillation / GNSS risk."
           : "Shared UTC window and synchronized crosshair. Compare observations and propagation delays; alignment alone does not establish cause and effect. Up to five station traces are shown; coverage above includes all returned stations. Local VTEC history is available for up to 48 hours.";
 
   const hasDriverData = Boolean(helio || timelines);
