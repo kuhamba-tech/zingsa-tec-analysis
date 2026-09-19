@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   Chart as ChartJS,
   LinearScale,
@@ -12,8 +12,10 @@ import {
 } from "chart.js";
 import { Scatter, Line } from "react-chartjs-2";
 import LineChart from "@/components/charts/LineChart";
+import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
 import { getLiveVtec, getLiveVtecByStation, getStations } from "@/lib/api";
 import { formatKnmiUtcTick, sharedTimeDomain, utcTimeAxisProps } from "@/lib/chartTimeAxis";
+import type { ChartAnalysisBlock } from "@/lib/multiSourceChartAnalysis";
 import {
   diurnalPercentilesFullDay,
   flatLayerStec,
@@ -94,22 +96,103 @@ function hoursSinceUtcMidnight(now = Date.now()): number {
   return Math.min(24, Math.max(1, (now - startOfUtcDayMs(now)) / 3_600_000));
 }
 
+type GraphId = "vtec-series" | "elev-scatter" | "skyplot" | "ipp" | "diurnal";
+
+const GRAPH_EXPLANATIONS: Record<GraphId, ChartAnalysisBlock> = {
+  "vtec-series": {
+    lead: "VTEC is the vertical total electron content above each Zimbabwe CORS station — the column density of free electrons in TECU (1 TECU = 10¹⁶ el/m²).",
+    bullets: [
+      "Each coloured trace is one live CORS station on a shared Universal Time (UT) axis.",
+      "Quiet-day VTEC usually rises after sunrise, peaks near local noon–afternoon, and falls at night.",
+      "Sudden jumps shared across stations can mark a flare, storm, or data gap — always check observation times and supporting solar/geomagnetic drivers.",
+      "Typical quiet values: night ~1–10 TECU, day ~10–40 TECU; high solar activity can reach 50–100 TECU.",
+    ],
+  },
+  "elev-scatter": {
+    lead: "STEC is the slant TEC along the satellite–receiver ray; VTEC is the equivalent vertical column after thin-shell mapping.",
+    bullets: [
+      "Left panel: STEC versus elevation. Low elevations travel longer through the ionosphere, so STEC is larger for the same VTEC.",
+      "The dashed curve is the flat-layer reference STEC ≈ VTEC / sin(E) — a simple teaching comparison, not the operational mapping used in the pipeline.",
+      "Right panel: VTEC versus elevation. After mapping, VTEC should be much less elevation-dependent than STEC if the shell model is reasonable.",
+      "Points below ~15° elevation are excluded because mapping uncertainty grows rapidly near the horizon.",
+    ],
+  },
+  skyplot: {
+    lead: "This skyplot shows each live satellite look direction: azimuth around the horizon, elevation from the rim (0°) to zenith at the centre (90°).",
+    bullets: [
+      "Colour is VTEC (plasma scale, typically 10–35 TECU here). Brighter/yellower points are higher VTEC along that pierce path.",
+      "Curved arcs are satellite ground tracks across the sky over the sampling window — not fixed PRN labels.",
+      "Clusters toward the rim are low-elevation satellites; points near the centre are near-overhead (high elevation).",
+      "Use this with the IPP map: the same look angles place the ionospheric pierce points over Zimbabwe.",
+    ],
+  },
+  ipp: {
+    lead: "The ionospheric pierce point (IPP) is where the GNSS ray crosses a thin shell (here 350 km). Plotting IPPs shows which geographic regions each TEC sample represents.",
+    bullets: [
+      "Left panel colours each IPP by VTEC — spatial structure of electron content over and around Zimbabwe.",
+      "Right panel colours the same IPPs by observation UT hour — how coverage moves through the day.",
+      "IPP latitude/longitude come from receiver position plus elevation and azimuth (thin-shell geometry).",
+      "Edge samples (low elevation) pierce farther from the station; zenith samples sit nearly above the receiver.",
+    ],
+  },
+  diurnal: {
+    lead: "The diurnal fan chart summarises today’s UTC-day VTEC: median behaviour plus how much stations disagree hour by hour.",
+    bullets: [
+      "Solid blue line = median VTEC. Shaded bands = 25th–75th (inner) and 10th–90th (outer) percentile envelopes across stations/samples.",
+      "Dashed white VEq is a zenith-equivalent reference when available — useful for comparing mapped vertical content.",
+      "Only the current UTC calendar day is shown, so the chart builds as the day progresses.",
+      "A wide band means high spatial or inter-station variability; a narrow band means stations agree on the diurnal shape.",
+    ],
+  },
+};
+
 function Section({
   title,
   subtitle,
+  open,
+  onToggle,
+  analysis,
   children,
 }: {
   title: string;
   subtitle: string;
-  children: React.ReactNode;
+  open: boolean;
+  onToggle: () => void;
+  analysis: ChartAnalysisBlock;
+  children: ReactNode;
 }) {
   return (
-    <section className="card" style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+    <section
+      className="card"
+      role="button"
+      tabIndex={0}
+      aria-expanded={open}
+      aria-label={`${title}. Click for scientific explanation.`}
+      onClick={onToggle}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onToggle();
+        }
+      }}
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: "0.75rem",
+        cursor: "pointer",
+        borderColor: open ? "var(--accent)" : undefined,
+        background: open ? "rgba(22, 139, 210, 0.08)" : undefined,
+      }}
+    >
       <div>
         <div className="metric-label" style={{ marginBottom: 4 }}>{title}</div>
         <p className="sw-supporting-text" style={{ margin: 0 }}>{subtitle}</p>
+        <p className="sw-supporting-text" style={{ margin: "0.35rem 0 0", fontSize: "0.75rem" }}>
+          {open ? "Click again to hide scientific explanation" : "Click for scientific explanation"}
+        </p>
       </div>
-      {children}
+      <div onClick={(e) => e.stopPropagation()}>{children}</div>
+      {open && <ChartAnalysisBox block={analysis} title="Scientific interpretation" />}
     </section>
   );
 }
@@ -121,6 +204,8 @@ export default function ZimbabweTecTeachingLab() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
+  const [openGraph, setOpenGraph] = useState<GraphId | null>(null);
+  const toggleGraph = (id: GraphId) => setOpenGraph((cur) => (cur === id ? null : id));
 
   useEffect(() => {
     let cancelled = false;
@@ -345,6 +430,7 @@ export default function ZimbabweTecTeachingLab() {
         <p className="sw-supporting-text" style={{ margin: 0 }}>
           Zimbabwe CORS NTRIP VTEC / STEC from the live pipeline — VTEC time series, STEC/VTEC versus
           elevation, satellite skyplot coloured by VTEC, IPP ground tracks, and diurnal VTEC distribution.
+          Click any graph for its scientific explanation.
         </p>
         {loading && <div className="banner banner-info" style={{ marginTop: "0.75rem" }}>Loading live CORS VTEC…</div>}
         {error && <div className="banner banner-warn" style={{ marginTop: "0.75rem" }}>{error}</div>}
@@ -358,6 +444,9 @@ export default function ZimbabweTecTeachingLab() {
       <Section
         title="1 · VTEC Time Series"
         subtitle="Vertical Total Electron Content (VTEC) versus Universal Time (UT)."
+        open={openGraph === "vtec-series"}
+        onToggle={() => toggleGraph("vtec-series")}
+        analysis={GRAPH_EXPLANATIONS["vtec-series"]}
       >
         {stationSeries.length > 0 ? (
           <LineChart
@@ -386,6 +475,9 @@ export default function ZimbabweTecTeachingLab() {
       <Section
         title="2 · STEC and VTEC versus Satellite Elevation"
         subtitle="Two panels: STEC versus elevation and VTEC versus elevation."
+        open={openGraph === "elev-scatter"}
+        onToggle={() => toggleGraph("elev-scatter")}
+        analysis={GRAPH_EXPLANATIONS["elev-scatter"]}
       >
         {elevScatter.stecCount > 0 ? (
           <div className="sw-double-grid">
@@ -445,6 +537,9 @@ export default function ZimbabweTecTeachingLab() {
       <Section
         title="3 · Satellite Skyplot Coloured by VTEC"
         subtitle="Satellite azimuth and elevation, with colour representing VTEC."
+        open={openGraph === "skyplot"}
+        onToggle={() => toggleGraph("skyplot")}
+        analysis={GRAPH_EXPLANATIONS.skyplot}
       >
         {skyplotPoints.length > 0 ? (
           <SkyplotByVtec points={skyplotPoints} />
@@ -460,6 +555,9 @@ export default function ZimbabweTecTeachingLab() {
       <Section
         title="4 · Ionospheric Pierce Point (IPP) Ground Tracks"
         subtitle="Two panels: IPP locations coloured by VTEC and by observation time."
+        open={openGraph === "ipp"}
+        onToggle={() => toggleGraph("ipp")}
+        analysis={GRAPH_EXPLANATIONS.ipp}
       >
         {ippTracks.length > 0 ? (
           <IppGroundTracks points={ippTracks} />
@@ -475,6 +573,9 @@ export default function ZimbabweTecTeachingLab() {
       <Section
         title="5 · Diurnal VTEC Distribution"
         subtitle="Daily VTEC median and variability, including the 10th–90th and 25th–75th percentile bands."
+        open={openGraph === "diurnal"}
+        onToggle={() => toggleGraph("diurnal")}
+        analysis={GRAPH_EXPLANATIONS.diurnal}
       >
         {diurnalLive ? (
           <div style={{ background: "#0b1220", borderRadius: 8, padding: "0.65rem 0.5rem 0.35rem", height: 340 }}>
