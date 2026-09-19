@@ -349,13 +349,10 @@ function solarEventFeedLabel(source: string | undefined): string {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function SpaceWeatherPage() {
-  const [sw, setSw]         = useState<SpaceWeatherCurrent | null>(() => {
-    if (typeof window === "undefined") return null;
-    return absorbInlineBootPayload() ?? peekSpaceWeather();
-  });
-  const [sa, setSa]         = useState<SolarActivityFull | null>(() => peekSolarActivity());
+  const [sw, setSw]         = useState<SpaceWeatherCurrent | null>(null);
+  const [sa, setSa]         = useState<SolarActivityFull | null>(null);
   const [saError, setSaError] = useState<string | null>(null);
-  const [saLoading, setSaLoading] = useState(() => !peekSolarActivity());
+  const [saLoading, setSaLoading] = useState(true);
   const [tl, setTl]         = useState<SpaceWeatherTimelines | null>(null);
   const [ekf, setEkf]       = useState<EkfStatus | null>(null);
   const [tab, setTab]       = useState(0);
@@ -363,18 +360,16 @@ export default function SpaceWeatherPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [now, setNow] = useState(0);
   const [lastFetched, setLastFetched] = useState<string | null>(null);
-  const [feedStatus, setFeedStatus] = useState<FeedStatus>(() => (peekSpaceWeather() ? "stale" : "pending"));
-  const [liveStationCounts, setLiveStationCounts] = useState<LiveStationCounts | null>(() => {
-    const cachedStations = peekStations();
-    return cachedStations.length ? countSpiderLiveStationStatuses(cachedStations) : null;
-  });
+  const [feedStatus, setFeedStatus] = useState<FeedStatus>("pending");
+  const [liveStationCounts, setLiveStationCounts] = useState<LiveStationCounts | null>(null);
   const [selectedSolarInfo, setSelectedSolarInfo] = useState<SolarInfoKey>("summary");
   const [selectedGraph, setSelectedGraph] = useState<string | null>(null);
   const [timelineSyncMs, setTimelineSyncMs] = useState<number | null>(null);
   const toggleGraph = (graphId: string) => setSelectedGraph((current) => current === graphId ? null : graphId);
 
   useEffect(() => {
-    const cached = peekSpaceWeather();
+    // Seed after mount (not in useState) so SSR HTML matches the first client render.
+    const cached = absorbInlineBootPayload() ?? peekSpaceWeather();
     if (cached) {
       setSw(cached);
       setTl(snapshotTimelines(cached));
