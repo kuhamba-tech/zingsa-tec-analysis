@@ -15,7 +15,7 @@ import LineChart from "@/components/charts/LineChart";
 import { getLiveVtec, getLiveVtecByStation, getStations } from "@/lib/api";
 import { formatKnmiUtcTick, sharedTimeDomain, utcTimeAxisProps } from "@/lib/chartTimeAxis";
 import {
-  diurnalPercentiles,
+  diurnalPercentilesFullDay,
   flatLayerStec,
   hourOfDayUtc,
 } from "@/lib/tecTeachingMath";
@@ -64,8 +64,8 @@ export default function ZimbabweTecTeachingLab() {
     let cancelled = false;
     setLoading(true);
     Promise.allSettled([
-      getLiveVtecByStation(12, 10, 90_000),
-      getLiveVtec(1, undefined, 90_000, 5000),
+      getLiveVtecByStation(24, 15, 90_000),
+      getLiveVtec(2, undefined, 90_000, 6000),
       getStations(),
     ]).then(([st, live, cat]) => {
       if (cancelled) return;
@@ -175,9 +175,41 @@ export default function ZimbabweTecTeachingLab() {
         vals.push(p.vtec_tecu);
       }
     }
+    // Supplement with live observation samples for denser coverage
+    for (const o of obs) {
+      if (o.vtec_tecu == null || !Number.isFinite(o.vtec_tecu)) continue;
+      const h = hourOfDayUtc(o.time);
+      if (h == null) continue;
+      hoursArr.push(h);
+      vals.push(o.vtec_tecu);
+    }
     if (hoursArr.length < 8) return null;
-    return diurnalPercentiles(hoursArr, vals);
-  }, [stations]);
+    const fan = diurnalPercentilesFullDay(hoursArr, vals, { maxVtec: 70 });
+    const hasAny = fan.p50.some((v) => v != null);
+    if (!hasAny) return null;
+
+    // VEq (zenith): median of high-elevation live samples per half-hour bin
+    const veqBuckets = new Map<number, number[]>();
+    for (const o of obs) {
+      if (o.elevation_deg == null || o.elevation_deg < 60) continue;
+      if (o.vtec_tecu == null || !Number.isFinite(o.vtec_tecu)) continue;
+      if (o.vtec_tecu <= 0 || o.vtec_tecu > 70) continue;
+      const h = hourOfDayUtc(o.time);
+      if (h == null) continue;
+      const bin = Math.round(h * 2) / 2;
+      const arr = veqBuckets.get(bin) ?? [];
+      arr.push(o.vtec_tecu);
+      veqBuckets.set(bin, arr);
+    }
+    const veq = fan.hours.map((h) => {
+      const arr = veqBuckets.get(h);
+      if (!arr?.length) return null;
+      const sorted = arr.slice().sort((a, b) => a - b);
+      return sorted[Math.floor(sorted.length / 2)];
+    });
+
+    return { ...fan, veq };
+  }, [stations, obs]);
 
   const constellationSeries = useMemo(() => {
     const byConst = new Map<string, { x: number; y: number }[]>();
@@ -364,65 +396,21 @@ export default function ZimbabweTecTeachingLab() {
       </Section>
 
       <Section
-        title="5 · Live diurnal VTEC distribution"
-        subtitle="Half-hour bins of live CORS VTEC — median with 25–75% and 10–90% percentile bands."
+        title="Diurnal VTEC distribution — Live CORS"
+        subtitle="UT [hours] 0–24 · live Zimbabwe CORS VTEC · 10–90th and 25–75th percentile bands, median, and VEq (zenith, elev ≥ 60°)."
       >
         {diurnalLive ? (
-          <Line
-            data={{
-              labels: diurnalLive.bins.map((b) => `${b.toFixed(1)}h`),
-              datasets: [
-                {
-                  label: "10th–90th",
-                  data: diurnalLive.p90,
-                  borderColor: "transparent",
-                  backgroundColor: "rgba(56,189,248,0.12)",
-                  fill: "+1",
-                  pointRadius: 0,
-                },
-                {
-                  label: "10th",
-                  data: diurnalLive.p10,
-                  borderColor: "transparent",
-                  backgroundColor: "rgba(56,189,248,0.12)",
-                  fill: false,
-                  pointRadius: 0,
-                },
-                {
-                  label: "25th–75th",
-                  data: diurnalLive.p75,
-                  borderColor: "transparent",
-                  backgroundColor: "rgba(56,189,248,0.22)",
-                  fill: "+1",
-                  pointRadius: 0,
-                },
-                {
-                  label: "25th",
-                  data: diurnalLive.p25,
-                  borderColor: "transparent",
-                  pointRadius: 0,
-                },
-                {
-                  label: "Median",
-                  data: diurnalLive.p50,
-                  borderColor: "#38bdf8",
-                  backgroundColor: "#38bdf8",
-                  fill: false,
-                  tension: 0.2,
-                  pointRadius: 2,
-                },
-              ],
-            }}
-            options={{
-              responsive: true,
-              plugins: { legend: { labels: { color: "#94a3b8", boxWidth: 10, font: { size: 10 } } } },
-              scales: {
-                x: { title: { display: true, text: "UT hour bin", color: "#94a3b8" }, ticks: { color: "#94a3b8", maxTicksLimit: 12 } },
-                y: { title: { display: true, text: "VTEC (TECU)", color: "#94a3b8" }, ticks: { color: "#94a3b8" } },
-              },
-            }}
-            height={90}
-          />
+          <div style={{ background: "#0b1220", borderRadius: 8, padding: "0.65rem 0.5rem 0.35rem", height: 340 }}>
+            <DiurnalFanChart
+              hours={diurnalLive.hours}
+              p10={diurnalLive.p10}
+              p25={diurnalLive.p25}
+              p50={diurnalLive.p50}
+              p75={diurnalLive.p75}
+              p90={diurnalLive.p90}
+              veq={diurnalLive.veq}
+            />
+          </div>
         ) : (
           <div className="banner banner-info">
             {loading ? "Waiting for diurnal live samples…" : "Not enough live VTEC points yet for percentile bands."}
@@ -430,6 +418,152 @@ export default function ZimbabweTecTeachingLab() {
         )}
       </Section>
     </div>
+  );
+}
+
+function xy(
+  hours: number[],
+  values: (number | null)[],
+): { x: number; y: number | null }[] {
+  return hours.map((h, i) => ({ x: h, y: values[i] ?? null }));
+}
+
+function DiurnalFanChart({
+  hours,
+  p10,
+  p25,
+  p50,
+  p75,
+  p90,
+  veq,
+}: {
+  hours: number[];
+  p10: (number | null)[];
+  p25: (number | null)[];
+  p50: (number | null)[];
+  p75: (number | null)[];
+  p90: (number | null)[];
+  veq: (number | null)[];
+}) {
+  return (
+    <Line
+      data={{
+        datasets: [
+          {
+            label: "10-90th pct",
+            data: xy(hours, p90),
+            borderColor: "transparent",
+            backgroundColor: "rgba(37, 99, 180, 0.38)",
+            fill: "+1",
+            pointRadius: 0,
+            tension: 0.3,
+            spanGaps: false,
+            order: 4,
+          },
+          {
+            label: "p10",
+            data: xy(hours, p10),
+            borderColor: "transparent",
+            backgroundColor: "transparent",
+            fill: false,
+            pointRadius: 0,
+            spanGaps: false,
+            order: 4,
+          },
+          {
+            label: "25-75th pct",
+            data: xy(hours, p75),
+            borderColor: "transparent",
+            backgroundColor: "rgba(56, 160, 230, 0.45)",
+            fill: "+1",
+            pointRadius: 0,
+            tension: 0.3,
+            spanGaps: false,
+            order: 3,
+          },
+          {
+            label: "p25",
+            data: xy(hours, p25),
+            borderColor: "transparent",
+            backgroundColor: "transparent",
+            fill: false,
+            pointRadius: 0,
+            spanGaps: false,
+            order: 3,
+          },
+          {
+            label: "Median VTEC",
+            data: xy(hours, p50),
+            borderColor: "#3b9eff",
+            backgroundColor: "#3b9eff",
+            borderWidth: 2.5,
+            fill: false,
+            tension: 0.35,
+            pointRadius: 0,
+            spanGaps: false,
+            order: 2,
+          },
+          {
+            label: "VEq (zenith)",
+            data: xy(hours, veq),
+            borderColor: "#e8eef7",
+            backgroundColor: "#e8eef7",
+            borderWidth: 1.6,
+            borderDash: [6, 4],
+            fill: false,
+            tension: 0.35,
+            pointRadius: 0,
+            spanGaps: false,
+            order: 1,
+          },
+        ],
+      }}
+      options={{
+        responsive: true,
+        maintainAspectRatio: false,
+        parsing: false,
+        plugins: {
+          legend: {
+            position: "top",
+            align: "end",
+            labels: {
+              color: "#e8eef7",
+              boxWidth: 14,
+              boxHeight: 8,
+              font: { size: 11 },
+              filter: (item) => !["p10", "p25"].includes(String(item.text)),
+            },
+          },
+          title: {
+            display: true,
+            text: "Diurnal VTEC distribution — Live CORS",
+            color: "#f8fafc",
+            font: { size: 14, weight: "bold" },
+            padding: { bottom: 10 },
+          },
+        },
+        scales: {
+          x: {
+            type: "linear",
+            min: 0,
+            max: 24,
+            title: { display: true, text: "UT [hours]", color: "#e8eef7", font: { size: 12 } },
+            ticks: {
+              color: "#cbd5e1",
+              stepSize: 2,
+              callback: (v) => String(v),
+            },
+            grid: { color: "rgba(148,163,184,0.25)" },
+          },
+          y: {
+            title: { display: true, text: "VTEC [TECU]", color: "#e8eef7", font: { size: 12 } },
+            ticks: { color: "#cbd5e1" },
+            grid: { color: "rgba(148,163,184,0.25)" },
+            beginAtZero: false,
+          },
+        },
+      }}
+    />
   );
 }
 
