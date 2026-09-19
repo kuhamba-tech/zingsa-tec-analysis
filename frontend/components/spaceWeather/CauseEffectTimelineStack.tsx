@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import LocalIonosphereObservations from "./LocalIonosphereObservations";
 import SpaceWeatherCorsMap from "./SpaceWeatherCorsMap";
 import DeferredMount from "./DeferredMount";
@@ -199,19 +199,32 @@ export type CauseEffectVariant = "full" | "drivers" | "local" | "liveMetric" | "
  * full — National Dashboard: observations + map + drivers 1–4 + Zimbabwe 5–6
  * drivers — Sun→Earth panels 1–4 only
  * local — Zimbabwe VTEC + scintillation/GNSS panels only (after Kp on Solar Activity)
- * liveMetric — Live Metric Timelines: panels 1–6, no map chrome
+ * liveMetric — Live Metric Timelines: chronological Sun→Earth→Zimbabwe (slots for F10.7 + CORS)
  * overview — Space Weather page above tabs: observations + CORS map only
  */
 export default function CauseEffectTimelineStack({
   variant = "full",
+  afterSun = null,
+  afterVtec = null,
 }: {
   variant?: CauseEffectVariant;
+  /** Inserted after GOES X-ray (e.g. F10.7 sun metric on Live Metric). */
+  afterSun?: ReactNode;
+  /** Inserted after Zimbabwe VTEC (e.g. CORS online timeline on Live Metric). */
+  afterVtec?: ReactNode;
 }) {
   const showDrivers = variant === "full" || variant === "drivers" || variant === "liveMetric";
   const showLocal = variant === "full" || variant === "local" || variant === "liveMetric";
   const showChrome = variant === "full" || variant === "overview";
   const showTimelineSection = variant !== "overview";
   const fetchVtec = showLocal || showChrome;
+  const isLiveMetric = variant === "liveMetric";
+  // Live Metric chronological numbers: 1 X-ray · 2 F10.7 · 3 wind · 4 IMF · 5 geo · 6 VTEC · 7 CORS · 8 GNSS
+  const nWind = isLiveMetric ? 3 : 2;
+  const nImf = isLiveMetric ? 4 : 3;
+  const nGeo = isLiveMetric ? 5 : 4;
+  const nVtec = isLiveMetric ? 6 : showDrivers ? 5 : 1;
+  const nGnss = isLiveMetric ? 8 : showDrivers ? 6 : 2;
 
   const [helio, setHelio] = useState<HeliosphericMonitorResponse | null>(null);
   const [timelines, setTimelines] = useState<SpaceWeatherTimelines | null>(null);
@@ -516,7 +529,7 @@ export default function CauseEffectTimelineStack({
       : variant === "local"
         ? "Local CORS VTEC and GNSS context after Kp / magnetosphere. Shared UTC window with synchronized crosshair. Up to five station traces; VTEC history up to 48 hours."
         : variant === "liveMetric"
-          ? "Measurement flow: GOES X-ray → solar wind → IMF → geomagnetic → Zimbabwe VTEC → scintillation / GNSS risk. Shared UTC window and synchronized crosshair across panels 1–6."
+          ? "Measurement flow: GOES X-ray → F10.7 → solar wind → IMF → geomagnetic → Zimbabwe VTEC → CORS online → scintillation / GNSS risk. Shared UTC window; interpret Sun drivers before local response."
           : "Shared UTC window and synchronized crosshair. Compare observations and propagation delays; alignment alone does not establish cause and effect. Up to five station traces are shown; coverage above includes all returned stations. Local VTEC history is available for up to 48 hours.";
 
   const hasDriverData = Boolean(helio || timelines);
@@ -612,8 +625,10 @@ export default function CauseEffectTimelineStack({
 
               <GoesXrayLastDayChart />
 
+              {afterSun}
+
               <Panel
-                title="2 · Solar wind speed + density + proton temp."
+                title={`${nWind} · Solar wind speed + density + proton temp.`}
                 subtitle="L1 RTSW · km/s, cm⁻³ and K · oldest → newest · toggle series in the legend"
                 analysis={analyses.wind}
                 open={openPanel === "wind"}
@@ -662,7 +677,7 @@ export default function CauseEffectTimelineStack({
               </Panel>
 
               <Panel
-                title="3 · IMF Bz + Bt"
+                title={`${nImf} · IMF Bz + Bt`}
                 subtitle="L1 magnetometer · clear 0 nT line · southward Bz drives storms"
                 analysis={analyses.imf}
                 open={openPanel === "imf"}
@@ -690,7 +705,7 @@ export default function CauseEffectTimelineStack({
               </Panel>
 
               <Panel
-                title="4 · Geomagnetic activity"
+                title={`${nGeo} · Geomagnetic activity`}
                 subtitle="Live NOAA Kp / Kyoto Dst — same UTC window as solar wind & IMF"
                 analysis={analyses.geo}
                 open={openPanel === "geo"}
@@ -760,7 +775,7 @@ export default function CauseEffectTimelineStack({
           {showLocal && (
             <>
               <Panel
-                title={showDrivers ? "5 · Zimbabwe VTEC" : "1 · Zimbabwe VTEC"}
+                title={`${nVtec} · Zimbabwe VTEC`}
                 subtitle="Live CORS stations · local ionospheric response"
                 analysis={analyses.vtec}
                 open={openPanel === "vtec"}
@@ -796,8 +811,10 @@ export default function CauseEffectTimelineStack({
                 )}
               </Panel>
 
+              {afterVtec}
+
               <Panel
-                title={showDrivers ? "6 · Scintillation observations and estimated GNSS risk" : "2 · Scintillation observations and estimated GNSS risk"}
+                title={`${nGnss} · Scintillation observations and estimated GNSS risk`}
                 subtitle="S4 archive + provisional risk estimate · local positioning impact not verified"
                 analysis={analyses.gnss}
                 open={openPanel === "gnss"}
