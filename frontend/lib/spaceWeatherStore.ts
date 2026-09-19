@@ -97,13 +97,12 @@ export function subscribeSpaceWeatherStore(onStoreChange: () => void): () => voi
 /**
  * Client snapshot for metric cards — prefer in-flight layout boot, then memory,
  * then localStorage so the first hydrated frame can paint values.
+ * Must stay pure (no publish) for useSyncExternalStore.
  */
 export function getSpaceWeatherClientSnapshot(): SpaceWeatherCurrent | null {
   if (typeof window !== "undefined") {
     const boot = (window as Window & { __ZGIIS_SW_BOOT?: unknown }).__ZGIIS_SW_BOOT;
-    if (isUsable(boot)) {
-      return publishSpaceWeather(boot);
-    }
+    if (isUsable(boot)) return boot;
   }
   return peekSpaceWeather();
 }
