@@ -8,6 +8,7 @@ import {
   donkiFlareCountColor,
   donkiStormCountColor,
 } from "./solarEventColors";
+import { tecTypicalContext } from "./tecPrimer";
 
 /** Primary Sun→Zimbabwe summary cards (Phase 1 redesign). */
 export type MetricKey =
@@ -86,7 +87,7 @@ export const METRIC_EXPLANATIONS: Record<MetricKey, string> = {
   dst:
     "Dst and SYM-H measure storm-time changes in Earth's magnetic field, particularly ring-current development. They support magnetospheric context and must not be converted directly into NOAA G1–G5 labels.",
   zimbabwe_iono:
-    "Zimbabwe network VTEC from live CORS/GNSS observations. High VTEC alone is not ionospheric disturbance — ΔTEC relative to a quiet reference and ROTI are under development. Do not classify local disturbance solely from Kp.",
+    "Zimbabwe network VTEC from live CORS/GNSS observations. TEC is the line integral of electron density along the signal path (1 TECU = 10¹⁶ el/m²). High VTEC alone is not ionospheric disturbance — ΔTEC relative to a quiet reference and ROTI are under development. Do not classify local disturbance solely from Kp.",
   gnss_risk:
     "Operational navigation impact label. Until validated local ΔTEC/ROTI/RTK metrics drive the engine, treat this as provisional space-weather context (Kp, scintillation archive, related indices) — not proof of Zimbabwe GNSS failure.",
   stations:
@@ -906,7 +907,10 @@ export function interpretMetric(
       if (vtec === null) {
         return "Live Zimbabwe network VTEC is not available yet. ΔTEC and ROTI remain unavailable until a validated quiet-time reference and sampling window are in place — values are never invented.";
       }
-      return `Network VTEC is ${formatVtecDisplay(vtec)}. ΔTEC% and ROTI show “reference baseline under development” until scientifically validated. Do not classify local disturbance from Kp alone.`;
+      {
+        const context = tecTypicalContext(vtec);
+        return `Network VTEC is ${formatVtecDisplay(vtec)}. ${context} ΔTEC% and ROTI show “reference baseline under development” until scientifically validated. Do not classify local disturbance from Kp alone.`;
+      }
 
     case "gnss_risk": {
       const interpretations: Record<string, string> = {

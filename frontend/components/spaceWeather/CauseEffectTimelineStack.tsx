@@ -6,6 +6,7 @@ import SpaceWeatherCorsMap from "./SpaceWeatherCorsMap";
 import DeferredMount from "./DeferredMount";
 import GoesXrayLastDayChart from "./GoesXrayLastDayChart";
 import SwSectionBanner from "./SwSectionBanner";
+import TecPrimerBlock from "./TecPrimerBlock";
 import LineChart from "@/components/charts/LineChart";
 import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
 import { getHeliosphericMonitor, getLiveVtecByStation, getTimelines } from "@/lib/api";
@@ -498,10 +499,11 @@ export default function CauseEffectTimelineStack({
       ],
     },
     vtec: {
-      lead: "Zimbabwe CORS VTEC is the local ionospheric response — the key step from international drivers to regional impact.",
+      lead: "TEC is the line integral of electron density Ne along the GNSS path (1 TECU = 10¹⁶ el/m²). Zimbabwe CORS VTEC is the local ionospheric response after Sun→Earth drivers.",
       bullets: [
+        "Typical quiet values: night 1–10 TECU, day 10–40 TECU; high solar activity 50–100 TECU; extreme storms can exceed 200 TECU.",
         "Selected operational stations are plotted together on the same UTC axis.",
-        "Daytime TEC rise can be quiet-time EUV behaviour. Storm evidence needs supporting Bz/Kp/Dst plus TEC departure from baseline.",
+        "Daytime TEC rise can be quiet-time EUV behaviour. Storm evidence needs supporting Bz/Kp/Dst plus TEC departure from baseline (ΔTEC / ROTI under development).",
         "Full quiet-day vs disturbed ΔTEC envelopes remain on the Anomaly Detection page.",
       ],
     },
@@ -807,6 +809,11 @@ export default function CauseEffectTimelineStack({
                       : vtecRefreshFailed
                         ? "Station VTEC observations are unavailable. Retrying automatically."
                         : "No station VTEC points in the selected time range yet."}
+                  </div>
+                )}
+                {openPanel === "vtec" && (
+                  <div style={{ marginTop: "0.65rem" }}>
+                    <TecPrimerBlock compact />
                   </div>
                 )}
               </Panel>
