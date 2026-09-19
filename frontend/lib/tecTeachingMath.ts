@@ -103,6 +103,53 @@ export function diurnalPercentiles(
   return { bins, p10, p25, p50, p75, p90 };
 }
 
+/**
+ * Full-day (0–24 UT) diurnal fan chart grid — matches notebook Step 5 style.
+ * Missing half-hour bins are null so the axis stays 0…24.
+ */
+export function diurnalPercentilesFullDay(
+  hours: number[],
+  values: number[],
+  opts?: { maxVtec?: number },
+): {
+  hours: number[];
+  p10: (number | null)[];
+  p25: (number | null)[];
+  p50: (number | null)[];
+  p75: (number | null)[];
+  p90: (number | null)[];
+} {
+  const maxVtec = opts?.maxVtec ?? 80;
+  const filteredHours: number[] = [];
+  const filteredVals: number[] = [];
+  for (let i = 0; i < hours.length; i++) {
+    const v = values[i];
+    if (v == null || !Number.isFinite(v) || v <= 0 || v > maxVtec) continue;
+    if (!Number.isFinite(hours[i])) continue;
+    filteredHours.push(hours[i]);
+    filteredVals.push(v);
+  }
+  const raw = diurnalPercentiles(filteredHours, filteredVals);
+  const byBin = new Map<number, number>();
+  // index into raw arrays
+  const idx = new Map(raw.bins.map((b, i) => [b, i]));
+  const hoursOut = Array.from({ length: 49 }, (_, i) => i * 0.5); // 0 … 24
+  const pick = (arr: number[], bin: number) => {
+    const i = idx.get(bin);
+    if (i == null) return null;
+    const v = arr[i];
+    return Number.isFinite(v) ? v : null;
+  };
+  return {
+    hours: hoursOut,
+    p10: hoursOut.map((h) => pick(raw.p10, h)),
+    p25: hoursOut.map((h) => pick(raw.p25, h)),
+    p50: hoursOut.map((h) => pick(raw.p50, h)),
+    p75: hoursOut.map((h) => pick(raw.p75, h)),
+    p90: hoursOut.map((h) => pick(raw.p90, h)),
+  };
+}
+
 export const EXERCISE_STEC_TECU = 60;
 export const EXERCISE_ELEVATION_DEG = 30;
 /** Correct VTEC for STEC=60 at 30° with 350 km shell ≈ 34.2 TECU. */
