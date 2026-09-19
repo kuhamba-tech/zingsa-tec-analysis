@@ -180,8 +180,11 @@ def current(_=Depends(require_api_key)):
     try:
         ntrip_online, ntrip_total = _ntrip_stream_counts()
         if ntrip_online is not None and ntrip_total:
-            sw["stations_online"] = ntrip_online
-            sw["stations_total"] = ntrip_total
+            prev = sw.get("stations_online")
+            # Never overlay a healthier count with a transient 0/25 reading.
+            if ntrip_online > 0 or prev is None or int(prev or 0) <= 0:
+                sw["stations_online"] = ntrip_online
+                sw["stations_total"] = ntrip_total
     except Exception:
         log.exception("station count overlay failed on /space-weather/current")
     # Prefer in-memory collector samples; fall back to recent station VTEC so the
