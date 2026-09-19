@@ -217,6 +217,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                     key={`${item.href}-${item.label}`}
                     href={item.href}
                     className="app-nav-link"
+                    prefetch={false}
                     onClick={closeMobile}
                     aria-current={active ? "page" : undefined}
                     aria-label={collapsed ? item.label : undefined}

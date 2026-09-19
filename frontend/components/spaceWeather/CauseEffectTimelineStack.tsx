@@ -2,14 +2,13 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import LocalIonosphereObservations from "./LocalIonosphereObservations";
-import SpaceWeatherCorsMap from "./SpaceWeatherCorsMap";
 import DeferredMount from "./DeferredMount";
 import GoesXrayLastDayChart from "./GoesXrayLastDayChart";
 import SwSectionBanner from "./SwSectionBanner";
 import TecPrimerBlock from "./TecPrimerBlock";
-import LineChart from "@/components/charts/LineChart";
-import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
+import dynamic from "next/dynamic";
 import { getHeliosphericMonitor, getLiveVtecByStation, getTimelines } from "@/lib/api";
+import { getLoadProfile } from "@/lib/loadBudget";
 import { peekHeliosphericMonitor } from "@/lib/heliosphericStore";
 import {
   ONE_H_MS,
@@ -24,6 +23,26 @@ import type {
   LiveStationVtecSeries,
   SpaceWeatherTimelines,
 } from "@/lib/types";
+
+const SpaceWeatherCorsMap = dynamic(() => import("./SpaceWeatherCorsMap"), {
+  ssr: false,
+  loading: () => (
+    <div className="banner banner-info" role="status" style={{ margin: "0.5rem 0" }}>
+      Loading CORS map…
+    </div>
+  ),
+});
+const LineChart = dynamic(() => import("@/components/charts/LineChart"), {
+  ssr: false,
+  loading: () => (
+    <div className="banner banner-info" role="status">
+      Loading chart…
+    </div>
+  ),
+});
+const ChartAnalysisBox = dynamic(() => import("@/components/dashboard/ChartAnalysisBox"), {
+  ssr: false,
+});
 
 const PRIORITY_STATIONS = ["hara", "bula", "masv", "kari", "beit"] as const;
 const STATION_COLORS: Record<string, string> = {
@@ -281,7 +300,7 @@ export default function CauseEffectTimelineStack({
       if (showDrivers || showLocal) {
         feedCount += 1;
         tasks.push(
-          getTimelines()
+          getTimelines(getLoadProfile().timelineMaxPoints)
             .then((t) => {
               if (cancelled) return;
               setTimelines(t);
