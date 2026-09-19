@@ -3,7 +3,7 @@ import type { SpaceWeatherCurrent } from "@/lib/types";
 // This module must never import `@/lib/api`. Webpack turns api.ts circular
 // imports into `rememberSpaceWeather is not a function` at runtime.
 
-const SPACE_WEATHER_CACHE_KEY = "zgiis:last-good:space-weather";
+const SPACE_WEATHER_CACHE_KEY = "zgiis:last-good:space-weather:v3";
 
 type Listener = (sw: SpaceWeatherCurrent) => void;
 
@@ -61,9 +61,19 @@ export function mergeSpaceWeatherPreferDefined(
   const out = { ...prev } as SpaceWeatherCurrent;
   for (const key of Object.keys(next) as (keyof SpaceWeatherCurrent)[]) {
     const value = next[key];
-    if (value !== null && value !== undefined) {
-      (out as unknown as Record<string, unknown>)[key as string] = value;
+    if (value === null || value === undefined) continue;
+    // A flaky /current overlay of stations_online=0 (or empty VTEC) must not
+    // erase a healthier SSR/boot snapshot — that is what painted CORS 0/25.
+    if (
+      (key === "stations_online" || key === "mean_vtec") &&
+      typeof value === "number" &&
+      Number(value) <= 0 &&
+      typeof prev[key] === "number" &&
+      Number(prev[key]) > 0
+    ) {
+      continue;
     }
+    (out as unknown as Record<string, unknown>)[key as string] = value;
   }
   return out;
 }

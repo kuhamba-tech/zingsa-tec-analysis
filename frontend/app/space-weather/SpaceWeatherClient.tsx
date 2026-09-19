@@ -512,8 +512,10 @@ export default function SpaceWeatherClient({
     // Phase 1 — current + solar in parallel so all metric cards fill together.
     getSpaceWeather(false)
       .then((s) => {
-        setSw(s);
-        setTl((prev) => prev ?? snapshotTimelines(s));
+        // publishSpaceWeather merges; prefer store so stations_online=0 cannot wipe SSR.
+        const merged = peekSpaceWeather() ?? s;
+        setSw(merged);
+        setTl((prev) => prev ?? snapshotTimelines(merged));
         setFeedStatus("ok");
         setLastFetched(new Date().toISOString());
       })

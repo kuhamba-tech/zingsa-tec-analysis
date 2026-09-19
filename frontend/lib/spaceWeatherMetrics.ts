@@ -431,9 +431,23 @@ export function buildMetricCards(
   const vtec = sw?.mean_vtec ?? opts?.liveMeanVtec ?? null;
   const g = noaaGScaleFromKp(kp, indicesLoading);
 
-  const stationsOnlineCount = liveCounts ? connectedStreamCount(liveCounts) : online;
-  const stationsTotal = liveCounts?.total ?? total;
-  const corsDisplay = liveCounts ? formatCorsConnectedDisplay(liveCounts) : null;
+  const liveOnline = liveCounts ? connectedStreamCount(liveCounts) : null;
+  // Prefer a real online count from NTRIP/Spider rows; never let a zero live
+  // tally hide a healthier /current stations_online (and vice versa).
+  const stationsOnlineCount =
+    liveOnline != null && liveOnline > 0
+      ? liveOnline
+      : online != null && online > 0
+        ? online
+        : (liveOnline ?? online);
+  const stationsTotal =
+    liveOnline != null && liveOnline > 0
+      ? liveCounts!.total
+      : online != null && online > 0
+        ? (total ?? liveCounts?.total ?? null)
+        : (liveCounts?.total ?? total);
+  const preferLiveDisplay = liveOnline != null && liveOnline > 0;
+  const corsDisplay = preferLiveDisplay && liveCounts ? formatCorsConnectedDisplay(liveCounts) : null;
   const stationsLabel =
     corsDisplay?.value ??
     (stationsOnlineCount !== null && stationsTotal
