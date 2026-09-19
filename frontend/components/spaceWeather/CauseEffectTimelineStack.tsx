@@ -193,20 +193,25 @@ function timelinePointsToSeries(points: { t: string; v: number | null }[]) {
   });
 }
 
-export type CauseEffectVariant = "full" | "drivers" | "local";
+export type CauseEffectVariant = "full" | "drivers" | "local" | "liveMetric" | "overview";
 
 /**
- * full — National Dashboard / overview: local observations + Sun→Earth drivers + Zimbabwe response
- * drivers — Live Metric Timelines: panels 1–4 only (X-ray → wind → IMF → geomagnetic)
- * local — Space Weather overview under the drivers tab: CORS/VTEC/GNSS without duplicating drivers
+ * full — National Dashboard: observations + map + drivers 1–4 + Zimbabwe 5–6
+ * drivers — Sun→Earth panels 1–4 only
+ * local — Zimbabwe response panels (+ observations/map chrome)
+ * liveMetric — Live Metric Timelines: panels 1–6, no map chrome
+ * overview — Space Weather page above tabs: observations + CORS map only
  */
 export default function CauseEffectTimelineStack({
   variant = "full",
 }: {
   variant?: CauseEffectVariant;
 }) {
-  const showDrivers = variant === "full" || variant === "drivers";
-  const showLocal = variant === "full" || variant === "local";
+  const showDrivers = variant === "full" || variant === "drivers" || variant === "liveMetric";
+  const showLocal = variant === "full" || variant === "local" || variant === "liveMetric";
+  const showChrome = variant === "full" || variant === "local" || variant === "overview";
+  const showTimelineSection = variant !== "overview";
+  const fetchVtec = showLocal || showChrome;
 
   const [helio, setHelio] = useState<HeliosphericMonitorResponse | null>(null);
   const [timelines, setTimelines] = useState<SpaceWeatherTimelines | null>(null);
@@ -266,8 +271,9 @@ export default function CauseEffectTimelineStack({
             .then(() => undefined),
         );
       }
-      if (showLocal) {
+      if (fetchVtec) {
         feedCount += 1;
+        if (!cancelled && showChrome && !showLocal) setVtecLoading(true);
         tasks.push(
           getLiveVtecByStation(Math.min(rangeHours, 48), 2)
             .then((v) => {
@@ -303,7 +309,7 @@ export default function CauseEffectTimelineStack({
     const poll = window.setInterval(() => { void refresh(); }, 60_000);
     const clock = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => { cancelled = true; window.clearInterval(poll); window.clearInterval(clock); };
-  }, [rangeHours, showDrivers, showLocal]);
+  }, [rangeHours, showDrivers, showLocal, fetchVtec, showChrome]);
 
   const plottedStations = useMemo(() => {
     const available = vtec.filter((station) => station.points?.length);
@@ -501,23 +507,29 @@ export default function CauseEffectTimelineStack({
       ? "Sun → Earth driver timelines"
       : variant === "local"
         ? "Zimbabwe ionosphere response"
-        : "Solar Drivers and Zimbabwe Response";
+        : variant === "liveMetric"
+          ? "Sun → Earth → Zimbabwe timelines"
+          : "Solar Drivers and Zimbabwe Response";
   const bannerSupport =
     variant === "drivers"
       ? "Measurement flow: GOES X-ray → solar wind → IMF → geomagnetic activity. Shared UTC window and synchronized crosshair across panels 1–4."
       : variant === "local"
         ? "Local CORS VTEC and GNSS context after the international drivers. Shared UTC window with synchronized crosshair. Up to five station traces; VTEC history up to 48 hours."
-        : "Shared UTC window and synchronized crosshair. Compare observations and propagation delays; alignment alone does not establish cause and effect. Up to five station traces are shown; coverage above includes all returned stations. Local VTEC history is available for up to 48 hours.";
+        : variant === "liveMetric"
+          ? "Measurement flow: GOES X-ray → solar wind → IMF → geomagnetic → Zimbabwe VTEC → scintillation / GNSS risk. Shared UTC window and synchronized crosshair across panels 1–6."
+          : "Shared UTC window and synchronized crosshair. Compare observations and propagation delays; alignment alone does not establish cause and effect. Up to five station traces are shown; coverage above includes all returned stations. Local VTEC history is available for up to 48 hours.";
 
   const hasDriverData = Boolean(helio || timelines);
   const hasLocalData = Boolean(timelines || vtec.length > 0);
   const showTimelineBody =
-    (showDrivers && (hasDriverData || !loading)) ||
-    (showLocal && (hasLocalData || !loading));
+    showTimelineSection && (
+      (showDrivers && (hasDriverData || !loading)) ||
+      (showLocal && (hasLocalData || !loading))
+    );
 
   return (
     <>
-    {showLocal && (
+    {showChrome && (
       <>
         <LocalIonosphereObservations stations={vtec} now={now} refreshFailed={vtecRefreshFailed} loading={vtecLoading} />
         {/* CORS map is heavier than the readings — mount when near viewport. */}
@@ -537,6 +549,7 @@ export default function CauseEffectTimelineStack({
         </DeferredMount>
       </>
     )}
+    {showTimelineSection && (
     <section className="card sw-driver-timelines" style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }} aria-labelledby="driver-timelines-title">
       <SwSectionBanner
         icon="🔗"
@@ -840,6 +853,7 @@ export default function CauseEffectTimelineStack({
         </>
       )}
     </section>
+    )}
     </>
   );
 }
