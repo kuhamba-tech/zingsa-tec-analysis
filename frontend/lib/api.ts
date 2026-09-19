@@ -31,6 +31,7 @@ import type {
   LivePipelineStatus,
   LiveVtecHealth,
   LiveStationVtecSeries,
+  TecMethodComparisonResponse,
   GlobalTecByStationResponse,
   NavigationNewsBriefApi,
   NavigationNewsBundleApi,
@@ -954,6 +955,17 @@ export const getLiveVtec = (
 ) =>
   get<LiveObservation[]>(
     "/live/vtec",
+    { hours, station, limit, _ts: Date.now() },
+    timeoutMs,
+  );
+export const getTecMethodComparison = (
+  hours = 6,
+  station?: string,
+  limit = 2500,
+  timeoutMs = 60_000,
+) =>
+  get<TecMethodComparisonResponse>(
+    "/live/tec-method-comparison",
     { hours, station, limit, _ts: Date.now() },
     timeoutMs,
   );

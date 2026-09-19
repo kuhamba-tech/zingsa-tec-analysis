@@ -1110,6 +1110,35 @@ export interface LiveObservation {
   azimuth_deg?: number | null;
   constellation: string | null;
   prn: string | null;
+  tec_method?: string | null;
+  bias_method?: string | null;
+  arc_bias_tecu?: number | null;
+}
+
+export interface TecMethodInfo {
+  id: string;
+  label: string;
+  short: string;
+  calibration: string;
+  color: string;
+  engine?: string | null;
+}
+
+export interface TecMethodReference {
+  cite: string;
+  title: string;
+  doi: string;
+}
+
+export interface TecMethodComparisonResponse {
+  available: boolean;
+  hours: number;
+  sample_limit: number;
+  gopi: LiveObservation[];
+  gg: LiveObservation[];
+  methods: TecMethodInfo[];
+  references: TecMethodReference[];
+  note?: string | null;
 }
 
 export interface LiveStationVtecPoint {

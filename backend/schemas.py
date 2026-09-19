@@ -1073,6 +1073,35 @@ class LiveObservation(BaseModel):
     azimuth_deg: float | None = None
     constellation: str | None = None
     prn: str | None = None
+    tec_method: str | None = None
+    bias_method: str | None = None
+    arc_bias_tecu: float | None = None
+
+
+class TecMethodInfo(BaseModel):
+    id: str
+    label: str
+    short: str
+    calibration: str
+    color: str
+    engine: str | None = None
+
+
+class TecMethodReference(BaseModel):
+    cite: str
+    title: str
+    doi: str
+
+
+class TecMethodComparisonResponse(BaseModel):
+    available: bool = True
+    hours: float
+    sample_limit: int
+    gopi: list[LiveObservation] = []
+    gg: list[LiveObservation] = []
+    methods: list[TecMethodInfo] = []
+    references: list[TecMethodReference] = []
+    note: str | None = None
 
 
 class LiveStationVtecPoint(BaseModel):
