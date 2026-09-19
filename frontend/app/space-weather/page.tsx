@@ -943,6 +943,16 @@ export default function SpaceWeatherPage() {
             <HeliosphericMonitorStack />
           </DeferredMount>
 
+          {/* Zimbabwe response continues the Sun→Earth chain after Kp */}
+          <DeferredMount
+            className="sw-deferred-block"
+            minHeight={280}
+            rootMargin="200px 0px"
+            fallback={sectionFallback}
+          >
+            <CauseEffectTimelineStack variant="local" />
+          </DeferredMount>
+
           {/* Active Regions + CME table side by side */}
           <div className="sw-double-grid">
             <div className="card">
