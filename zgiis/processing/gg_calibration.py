@@ -23,13 +23,15 @@ import pandas as pd
 
 log = logging.getLogger(__name__)
 
-EARTH_RADIUS_KM = 6371.0
+# Match GOPI / Seemala geometry (tec_core Re=6378 km, H_ipp=350 km, elev≥30°)
+# so Method 1 vs Method 2 differences reflect calibration, not shell or mask.
+EARTH_RADIUS_KM = 6378.0
 DEFAULT_SHELL_KM = 350.0
 ARC_GAP_S = 600.0
 MIN_ARC_POINTS = 8
 WINDOW_MINUTES = 15
 MAX_POLY_DEGREE = 2
-ELEV_MASK_DEG = 15.0
+ELEV_MASK_DEG = 30.0
 
 GG_REFERENCES = [
     {
@@ -70,8 +72,8 @@ GOPI_META = MethodMeta(
     short="GOPI",
     calibration=(
         "Dual-frequency code/phase TEC with Seemala-style DCB / σ-minimisation (Gopi Ch. 4). "
-        "Live CORS often uses code TEC without monthly DCB files — fast operational VTEC, "
-        "absolute scale can retain residual bias."
+        "Live CORS: code TEC, thin-shell IPP at 350 km, elev ≥ 30°. Fast operational VTEC; "
+        "absolute scale can retain residual bias without monthly DCB files."
     ),
     color="#38bdf8",
 )
@@ -83,7 +85,7 @@ GG_META = MethodMeta(
     calibration=(
         "Geometry-free arcs; 15-min windows; joint least squares for VTEC(MODIP, LT) polynomial "
         "+ arc biases / receiver DCB (Ciraolo/Cesaroni Gg; PyTECGg on full RINEX). "
-        "Same ionosphere as GOPI — different bias removal."
+        "Same geometry as GOPI: elev ≥ 30°, IPP shell 350 km, Re=6378 km — different bias removal."
     ),
     color="#f59e0b",
 )

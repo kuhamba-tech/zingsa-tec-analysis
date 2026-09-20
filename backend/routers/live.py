@@ -332,8 +332,8 @@ def _build_tec_method_comparison(
         "Method 1 (GOPI / Seemala) is the live CORS NTRIP dual-frequency path shown on the "
         "TEC Heat Map. Method 2 (Gg / Ciraolo–Cesaroni) re-calibrates the same samples with "
         f"the TEC_GNSS_Notebook_v5 / PyTECGg bias model ({engine}): arc biases + VTEC(MODIP, LT) "
-        "polynomial. Same ionosphere — different absolute scale after bias removal. "
-        "ΔVTEC = Gg − GOPI."
+        "polynomial. Both methods use elev ≥ 30° and IPP shell 350 km so ΔVTEC = Gg − GOPI "
+        "reflects calibration, not geometry."
     )
     return TecMethodComparisonResponse(
         available=bool(gopi),
@@ -358,8 +358,9 @@ async def tec_method_comparison(
 ):
     """Compare GOPI / Seemala live TEC with Gg (Ciraolo–Cesaroni) calibration.
 
-    Same underlying CORS samples; Gg applies arc-bias + windowed VTEC polynomial
-    calibration so differences reflect calibration method, not a different network.
+    Same underlying CORS samples and geometry (elev ≥ 30°, IPP 350 km);
+    Gg applies arc-bias + windowed VTEC polynomial calibration so differences
+    reflect calibration method, not a different network or shell model.
     """
     # Cap work: comparison UI does not need 10k samples and two parallel builds
     # were hanging the single uvicorn worker (socket hang-ups → blank page).
