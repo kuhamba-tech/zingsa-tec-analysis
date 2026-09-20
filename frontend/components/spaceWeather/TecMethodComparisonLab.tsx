@@ -26,11 +26,11 @@ type GraphId = "cmp-vtec" | "cmp-elev" | "cmp-sky" | "cmp-diff" | "cmp-diurnal";
 
 const GRAPH_HELP: Record<GraphId, ChartAnalysisBlock> = {
   "cmp-vtec": {
-    lead: "Same CORS samples, two calibrations: GOPI/Seemala (cyan) versus Gg/Ciraolo–Cesaroni (amber).",
+    lead: "Same CORS samples, two calibrations: GOPI/Seemala (cyan) versus Gg = Cesaroni (amber).",
     bullets: [
       "Both start from dual-frequency geometry-free TEC; they diverge in how hardware biases are removed.",
       "GOPI: Seemala-style DCB / σ handling (live path often code TEC without monthly DCB files).",
-      "Gg: windowed least squares for a VTEC(MODIP, LT) polynomial + arc biases (notebook / PyTECGg).",
+      "Gg: windowed least squares for a VTEC(MODIP, LT) polynomial + arc biases (Cesaroni / PyTECGg).",
       "Vertical offset between cyan and amber is usually calibration — not a second ionosphere.",
     ],
   },
@@ -268,8 +268,8 @@ export default function TecMethodComparisonLab() {
           {" "}
           <span style={{ color: GOPI_COLOR, fontWeight: 700 }}>GOPI / Seemala</span>
           {" "}(live operational) versus{" "}
-          <span style={{ color: GG_COLOR, fontWeight: 700 }}>Gg / Ciraolo–Cesaroni (PyTECGg)</span>
-          {" "}(notebook calibration). Cyan–amber offsets are mostly bias handling, not a different ionosphere.
+          <span style={{ color: GG_COLOR, fontWeight: 700 }}>Gg = Cesaroni</span>
+          {" "}calibration. Cyan–amber offsets are mostly bias handling, not a different ionosphere.
           Click any graph for the scientific explanation.
         </p>
         <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", marginTop: "0.75rem", alignItems: "center" }}>
@@ -299,7 +299,7 @@ export default function TecMethodComparisonLab() {
         ) : null}
         {data?.references?.length ? (
           <details style={{ marginTop: "0.75rem" }}>
-            <summary className="sw-supporting-text" style={{ cursor: "pointer" }}>Gg method references (3.4)</summary>
+            <summary className="sw-supporting-text" style={{ cursor: "pointer" }}>Gg = Cesaroni references</summary>
             <ul style={{ margin: "0.45rem 0 0", paddingLeft: "1.1rem", fontSize: "0.78rem", color: "var(--text-muted)" }}>
               {data.references.map((r) => (
                 <li key={r.doi} style={{ marginBottom: 4 }}>

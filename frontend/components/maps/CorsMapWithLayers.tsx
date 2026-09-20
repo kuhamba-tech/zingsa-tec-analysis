@@ -340,7 +340,7 @@ export default function CorsMapWithLayers({
                 <>
                   {" "}
                   TEC labels: <span style={{ color: "#38bdf8" }}>G</span> = GOPI ·{" "}
-                  <span style={{ color: "#f59e0b" }}>Gg</span> = Cesaroni/Gg (notebook).
+                  <span style={{ color: "#f59e0b" }}>Gg</span> = Cesaroni
                 </>
               )}
             </div>
@@ -360,7 +360,7 @@ export default function CorsMapWithLayers({
       {tecLayerActive && (
         <div className="home-live-tec-below" aria-live="polite">
           <div className="home-live-tec-below-label">
-            Live TEC · G = GOPI (NTRIP) · Gg = Cesaroni / notebook
+            Live TEC · G = GOPI (NTRIP) · Gg = Cesaroni
           </div>
           {heatmap?.available ? (
             <>
