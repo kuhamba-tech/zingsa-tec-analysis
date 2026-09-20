@@ -42,11 +42,12 @@ function chartOptions(title: string) {
   return {
     responsive: true,
     maintainAspectRatio: false,
+    color: "#ffffff",
     plugins: {
       legend: {
         position: "bottom" as const,
         labels: {
-          color: "#334155",
+          color: "#ffffff",
           usePointStyle: true,
           pointStyle: "circle",
           boxWidth: 8,
@@ -57,7 +58,7 @@ function chartOptions(title: string) {
       title: {
         display: true,
         text: title,
-        color: "#0f172a",
+        color: "#ffffff",
         font: { size: 15, weight: "bold" as const },
         padding: { bottom: 4 },
       },
@@ -79,9 +80,9 @@ function chartOptions(title: string) {
         type: "linear" as const,
         min: 0,
         max: 23,
-        title: { display: true, text: "UT [hours]", color: "#475569", font: { size: 12 } },
+        title: { display: true, text: "UT [hours]", color: "#ffffff", font: { size: 12 } },
         ticks: {
-          color: "#475569",
+          color: "#ffffff",
           stepSize: 3,
           callback: (v: string | number) => {
             const n = Number(v);
@@ -90,14 +91,14 @@ function chartOptions(title: string) {
               : "";
           },
         },
-        grid: { color: "rgba(148, 163, 184, 0.35)", borderDash: [4, 4] },
+        grid: { color: "rgba(148, 163, 184, 0.28)", borderDash: [4, 4] },
       },
       y: {
         min: 0,
         suggestedMax: 45,
-        title: { display: true, text: "VTEC [TECU]", color: "#475569", font: { size: 12 } },
-        ticks: { color: "#475569", stepSize: 15 },
-        grid: { color: "rgba(148, 163, 184, 0.45)", borderDash: [4, 4] },
+        title: { display: true, text: "VTEC [TECU]", color: "#ffffff", font: { size: 12 } },
+        ticks: { color: "#ffffff", stepSize: 15 },
+        grid: { color: "rgba(148, 163, 184, 0.28)", borderDash: [4, 4] },
       },
     },
   };
@@ -134,11 +135,11 @@ function BandChart({
   return (
     <div
       style={{
-        background: "#ffffff",
+        background: "#0a1929",
         borderRadius: 10,
-        border: "1px solid #e2e8f0",
+        border: "1px solid var(--border)",
         padding: "0.85rem 0.85rem 0.55rem",
-        color: "#0f172a",
+        color: "#ffffff",
       }}
     >
       <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", alignItems: "center", marginBottom: 6 }}>
@@ -146,8 +147,8 @@ function BandChart({
           style={{
             fontSize: "0.72rem",
             fontWeight: 600,
-            color: "#475569",
-            background: "#f1f5f9",
+            color: "#ffffff",
+            background: "rgba(22, 139, 210, 0.22)",
             borderRadius: 999,
             padding: "0.2rem 0.65rem",
           }}
@@ -155,7 +156,7 @@ function BandChart({
           {badge}
         </span>
         {series && (
-          <span style={{ fontSize: "0.72rem", color: "#64748b" }}>
+          <span style={{ fontSize: "0.72rem", color: "#ffffff" }}>
             N {series.stationCounts.northern} · C {series.stationCounts.central} · S{" "}
             {series.stationCounts.southern} stations
           </span>
@@ -167,13 +168,13 @@ function BandChart({
         ) : (
           <div
             className="banner banner-info"
-            style={{ margin: "2rem 0.5rem", background: "#f8fafc", color: "#334155", borderColor: "#cbd5e1" }}
+            style={{ margin: "2rem 0.5rem" }}
           >
             {empty}
           </div>
         )}
       </div>
-      <p style={{ margin: "0.45rem 0 0.15rem", fontSize: "0.75rem", color: "#64748b", lineHeight: 1.45 }}>
+      <p style={{ margin: "0.45rem 0 0.15rem", fontSize: "0.75rem", color: "#ffffff", lineHeight: 1.45 }}>
         {footer}
       </p>
     </div>

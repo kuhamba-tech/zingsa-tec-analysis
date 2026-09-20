@@ -497,7 +497,7 @@ export default function ZimbabweTecTeachingLab() {
         {elevScatter.stecCount > 0 ? (
           <div className="sw-double-grid">
             <div>
-              <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginBottom: 6 }}>STEC vs elevation</div>
+              <div style={{ fontSize: "0.78rem", color: "#ffffff", marginBottom: 6 }}>STEC vs elevation</div>
               <Scatter
                 data={{
                   datasets: [
@@ -527,7 +527,7 @@ export default function ZimbabweTecTeachingLab() {
               />
             </div>
             <div>
-              <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginBottom: 6 }}>VTEC vs elevation</div>
+              <div style={{ fontSize: "0.78rem", color: "#ffffff", marginBottom: 6 }}>VTEC vs elevation</div>
               <Scatter
                 data={{ datasets: elevScatter.vtecDatasets }}
                 options={{
