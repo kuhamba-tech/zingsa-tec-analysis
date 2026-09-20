@@ -7228,11 +7228,17 @@ a.home-map-layer-btn {
   gap: 0.65rem;
 }
 .space-weather-page .dashboard-header-copy .page-subtitle {
-  font-size: 0.78rem;
-  margin: 0.2rem 0 0;
+  font-size: 0.86rem;
+  margin: 0.3rem 0 0;
+  max-width: 36rem;
+  line-height: 1.4;
 }
 .space-weather-page .page-title {
-  font-size: clamp(1.15rem, 2vw, 1.45rem);
+  /* Match visual weight of the header clock digits (≈1.35–1.75rem). */
+  font-size: clamp(1.55rem, 2.8vw, 2rem);
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
 }
 .space-weather-page .sw-monitor-status {
   gap: 0.4rem 0.85rem;
@@ -7395,11 +7401,11 @@ a.home-map-layer-btn {
   }
 
   .space-weather-page .page-title {
-    font-size: clamp(1.25rem, 5.5vw, 1.65rem);
+    font-size: clamp(1.45rem, 6vw, 1.85rem);
   }
 
   .space-weather-page .page-subtitle {
-    font-size: 0.86rem;
+    font-size: 0.9rem;
     line-height: 1.4;
   }
 
