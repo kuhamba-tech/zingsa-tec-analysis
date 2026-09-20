@@ -83,7 +83,7 @@ export default function StormWatchSummary({
             <p className="storm-summary-muted">{defaultBanner}</p>
           )}
         </div>
-        <Link href="/dashboard#dashboard-timelines" className="btn storm-summary-link">
+        <Link href="/dashboard/#dashboard-timelines" className="btn storm-summary-link">
           View charts →
         </Link>
       </div>

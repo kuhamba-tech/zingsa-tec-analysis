@@ -360,7 +360,7 @@ export default function GnssIntelligencePage() {
         <strong>Space weather affects everyone.</strong> Solar flares, geomagnetic storms, and
         ionospheric disturbance change how GPS reaches your phone, tractor, taxi, and survey
         instruments. Briefs below translate live{" "}
-        <Link href="/space-weather">Kp, Dst, S4, and GNSS risk</Link> into plain language — ready
+        <Link href="/space-weather/">Kp, Dst, S4, and GNSS risk</Link> into plain language — ready
         for WhatsApp groups, radio, and social media.
       </div>
 
@@ -599,13 +599,13 @@ export default function GnssIntelligencePage() {
       </section>
 
       <div className="gnwi-footer-links">
-        <Link href="/space-weather" className="btn">
+        <Link href="/space-weather/" className="btn">
           ← Live Space Weather
         </Link>
-        <Link href="/dashboard" className="btn btn-accent">
+        <Link href="/dashboard/" className="btn btn-accent">
           Operations Dashboard →
         </Link>
-        <Link href="/live-pipeline" className="btn">
+        <Link href="/live-pipeline/" className="btn">
           Live CORS Pipeline →
         </Link>
       </div>

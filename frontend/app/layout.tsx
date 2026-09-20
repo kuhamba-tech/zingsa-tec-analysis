@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import "./globals.css";
 import AppShell from "@/components/layout/AppShell";
 import ChunkLoadRecovery from "@/components/ChunkLoadRecovery";
+import RouterFetchRecovery from "@/components/RouterFetchRecovery";
 import SpaceWeatherBootScript from "@/components/SpaceWeatherBootScript";
 
 export const metadata: Metadata = {
@@ -25,6 +26,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body>
         <ChunkLoadRecovery />
+        <RouterFetchRecovery />
         <Suspense fallback={<div className="app-main">{children}</div>}>
           <AppShell>{children}</AppShell>
         </Suspense>

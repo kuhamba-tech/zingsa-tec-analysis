@@ -181,7 +181,7 @@ export default function StormWatchLog({
       {compact && alerts.length > COMPACT_LIMIT && (
         <p className="storm-log-footer">
           Showing {COMPACT_LIMIT} of {alerts.length} alerts.{" "}
-          <Link href="/storm-watch">View full Storm Watch log →</Link>
+          <Link href="/storm-watch/">View full Storm Watch log →</Link>
         </p>
       )}
     </div>

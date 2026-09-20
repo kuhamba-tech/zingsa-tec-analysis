@@ -449,7 +449,7 @@ export default function DashboardPage() {
 
       <p style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
         Operational snapshot of every index — for solar flare, CME, and NOAA alert detail see{" "}
-        <Link href="/space-weather">Space Weather Monitoring</Link>.
+        <Link href="/space-weather/">Space Weather Monitoring</Link>.
       </p>
       <ClickableMetricGrid
         sw={sw}

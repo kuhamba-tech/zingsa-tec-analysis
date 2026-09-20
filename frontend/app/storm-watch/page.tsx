@@ -38,7 +38,7 @@ export default function StormWatchPage() {
 
       <p style={{ fontSize: "0.82rem", color: "var(--text-muted)", margin: 0 }}>
         Broader solar and heliospheric context stays on{" "}
-        <Link href="/space-weather">Space Weather</Link>.
+        <Link href="/space-weather/">Space Weather</Link>.
       </p>
     </div>
   );

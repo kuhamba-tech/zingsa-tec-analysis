@@ -491,9 +491,9 @@ export default function PrnExplorerPage() {
                 <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "0.4rem" }}>
                   Elevation bins (±5°). After thin-shell mapping (Eq. 4.17), VTEC should flatten at high elevation.
                   See{" "}
-                  <Link href="/vtec-theory" style={{ color: "var(--accent)" }}>Calculating VTEC</Link>
+                  <Link href="/vtec-theory/" style={{ color: "var(--accent)" }}>Calculating VTEC</Link>
                   {" "}and{" "}
-                  <Link href="/understanding-tec" style={{ color: "var(--accent)" }}>Understanding TEC</Link>.
+                  <Link href="/understanding-tec/" style={{ color: "var(--accent)" }}>Understanding TEC</Link>.
                 </div>
               </>
             ) : (

@@ -3,6 +3,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import { withTrailingSlash } from "@/lib/withTrailingSlash";
 import SiteTranslator from "./SiteTranslator";
 import PageErrorBoundary from "./PageErrorBoundary";
 
@@ -24,67 +25,74 @@ const NAV_GROUPS: { section: string; items: NavItem[] }[] = [
     items: [
       { href: "/", label: "National Dashboard", icon: "🇿🇼", excludeWhenHash: true },
       { href: "/#cors-network", label: "Live CORS", icon: "📡", matchHash: "#cors-network" },
-      { href: "/storm-watch", label: "Alerts", icon: "🔔" },
+      { href: "/storm-watch/", label: "Alerts", icon: "🔔" },
     ],
   },
   {
     section: "GNSS Processing",
     items: [
-      { href: "/processing#download", label: "RINEX Data", icon: "📥", matchHash: "#download" },
-      { href: "/processing#converter", label: "RINEX Processor", icon: "🔄", matchHash: "#converter" },
-      { href: "/processing", label: "TEC Processor", icon: "⚙️", excludeWhenHash: true },
-      { href: "/prn-explorer", label: "PRN Explorer", icon: "🛰️" },
-      { href: "/time-series", label: "Time Series", icon: "📈" },
+      { href: "/processing/#download", label: "RINEX Data", icon: "📥", matchHash: "#download" },
+      { href: "/processing/#converter", label: "RINEX Processor", icon: "🔄", matchHash: "#converter" },
+      { href: "/processing/", label: "TEC Processor", icon: "⚙️", excludeWhenHash: true },
+      { href: "/prn-explorer/", label: "PRN Explorer", icon: "🛰️" },
+      { href: "/time-series/", label: "Time Series", icon: "📈" },
     ],
   },
   {
     section: "Space Weather",
     items: [
-      { href: "/space-weather", label: "Live Space Weather", icon: "🌌" },
-      { href: "/space-weather/gnss-intelligence", label: "Navigation Weather", icon: "🛰️" },
-      { href: "/anomaly-detection", label: "TEC Anomaly", icon: "🔮" },
-      { href: "/gic-monitor", label: "GIC Monitor", icon: "🧲" },
-      { href: "/storm-watch", label: "Storm Watch", icon: "🌩️" },
+      { href: "/space-weather/", label: "Live Space Weather", icon: "🌌" },
+      { href: "/space-weather/gnss-intelligence/", label: "Navigation Weather", icon: "🛰️" },
+      { href: "/anomaly-detection/", label: "TEC Anomaly", icon: "🔮" },
+      { href: "/gic-monitor/", label: "GIC Monitor", icon: "🧲" },
+      { href: "/storm-watch/", label: "Storm Watch", icon: "🌩️" },
     ],
   },
   {
     section: "AI Intelligence",
     items: [
-      { href: "/ai-assistant", label: "AI Assistant", icon: "🤖" },
-      { href: "/live-pipeline", label: "Live Pipeline", icon: "⚡" },
+      { href: "/ai-assistant/", label: "AI Assistant", icon: "🤖" },
+      { href: "/live-pipeline/", label: "Live Pipeline", icon: "⚡" },
     ],
   },
   {
     section: "Infrastructure",
     items: [
       { href: "/#cors-network", label: "CORS Network", icon: "🗺️", matchHash: "#cors-network" },
-      { href: "/cors-hardware", label: "CORS Hardware", icon: "📡" },
+      { href: "/cors-hardware/", label: "CORS Hardware", icon: "📡" },
     ],
   },
   {
     section: "Reports",
     items: [
-      { href: "/reports?period=daily", label: "Space Weather Reports", icon: "📅", matchQuery: "period=" },
-      { href: "/reports?type=uptime&range=1w", label: "Station Uptime", icon: "📶", matchQuery: "type=uptime" },
+      { href: "/reports/?period=daily", label: "Space Weather Reports", icon: "📅", matchQuery: "period=" },
+      { href: "/reports/?type=uptime&range=1w", label: "Station Uptime", icon: "📶", matchQuery: "type=uptime" },
     ],
   },
   {
     section: "Education",
     items: [
-      { href: "/understanding-tec", label: "Understanding TEC", icon: "🌐" },
-      { href: "/vtec-theory", label: "Calculating TEC", icon: "📚" },
-      { href: "/geomagnetic-storm-theory", label: "Storm Theory", icon: "📐" },
+      { href: "/understanding-tec/", label: "Understanding TEC", icon: "🌐" },
+      { href: "/vtec-theory/", label: "Calculating TEC", icon: "📚" },
+      { href: "/geomagnetic-storm-theory/", label: "Storm Theory", icon: "📐" },
     ],
   },
 ];
 
 function navPath(href: string) {
-  return href.split("#")[0];
+  const raw = href.split(/[?#]/)[0] || "/";
+  if (raw.length > 1 && raw.endsWith("/")) return raw.slice(0, -1);
+  return raw;
 }
 
 function navHash(href: string) {
   const i = href.indexOf("#");
   return i >= 0 ? href.slice(i) : "";
+}
+
+function normalizePathname(pathname: string) {
+  if (pathname.length > 1 && pathname.endsWith("/")) return pathname.slice(0, -1);
+  return pathname || "/";
 }
 
 function isNavActive(
@@ -95,11 +103,12 @@ function isNavActive(
   groupItems: NavItem[],
 ): boolean {
   const path = navPath(item.href);
+  const here = normalizePathname(pathname);
   const hash = item.matchHash ?? navHash(item.href);
 
   if (item.matchQuery) {
     // Prefer the most specific Reports sibling when both path-match (e.g. type=uptime vs period=).
-    if (pathname !== path) return false;
+    if (here !== path) return false;
     if (!searchQuery.includes(item.matchQuery)) return false;
     const moreSpecificSibling = groupItems.some(
       (s) =>
@@ -112,18 +121,18 @@ function isNavActive(
   }
 
   if (item.matchHash) {
-    return pathname === path && locationHash === item.matchHash;
+    return here === path && locationHash === item.matchHash;
   }
 
   if (item.excludeWhenHash) {
     const siblingHashActive = groupItems.some(
-      (s) => s.matchHash && pathname === navPath(s.href) && locationHash === s.matchHash,
+      (s) => s.matchHash && here === navPath(s.href) && locationHash === s.matchHash,
     );
     if (siblingHashActive) return false;
   }
 
-  if (path === "/") return pathname === "/";
-  if (pathname === path) return !hash || locationHash === hash;
+  if (path === "/") return here === "/";
+  if (here === path) return !hash || locationHash === hash;
   return pathname.startsWith(`${path}/`);
 }
 
@@ -215,7 +224,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 return (
                   <Link
                     key={`${item.href}-${item.label}`}
-                    href={item.href}
+                    href={withTrailingSlash(item.href)}
                     className="app-nav-link"
                     prefetch={false}
                     onClick={closeMobile}

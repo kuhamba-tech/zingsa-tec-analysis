@@ -422,7 +422,7 @@ export default function LivePipelinePage() {
           </div>
           <p className="operations-source" style={{ marginTop: "0.45rem" }}>
             Latency = observation age at ingest (lower is better). For archived up/down history and outage
-            duration, open <a href="/reports?type=uptime&amp;range=1w">Reports → Station Uptime</a>.
+            duration, open <a href="/reports/?type=uptime&amp;range=1w">Reports → Station Uptime</a>.
           </p>
         </div>
       )}
@@ -450,7 +450,7 @@ export default function LivePipelinePage() {
           {fcStatus && fcStatus.torch_ok && !fcStatus.model_exists && !trainStatus?.running && (
             <div className="banner banner-info" style={{ marginBottom: "0.75rem" }}>
               No trained model yet. Train on archived VTEC in TimescaleDB/SQLite, or use{" "}
-              <a href="/anomaly-detection" style={{ color: "inherit" }}>TEC Anomaly → TEC Prediction</a>.
+              <a href="/anomaly-detection/" style={{ color: "inherit" }}>TEC Anomaly → TEC Prediction</a>.
               <div style={{ marginTop: "0.6rem" }}>
                 <button type="button" className="btn btn-primary" onClick={handleTrainModel} disabled={trainStarting}>
                   {trainStarting ? "Starting…" : "Train CNN-GRU model"}
