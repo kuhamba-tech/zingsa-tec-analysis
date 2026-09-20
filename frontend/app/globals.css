@@ -7234,10 +7234,10 @@ a.home-map-layer-btn {
   line-height: 1.4;
 }
 .space-weather-page .page-title {
-  /* Match visual weight of the header clock digits (≈1.35–1.75rem). */
-  font-size: clamp(1.55rem, 2.8vw, 2rem);
+  /* Sit in the same scale band as the header clock digits. */
+  font-size: clamp(1.75rem, 3.2vw, 2.35rem);
   font-weight: 800;
-  line-height: 1.15;
+  line-height: 1.12;
   letter-spacing: -0.02em;
 }
 .space-weather-page .sw-monitor-status {
@@ -7401,7 +7401,7 @@ a.home-map-layer-btn {
   }
 
   .space-weather-page .page-title {
-    font-size: clamp(1.45rem, 6vw, 1.85rem);
+    font-size: clamp(1.6rem, 6.5vw, 2rem);
   }
 
   .space-weather-page .page-subtitle {
