@@ -18,6 +18,7 @@ import { ZIMBABWE_LAT_BANDS } from "@/lib/zimbabweLatBands";
 
 ChartJS.register(LinearScale, PointElement, LineElement, Tooltip, Legend, Filler);
 ChartJS.defaults.color = "#ffffff";
+ChartJS.defaults.animation = false;
 
 const QUIET_COLOR = "#0ea5e9";
 const DIST_COLOR = "#dc2626";
@@ -256,6 +257,7 @@ export default function ZimbabweScientificTecPlots() {
     responsive: true,
     maintainAspectRatio: false,
     color: "#ffffff",
+    animation: false as const,
     plugins: {
       legend: {
         position: "bottom" as const,

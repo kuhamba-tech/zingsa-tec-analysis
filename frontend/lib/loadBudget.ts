@@ -26,6 +26,10 @@ export type LoadProfile = {
   vtecResampleMinutes: number;
   /** Cap VTEC history hours on first local fetch. */
   vtecHoursCap: number;
+  /** Max drawn points per LineChart series (stride-downsample above this). */
+  chartMaxPoints: number;
+  /** Chart.js draw animations — off on phones / slow links for snappier graphs. */
+  chartAnimations: boolean;
 };
 
 function connectionHints(): { saveData: boolean; slow: boolean } {
@@ -70,6 +74,8 @@ export function getLoadProfile(): LoadProfile {
       defaultRangeHours: 6,
       vtecResampleMinutes: 10,
       vtecHoursCap: 24,
+      chartMaxPoints: 72,
+      chartAnimations: false,
     };
   }
   const constrained = isConstrainedViewport();
@@ -80,13 +86,16 @@ export function getLoadProfile(): LoadProfile {
     slowNetwork: saveData || slow,
     lightPayload,
     pollIntervalMs: saveData || slow ? 150_000 : constrained ? 100_000 : 45_000,
-    timelineMaxPoints: saveData || slow ? 36 : constrained ? 56 : 168,
-    heavyMountDelayMs: saveData || slow ? 2800 : constrained ? 1800 : 500,
+    timelineMaxPoints: saveData || slow ? 36 : constrained ? 48 : 120,
+    heavyMountDelayMs: saveData || slow ? 2800 : constrained ? 1800 : 400,
     deferSecondaryApis: lightPayload,
-    stationsDeferMs: saveData || slow ? 3200 : constrained ? 2000 : 400,
+    stationsDeferMs: saveData || slow ? 3200 : constrained ? 2000 : 300,
     defaultRangeHours: lightPayload ? 6 : 24,
     vtecResampleMinutes: saveData || slow ? 15 : constrained ? 10 : 2,
     vtecHoursCap: saveData || slow ? 12 : constrained ? 24 : 48,
+    chartMaxPoints: saveData || slow ? 48 : constrained ? 72 : 160,
+    // Animations cost a full extra paint pass per chart — keep off unless desktop fibre.
+    chartAnimations: !lightPayload && !slow && !saveData,
   };
 }
 
