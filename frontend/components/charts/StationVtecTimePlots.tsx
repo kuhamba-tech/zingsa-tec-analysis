@@ -606,7 +606,7 @@ export default function StationVtecTimePlots({
             ? ` · Global TEC overlay on ${globalReporting} sites${globalSource ? ` (${globalSource})` : ""}`
             : ""}
           {Object.keys(methodByStation).length > 0
-            ? ` · Gg calibration on ${Object.keys(methodByStation).length} sites`
+            ? ` · Gg = Cesaroni overlay on ${Object.keys(methodByStation).length} sites`
             : ""}{" "}
           · auto-refresh every {REFRESH_MS / 1000}s
         </p>
