@@ -191,26 +191,45 @@ export default function HeliosphericMonitorStack() {
 
   useEffect(() => {
     let cancelled = false;
+    let attempt = 0;
     const cached = peekHeliosphericMonitor();
     if (cached) {
       setData(cached);
       setLoading(false);
+      setError(null);
     } else {
       setLoading(true);
     }
-    getHeliosphericMonitor()
-      .then((payload) => {
-        if (!cancelled) setData(payload);
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) {
+
+    const load = () => {
+      attempt += 1;
+      getHeliosphericMonitor(false, attempt > 1)
+        .then((payload) => {
+          if (cancelled) return;
+          setData(payload);
+          setError(null);
+        })
+        .catch((err: unknown) => {
+          if (cancelled) return;
+          // One automatic retry — first paint often races timelines/EKF and
+          // used to surface a permanent "API … timed out" card.
+          if (attempt < 2) {
+            window.setTimeout(() => {
+              if (!cancelled) load();
+            }, 600);
+            return;
+          }
           setError(err instanceof Error ? err.message : "Failed to load heliospheric monitor");
-          if (!cached) setData(null);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+          if (!peekHeliosphericMonitor()) setData(null);
+        })
+        .finally(() => {
+          if (!cancelled && (attempt >= 2 || peekHeliosphericMonitor())) {
+            setLoading(false);
+          }
+        });
+    };
+
+    load();
     return () => {
       cancelled = true;
     };

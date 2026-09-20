@@ -322,10 +322,12 @@ def solar_activity(
 
 
 @router.get("/timelines", response_model=SpaceWeatherTimelines)
-async def timelines(
+def timelines(
     max_points: int = Query(168, ge=24, le=2000),
     _=Depends(require_api_key),
 ):
+    # Sync route so NOAA/SQLite work runs in the threadpool and does not
+    # starve other handlers (heliospheric-monitor was timing out behind this).
     return limit_timelines(build_timelines(_sw()), max_points=max_points)
 
 
@@ -428,12 +430,16 @@ async def correlations(
 
 
 @router.get("/ekf", response_model=EkfStatusOut)
-async def ekf_status(
+def ekf_status(
     max_points: int = Query(336, ge=24, le=2000),
     _=Depends(require_api_key),
 ):
     """EKF overlay for dashboard timelines. Alerts are persisted; notifications
-    are dispatched only on manual refresh or the background logger — not on read."""
+    are dispatched only on manual refresh or the background logger — not on read.
+
+    Sync route: compute_ekf_status rebuilds timelines and must not block the
+    ASGI event loop (that queued heliospheric-monitor behind a 45s client abort).
+    """
     from zgiis.space_weather.ekf_service import compute_ekf_status
 
     return compute_ekf_status(
