@@ -247,14 +247,19 @@ export default function HomePage() {
     void bootSpaceWeather().then((sw) => {
       if (sw) applySw(sw, "ok");
     });
-    // Prefetch the heavy timeline/map chunk while metrics paint (retry-safe).
-    void import("@/lib/loadCauseEffectTimeline").then(({ prefetchCauseEffectTimelineStack }) => {
-      prefetchCauseEffectTimelineStack();
-    }).catch(() => null);
+    // Prefetch heavy timeline/map chunk after first paint (desktop + mobile).
+    const cancelPrefetch = scheduleSecondary(() => {
+      void import("@/lib/loadCauseEffectTimeline")
+        .then(({ prefetchCauseEffectTimelineStack }) => {
+          prefetchCauseEffectTimelineStack();
+        })
+        .catch(() => null);
+    }, getLoadProfile());
 
     return () => {
       cancelled = true;
       window.clearInterval(poll);
+      cancelPrefetch();
     };
   }, []);
 
