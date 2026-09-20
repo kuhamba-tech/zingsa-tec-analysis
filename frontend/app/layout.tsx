@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import "./globals.css";
 import AppShell from "@/components/layout/AppShell";
 import ChunkLoadRecovery from "@/components/ChunkLoadRecovery";
+import SpaceWeatherBootScript from "@/components/SpaceWeatherBootScript";
 
 export const metadata: Metadata = {
   title: "Zimbabwe Space Weather & Navigation",
@@ -93,28 +94,11 @@ const SPACE_WEATHER_BOOT_SCRIPT = `
 })();
 `;
 
-/**
- * Inline boot script that runs during HTML parse on the server response.
- * On the client, use text/plain so React does not warn that script tags
- * inside components never execute during client rendering (they already ran).
- * See: next/dist/docs/.../preventing-flash-before-hydration.md
- */
-function SpaceWeatherBootScript() {
-  return (
-    <script
-      id="zgiis-sw-boot"
-      type={typeof window === "undefined" ? "text/javascript" : "text/plain"}
-      suppressHydrationWarning
-      dangerouslySetInnerHTML={{ __html: SPACE_WEATHER_BOOT_SCRIPT }}
-    />
-  );
-}
-
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        <SpaceWeatherBootScript />
+        <SpaceWeatherBootScript html={SPACE_WEATHER_BOOT_SCRIPT} />
       </head>
       <body>
         <ChunkLoadRecovery />
