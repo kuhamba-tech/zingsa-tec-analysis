@@ -566,10 +566,10 @@ export default function ZimbabweTecTeachingLab() {
                 }}
                 options={{
                   responsive: true,
-                  plugins: { legend: { labels: { color: "#94a3b8", boxWidth: 10, font: { size: 10 } } } },
+                  plugins: { legend: { labels: { color: "#ffffff", boxWidth: 10, font: { size: 10 } } } },
                   scales: {
-                    x: { min: 15, max: 90, title: { display: true, text: "Elevation (°)", color: "#94a3b8" }, ticks: { color: "#94a3b8" } },
-                    y: { title: { display: true, text: "STEC (TECU)", color: "#94a3b8" }, ticks: { color: "#94a3b8" } },
+                    x: { min: 15, max: 90, title: { display: true, text: "Elevation (°)", color: "#ffffff" }, ticks: { color: "#ffffff" } },
+                    y: { title: { display: true, text: "STEC (TECU)", color: "#ffffff" }, ticks: { color: "#ffffff" } },
                   },
                 }}
                 height={160}
@@ -581,10 +581,10 @@ export default function ZimbabweTecTeachingLab() {
                 data={{ datasets: elevScatter.vtecDatasets }}
                 options={{
                   responsive: true,
-                  plugins: { legend: { labels: { color: "#94a3b8", boxWidth: 10, font: { size: 10 } } } },
+                  plugins: { legend: { labels: { color: "#ffffff", boxWidth: 10, font: { size: 10 } } } },
                   scales: {
-                    x: { min: 15, max: 90, title: { display: true, text: "Elevation (°)", color: "#94a3b8" }, ticks: { color: "#94a3b8" } },
-                    y: { title: { display: true, text: "VTEC (TECU)", color: "#94a3b8" }, ticks: { color: "#94a3b8" } },
+                    x: { min: 15, max: 90, title: { display: true, text: "Elevation (°)", color: "#ffffff" }, ticks: { color: "#ffffff" } },
+                    y: { title: { display: true, text: "VTEC (TECU)", color: "#ffffff" }, ticks: { color: "#ffffff" } },
                   },
                 }}
                 height={160}
@@ -885,12 +885,12 @@ function SkyplotByVtec({
           })}
           <line x1={cx} y1={cy - maxR} x2={cx} y2={cy + maxR} stroke="rgba(148,163,184,0.22)" strokeWidth="0.3" />
           <line x1={cx - maxR} y1={cy} x2={cx + maxR} y2={cy} stroke="rgba(148,163,184,0.22)" strokeWidth="0.3" />
-          <text x={cx} y={cy - maxR - 2.5} textAnchor="middle" fill="#94a3b8" fontSize="3.2" fontWeight="700">N</text>
-          <text x={cx + maxR + 2.5} y={cy + 1.2} textAnchor="middle" fill="#94a3b8" fontSize="3.2" fontWeight="700">E</text>
-          <text x={cx} y={cy + maxR + 4.2} textAnchor="middle" fill="#94a3b8" fontSize="3.2" fontWeight="700">S</text>
-          <text x={cx - maxR - 2.5} y={cy + 1.2} textAnchor="middle" fill="#94a3b8" fontSize="3.2" fontWeight="700">W</text>
-          <text x={cx + 1} y={cy - ((90 - 30) / 90) * maxR + 1} fill="#64748b" fontSize="2.2">30°</text>
-          <text x={cx + 1} y={cy - ((90 - 60) / 90) * maxR + 1} fill="#64748b" fontSize="2.2">60°</text>
+          <text x={cx} y={cy - maxR - 2.5} textAnchor="middle" fill="#ffffff" fontSize="3.2" fontWeight="700">N</text>
+          <text x={cx + maxR + 2.5} y={cy + 1.2} textAnchor="middle" fill="#ffffff" fontSize="3.2" fontWeight="700">E</text>
+          <text x={cx} y={cy + maxR + 4.2} textAnchor="middle" fill="#ffffff" fontSize="3.2" fontWeight="700">S</text>
+          <text x={cx - maxR - 2.5} y={cy + 1.2} textAnchor="middle" fill="#ffffff" fontSize="3.2" fontWeight="700">W</text>
+          <text x={cx + 1} y={cy - ((90 - 30) / 90) * maxR + 1} fill="#ffffff" fontSize="2.2">30°</text>
+          <text x={cx + 1} y={cy - ((90 - 60) / 90) * maxR + 1} fill="#ffffff" fontSize="2.2">60°</text>
           {points.map((p) => {
             const azRad = (p.az * Math.PI) / 180;
             const r = ((90 - Math.max(0, Math.min(90, p.el))) / 90) * maxR;
@@ -911,7 +911,7 @@ function SkyplotByVtec({
         </svg>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: "0.65rem", justifyContent: "center", flexWrap: "wrap" }}>
-        <span style={{ fontSize: "0.72rem", color: "#94a3b8" }}>VTEC (TECU)</span>
+        <span style={{ fontSize: "0.72rem", color: "#ffffff" }}>VTEC (TECU)</span>
         <div
           style={{
             width: 140,
@@ -920,8 +920,8 @@ function SkyplotByVtec({
             background: `linear-gradient(90deg, ${vtecPlasma(vmin)}, ${vtecPlasma((vmin + vmax) / 2)}, ${vtecPlasma(vmax)})`,
           }}
         />
-        <span style={{ fontSize: "0.72rem", color: "#94a3b8" }}>{vmin} – {vmax}</span>
-        <span style={{ fontSize: "0.72rem", color: "#64748b" }}>· {points.length.toLocaleString()} samples · zenith at centre</span>
+        <span style={{ fontSize: "0.72rem", color: "#ffffff" }}>{vmin} – {vmax}</span>
+        <span style={{ fontSize: "0.72rem", color: "#ffffff" }}>· {points.length.toLocaleString()} samples · zenith at centre</span>
       </div>
     </div>
   );
@@ -948,13 +948,13 @@ function IppGroundTracks({
     legend: React.ReactNode,
   ) => (
     <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
-      <div style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>{title}</div>
+      <div style={{ fontSize: "0.78rem", color: "#ffffff" }}>{title}</div>
       <div style={{ position: "relative", height: 260, border: "1px solid var(--border)", borderRadius: 8, background: "#071422", overflow: "hidden" }}>
         <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">
-          <text x="2" y="6" fill="#64748b" fontSize="3.2">{Math.abs(latMax).toFixed(1)}°S</text>
-          <text x="2" y="98" fill="#64748b" fontSize="3.2">{Math.abs(latMin).toFixed(1)}°S</text>
-          <text x="2" y="99.5" fill="#64748b" fontSize="2.8">{lonMin}°E</text>
-          <text x="88" y="99.5" fill="#64748b" fontSize="2.8">{lonMax}°E</text>
+          <text x="2" y="6" fill="#ffffff" fontSize="3.2">{Math.abs(latMax).toFixed(1)}°S</text>
+          <text x="2" y="98" fill="#ffffff" fontSize="3.2">{Math.abs(latMin).toFixed(1)}°S</text>
+          <text x="2" y="99.5" fill="#ffffff" fontSize="2.8">{lonMin}°E</text>
+          <text x="88" y="99.5" fill="#ffffff" fontSize="2.8">{lonMax}°E</text>
           {draw.map((p, i) => {
             const { x, y } = project(p.lon, p.lat);
             return (
@@ -979,7 +979,7 @@ function IppGroundTracks({
       {renderMap(
         `IPP coloured by VTEC · shell ${IONO_SHELL_KM} km`,
         (p) => vtecPlasma(p.vtec),
-        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.7rem", color: "#94a3b8" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.7rem", color: "#ffffff" }}>
           <span>10</span>
           <div style={{ flex: 1, height: 8, borderRadius: 3, background: `linear-gradient(90deg, ${vtecPlasma(10)}, ${vtecPlasma(35)})` }} />
           <span>35 TECU</span>
@@ -988,7 +988,7 @@ function IppGroundTracks({
       {renderMap(
         "IPP coloured by observation UT hour",
         (p) => hourColor(p.hour),
-        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.7rem", color: "#94a3b8" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.7rem", color: "#ffffff" }}>
           <span>0h</span>
           <div
             style={{
