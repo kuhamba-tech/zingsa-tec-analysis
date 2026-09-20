@@ -1,9 +1,10 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import CorsMap from "./CorsMap";
 import NetworkDistancesPanel from "./NetworkDistancesPanel";
 import TecHeatMapLegend from "./TecHeatMapLegend";
+import { getTecMethodComparison } from "@/lib/api";
 import { heatmapQualityBanner, icaoTecLabel, icaoTecLevel, inferHeatmapQuality } from "@/lib/icaoTecAdvisory";
 import type { ProposedCorsSite } from "@/lib/corsGeneticOptimizer";
 import type { Station, TecHeatmapResponse } from "@/lib/types";
@@ -83,6 +84,7 @@ export default function CorsMapWithLayers({
   const availableLayers = layers.length > 0 ? layers : LAYERS;
   const [layer, setLayer] = useState<MapLayer>(availableLayers[0] ?? "Hybrid");
   const [proposedCorsSites, setProposedCorsSites] = useState<ProposedCorsSite[]>([]);
+  const [ggByStation, setGgByStation] = useState<Record<string, number | null>>({});
 
   useEffect(() => {
     if (!availableLayers.includes(layer)) {
@@ -96,6 +98,39 @@ export default function CorsMapWithLayers({
   const networkDistancesActive = layer === "Network Distances";
   const showLayerSwitcher = availableLayers.length > 1;
 
+  // Load Gg / Cesaroni VTEC for dual map labels when TEC Heat Map is active.
+  useEffect(() => {
+    if (!tecLayerActive) return;
+    let cancelled = false;
+    const load = () => {
+      getTecMethodComparison(2, undefined, 300, 60_000)
+        .then((res) => {
+          if (cancelled) return;
+          const map: Record<string, number | null> = {};
+          for (const row of res.stations ?? []) {
+            const code = row.station.toLowerCase().replace(/_+$/, "");
+            const val =
+              typeof row.gg_latest === "number" && Number.isFinite(row.gg_latest)
+                ? row.gg_latest
+                : typeof row.gg_mean === "number" && Number.isFinite(row.gg_mean)
+                  ? row.gg_mean
+                  : null;
+            map[code] = val;
+          }
+          setGgByStation(map);
+        })
+        .catch(() => {
+          if (!cancelled) setGgByStation({});
+        });
+    };
+    load();
+    const id = window.setInterval(load, 90_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [tecLayerActive]);
+
   useEffect(() => {
     if (!networkDistancesActive && proposedCorsSites.length > 0) {
       setProposedCorsSites([]);
@@ -108,6 +143,31 @@ export default function CorsMapWithLayers({
     /NTRIP-connected|awaiting MSM|decode needs|sampled live VTEC/i.test(qualityBanner);
   const aviationAdvisory =
     maxVtec != null && (icaoTecLevel(maxVtec) === "mod" || icaoTecLevel(maxVtec) === "sev");
+
+  const dualStationLines = useMemo(() => {
+    if (!heatmap?.stations?.length) return [];
+    return heatmap.stations.map((s) => {
+      const code = s.code.toUpperCase();
+      const key = s.code.toLowerCase().replace(/_+$/, "");
+      const gopi = typeof s.vtec === "number" && Number.isFinite(s.vtec) ? s.vtec : null;
+      const gg = ggByStation[key];
+      const ggVal = typeof gg === "number" && Number.isFinite(gg) ? gg : null;
+      if (gopi != null && ggVal != null) {
+        return `${code} G ${gopi.toFixed(1)} / Gg ${ggVal.toFixed(1)}`;
+      }
+      if (gopi != null) return `${code} G ${gopi.toFixed(1)}`;
+      if (ggVal != null) return `${code} Gg ${ggVal.toFixed(1)}`;
+      return code;
+    });
+  }, [heatmap, ggByStation]);
+
+  const ggRange = useMemo(() => {
+    const vals = Object.values(ggByStation).filter(
+      (v): v is number => typeof v === "number" && Number.isFinite(v) && v > 0,
+    );
+    if (!vals.length) return null;
+    return { min: Math.min(...vals), max: Math.max(...vals) };
+  }, [ggByStation]);
 
   const liveLabel = stationsLoading
     ? "NTRIP probe running…"
@@ -197,6 +257,7 @@ export default function CorsMapWithLayers({
           height={height}
           layer={layer}
           heatmap={heatmap}
+          ggByStation={tecLayerActive ? ggByStation : {}}
           proposedCorsSites={networkDistancesActive ? proposedCorsSites : []}
           highlightCode={highlightCode}
           onStationSelect={onStationSelect}
@@ -278,6 +339,13 @@ export default function CorsMapWithLayers({
             ))}
             <div style={{ fontSize: "0.62rem", fontWeight: 400, color: "var(--text-muted)", marginTop: "0.15rem", maxWidth: "210px" }}>
               Live from Spider Site Status (Status=3 online). Green = online, red = offline. Click a marker for Details.
+              {tecLayerActive && (
+                <>
+                  {" "}
+                  TEC labels: <span style={{ color: "#38bdf8" }}>G</span> = GOPI ·{" "}
+                  <span style={{ color: "#f59e0b" }}>Gg</span> = Cesaroni/Gg (notebook).
+                </>
+              )}
             </div>
           </div>
           </div>
@@ -294,19 +362,27 @@ export default function CorsMapWithLayers({
 
       {tecLayerActive && (
         <div className="home-live-tec-below" aria-live="polite">
-          <div className="home-live-tec-below-label">Live TEC · Method 1 (GOPI / NTRIP)</div>
+          <div className="home-live-tec-below-label">
+            Live TEC · G = GOPI (NTRIP) · Gg = Cesaroni / notebook
+          </div>
           {heatmap?.available ? (
             <>
               <div className="home-live-tec-below-range">
-                {heatmap.tec_min != null && heatmap.tec_max != null
-                  ? `${heatmap.tec_min.toFixed(1)}-${heatmap.tec_max.toFixed(1)}`
-                  : `${heatmap.station_count}`}
+                <span style={{ color: "#38bdf8" }}>
+                  G{" "}
+                  {heatmap.tec_min != null && heatmap.tec_max != null
+                    ? `${heatmap.tec_min.toFixed(1)}–${heatmap.tec_max.toFixed(1)}`
+                    : `${heatmap.station_count}`}
+                </span>
+                {ggRange && (
+                  <span style={{ color: "#f59e0b", marginLeft: "0.85rem" }}>
+                    Gg {ggRange.min.toFixed(1)}–{ggRange.max.toFixed(1)}
+                  </span>
+                )}
               </div>
               <div className="home-live-tec-below-stations">
-                {heatmap.stations.length > 0
-                  ? heatmap.stations
-                      .map((s) => `${s.code.toUpperCase()} ${s.vtec.toFixed(1)}`)
-                      .join(" · ")
+                {dualStationLines.length > 0
+                  ? dualStationLines.join(" · ")
                   : `TECU from ${heatmap.station_count} live station${heatmap.station_count === 1 ? "" : "s"}`}
               </div>
               {heatmap.updated_at && (
