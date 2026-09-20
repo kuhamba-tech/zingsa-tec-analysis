@@ -56,6 +56,10 @@ export interface MetricCardSpec {
   showGScale?: boolean;
   /** Active G-scale code to emphasize (e.g. "G0"). */
   activeGCode?: string | null;
+  /** Show N/D/H/S/X typical-VTEC scale under the Zimbabwe Ionosphere card. */
+  showTecScale?: boolean;
+  /** Active TEC-scale code to emphasize (e.g. "D"). */
+  activeTecCode?: string | null;
 }
 
 export interface MetricCardOptions {
@@ -87,7 +91,7 @@ export const METRIC_EXPLANATIONS: Record<MetricKey, string> = {
   dst:
     "Dst and SYM-H measure storm-time changes in Earth's magnetic field, particularly ring-current development. They support magnetospheric context and must not be converted directly into NOAA G1–G5 labels.",
   zimbabwe_iono:
-    "Zimbabwe network VTEC from live CORS/GNSS observations. TEC is the line integral of electron density along the signal path (1 TECU = 10¹⁶ el/m²). High VTEC alone is not ionospheric disturbance — ΔTEC relative to a quiet reference and ROTI are under development. Do not classify local disturbance solely from Kp.",
+    "Zimbabwe network VTEC from live CORS/GNSS observations. TEC is the line integral of electron density along the signal path (1 TECU = 10¹⁶ el/m²). Typical levels: Night <10, Day 10–40, High 40–100, Storm 100–200, Extreme >200 TECU. High VTEC alone is not ionospheric disturbance — ΔTEC relative to a quiet reference and ROTI are under development. Do not classify local disturbance solely from Kp.",
   gnss_risk:
     "Operational navigation impact label. Until validated local ΔTEC/ROTI/RTK metrics drive the engine, treat this as provisional space-weather context (Kp, scintillation archive, related indices) — not proof of Zimbabwe GNSS failure.",
   stations:
@@ -121,6 +125,48 @@ export const NOAA_G_SCALE = [
   { code: "G4", color: "#dc2626", desc: "Severe" },
   { code: "G5", color: "#a855f7", desc: "Extreme" },
 ] as const;
+
+/**
+ * Typical VTEC levels for the Zimbabwe Ionosphere card scale
+ * (night quiet → day quiet → high solar → storm → extreme).
+ * Continuous bins so every TECU maps to exactly one segment.
+ */
+export const TEC_VTEC_SCALE = [
+  { code: "N", color: "#00ff88", desc: "Night", range: "<10", minInclusive: 0, maxExclusive: 10 },
+  { code: "D", color: "#38bdf8", desc: "Day", range: "10–40", minInclusive: 10, maxExclusive: 40 },
+  { code: "H", color: "#eab308", desc: "High", range: "40–100", minInclusive: 40, maxExclusive: 100 },
+  { code: "S", color: "#ef4444", desc: "Storm", range: "100–200", minInclusive: 100, maxExclusive: 200 },
+  { code: "X", color: "#a855f7", desc: "Extreme", range: ">200", minInclusive: 200, maxExclusive: Number.POSITIVE_INFINITY },
+] as const;
+
+export type TecVtecScaleCode = (typeof TEC_VTEC_SCALE)[number]["code"];
+
+export interface TecVtecScaleLevel {
+  code: TecVtecScaleCode | "—";
+  title: string;
+  range: string;
+  color: string;
+}
+
+/** Map network mean VTEC (TECU) onto the N/D/H/S/X strip. */
+export function tecScaleFromVtec(tec: number | null | undefined): TecVtecScaleLevel {
+  if (tec == null || !Number.isFinite(tec)) {
+    return { code: "—", title: "Unavailable", range: "—", color: "#94a3b8" };
+  }
+  const v = Math.max(0, tec);
+  for (const level of TEC_VTEC_SCALE) {
+    if (v < level.maxExclusive) {
+      return {
+        code: level.code,
+        title: level.desc,
+        range: level.range,
+        color: level.color,
+      };
+    }
+  }
+  const last = TEC_VTEC_SCALE[TEC_VTEC_SCALE.length - 1];
+  return { code: last.code, title: last.desc, range: last.range, color: last.color };
+}
 
 /** Format Kp for the Geomagnetic Storm card subtitle, e.g. `kP=0`. */
 export function formatKpEqualsDisplay(kp: number | null | undefined, loading = false): string {
@@ -277,12 +323,9 @@ function flareColor(flareClass: string | null | undefined): string {
   return "#38bdf8";
 }
 
-/** Same palette as the Zimbabwe Ionosphere metric card (What is happening now). */
+/** Same palette as the Zimbabwe Ionosphere N/D/H/S/X scale strip. */
 export function vtecColor(tec: number | null): string {
-  if (tec === null) return "#94a3b8";
-  if (tec >= 60) return "#f97316";
-  if (tec >= 40) return "#eab308";
-  return "#38bdf8";
+  return tecScaleFromVtec(tec).color;
 }
 
 /** CORS connected count color — matches the CORS Connected metric card. */
@@ -663,6 +706,8 @@ export function buildMetricCards(
       source: "ZINGSA CORS live VTEC",
       observedAt: swObserved ? `Snapshot ${swObserved}` : null,
       freshness: vtecFresh,
+      showTecScale: true,
+      activeTecCode: vtec == null ? null : tecScaleFromVtec(vtec).code,
     },
     {
       key: "gnss_risk",
@@ -922,8 +967,9 @@ export function interpretMetric(
         return "Live Zimbabwe network VTEC is not available yet. ΔTEC and ROTI remain unavailable until a validated quiet-time reference and sampling window are in place — values are never invented.";
       }
       {
+        const level = tecScaleFromVtec(vtec);
         const context = tecTypicalContext(vtec);
-        return `Network VTEC is ${formatVtecDisplay(vtec)}. ${context} ΔTEC% and ROTI show “reference baseline under development” until scientifically validated. Do not classify local disturbance from Kp alone.`;
+        return `Network VTEC is ${formatVtecDisplay(vtec)} — scale ${level.code} (${level.title}, typical ${level.range} TECU). ${context} ΔTEC% and ROTI show “reference baseline under development” until scientifically validated. Do not classify local disturbance from Kp alone.`;
       }
 
     case "gnss_risk": {

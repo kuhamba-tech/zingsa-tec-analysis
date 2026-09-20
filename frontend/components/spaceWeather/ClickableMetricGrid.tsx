@@ -8,6 +8,7 @@ import { FLARE_SCALE } from "@/lib/solarEventColors";
 import {
   METRIC_EXPLANATIONS,
   NOAA_G_SCALE,
+  TEC_VTEC_SCALE,
   buildMetricCards,
   interpretMetric,
   type MetricCardSpec,
@@ -115,6 +116,45 @@ function GScaleLegend({ activeCode }: { activeCode?: string | null }) {
   );
 }
 
+function TecScaleLegend({ activeCode }: { activeCode?: string | null }) {
+  return (
+    <div
+      className="sw-metric-flare-scale sw-metric-g-scale sw-metric-tec-scale"
+      aria-label="Typical VTEC scale"
+    >
+      {TEC_VTEC_SCALE.map((level) => {
+        const active = activeCode === level.code;
+        return (
+          <div
+            className={`sw-metric-flare-scale-item${active ? " is-active" : ""}`}
+            key={level.code}
+            title={`${level.desc}: ${level.range} TECU`}
+          >
+            <div
+              className="sw-metric-flare-scale-bar"
+              style={{
+                background: level.color,
+                height: active ? 4 : 2,
+                opacity: active || !activeCode ? 1 : 0.45,
+              }}
+            />
+            <div
+              className="sw-metric-flare-scale-letter"
+              style={{
+                color: level.color,
+                fontWeight: active ? 900 : 800,
+              }}
+            >
+              {level.code}
+            </div>
+            <div className="sw-metric-flare-scale-desc">{level.desc}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function MetricCardButton({
   metricKey,
   label,
@@ -129,6 +169,8 @@ function MetricCardButton({
   showFlareScale,
   showGScale,
   activeGCode,
+  showTecScale,
+  activeTecCode,
   selected,
   disabled,
   onClick,
@@ -146,6 +188,8 @@ function MetricCardButton({
   showFlareScale?: boolean;
   showGScale?: boolean;
   activeGCode?: string | null;
+  showTecScale?: boolean;
+  activeTecCode?: string | null;
   selected: boolean;
   disabled: boolean;
   onClick: () => void;
@@ -154,13 +198,14 @@ function MetricCardButton({
   const isWindList = Boolean(detailRows?.some((r) => r.icon));
   const isFlare = Boolean(showFlareScale);
   const isGStorm = Boolean(showGScale);
+  const isTecIono = Boolean(showTecScale);
   const isEventCount =
     metricKey === "donki_flares" || metricKey === "donki_cmes" || metricKey === "donki_storms";
 
   return (
     <button
       type="button"
-      className={`sw-metric-card${isSummary ? " sw-metric-card-summary" : ""}${isWindList ? " sw-metric-card-wind" : ""}${isFlare ? " sw-metric-card-flare" : ""}${isGStorm ? " sw-metric-card-gstorm" : ""}${isEventCount ? " sw-metric-card-events" : ""}${selected ? " sw-metric-card-selected" : ""}${disabled ? " is-loading" : ""}`}
+      className={`sw-metric-card${isSummary ? " sw-metric-card-summary" : ""}${isWindList ? " sw-metric-card-wind" : ""}${isFlare ? " sw-metric-card-flare" : ""}${isGStorm ? " sw-metric-card-gstorm" : ""}${isTecIono ? " sw-metric-card-tec" : ""}${isEventCount ? " sw-metric-card-events" : ""}${selected ? " sw-metric-card-selected" : ""}${disabled ? " is-loading" : ""}`}
       onClick={onClick}
       disabled={disabled}
       aria-pressed={selected}
@@ -178,6 +223,7 @@ function MetricCardButton({
       {detailRows?.length ? <DetailRows rows={detailRows} /> : null}
       {showFlareScale ? <FlareScaleLegend /> : null}
       {showGScale ? <GScaleLegend activeCode={activeGCode} /> : null}
+      {showTecScale ? <TecScaleLegend activeCode={activeTecCode} /> : null}
       {note ? <div className="sw-metric-note">{note}</div> : null}
       <div className="sw-metric-meta">
         {freshness && freshness !== "DELAYED" && (
@@ -416,6 +462,8 @@ export default function ClickableMetricGrid({
             showFlareScale={card.showFlareScale}
             showGScale={card.showGScale}
             activeGCode={card.activeGCode}
+            showTecScale={card.showTecScale}
+            activeTecCode={card.activeTecCode}
             selected={selected === card.key}
             disabled={false}
             onClick={() => setSelected((prev) => (prev === card.key ? null : card.key))}

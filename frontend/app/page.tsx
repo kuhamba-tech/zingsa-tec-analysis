@@ -11,7 +11,7 @@ import { absorbInlineBootPayload, bootSpaceWeather } from "@/lib/bootSpaceWeathe
 import { mergeSpaceWeatherPreferDefined, peekSpaceWeather, subscribeSpaceWeather } from "@/lib/spaceWeatherStore";
 import { peekStations, subscribeStations, stationsAreSpiderAuthoritative } from "@/lib/stationsStore";
 import { mergeSpaceWeatherWithEkf } from "@/lib/homeSpaceWeather";
-import { buildMetricCards, NOAA_G_SCALE } from "@/lib/spaceWeatherMetrics";
+import { buildMetricCards, NOAA_G_SCALE, TEC_VTEC_SCALE } from "@/lib/spaceWeatherMetrics";
 import {
   countLiveStationStatuses,
   formatCorsConnectedShort,
@@ -98,6 +98,8 @@ function HomeMetricCard({
   loading,
   showGScale,
   activeGCode,
+  showTecScale,
+  activeTecCode,
 }: {
   icon: string;
   label: string;
@@ -108,6 +110,8 @@ function HomeMetricCard({
   loading?: boolean;
   showGScale?: boolean;
   activeGCode?: string | null;
+  showTecScale?: boolean;
+  activeTecCode?: string | null;
 }) {
   return (
     <div className="sw-metric-card home-metric-card">
@@ -140,6 +144,38 @@ function HomeMetricCard({
                   style={{ color: g.color, fontWeight: active ? 900 : 800 }}
                 >
                   {g.code}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+      {showTecScale ? (
+        <div
+          className="sw-metric-flare-scale sw-metric-g-scale sw-metric-tec-scale"
+          aria-label="Typical VTEC scale"
+        >
+          {TEC_VTEC_SCALE.map((level) => {
+            const active = activeTecCode === level.code;
+            return (
+              <div
+                className={`sw-metric-flare-scale-item${active ? " is-active" : ""}`}
+                key={level.code}
+                title={`${level.desc}: ${level.range} TECU`}
+              >
+                <div
+                  className="sw-metric-flare-scale-bar"
+                  style={{
+                    background: level.color,
+                    height: active ? 4 : 2,
+                    opacity: active || !activeTecCode ? 1 : 0.45,
+                  }}
+                />
+                <div
+                  className="sw-metric-flare-scale-letter"
+                  style={{ color: level.color, fontWeight: active ? 900 : 800 }}
+                >
+                  {level.code}
                 </div>
               </div>
             );
@@ -466,6 +502,8 @@ export default function HomePage() {
                 valueColor={card.valueColor}
                 showGScale={card.showGScale}
                 activeGCode={card.activeGCode}
+                showTecScale={card.showTecScale}
+                activeTecCode={card.activeTecCode}
                 loading={
                   card.key === "stations"
                     ? stationsLoading && !hasSwStationCounts
