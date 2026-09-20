@@ -237,7 +237,8 @@ export default function ZimbabweTecTeachingLab() {
         return rows;
       });
         // Shared params with TecMethodComparisonLab so both hit one cached API call.
-        getTecMethodComparison(8, undefined, 1500, 45_000)
+        // Prefer a denser sample set for notebook-style SV fan charts.
+        getTecMethodComparison(12, undefined, 1500, 60_000)
         .then((cmp) => {
           if (!cancelled) setMethodCmp(cmp);
         })
