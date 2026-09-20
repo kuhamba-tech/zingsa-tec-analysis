@@ -22,6 +22,7 @@ from backend.schemas import (
     TecMethodComparisonResponse,
     TecMethodInfo,
     TecMethodReference,
+    TecMethodStationCompare,
 )
 
 router = APIRouter(prefix="/live", tags=["live"])
@@ -189,6 +190,79 @@ async def live_vtec(
     )
 
 
+def _station_method_summary(
+    gopi: list[LiveObservation],
+    gg: list[LiveObservation],
+) -> tuple[list[TecMethodStationCompare], dict]:
+    """Aggregate per-station latest + mean VTEC for GOPI vs Gg comparison."""
+
+    def _bucket(rows: list[LiveObservation]) -> dict[str, list[tuple[str, float]]]:
+        out: dict[str, list[tuple[str, float]]] = {}
+        for o in rows:
+            code = (o.station or "").strip().upper()
+            if not code or o.vtec_tecu is None:
+                continue
+            try:
+                val = float(o.vtec_tecu)
+            except (TypeError, ValueError):
+                continue
+            if not (0.0 < val < 200.0):
+                continue
+            out.setdefault(code, []).append((str(o.time or ""), val))
+        return out
+
+    gopi_b = _bucket(gopi)
+    gg_b = _bucket(gg)
+    codes = sorted(set(gopi_b) | set(gg_b))
+    stations: list[TecMethodStationCompare] = []
+    deltas_latest: list[float] = []
+    deltas_mean: list[float] = []
+
+    for code in codes:
+        g_rows = sorted(gopi_b.get(code, []), key=lambda t: t[0])
+        q_rows = sorted(gg_b.get(code, []), key=lambda t: t[0])
+        g_vals = [v for _, v in g_rows]
+        q_vals = [v for _, v in q_rows]
+        g_latest = g_vals[-1] if g_vals else None
+        q_latest = q_vals[-1] if q_vals else None
+        g_mean = (sum(g_vals) / len(g_vals)) if g_vals else None
+        q_mean = (sum(q_vals) / len(q_vals)) if q_vals else None
+        d_latest = (q_latest - g_latest) if (q_latest is not None and g_latest is not None) else None
+        d_mean = (q_mean - g_mean) if (q_mean is not None and g_mean is not None) else None
+        if d_latest is not None:
+            deltas_latest.append(d_latest)
+        if d_mean is not None:
+            deltas_mean.append(d_mean)
+        stations.append(
+            TecMethodStationCompare(
+                station=code,
+                gopi_latest=round(g_latest, 2) if g_latest is not None else None,
+                gg_latest=round(q_latest, 2) if q_latest is not None else None,
+                gopi_mean=round(g_mean, 2) if g_mean is not None else None,
+                gg_mean=round(q_mean, 2) if q_mean is not None else None,
+                delta_latest=round(d_latest, 2) if d_latest is not None else None,
+                delta_mean=round(d_mean, 2) if d_mean is not None else None,
+                gopi_samples=len(g_vals),
+                gg_samples=len(q_vals),
+                gopi_time=g_rows[-1][0] if g_rows else None,
+                gg_time=q_rows[-1][0] if q_rows else None,
+            )
+        )
+
+    def _avg(xs: list[float]) -> float | None:
+        return round(sum(xs) / len(xs), 2) if xs else None
+
+    summary = {
+        "station_count": len(stations),
+        "paired_stations": sum(1 for s in stations if s.gopi_latest is not None and s.gg_latest is not None),
+        "mean_delta_latest_tecu": _avg(deltas_latest),
+        "mean_delta_mean_tecu": _avg(deltas_mean),
+        "gopi_sample_count": len(gopi),
+        "gg_sample_count": len(gg),
+    }
+    return stations, summary
+
+
 def _build_tec_method_comparison(
     *,
     hours: float,
@@ -252,12 +326,14 @@ def _build_tec_method_comparison(
         for r in gg_raw
     ]
 
+    stations, summary = _station_method_summary(gopi, gg)
     engine = "pytecgg" if try_pytecgg_available() else "gg_window_ls_fallback"
     note = (
-        "GOPI series are live CORS dual-frequency TEC (Seemala/Gopi path). "
-        "Gg series re-calibrate the same samples with Ciraolo/Cesaroni-style "
-        f"arc-bias + local-time polynomial least squares ({engine}). "
-        "Full-day RINEX PyTECGg remains available for offline processing sessions."
+        "Method 1 (GOPI / Seemala) is the live CORS NTRIP dual-frequency path shown on the "
+        "TEC Heat Map. Method 2 (Gg / Ciraolo–Cesaroni) re-calibrates the same samples with "
+        f"the TEC_GNSS_Notebook_v5 / PyTECGg bias model ({engine}): arc biases + VTEC(MODIP, LT) "
+        "polynomial. Same ionosphere — different absolute scale after bias removal. "
+        "ΔVTEC = Gg − GOPI."
     )
     return TecMethodComparisonResponse(
         available=bool(gopi),
@@ -265,9 +341,11 @@ def _build_tec_method_comparison(
         sample_limit=limit,
         gopi=gopi,
         gg=gg,
+        stations=stations,
         methods=[TecMethodInfo(**m) for m in method_catalog()],
         references=[TecMethodReference(**r) for r in references()],
         note=note,
+        summary=summary,
     )
 
 

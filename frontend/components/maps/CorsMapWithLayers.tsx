@@ -13,6 +13,10 @@ const StationVtecTimePlots = dynamic(
   () => import("@/components/charts/StationVtecTimePlots"),
   { ssr: false },
 );
+const LiveTecMethodComparePanel = dynamic(
+  () => import("@/components/maps/LiveTecMethodComparePanel"),
+  { ssr: false },
+);
 export type MapLayer =
   | "Hybrid"
   | "Satellite"
@@ -290,7 +294,7 @@ export default function CorsMapWithLayers({
 
       {tecLayerActive && (
         <div className="home-live-tec-below" aria-live="polite">
-          <div className="home-live-tec-below-label">Live TEC</div>
+          <div className="home-live-tec-below-label">Live TEC · Method 1 (GOPI / NTRIP)</div>
           {heatmap?.available ? (
             <>
               <div className="home-live-tec-below-range">
@@ -319,6 +323,8 @@ export default function CorsMapWithLayers({
           )}
         </div>
       )}
+
+      {tecLayerActive && <LiveTecMethodComparePanel />}
 
       {tecLayerActive && (
         <TecHeatMapLegend className="tec-heatmap-legend-below" maxVtec={maxVtec} />

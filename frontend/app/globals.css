@@ -3810,6 +3810,178 @@ a.home-map-layer-btn {
   margin-top: 0.3rem;
 }
 
+.live-tec-method-compare {
+  margin-top: 0.75rem;
+  width: 100%;
+  background: rgba(0, 0, 0, 0.78);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.85rem 0.95rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.live-tec-method-compare-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.6rem 1rem;
+}
+
+.live-tec-method-compare-title {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.live-tec-method-compare-lead {
+  margin: 0.25rem 0 0;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--text);
+  max-width: 52rem;
+}
+
+.live-tec-method-compare-link {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #38bdf8;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.live-tec-method-compare-link:hover {
+  text-decoration: underline;
+}
+
+.live-tec-method-compare-methods {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 0.65rem;
+}
+
+.live-tec-method-pill {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.65rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 0.74rem;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+.live-tec-method-pill strong {
+  color: var(--text);
+  font-size: 0.82rem;
+}
+
+.live-tec-method-pill-tag {
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.live-tec-method-pill-range {
+  margin-top: 0.2rem;
+  font-size: 1.05rem;
+  font-weight: 800;
+}
+
+.live-tec-method-compare-status {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.live-tec-method-compare-status--err {
+  color: #ff8a8a;
+}
+
+.live-tec-method-compare-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.live-tec-method-compare-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+  min-width: 520px;
+}
+
+.live-tec-method-compare-table th,
+.live-tec-method-compare-table td {
+  padding: 0.4rem 0.55rem;
+  text-align: right;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  white-space: nowrap;
+}
+
+.live-tec-method-compare-table th:first-child,
+.live-tec-method-compare-table td:first-child {
+  text-align: left;
+  position: sticky;
+  left: 0;
+  background: rgba(8, 12, 20, 0.95);
+}
+
+.live-tec-method-compare-table thead th {
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.live-tec-method-compare-table tbody tr:hover td {
+  background: rgba(56, 189, 248, 0.06);
+}
+
+.tec-cmp-delta-near {
+  color: #a7f3d0;
+  font-weight: 700;
+}
+
+.tec-cmp-delta-pos {
+  color: #fbbf24;
+  font-weight: 700;
+}
+
+.tec-cmp-delta-neg {
+  color: #fb7185;
+  font-weight: 700;
+}
+
+.live-tec-method-compare-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.live-tec-method-compare-note {
+  line-height: 1.4;
+  max-width: 60rem;
+}
+
+@media (max-width: 640px) {
+  .live-tec-method-compare {
+    padding: 0.7rem 0.75rem;
+  }
+  .live-tec-method-pill-range {
+    font-size: 0.95rem;
+  }
+}
+
 .tec-heatmap-legend-below {
   position: static;
   width: 100%;
