@@ -7,13 +7,15 @@ const RELOAD_KEY = "zgiis:chunk-load-reload";
 function isChunkLoadFailure(value: unknown): boolean {
   if (!value) return false;
   if (typeof value === "string") {
-    return /ChunkLoadError|Loading chunk .+ failed/i.test(value);
+    return /ChunkLoadError|Loading chunk .+ failed|Failed to fetch RSC|fetchServerResponse/i.test(value);
   }
   if (typeof value === "object") {
     const err = value as { name?: string; message?: string };
+    const message = String(err.message ?? "");
     return (
       err.name === "ChunkLoadError" ||
-      /ChunkLoadError|Loading chunk .+ failed/i.test(String(err.message ?? ""))
+      /ChunkLoadError|Loading chunk .+ failed/i.test(message) ||
+      (err.name === "TypeError" && /Failed to fetch/i.test(message))
     );
   }
   return false;

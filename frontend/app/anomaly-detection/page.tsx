@@ -458,7 +458,7 @@ export default function AnomalyDetectionPage() {
       {!loading && !error && anomalies.length === 0 && (
         <div className="banner banner-warn">
           No processed TEC archive available yet — anomaly detection needs ingested RINEX/CMN observations.
-          Process station data on the <Link href="/processing">Processing</Link> page to populate this view.
+          Process station data on the <Link href="/processing/">Processing</Link> page to populate this view.
         </div>
       )}
 
@@ -872,7 +872,7 @@ export default function AnomalyDetectionPage() {
             </p>
             <p className="body-copy">
               View spatial TEC structure on the{" "}
-              <Link href="/tec-heatmap">TEC Heatmap</Link> to correlate regional gradients with anomaly days.
+              <Link href="/tec-heatmap/">TEC Heatmap</Link> to correlate regional gradients with anomaly days.
             </p>
           </div>
           <div className="card">

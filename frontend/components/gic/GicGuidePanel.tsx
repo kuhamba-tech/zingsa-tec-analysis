@@ -77,11 +77,11 @@ export default function GicGuidePanel() {
 
       <p className="small-note" style={{ marginTop: "0.75rem" }}>
         Related tools:{" "}
-        <Link href="/space-weather" className="link-inline">Live Space Weather</Link>
+        <Link href="/space-weather/" className="link-inline">Live Space Weather</Link>
         {" · "}
-        <Link href="/dashboard" className="link-inline">National Dashboard</Link>
+        <Link href="/dashboard/" className="link-inline">National Dashboard</Link>
         {" · "}
-        <Link href="/anomaly-detection" className="link-inline">TEC Anomalies</Link>
+        <Link href="/anomaly-detection/" className="link-inline">TEC Anomalies</Link>
         {" · "}
         <Link href="https://www.zesaholdings.co.zw/ZPC" className="link-inline" target="_blank" rel="noopener noreferrer">
           ZESA ZPC generation fleet

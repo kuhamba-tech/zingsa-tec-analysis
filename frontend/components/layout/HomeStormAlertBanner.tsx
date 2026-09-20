@@ -28,9 +28,9 @@ export default function HomeStormAlertBanner({ sw }: HomeStormAlertBannerProps) 
         <span className="home-storm-alert-msg">{message}</span>
       </div>
       <p className="home-storm-alert-foot">
-        <Link href="/dashboard">Operations Dashboard</Link>
+        <Link href="/dashboard/">Operations Dashboard</Link>
         {" · "}
-        <Link href="/storm-watch">Storm Watch log</Link>
+        <Link href="/storm-watch/">Storm Watch log</Link>
       </p>
     </section>
   );

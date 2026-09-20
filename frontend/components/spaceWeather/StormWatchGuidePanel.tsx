@@ -92,13 +92,13 @@ export default function StormWatchGuidePanel() {
 
       <p className="small-note" style={{ marginTop: "0.75rem" }}>
         Related tools:{" "}
-        <Link href="/dashboard" className="link-inline">National Dashboard</Link>
+        <Link href="/dashboard/" className="link-inline">National Dashboard</Link>
         {" · "}
-        <Link href="/space-weather" className="link-inline">Live Space Weather</Link>
+        <Link href="/space-weather/" className="link-inline">Live Space Weather</Link>
         {" · "}
-        <Link href="/gic-monitor" className="link-inline">GIC Monitor</Link>
+        <Link href="/gic-monitor/" className="link-inline">GIC Monitor</Link>
         {" · "}
-        <Link href="/anomaly-detection" className="link-inline">TEC Anomalies</Link>
+        <Link href="/anomaly-detection/" className="link-inline">TEC Anomalies</Link>
       </p>
     </section>
   );

@@ -28,7 +28,7 @@ export default function UnderstandingTecPage() {
       <div className="banner banner-info vtec-theory-reading-note">
         <strong>Reading order:</strong> Steps 1 to 10 build from the Harare CORS signal path to the
         Zimbabwe VTEC map. For the full mathematical derivation see{" "}
-        <Link href="/vtec-theory">Calculating VTEC</Link>.
+        <Link href="/vtec-theory/">Calculating VTEC</Link>.
       </div>
 
       <section className="vtec-steps-journey-wrap">

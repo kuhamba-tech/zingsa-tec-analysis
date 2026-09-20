@@ -61,13 +61,13 @@ export default function AnomalyGuidePanel() {
 
       <p className="small-note" style={{ marginTop: "0.75rem" }}>
         Related tools:{" "}
-        <Link href="/tec-heatmap" className="link-inline">TEC Heatmap</Link>
+        <Link href="/tec-heatmap/" className="link-inline">TEC Heatmap</Link>
         {" · "}
-        <Link href="/time-series" className="link-inline">Time Series</Link>
+        <Link href="/time-series/" className="link-inline">Time Series</Link>
         {" · "}
-        <Link href="/prn-explorer" className="link-inline">PRN Explorer</Link>
+        <Link href="/prn-explorer/" className="link-inline">PRN Explorer</Link>
         {" · "}
-        <Link href="/space-weather" className="link-inline">Live Space Weather</Link>
+        <Link href="/space-weather/" className="link-inline">Live Space Weather</Link>
       </p>
     </section>
   );

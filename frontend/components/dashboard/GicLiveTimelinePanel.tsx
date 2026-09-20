@@ -93,7 +93,7 @@ export default function GicLiveTimelinePanel({ data }: Props) {
     <div className="card operations-chart-card">
       <div className="operations-chart-title">
         Live GIC Current Timeline — last 24 h{" "}
-        <Link href="/gic-monitor" style={{ fontSize: "0.72rem", marginLeft: "0.5rem" }}>
+        <Link href="/gic-monitor/" style={{ fontSize: "0.72rem", marginLeft: "0.5rem" }}>
           Open GIC Monitor →
         </Link>
       </div>

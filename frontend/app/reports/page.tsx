@@ -104,7 +104,7 @@ function ReportsContent() {
 
       <div className="reports-type-tabs" role="tablist" aria-label="Report type">
         <Link
-          href="/reports?period=daily"
+          href="/reports/?period=daily"
           className={`home-map-layer-btn${reportType === "space-weather" ? " is-active" : ""}`}
           role="tab"
           aria-selected={reportType === "space-weather"}

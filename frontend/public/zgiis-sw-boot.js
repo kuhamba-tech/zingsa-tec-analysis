@@ -28,12 +28,16 @@
       function isChunkFail(value) {
         if (!value) return false;
         if (typeof value === "string") {
-          return /ChunkLoadError|Loading chunk .+ failed/i.test(value);
+          return /ChunkLoadError|Loading chunk .+ failed|Failed to fetch RSC|fetchServerResponse/i.test(value);
         }
         if (typeof value === "object") {
           var name = value.name ? String(value.name) : "";
           var message = value.message ? String(value.message) : "";
-          return name === "ChunkLoadError" || /ChunkLoadError|Loading chunk .+ failed/i.test(message);
+          return (
+            name === "ChunkLoadError" ||
+            /ChunkLoadError|Loading chunk .+ failed/i.test(message) ||
+            (name === "TypeError" && /Failed to fetch/i.test(message))
+          );
         }
         return false;
       }
