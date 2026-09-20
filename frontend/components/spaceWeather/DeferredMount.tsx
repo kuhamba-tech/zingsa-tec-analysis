@@ -11,6 +11,8 @@ type Props = {
   rootMargin?: string;
   /** Force mount immediately (e.g. desktop opt-out). Default: defer. */
   eager?: boolean;
+  /** Extra wait after the section is eligible — keeps first paint free of heavy API work. */
+  minDelayMs?: number;
   className?: string;
   minHeight?: number | string;
 };
@@ -26,11 +28,12 @@ export default function DeferredMount({
   fallback = null,
   rootMargin,
   eager = false,
+  minDelayMs = 0,
   className,
   minHeight,
 }: Props) {
   const ref = useRef<HTMLDivElement | null>(null);
-  const [visible, setVisible] = useState(eager);
+  const [visible, setVisible] = useState(eager && minDelayMs <= 0);
   const [margin, setMargin] = useState(rootMargin ?? "120px 0px");
 
   useEffect(() => {
@@ -43,28 +46,55 @@ export default function DeferredMount({
   }, [rootMargin]);
 
   useEffect(() => {
-    if (eager || visible) return;
+    if (eager && minDelayMs <= 0) {
+      setVisible(true);
+      return;
+    }
+    if (visible) return;
     const node = ref.current;
     if (!node) return;
 
+    let cancelled = false;
+    let delayHandle: number | null = null;
+    let io: IntersectionObserver | null = null;
+
+    const arm = () => {
+      if (cancelled) return;
+      if (minDelayMs > 0) {
+        delayHandle = window.setTimeout(() => {
+          if (!cancelled) setVisible(true);
+        }, minDelayMs) as unknown as number;
+      } else {
+        setVisible(true);
+      }
+    };
+
     // Prefer IntersectionObserver; fall back to a short idle delay.
     if (typeof IntersectionObserver === "undefined") {
-      const id = window.setTimeout(() => setVisible(true), 400);
-      return () => window.clearTimeout(id);
+      const id = window.setTimeout(arm, 400);
+      return () => {
+        cancelled = true;
+        window.clearTimeout(id);
+        if (delayHandle != null) window.clearTimeout(delayHandle);
+      };
     }
 
-    const io = new IntersectionObserver(
+    io = new IntersectionObserver(
       (entries) => {
         if (entries.some((e) => e.isIntersecting)) {
-          setVisible(true);
-          io.disconnect();
+          io?.disconnect();
+          arm();
         }
       },
       { root: null, rootMargin: margin, threshold: 0.01 },
     );
     io.observe(node);
-    return () => io.disconnect();
-  }, [eager, visible, margin]);
+    return () => {
+      cancelled = true;
+      io?.disconnect();
+      if (delayHandle != null) window.clearTimeout(delayHandle);
+    };
+  }, [eager, visible, margin, minDelayMs]);
 
   return (
     <div

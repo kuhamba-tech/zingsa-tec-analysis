@@ -412,7 +412,16 @@ export default function SpaceWeatherClient({
     initialSw ? snapshotTimelines(initialSw) : null,
   );
   const [ekf, setEkf]       = useState<EkfStatus | null>(null);
-  const [tab, setTab]       = useState(0);
+  const [tab, setTab] = useState(() => {
+    if (typeof window === "undefined") return 0;
+    try {
+      const raw = (new URLSearchParams(window.location.search).get("tab") || "").toLowerCase();
+      if (raw === "3" || raw === "zimbabwe" || raw === "ionosphere" || raw === "local") return 3;
+    } catch {
+      /* ignore */
+    }
+    return 0;
+  });
   const [xrayRange, setXrayRange] = useState<"6H" | "24H">("24H");
 
   useEffect(() => {
@@ -427,7 +436,7 @@ export default function SpaceWeatherClient({
     }
   }, []);
   const [refreshing, setRefreshing] = useState(false);
-  const [now, setNow] = useState(0);
+  const [now, setNow] = useState(() => (typeof window !== "undefined" ? Date.now() : 0));
   const [lastFetched, setLastFetched] = useState<string | null>(
     () => initialSw?.updated_utc ?? null,
   );
@@ -1302,36 +1311,69 @@ export default function SpaceWeatherClient({
             a TEC teaching guide (classify STEC/VTEC; GOPI vs Gg = Cesaroni),
             and scintillation / GNSS risk context
           </p>
-          <CauseEffectTimelineStack
-            variant="local"
-            afterVtec={
-              stationsOnlinePoints.length > 0 ? (
-                <TimelineCard
-                  graphId="cors-online-zw"
-                  title="2 · Live CORS Stations Online Timeline"
-                  pts={stationsOnlinePoints}
-                  color="#00ff88"
-                  yLabel="Stations online"
-                  source="ZINGSA CORS station-health — current live count"
-                  analysis={timelineAnalyses.stations}
-                  expanded={selectedGraph === "cors-online-zw"}
-                  onToggle={toggleGraph}
-                  ekfPoints={ekf?.series.stations_online?.points}
-                  ekfColor="#86efac"
-                  emptyMsg="Live CORS telemetry unavailable."
-                  {...liveMetricSync}
-                />
-              ) : (
-                <div className="card">
-                  <div className="metric-label" style={{ marginBottom: "0.6rem" }}>2 · Live CORS Stations Online Timeline</div>
-                  <div className="banner banner-info">Live CORS telemetry is unavailable — no station count timeline.</div>
-                </div>
-              )
-            }
-          />
-          <ZimbabweTecTeachingLab />
-          <TecMethodUnderstandingPanel />
-          <TecMethodComparisonLab />
+          {/* Defer heavy CORS / Gg labs so metric cards keep the API free on first paint. */}
+          <DeferredMount
+            className="sw-deferred-block"
+            minHeight={280}
+            rootMargin="200px 0px"
+            minDelayMs={400}
+            fallback={sectionFallback}
+          >
+            <CauseEffectTimelineStack
+              variant="local"
+              afterVtec={
+                stationsOnlinePoints.length > 0 ? (
+                  <TimelineCard
+                    graphId="cors-online-zw"
+                    title="2 · Live CORS Stations Online Timeline"
+                    pts={stationsOnlinePoints}
+                    color="#00ff88"
+                    yLabel="Stations online"
+                    source="ZINGSA CORS station-health — current live count"
+                    analysis={timelineAnalyses.stations}
+                    expanded={selectedGraph === "cors-online-zw"}
+                    onToggle={toggleGraph}
+                    ekfPoints={ekf?.series.stations_online?.points}
+                    ekfColor="#86efac"
+                    emptyMsg="Live CORS telemetry unavailable."
+                    {...liveMetricSync}
+                  />
+                ) : (
+                  <div className="card">
+                    <div className="metric-label" style={{ marginBottom: "0.6rem" }}>2 · Live CORS Stations Online Timeline</div>
+                    <div className="banner banner-info">Live CORS telemetry is unavailable — no station count timeline.</div>
+                  </div>
+                )
+              }
+            />
+          </DeferredMount>
+          <DeferredMount
+            className="sw-deferred-block"
+            minHeight={320}
+            rootMargin="160px 0px"
+            minDelayMs={900}
+            fallback={sectionFallback}
+          >
+            <ZimbabweTecTeachingLab />
+          </DeferredMount>
+          <DeferredMount
+            className="sw-deferred-block"
+            minHeight={200}
+            rootMargin="120px 0px"
+            minDelayMs={1200}
+            fallback={sectionFallback}
+          >
+            <TecMethodUnderstandingPanel />
+          </DeferredMount>
+          <DeferredMount
+            className="sw-deferred-block"
+            minHeight={360}
+            rootMargin="100px 0px"
+            minDelayMs={1600}
+            fallback={sectionFallback}
+          >
+            <TecMethodComparisonLab />
+          </DeferredMount>
         </div>
       )}
 

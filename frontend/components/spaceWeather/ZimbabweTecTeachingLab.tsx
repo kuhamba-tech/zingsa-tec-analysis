@@ -14,6 +14,11 @@ import { Scatter, Line } from "react-chartjs-2";
 import LineChart from "@/components/charts/LineChart";
 import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
 import { getLiveVtec, getLiveVtecByStation, getStations, getTecMethodComparison } from "@/lib/api";
+import {
+  TEC_METHOD_CMP_HOURS,
+  TEC_METHOD_CMP_LIMIT,
+  TEC_METHOD_CMP_TIMEOUT_MS,
+} from "@/lib/tecMethodCompareParams";
 import { formatKnmiUtcTick, sharedTimeDomain, utcTimeAxisProps } from "@/lib/chartTimeAxis";
 import type { ChartAnalysisBlock } from "@/lib/multiSourceChartAnalysis";
 import {
@@ -220,15 +225,17 @@ export default function ZimbabweTecTeachingLab() {
     let cancelled = false;
     const load = () => {
       setLoading(true);
-      const dayHours = Math.min(24, Math.ceil(hoursSinceUtcMidnight() * 2) / 2 + 0.5);
+      // Keep first paint light: short station bins + capped live samples.
+      // Full-day dense pulls used to saturate the API worker and freeze metric cards.
+      const dayHours = Math.min(12, Math.max(4, Math.ceil(hoursSinceUtcMidnight() * 2) / 2 + 0.5));
 
       // Apply each feed as it lands so the slow GOPI/Gg comparison cannot block
       // graphs 1–5 (diurnal used to stay empty until comparison finished).
-      const stP = getLiveVtecByStation(dayHours, 10, 90_000).then((rows) => {
+      const stP = getLiveVtecByStation(dayHours, 15, 45_000).then((rows) => {
         if (!cancelled) setStations(Array.isArray(rows) ? rows : []);
         return rows;
       });
-      const liveP = getLiveVtec(Math.min(6, dayHours), undefined, 45_000, 2500).then((rows) => {
+      const liveP = getLiveVtec(Math.min(4, dayHours), undefined, 25_000, 800).then((rows) => {
         if (!cancelled) setObs(Array.isArray(rows) ? rows : []);
         return rows;
       });
@@ -236,9 +243,13 @@ export default function ZimbabweTecTeachingLab() {
         if (!cancelled && Array.isArray(rows) && rows.length) setCatalog(rows);
         return rows;
       });
-        // Shared params with TecMethodComparisonLab so both hit one cached API call.
-        // Prefer a denser sample set for notebook-style SV fan charts.
-        getTecMethodComparison(12, undefined, 1500, 60_000)
+      // Shared params with TecMethodComparisonLab so both hit one cached API call.
+      getTecMethodComparison(
+        TEC_METHOD_CMP_HOURS,
+        undefined,
+        TEC_METHOD_CMP_LIMIT,
+        TEC_METHOD_CMP_TIMEOUT_MS,
+      )
         .then((cmp) => {
           if (!cancelled) setMethodCmp(cmp);
         })
