@@ -10,6 +10,7 @@ import type { Station, TecHeatmapResponse } from "@/lib/types";
 import type { MapLayer } from "@/components/maps/CorsMapWithLayers";
 import TecHeatMapLegend from "@/components/maps/TecHeatMapLegend";
 import StationVtecTimePlots from "@/components/charts/StationVtecTimePlots";
+import LiveTecMethodComparePanel from "@/components/maps/LiveTecMethodComparePanel";
 import LiveVtecHealthBanner from "@/components/live/LiveVtecHealthBanner";
 import LiveVtecDiagnosticsPanel from "@/components/live/LiveVtecDiagnosticsPanel";
 
@@ -160,6 +161,8 @@ export default function TecHeatmapPage() {
       </div>
 
       <TecHeatMapLegend className="tec-heatmap-legend-below" maxVtec={maxVtec} />
+
+      {mapLayer === "TEC Heat Map" && <LiveTecMethodComparePanel />}
 
       {mapLayer === "TEC Heat Map" && <StationVtecTimePlots />}
 

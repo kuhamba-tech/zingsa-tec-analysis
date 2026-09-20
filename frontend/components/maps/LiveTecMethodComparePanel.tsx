@@ -32,7 +32,7 @@ export default function LiveTecMethodComparePanel({ className = "" }: { classNam
   useEffect(() => {
     let cancelled = false;
     const load = () => {
-      getTecMethodComparison(3, undefined, 800, 45_000)
+      getTecMethodComparison(2, undefined, 300, 60_000)
         .then((res) => {
           if (cancelled) return;
           setData(res);
