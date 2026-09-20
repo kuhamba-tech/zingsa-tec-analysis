@@ -422,7 +422,12 @@ def method_catalog() -> list[dict[str, str]]:
             "short": GG_META.short,
             "calibration": GG_META.calibration,
             "color": GG_META.color,
-            "engine": "pytecgg_rinex" if try_pytecgg_available() else "gg_modip_lt_window_ls",
+            # Live comparison always runs notebook Gg math on streaming rows.
+            # Full RINEX-day PyTECGg is a separate offline path when obs+nav exist.
+            "engine": (
+                "gg_modip_lt_window_ls"
+                + ("; pytecgg_importable" if try_pytecgg_available() else "")
+            ),
             "notebook": "TEC_GNSS_Notebook_v5 §3.2–3.4",
         },
     ]
