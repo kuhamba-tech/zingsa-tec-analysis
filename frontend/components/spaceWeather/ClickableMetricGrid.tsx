@@ -145,7 +145,7 @@ function TecScaleLegend({ activeCode }: { activeCode?: string | null }) {
                 fontWeight: active ? 900 : 800,
               }}
             >
-              {level.code}
+              {level.desc}
             </div>
             <div className="sw-metric-flare-scale-desc">{level.desc}</div>
           </div>
