@@ -80,7 +80,7 @@ function PanelShell({
       }}
     >
       <div style={{ fontWeight: 700, marginBottom: "0.12rem", letterSpacing: "0.02em" }}>{title}</div>
-      <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", marginBottom: "0.55rem" }}>
+      <div style={{ fontSize: "0.7rem", color: "#ffffff", marginBottom: "0.55rem" }}>
         {subtitle}
       </div>
       {children}
@@ -166,7 +166,7 @@ function KpBarChart({
           plugins: {
             legend: {
               display: true,
-              labels: { color: "#cbd5e1", boxWidth: 10, font: { size: 10 } },
+              labels: { color: "#ffffff", boxWidth: 10, font: { size: 10 } },
             },
             tooltip: {
               callbacks: {
@@ -190,9 +190,9 @@ function KpBarChart({
           scales: {
             x: {
               stacked: true,
-              title: { display: true, text: "UTC", color: "#e2e8f0", font: { size: 11 } },
+              title: { display: true, text: "UTC", color: "#ffffff", font: { size: 11 } },
               ticks: {
-                color: "#94a3b8",
+                color: "#ffffff",
                 maxRotation: 45,
                 minRotation: 0,
                 autoSkip: true,
@@ -204,8 +204,8 @@ function KpBarChart({
             y: {
               min: 0,
               max: 9,
-              title: { display: true, text: "Kp", color: "#e2e8f0" },
-              ticks: { color: "#94a3b8", stepSize: 1 },
+              title: { display: true, text: "Kp", color: "#ffffff" },
+              ticks: { color: "#ffffff", stepSize: 1 },
               grid: { color: "#1e3a5f" },
             },
           },
