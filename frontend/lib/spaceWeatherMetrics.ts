@@ -969,7 +969,7 @@ export function interpretMetric(
       {
         const level = tecScaleFromVtec(vtec);
         const context = tecTypicalContext(vtec);
-        return `Network VTEC is ${formatVtecDisplay(vtec)} — scale ${level.code} (${level.title}, typical ${level.range} TECU). ${context} ΔTEC% and ROTI show “reference baseline under development” until scientifically validated. Do not classify local disturbance from Kp alone.`;
+        return `Network VTEC is ${formatVtecDisplay(vtec)} — ${level.title} band (typical ${level.range} TECU). ${context} ΔTEC% and ROTI show “reference baseline under development” until scientifically validated. Do not classify local disturbance from Kp alone.`;
       }
 
     case "gnss_risk": {

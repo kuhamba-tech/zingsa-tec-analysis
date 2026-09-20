@@ -175,7 +175,7 @@ function HomeMetricCard({
                   className="sw-metric-flare-scale-letter"
                   style={{ color: level.color, fontWeight: active ? 900 : 800 }}
                 >
-                  {level.code}
+                  {level.desc}
                 </div>
               </div>
             );
