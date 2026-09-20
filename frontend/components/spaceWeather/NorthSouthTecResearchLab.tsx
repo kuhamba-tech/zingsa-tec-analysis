@@ -215,6 +215,19 @@ export default function NorthSouthTecResearchLab() {
     return () => window.clearInterval(id);
   }, [load]);
 
+  // Prefetch full CORS inventory immediately so the map is never empty while research series loads.
+  useEffect(() => {
+    let cancelled = false;
+    getStations(false)
+      .then((rows) => {
+        if (!cancelled && Array.isArray(rows) && rows.length) setCatalogStations(rows);
+      })
+      .catch(() => {/* keep empty until load() retries */});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const stations = data?.stations ?? [];
   const seriesMap = useMemo(() => {
     const out: Record<string, ResearchPoint[]> = {};

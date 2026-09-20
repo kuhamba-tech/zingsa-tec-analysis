@@ -44,6 +44,14 @@ Open `http://localhost:3000`. The API is available at
 `http://localhost:8000`, with interactive documentation at
 `http://localhost:8000/docs`.
 
+For the Zimbabwe North–South TEC research module (Live Space Weather → Zimbabwe tab):
+
+```text
+http://127.0.0.1:3001/space-weather/?tab=zimbabwe
+```
+
+API: `GET /live/north-south-tec-research?hours=24&resample_minutes=15`
+
 On Windows, `run.ps1`/`dev.ps1` starts both services.
 
 ## Supabase database
