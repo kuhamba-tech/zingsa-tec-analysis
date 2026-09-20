@@ -14,6 +14,8 @@ const HOUR_OPTIONS = [2, 6, 12, 24] as const;
 const REFRESH_MS = 90_000;
 const GOPI_COLOR = "#38bdf8";
 const GG_COLOR = "#eab308";
+/** Chart stroke — pink so Gg stays distinct from Global TEC amber. */
+const GG_LINE_COLOR = "#f472b6";
 const OBS_COLOR = "#3d8bfd";
 const GLOBAL_COLOR = "#f0a202";
 /** API caps tec-method-comparison at 8h / 600 samples. */
@@ -333,8 +335,8 @@ function StationChartCard({
           {
             label: "Gg = Cesaroni",
             data: merged.gg,
-            color: GG_COLOR,
-            // Dotted gold — distinct from solid GOPI and dashed Global TEC.
+            color: GG_LINE_COLOR,
+            // Dotted — distinct from solid GOPI and dashed Global TEC.
             borderDash: [2, 3],
             borderWidth: 2.5,
             fill: false,
@@ -564,7 +566,7 @@ export default function StationVtecTimePlots({
           <h2 className="home-section-heading">{title}</h2>
           <p className="station-vtec-plots-sub">
             Absolute code TEC from the live NTRIP pipeline (GOPI) — solid blue. Dashed amber is DLR
-            Global TEC at each station. Solid gold is Method 2 (Gg = Cesaroni) from the live
+            Global TEC at each station. Dotted pink is Method 2 (Gg = Cesaroni) from the live
             calibration (direct samples when available, otherwise GOPI + measured Δ). Start with 6h
             for a fast load; open 24h (day) for the full UTC day. EKF predicted lines stay off until a
             real per-station EKF series exists.
