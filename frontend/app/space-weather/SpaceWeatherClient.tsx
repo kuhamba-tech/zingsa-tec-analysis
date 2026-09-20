@@ -46,6 +46,7 @@ import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
 import { connectedStreamCount, countSpiderLiveStationStatuses, type LiveStationCounts } from "@/lib/liveStationStatus";
 import type { EkfPoint, EkfStatus, SpaceWeatherCurrent, SolarActivityFull, SpaceWeatherTimelines, TimelinePoint } from "@/lib/types";
 import { DashboardHeaderClocks } from "@/components/dashboard/DashboardClocks";
+import SpaceWeatherTitleIcon from "@/components/spaceWeather/SpaceWeatherTitleIcon";
 
 const sectionFallback = (
   <div className="banner banner-info" role="status" style={{ margin: "0.75rem 0" }}>
@@ -865,7 +866,12 @@ export default function SpaceWeatherClient({
       {/* ── Title ── */}
       <div className="dashboard-header">
         <div className="dashboard-header-copy">
-          <h1 className="page-title">☀️ Space Weather Monitoring</h1>
+          <h1 className="page-title">
+            <span className="sw-page-title-mark" aria-hidden>
+              <SpaceWeatherTitleIcon />
+            </span>
+            <span className="sw-page-title-text">Space Weather Monitoring</span>
+          </h1>
           <p className="page-subtitle">Real-time monitoring of solar, geomagnetic, ionospheric, and Zimbabwe CORS network conditions.</p>
         </div>
         <div className="dashboard-header-aside">
