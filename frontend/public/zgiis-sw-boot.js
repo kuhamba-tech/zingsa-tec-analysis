@@ -56,6 +56,14 @@
         try {
           sessionStorage.removeItem(RELOAD_KEY);
         } catch (e) {}
+        // Drop cache-bust param after a successful paint so URLs stay clean.
+        try {
+          var clean = new URL(window.location.href);
+          if (clean.searchParams.has("_chunk")) {
+            clean.searchParams.delete("_chunk");
+            window.history.replaceState({}, "", clean.pathname + clean.search + clean.hash);
+          }
+        } catch (e) {}
       }, 12000);
       window.addEventListener("error", function (event) {
         if (isChunkFail(event && event.error) || isChunkFail(event && event.message)) {
