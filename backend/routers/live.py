@@ -355,17 +355,17 @@ def _build_tec_method_comparison(
 
     stations, summary = _station_method_summary(gopi, gg)
     pytecgg = try_pytecgg_available()
-    engine = "pytecgg_rinex" if pytecgg else "gg_modip_lt_window_ls"
+    engine = "gg_modip_lt_window_ls"
     if pytecgg:
         engine_note = (
-            f"Engine {engine}: PyTECGg is importable; live comparison still applies the "
-            "notebook Gg MODIP×LT windowed least-squares to streaming CORS rows (full "
-            "RINEX-day PyTECGg when obs+nav files are processed offline)."
+            f"Engine {engine} (PyTECGg importable): live comparison applies the notebook "
+            "Gg MODIP×LT windowed least-squares to streaming CORS rows — not a full "
+            "RINEX-day PyTECGg run (that path is for offline obs+nav processing)."
         )
     else:
         engine_note = (
             f"Engine {engine}: TEC_GNSS_Notebook_v5 §3.2–3.4 arc-bias + VTEC(MODIP μ, LT) "
-            "polynomial on the same streaming samples (not a full RINEX-day PyTECGg run)."
+            "polynomial on the same streaming samples (PyTECGg not installed for full RINEX days)."
         )
     note = (
         "Method 1 (GOPI / Seemala) is the live CORS NTRIP dual-frequency path shown on the "
