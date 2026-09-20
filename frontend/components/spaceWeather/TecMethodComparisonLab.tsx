@@ -348,20 +348,20 @@ export default function TecMethodComparisonLab() {
             }}
             options={{
               responsive: true,
-              plugins: { legend: { labels: { color: "#94a3b8", boxWidth: 10 } } },
+              plugins: { legend: { labels: { color: "#ffffff", boxWidth: 10 } } },
               scales: {
                 x: {
                   type: "linear",
-                  title: { display: true, text: "UT (epoch ms)", color: "#94a3b8" },
+                  title: { display: true, text: "UT (epoch ms)", color: "#ffffff" },
                   ticks: {
-                    color: "#94a3b8",
+                    color: "#ffffff",
                     callback: (v) => {
                       const d = new Date(Number(v));
                       return `${d.getUTCHours().toString().padStart(2, "0")}:${d.getUTCMinutes().toString().padStart(2, "0")}`;
                     },
                   },
                 },
-                y: { title: { display: true, text: "VTEC (TECU)", color: "#94a3b8" }, ticks: { color: "#94a3b8" } },
+                y: { title: { display: true, text: "VTEC (TECU)", color: "#ffffff" }, ticks: { color: "#ffffff" } },
               },
             }}
             height={120}
@@ -399,10 +399,10 @@ export default function TecMethodComparisonLab() {
               }}
               options={{
                 responsive: true,
-                plugins: { legend: { labels: { color: "#94a3b8", boxWidth: 10, font: { size: 10 } } } },
+                plugins: { legend: { labels: { color: "#ffffff", boxWidth: 10, font: { size: 10 } } } },
                 scales: {
-                  x: { min: 15, max: 90, title: { display: true, text: "Elevation (°)", color: "#94a3b8" }, ticks: { color: "#94a3b8" } },
-                  y: { title: { display: true, text: "STEC (TECU)", color: "#94a3b8" }, ticks: { color: "#94a3b8" } },
+                  x: { min: 15, max: 90, title: { display: true, text: "Elevation (°)", color: "#ffffff" }, ticks: { color: "#ffffff" } },
+                  y: { title: { display: true, text: "STEC (TECU)", color: "#ffffff" }, ticks: { color: "#ffffff" } },
                 },
               }}
               height={140}
@@ -414,10 +414,10 @@ export default function TecMethodComparisonLab() {
               data={{ datasets: [elevPanels.g.vtec, elevPanels.c.vtec] }}
               options={{
                 responsive: true,
-                plugins: { legend: { labels: { color: "#94a3b8", boxWidth: 10, font: { size: 10 } } } },
+                plugins: { legend: { labels: { color: "#ffffff", boxWidth: 10, font: { size: 10 } } } },
                 scales: {
-                  x: { min: 15, max: 90, title: { display: true, text: "Elevation (°)", color: "#94a3b8" }, ticks: { color: "#94a3b8" } },
-                  y: { title: { display: true, text: "VTEC (TECU)", color: "#94a3b8" }, ticks: { color: "#94a3b8" } },
+                  x: { min: 15, max: 90, title: { display: true, text: "Elevation (°)", color: "#ffffff" }, ticks: { color: "#ffffff" } },
+                  y: { title: { display: true, text: "VTEC (TECU)", color: "#ffffff" }, ticks: { color: "#ffffff" } },
                 },
               }}
               height={140}
@@ -438,10 +438,10 @@ export default function TecMethodComparisonLab() {
             data={{ datasets: sky }}
             options={{
               responsive: true,
-              plugins: { legend: { labels: { color: "#94a3b8", boxWidth: 10 } } },
+              plugins: { legend: { labels: { color: "#ffffff", boxWidth: 10 } } },
               scales: {
-                x: { min: -90, max: 90, title: { display: true, text: "E ← zenith → W (approx)", color: "#94a3b8" }, ticks: { color: "#94a3b8" } },
-                y: { min: -90, max: 90, title: { display: true, text: "S ← zenith → N (approx)", color: "#94a3b8" }, ticks: { color: "#94a3b8" } },
+                x: { min: -90, max: 90, title: { display: true, text: "E ← zenith → W (approx)", color: "#ffffff" }, ticks: { color: "#ffffff" } },
+                y: { min: -90, max: 90, title: { display: true, text: "S ← zenith → N (approx)", color: "#ffffff" }, ticks: { color: "#ffffff" } },
               },
             }}
             height={160}
@@ -473,20 +473,20 @@ export default function TecMethodComparisonLab() {
             }}
             options={{
               responsive: true,
-              plugins: { legend: { labels: { color: "#94a3b8", boxWidth: 10 } } },
+              plugins: { legend: { labels: { color: "#ffffff", boxWidth: 10 } } },
               scales: {
                 x: {
                   type: "linear",
                   ticks: {
-                    color: "#94a3b8",
+                    color: "#ffffff",
                     callback: (v) => {
                       const d = new Date(Number(v));
                       return `${d.getUTCHours().toString().padStart(2, "0")}:${d.getUTCMinutes().toString().padStart(2, "0")}`;
                     },
                   },
-                  title: { display: true, text: "UT", color: "#94a3b8" },
+                  title: { display: true, text: "UT", color: "#ffffff" },
                 },
-                y: { title: { display: true, text: "ΔVTEC (TECU)", color: "#94a3b8" }, ticks: { color: "#94a3b8" } },
+                y: { title: { display: true, text: "ΔVTEC (TECU)", color: "#ffffff" }, ticks: { color: "#ffffff" } },
               },
             }}
             height={110}
@@ -565,12 +565,12 @@ export default function TecMethodComparisonLab() {
               responsive: true,
               maintainAspectRatio: false,
               plugins: {
-                legend: { labels: { color: "#94a3b8", boxWidth: 10, font: { size: 10 } } },
-                title: { display: true, text: "Diurnal VTEC — GOPI (cyan) vs Gg (amber)", color: "#e2e8f0", font: { size: 12 } },
+                legend: { labels: { color: "#ffffff", boxWidth: 10, font: { size: 10 } } },
+                title: { display: true, text: "Diurnal VTEC — GOPI (cyan) vs Gg (amber)", color: "#ffffff", font: { size: 12 } },
               },
               scales: {
-                x: { type: "linear", min: 0, max: 24, title: { display: true, text: "UT [hours]", color: "#94a3b8" }, ticks: { color: "#94a3b8", stepSize: 2 } },
-                y: { title: { display: true, text: "VTEC [TECU]", color: "#94a3b8" }, ticks: { color: "#94a3b8" } },
+                x: { type: "linear", min: 0, max: 24, title: { display: true, text: "UT [hours]", color: "#ffffff" }, ticks: { color: "#ffffff", stepSize: 2 } },
+                y: { title: { display: true, text: "VTEC [TECU]", color: "#ffffff" }, ticks: { color: "#ffffff" } },
               },
             }}
           />
