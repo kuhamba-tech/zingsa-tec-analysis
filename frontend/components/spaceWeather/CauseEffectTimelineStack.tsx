@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import LocalIonosphereObservations from "./LocalIonosphereObservations";
 import DeferredMount from "./DeferredMount";
 import GoesXrayLastDayChart from "./GoesXrayLastDayChart";
+import SpaceWeatherCorsMap from "./SpaceWeatherCorsMap";
 import SwSectionBanner from "./SwSectionBanner";
 import TecPrimerBlock from "./TecPrimerBlock";
 import dynamic from "next/dynamic";
@@ -24,14 +25,6 @@ import type {
   SpaceWeatherTimelines,
 } from "@/lib/types";
 
-const SpaceWeatherCorsMap = dynamic(() => import("./SpaceWeatherCorsMap"), {
-  ssr: false,
-  loading: () => (
-    <div className="banner banner-info" role="status" style={{ margin: "0.5rem 0" }}>
-      Loading CORS map…
-    </div>
-  ),
-});
 const LineChart = dynamic(() => import("@/components/charts/LineChart"), {
   ssr: false,
   loading: () => (
