@@ -85,6 +85,10 @@ const ZimbabweScientificTecPlots = dynamic(
   () => import("@/components/spaceWeather/ZimbabweScientificTecPlots"),
   { ssr: false, loading: () => sectionFallback },
 );
+const NorthSouthTecResearchLab = dynamic(
+  () => import("@/components/spaceWeather/NorthSouthTecResearchLab"),
+  { ssr: false, loading: () => sectionFallback },
+);
 const TecMethodUnderstandingPanel = dynamic(
   () => import("@/components/spaceWeather/TecMethodUnderstandingPanel"),
   { ssr: false, loading: () => sectionFallback },
@@ -1349,6 +1353,7 @@ export default function SpaceWeatherClient({
           <p style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>
             Local ionospheric response after Sun→Earth drivers — live Zimbabwe CORS VTEC graphs,
             a TEC teaching guide (classify STEC/VTEC; GOPI vs Gg = Cesaroni),
+            North–South spatial TEC research on the national CORS network,
             and scintillation / GNSS risk context
           </p>
           {/* Defer heavy CORS / Gg labs so metric cards keep the API free on first paint. */}
@@ -1407,9 +1412,18 @@ export default function SpaceWeatherClient({
           </DeferredMount>
           <DeferredMount
             className="sw-deferred-block"
+            minHeight={520}
+            rootMargin="140px 0px"
+            minDelayMs={loadProfile.heavyMountDelayMs + 850}
+            fallback={sectionFallback}
+          >
+            <NorthSouthTecResearchLab />
+          </DeferredMount>
+          <DeferredMount
+            className="sw-deferred-block"
             minHeight={200}
             rootMargin="120px 0px"
-            minDelayMs={loadProfile.heavyMountDelayMs + 900}
+            minDelayMs={loadProfile.heavyMountDelayMs + 1050}
             fallback={sectionFallback}
           >
             <TecMethodUnderstandingPanel />

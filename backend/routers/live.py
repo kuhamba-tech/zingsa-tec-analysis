@@ -39,6 +39,9 @@ _TEC_METHOD_CMP_INFLIGHT: dict[tuple[float, str | None, int], asyncio.Future] = 
 _SCI_PLOTS_CACHE: dict[tuple[float, int], tuple[float, dict]] = {}
 _SCI_PLOTS_CACHE_TTL_S = 120.0
 
+_NS_RESEARCH_CACHE: dict[tuple[float, int], tuple[float, dict]] = {}
+_NS_RESEARCH_CACHE_TTL_S = 90.0
+
 
 def _db():
     try:
@@ -607,6 +610,51 @@ def _build_scientific_plots(*, hours: float, resample_minutes: int) -> dict:
         hours=hours,
         resample_minutes=resample_minutes,
         kp_points=kp_points,
+    )
+
+
+@router.get("/north-south-tec-research")
+async def north_south_tec_research(
+    hours: float = Query(24.0, ge=1.0, le=720.0),
+    resample_minutes: int = Query(15, ge=1, le=60),
+    _=Depends(require_api_key),
+):
+    """North–South Zimbabwe VTEC research payload from live CORS archive.
+
+    Returns station metadata, quality metrics, suggested N–S transect, and
+    binned VTEC time series for interactive spatial analysis. Values are never
+    synthesised — empty ranges report an explicit unavailable message.
+    """
+    hours = float(min(720.0, max(1.0, hours)))
+    # Cap aggressive queries when the archive is short (typical live retention).
+    resample_minutes = int(min(60, max(1, resample_minutes)))
+    if hours > 48:
+        resample_minutes = max(resample_minutes, 15)
+    if hours > 168:
+        resample_minutes = max(resample_minutes, 30)
+
+    cache_key = (round(hours, 1), resample_minutes)
+    now = time.time()
+    cached = _NS_RESEARCH_CACHE.get(cache_key)
+    if cached and (now - cached[0]) < _NS_RESEARCH_CACHE_TTL_S:
+        return cached[1]
+
+    result = await asyncio.to_thread(
+        _build_north_south_tec_research,
+        hours=hours,
+        resample_minutes=resample_minutes,
+    )
+    _NS_RESEARCH_CACHE[cache_key] = (time.time(), result)
+    return result
+
+
+def _build_north_south_tec_research(*, hours: float, resample_minutes: int) -> dict:
+    from zgiis.processing.north_south_tec_research import build_north_south_tec_research
+
+    return build_north_south_tec_research(
+        hours=hours,
+        resample_minutes=resample_minutes,
+        db=_db(),
     )
 
 

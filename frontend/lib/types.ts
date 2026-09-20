@@ -1299,6 +1299,106 @@ export interface StationLiveStatus {
   last_vtec: number | null;
 }
 
+export interface NorthSouthTecResearchStation {
+  station_id: string;
+  name: string;
+  latitude: number;
+  longitude: number;
+  altitude_m: number | null;
+  operational_status: string;
+  lat_band: string;
+  live_vtec_available: boolean;
+  latest_vtec_tecu: number | null;
+  latest_observation_utc: string | null;
+  observation_count: number;
+  geomagnetic_latitude: number | null;
+  geomagnetic_longitude: number | null;
+  geomagnetic_status: string;
+  geomagnetic_note?: string;
+  statistics: {
+    mean: number | null;
+    median: number | null;
+    min: number | null;
+    max: number | null;
+    std: number | null;
+    amplitude: number | null;
+    n: number;
+  };
+  quality: {
+    missing?: number;
+    invalid?: number;
+    negative?: number;
+    abrupt_discontinuities?: number;
+    valid?: number;
+    expected?: number;
+    completeness_pct?: number;
+    status?: string;
+  };
+  processing_version?: string;
+  data_source?: string;
+}
+
+export interface NorthSouthTecResearchResponse {
+  generated_at: string;
+  title: string;
+  hours_requested: number;
+  resample_minutes: number;
+  processing_version: string;
+  data_source: string;
+  vtec_method: string;
+  coordinate_model: {
+    geographical: string;
+    geomagnetic: string | null;
+    geomagnetic_status: string;
+    geomagnetic_note: string;
+    ipp_shell_km_default: number;
+    ipp_shell_km_optional: number;
+    ipp_status: string;
+  };
+  grouping: Record<string, number | string>;
+  catalog_band_thresholds: { northern_min_lat: number; central_min_lat: number };
+  archive: {
+    historical_available: boolean;
+    oldest_observation_utc: string | null;
+    newest_observation_utc: string | null;
+    span_hours: number | null;
+    total_binned_points: number;
+    message: string | null;
+    retention_note: string;
+  };
+  validation: {
+    configured: boolean;
+    message: string;
+    reference_products: string[];
+  };
+  summary: {
+    northern_mean_vtec: number | null;
+    central_mean_vtec: number | null;
+    southern_mean_vtec: number | null;
+    north_south_difference: number | null;
+    latitudinal_gradient_tecu_per_deg: number | null;
+    active_stations: number;
+    observation_completeness_pct: number | null;
+    latest_observation_utc: string | null;
+  };
+  suggested_transect: string[];
+  sync_tolerance_s: number;
+  stations: NorthSouthTecResearchStation[];
+  series: Record<
+    string,
+    {
+      station_id: string;
+      points: Array<{
+        timestamp_utc: string;
+        vtec_tecu: number;
+        quality_flag?: string;
+        obs_count?: number;
+      }>;
+    }
+  >;
+  scientific_limitations: string[];
+}
+
 export interface LivePipelineStreamStatus {
   mountpoint: string;
   connected: boolean;
