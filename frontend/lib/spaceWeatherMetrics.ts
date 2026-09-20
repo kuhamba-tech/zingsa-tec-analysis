@@ -93,7 +93,7 @@ export const METRIC_EXPLANATIONS: Record<MetricKey, string> = {
   dst:
     "Dst and SYM-H measure storm-time changes in Earth's magnetic field, particularly ring-current development. They support magnetospheric context and must not be converted directly into NOAA G1–G5 labels.",
   zimbabwe_iono:
-    "Zimbabwe network VTEC from live CORS/GNSS observations. TEC is the line integral of electron density along the signal path (1 TECU = 10¹⁶ el/m²). Typical levels: Night <10, Day 10–40, High 40–100, Storm 100–200, Extreme >200 TECU. High VTEC alone is not ionospheric disturbance — ΔTEC relative to a quiet reference and ROTI are under development. Do not classify local disturbance solely from Kp.",
+    "Zimbabwe network VTEC from live CORS/GNSS observations. TEC is the line integral of electron density along the signal path (1 TECU = 10¹⁶ el/m²). The colour strip is VTEC magnitude (Low <10, Typical 10–40, High 40–100, Storm 100–200, Extreme >200 TECU) — not whether it is night or day outside. Quiet nights often sit in Low; quiet days often in Typical. High VTEC alone is not ionospheric disturbance — ΔTEC relative to a quiet reference and ROTI are under development. Do not classify local disturbance solely from Kp.",
   gnss_risk:
     "Operational navigation impact label. Until validated local ΔTEC/ROTI/RTK metrics drive the engine, treat this as provisional space-weather context (Kp, scintillation archive, related indices) — not proof of Zimbabwe GNSS failure.",
   stations:
@@ -146,13 +146,13 @@ export const KP_GEOMAGNETIC_SCALE = [
 export type KpGeomagneticBandId = (typeof KP_GEOMAGNETIC_SCALE)[number]["id"];
 
 /**
- * Typical VTEC levels for the Zimbabwe Ionosphere card scale
- * (night quiet → day quiet → high solar → storm → extreme).
- * Continuous bins so every TECU maps to exactly one segment.
+ * Typical VTEC magnitude bands for the Zimbabwe Ionosphere card.
+ * Labels are intensity tiers (quiet-night-like → quiet-day-like → …),
+ * NOT the current local time of day.
  */
 export const TEC_VTEC_SCALE = [
-  { code: "N", color: "#00ff88", desc: "Night", range: "<10", minInclusive: 0, maxExclusive: 10 },
-  { code: "D", color: "#38bdf8", desc: "Day", range: "10–40", minInclusive: 10, maxExclusive: 40 },
+  { code: "N", color: "#00ff88", desc: "Low", range: "<10", minInclusive: 0, maxExclusive: 10 },
+  { code: "D", color: "#38bdf8", desc: "Typical", range: "10–40", minInclusive: 10, maxExclusive: 40 },
   { code: "H", color: "#eab308", desc: "High", range: "40–100", minInclusive: 40, maxExclusive: 100 },
   { code: "S", color: "#ef4444", desc: "Storm", range: "100–200", minInclusive: 100, maxExclusive: 200 },
   { code: "X", color: "#a855f7", desc: "Extreme", range: ">200", minInclusive: 200, maxExclusive: Number.POSITIVE_INFINITY },
