@@ -28,6 +28,9 @@ interface Dataset {
   color?: string;
   fill?: boolean;
   dashed?: boolean;
+  /** Override Chart.js borderDash (takes precedence over `dashed`). */
+  borderDash?: number[];
+  borderWidth?: number;
   meta?: (PointMeta | null)[];
   /** Chart.js y-axis id — use "y2"/"y3" for secondary/tertiary scales. */
   yAxisId?: "y" | "y2" | "y3";
@@ -150,7 +153,13 @@ function DatasetToggleLegend({
                 display: "inline-block",
                 width: 18,
                 height: 0,
-                borderTop: `2px ${ds.dashed ? "dashed" : "solid"} ${color}`,
+                borderTop: `2px ${
+                  ds.borderDash
+                    ? "dotted"
+                    : ds.dashed
+                      ? "dashed"
+                      : "solid"
+                } ${color}`,
                 opacity: on ? 1 : 0.35,
               }}
             />
@@ -367,8 +376,8 @@ export default function LineChart({
             borderColor: ds.color ?? COLORS[i % COLORS.length],
             backgroundColor: ds.fill ? `${ds.color ?? COLORS[i % COLORS.length]}22` : "transparent",
             fill: ds.fill ?? false,
-            borderWidth: 2,
-            borderDash: ds.dashed ? [6, 4] : undefined,
+            borderWidth: ds.borderWidth ?? 2,
+            borderDash: ds.borderDash ?? (ds.dashed ? [6, 4] : undefined),
             pointRadius: compact ? 4 : labels.length > 200 ? 0 : 2,
             pointHoverRadius: compact ? 7 : 4,
             tension: 0.3,
