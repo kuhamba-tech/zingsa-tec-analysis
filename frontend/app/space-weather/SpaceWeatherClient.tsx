@@ -81,6 +81,10 @@ const TecMethodComparisonLab = dynamic(
   () => import("@/components/spaceWeather/TecMethodComparisonLab"),
   { ssr: false, loading: () => sectionFallback },
 );
+const ZimbabweScientificTecPlots = dynamic(
+  () => import("@/components/spaceWeather/ZimbabweScientificTecPlots"),
+  { ssr: false, loading: () => sectionFallback },
+);
 const TecMethodUnderstandingPanel = dynamic(
   () => import("@/components/spaceWeather/TecMethodUnderstandingPanel"),
   { ssr: false, loading: () => sectionFallback },
@@ -1391,6 +1395,15 @@ export default function SpaceWeatherClient({
             fallback={sectionFallback}
           >
             <ZimbabweTecTeachingLab />
+          </DeferredMount>
+          <DeferredMount
+            className="sw-deferred-block"
+            minHeight={480}
+            rootMargin="140px 0px"
+            minDelayMs={loadProfile.heavyMountDelayMs + 700}
+            fallback={sectionFallback}
+          >
+            <ZimbabweScientificTecPlots />
           </DeferredMount>
           <DeferredMount
             className="sw-deferred-block"

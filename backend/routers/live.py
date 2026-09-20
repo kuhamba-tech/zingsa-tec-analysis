@@ -36,6 +36,9 @@ _TEC_METHOD_CMP_CACHE: dict[tuple[float, str | None, int], tuple[float, TecMetho
 _TEC_METHOD_CMP_CACHE_TTL_S = 180.0
 _TEC_METHOD_CMP_INFLIGHT: dict[tuple[float, str | None, int], asyncio.Future] = {}
 
+_SCI_PLOTS_CACHE: dict[tuple[float, int], tuple[float, dict]] = {}
+_SCI_PLOTS_CACHE_TTL_S = 120.0
+
 
 def _db():
     try:
@@ -549,6 +552,62 @@ def _build_live_vtec_by_station(
     except Exception:
         log.exception("live vtec-by-station build failed")
         return empty
+
+
+@router.get("/zimbabwe-scientific-plots")
+async def zimbabwe_scientific_plots(
+    hours: float = Query(24.0, ge=6.0, le=72.0),
+    resample_minutes: int = Query(15, ge=5, le=60),
+    _=Depends(require_api_key),
+):
+    """Four scientific TEC plots for Zimbabwe with observation-based uncertainty.
+
+    1. Diurnal N/C/S latitudinal VTEC (IQR bands)
+    2. Seasonal equinox/solstice composites from CMN archive (where available)
+    3. TEC versus approximate MODIP along the N–S CORS transect
+    4. Quiet (Kp<3) vs disturbed (Kp≥3) diurnal composites
+
+    Values are never synthesised — missing seasons/regimes are flagged.
+    """
+    hours = float(min(48.0, max(6.0, hours)))
+    resample_minutes = int(min(60, max(5, resample_minutes)))
+    cache_key = (round(hours, 1), resample_minutes)
+    now = time.time()
+    cached = _SCI_PLOTS_CACHE.get(cache_key)
+    if cached and (now - cached[0]) < _SCI_PLOTS_CACHE_TTL_S:
+        return cached[1]
+
+    result = await asyncio.to_thread(
+        _build_scientific_plots,
+        hours=hours,
+        resample_minutes=resample_minutes,
+    )
+    _SCI_PLOTS_CACHE[cache_key] = (time.time(), result)
+    return result
+
+
+def _build_scientific_plots(*, hours: float, resample_minutes: int) -> dict:
+    from zgiis.processing.zimbabwe_scientific_plots import build_zimbabwe_scientific_plots
+    from zgiis.space_weather.fetch_indices import _fetch_noaa_kp_history, _parse_kp_value
+
+    kp_points: list[dict] = []
+    try:
+        for row in _fetch_noaa_kp_history() or []:
+            if not isinstance(row, dict):
+                continue
+            t = row.get("time_tag") or row.get("time")
+            v = _parse_kp_value(row)
+            if t is None or v is None:
+                continue
+            kp_points.append({"t": str(t), "v": float(v)})
+    except Exception:
+        log.debug("scientific plots: could not preload Kp", exc_info=True)
+
+    return build_zimbabwe_scientific_plots(
+        hours=hours,
+        resample_minutes=resample_minutes,
+        kp_points=kp_points,
+    )
 
 
 @router.get("/stations", response_model=list[StationLiveStatus])
