@@ -3995,6 +3995,27 @@ a.home-map-layer-btn {
   max-width: 60rem;
 }
 
+.live-tec-method-compare-refs {
+  margin-top: 0.65rem;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.live-tec-method-compare-refs summary {
+  cursor: pointer;
+  color: #f59e0b;
+}
+
+.live-tec-method-compare-refs ul {
+  margin: 0.4rem 0 0;
+  padding-left: 1.1rem;
+  line-height: 1.45;
+}
+
+.live-tec-method-compare-refs a {
+  color: #fbbf24;
+}
+
 @media (max-width: 640px) {
   .live-tec-method-compare {
     padding: 0.7rem 0.75rem;

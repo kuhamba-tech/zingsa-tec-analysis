@@ -106,8 +106,9 @@ export default function LiveTecMethodComparePanel({ className = "" }: { classNam
           </span>
           <strong>Ciraolo–Cesaroni / PyTECGg</strong>
           <span>
-            From TEC_GNSS_Notebook_v5 — arc-bias + VTEC(MODIP, LT) polynomial least squares on the
-            same samples (elev ≥ 30°, IPP 350 km). Absolute scale after joint bias removal.
+            From TEC_GNSS_Notebook_v5 §3.2–3.4 (Ciraolo 2007; Cesaroni 2015/2021; PyTECGg) — arc-bias
+            + VTEC(MODIP, LT) least squares on the same samples (elev ≥ 30°, IPP 350 km). Calibration
+            is the key difference from Method 1.
           </span>
           <span className="live-tec-method-pill-range" style={{ color: GG_COLOR }}>
             {ggRange ? `${ggRange.min.toFixed(1)}–${ggRange.max.toFixed(1)} TECU` : "—"}
@@ -170,6 +171,22 @@ export default function LiveTecMethodComparePanel({ className = "" }: { classNam
           </span>
         </div>
       )}
+
+      {data?.references?.length ? (
+        <details className="live-tec-method-compare-refs">
+          <summary>Gg references (notebook §3.4)</summary>
+          <ul>
+            {data.references.map((r) => (
+              <li key={r.doi}>
+                {r.cite}: {r.title}. DOI:{" "}
+                <a href={`https://doi.org/${r.doi}`} target="_blank" rel="noreferrer">
+                  {r.doi}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
     </section>
   );
 }

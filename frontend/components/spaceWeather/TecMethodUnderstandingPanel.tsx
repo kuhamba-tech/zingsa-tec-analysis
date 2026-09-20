@@ -9,6 +9,7 @@ import {
   TEC_METHOD_BOTTOM_LINE,
   TEC_METHOD_DIFFERENCES,
   TEC_METHOD_GUIDES,
+  TEC_METHOD_REFERENCES,
   TEC_OPERATIONAL_NOTE,
   TEC_SHARED_PIPELINE,
   TEC_TYPICAL_VALUES,
@@ -268,6 +269,42 @@ export default function TecMethodUnderstandingPanel() {
             >
               {TEC_METHOD_BOTTOM_LINE}
             </p>
+          </div>
+
+          {/* 6 · Notebook §3.4 references */}
+          <div>
+            <div className="metric-label" style={{ marginBottom: 6 }}>
+              6 · References (TEC_GNSS_Notebook_v5 §3.4)
+            </div>
+            <p className="sw-supporting-text" style={{ margin: "0 0 0.55rem" }}>
+              Method 2 follows these papers and the notebook Gg path — calibration (arc biases +
+              VTEC(MODIP, LT) least squares) is the key difference from live GOPI, not the elev/IPP
+              geometry (both use elev ≥ 30°, IPP 350 km).
+            </p>
+            <ul
+              style={{
+                margin: 0,
+                paddingLeft: "1.15rem",
+                fontSize: "0.76rem",
+                color: "var(--text-muted)",
+                lineHeight: 1.55,
+              }}
+            >
+              {TEC_METHOD_REFERENCES.map((r) => (
+                <li key={r.doi} style={{ marginBottom: 6 }}>
+                  <strong style={{ color: "var(--text)" }}>{r.cite}</strong>. {r.title}.{" "}
+                  {r.journal}. DOI:{" "}
+                  <a
+                    href={`https://doi.org/${r.doi}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ color: "#f59e0b" }}
+                  >
+                    {r.doi}
+                  </a>
+                </li>
+              ))}
+            </ul>
           </div>
         </>
       )}

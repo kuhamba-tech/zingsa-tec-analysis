@@ -111,7 +111,7 @@ export const TEC_METHOD_GUIDES: TecMethodGuide[] = [
     label: "Gg / Ciraolo–Cesaroni (PyTECGg)",
     color: "#f59e0b",
     origin:
-      "Notebook TEC_GNSS_Notebook_v5 — Ciraolo/Cesaroni Gg calibration; PyTECGg when full RINEX is available.",
+      "TEC_GNSS_Notebook_v5 §3.2–3.4 Gg technique (Ciraolo 2007; Cesaroni 2015/2021; PyTECGg / Ventriglia 2026). Calibration — joint arc-bias + VTEC(MODIP, LT) least squares — is the key difference from Method 1.",
     steps: [
       "Read RINEX observation + navigation (or re-calibrate the same live samples).",
       "Build L₄ / P₄, detect slips, phase-level arcs.",
@@ -153,7 +153,42 @@ export const TEC_METHOD_DIFFERENCES: { topic: string; gopi: string; gg: string }
 ];
 
 export const TEC_METHOD_BOTTOM_LINE =
-  "Both methods measure the same ionosphere. They disagree mainly because they remove hardware biases differently. Use GOPI for live operational monitoring; use Gg (notebook / PyTECGg) when you need calibrated absolute TECU and a clear bias audit trail.";
+  "Both methods measure the same ionosphere. They disagree mainly because they remove hardware biases differently. Use GOPI for live operational monitoring; use Gg (notebook / PyTECGg) when you need calibrated absolute TECU and a clear bias audit trail. Calibration — not geometry — is the key difference (TEC_GNSS_Notebook_v5 §3.2–3.4).";
+
+/** Notebook §3.4 references that define Method 2 (Gg) calibration. */
+export const TEC_METHOD_REFERENCES: {
+  cite: string;
+  title: string;
+  journal: string;
+  doi: string;
+}[] = [
+  {
+    cite: "Ciraolo et al. (2007)",
+    title:
+      "Calibration errors on experimental slant total electron content (TEC) determined with GPS",
+    journal: "Journal of Geodesy, 81(2), 111–120",
+    doi: "10.1007/s00190-006-0093-1",
+  },
+  {
+    cite: "Cesaroni et al. (2015)",
+    title:
+      "L-band scintillations and calibrated total electron content gradients over Brazil during the last solar maximum",
+    journal: "Journal of Space Weather and Space Climate, 5, A36",
+    doi: "10.1051/swsc/2015038",
+  },
+  {
+    cite: "Cesaroni et al. (2021)",
+    title: "IONORING: Real-Time Monitoring of the Total Electron Content over Italy",
+    journal: "Remote Sensing, 13(16), 3290",
+    doi: "10.3390/rs13163290",
+  },
+  {
+    cite: "Ventriglia et al. (2026)",
+    title: "PyTECGg: Total Electron Content reconstruction with GNSS data",
+    journal: "SoftwareX (in press); preprint SSRN April 2026",
+    doi: "10.2139/ssrn.5215848",
+  },
+];
 
 /** Place a live VTEC reading in the typical-value context. */
 export function tecTypicalContext(vtec: number): string {
