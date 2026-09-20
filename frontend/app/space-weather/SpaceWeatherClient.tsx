@@ -1183,15 +1183,11 @@ export default function SpaceWeatherClient({
             <HeliosphericMonitorStack />
           </DeferredMount>
 
-          {/* Zimbabwe response continues the Sun→Earth chain after Kp */}
-          <DeferredMount
-            className="sw-deferred-block"
-            minHeight={280}
-            rootMargin="200px 0px"
-            fallback={sectionFallback}
-          >
-            <CauseEffectTimelineStack variant="local" />
-          </DeferredMount>
+          <p style={{ fontSize: "0.82rem", color: "var(--text-muted)", margin: 0 }}>
+            Geomagnetic Kp forecast bars belong with the Heliospheric Monitor above.
+            Open the <strong>Zimbabwe Ionospheric Response</strong> tab for local CORS VTEC,
+            and the <strong>Kp Scale</strong> tab for the Kp 0–9 colour reference.
+          </p>
 
           {/* Active Regions + CME table side by side */}
           <div className="sw-double-grid">
@@ -1337,10 +1333,10 @@ export default function SpaceWeatherClient({
       {tab === 2 && (
         <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
           <p style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>
-            Local ionospheric response after Sun→Earth drivers — live Zimbabwe CORS VTEC graphs,
-            a TEC teaching guide (classify STEC/VTEC; GOPI vs Gg = Cesaroni),
-            North–South spatial TEC research on the national CORS network,
-            and scintillation / GNSS risk context
+            Zimbabwe-only ionosphere content: live CORS VTEC graphs, STEC/VTEC teaching,
+            GOPI vs Gg = Cesaroni comparison, North–South spatial TEC research, and
+            scintillation / GNSS risk context. Geomagnetic Kp colour bands live on the
+            separate <strong>Kp Scale</strong> tab.
           </p>
           {/* Defer heavy CORS / Gg labs so metric cards keep the API free on first paint. */}
           <DeferredMount
@@ -1428,16 +1424,23 @@ export default function SpaceWeatherClient({
 
       {/* ── Tab 3: Kp Scale ── */}
       {tab === 3 && (
-        <div className="card">
-          <div className="metric-label" style={{ marginBottom: "0.8rem" }}>Kp Geomagnetic Scale Reference</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
-            {KP_BANDS.map(({ range, label, color }) => (
-              <div key={range} style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
-                <div style={{ width: "60px", height: "24px", background: color, borderRadius: "4px", flexShrink: 0 }} />
-                <span style={{ fontWeight: 700, width: "40px", flexShrink: 0 }}>{range}</span>
-                <span>{label}</span>
-              </div>
-            ))}
+        <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+          <p style={{ fontSize: "0.82rem", color: "var(--text-muted)", margin: 0 }}>
+            Planetary Kp is a global geomagnetic activity index (0–9), not a Zimbabwe TEC
+            measurement. Live Kp forecast bars are on <strong>Solar Activity</strong>; local
+            CORS VTEC is on <strong>Zimbabwe Ionospheric Response</strong>.
+          </p>
+          <div className="card">
+            <div className="metric-label" style={{ marginBottom: "0.8rem" }}>Kp Geomagnetic Scale Reference</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+              {KP_BANDS.map(({ range, label, color }) => (
+                <div key={range} style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
+                  <div style={{ width: "60px", height: "24px", background: color, borderRadius: "4px", flexShrink: 0 }} />
+                  <span style={{ fontWeight: 700, width: "40px", flexShrink: 0 }}>{range}</span>
+                  <span>{label}</span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}
