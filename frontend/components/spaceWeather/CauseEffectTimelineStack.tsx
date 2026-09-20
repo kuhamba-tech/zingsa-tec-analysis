@@ -211,7 +211,7 @@ export type CauseEffectVariant = "full" | "drivers" | "local" | "liveMetric" | "
 /**
  * full — National Dashboard: observations + map + drivers 1–4 + Zimbabwe 5–6
  * drivers — Sun→Earth panels 1–4 only
- * local — Zimbabwe VTEC + scintillation/GNSS panels only (after Kp on Solar Activity)
+ * local — Zimbabwe VTEC + scintillation/GNSS panels only (no Kp scale / driver panels)
  * liveMetric — Live Metric Timelines: chronological Sun→Earth→Zimbabwe (slots for F10.7 + CORS)
  * overview — Space Weather page above tabs: observations + CORS map only
  */
@@ -547,9 +547,7 @@ export default function CauseEffectTimelineStack({
     variant === "drivers"
       ? "Measurement flow: GOES X-ray → solar wind → IMF → geomagnetic activity. Shared UTC window and synchronized crosshair across panels 1–4."
       : variant === "local"
-        ? localStartNumber > 1
-          ? "Local CORS VTEC and GNSS context after the Heliospheric Monitor (Kp). Shared UTC window with synchronized crosshair."
-          : "Local CORS VTEC and GNSS context after Kp / magnetosphere. Shared UTC window with synchronized crosshair. Up to five station traces; VTEC history up to 48 hours."
+        ? "Zimbabwe CORS VTEC, station online counts, and scintillation / GNSS risk only — shared UTC window with synchronized crosshair. Up to five station traces; VTEC history up to 48 hours. Planetary Kp colour bands are on the Kp Scale tab."
         : variant === "liveMetric"
           ? "Measurement flow: GOES X-ray → F10.7 → Heliospheric Monitor → Zimbabwe VTEC → CORS online → scintillation / GNSS risk."
           : "Shared UTC window and synchronized crosshair. Compare observations and propagation delays; alignment alone does not establish cause and effect. Up to five station traces are shown; coverage above includes all returned stations. Local VTEC history is available for up to 48 hours.";
