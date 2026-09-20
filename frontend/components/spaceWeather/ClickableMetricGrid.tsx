@@ -90,6 +90,7 @@ function GScaleLegend({ activeCode }: { activeCode?: string | null }) {
           <div
             className={`sw-metric-flare-scale-item${active ? " is-active" : ""}`}
             key={g.code}
+            title={`${g.code} — ${g.desc}`}
           >
             <div
               className="sw-metric-flare-scale-bar"
@@ -106,9 +107,9 @@ function GScaleLegend({ activeCode }: { activeCode?: string | null }) {
                 fontWeight: active ? 900 : 800,
               }}
             >
-              {g.code}
+              {g.desc}
             </div>
-            <div className="sw-metric-flare-scale-desc">{g.desc}</div>
+            <div className="sw-metric-flare-scale-desc">{g.code}</div>
           </div>
         );
       })}

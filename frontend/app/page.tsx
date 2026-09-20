@@ -130,6 +130,7 @@ function HomeMetricCard({
               <div
                 className={`sw-metric-flare-scale-item${active ? " is-active" : ""}`}
                 key={g.code}
+                title={`${g.code} — ${g.desc}`}
               >
                 <div
                   className="sw-metric-flare-scale-bar"
@@ -143,7 +144,7 @@ function HomeMetricCard({
                   className="sw-metric-flare-scale-letter"
                   style={{ color: g.color, fontWeight: active ? 900 : 800 }}
                 >
-                  {g.code}
+                  {g.desc}
                 </div>
               </div>
             );
