@@ -1,6 +1,7 @@
 /**
  * Device/network-aware scheduling for first paint.
  * Keeps critical metric fetches ahead of charts, maps, and secondary APIs.
+ * Desktop and mobile both start light — heavy work warms after paint / on tab use.
  */
 
 export type LoadProfile = {
@@ -28,7 +29,7 @@ export type LoadProfile = {
   vtecHoursCap: number;
   /** Max drawn points per LineChart series (stride-downsample above this). */
   chartMaxPoints: number;
-  /** Chart.js draw animations — off on phones / slow links for snappier graphs. */
+  /** Chart.js draw animations — off for snappier graphs on all devices. */
   chartAnimations: boolean;
 };
 
@@ -67,14 +68,14 @@ export function getLoadProfile(): LoadProfile {
       slowNetwork: false,
       lightPayload: true,
       pollIntervalMs: 90_000,
-      timelineMaxPoints: 72,
-      heavyMountDelayMs: 1200,
+      timelineMaxPoints: 48,
+      heavyMountDelayMs: 1400,
       deferSecondaryApis: true,
-      stationsDeferMs: 1600,
+      stationsDeferMs: 1800,
       defaultRangeHours: 6,
       vtecResampleMinutes: 10,
-      vtecHoursCap: 24,
-      chartMaxPoints: 72,
+      vtecHoursCap: 18,
+      chartMaxPoints: 64,
       chartAnimations: false,
     };
   }
@@ -85,17 +86,19 @@ export function getLoadProfile(): LoadProfile {
     constrained,
     slowNetwork: saveData || slow,
     lightPayload,
-    pollIntervalMs: saveData || slow ? 150_000 : constrained ? 100_000 : 45_000,
-    timelineMaxPoints: saveData || slow ? 36 : constrained ? 48 : 120,
-    heavyMountDelayMs: saveData || slow ? 2800 : constrained ? 1800 : 400,
-    deferSecondaryApis: lightPayload,
-    stationsDeferMs: saveData || slow ? 3200 : constrained ? 2000 : 300,
-    defaultRangeHours: lightPayload ? 6 : 24,
-    vtecResampleMinutes: saveData || slow ? 15 : constrained ? 10 : 2,
-    vtecHoursCap: saveData || slow ? 12 : constrained ? 24 : 48,
-    chartMaxPoints: saveData || slow ? 48 : constrained ? 72 : 160,
-    // Animations cost a full extra paint pass per chart — keep off unless desktop fibre.
-    chartAnimations: !lightPayload && !slow && !saveData,
+    // Both desktop and mobile: longer polls reduce background contention.
+    pollIntervalMs: saveData || slow ? 180_000 : constrained ? 120_000 : 60_000,
+    timelineMaxPoints: saveData || slow ? 32 : constrained ? 48 : 96,
+    heavyMountDelayMs: saveData || slow ? 3000 : constrained ? 2000 : 700,
+    // Always skip heliospheric/timeline warm on first paint — tabs warm on demand.
+    deferSecondaryApis: true,
+    stationsDeferMs: saveData || slow ? 3500 : constrained ? 2200 : 900,
+    // Short first window everywhere; users can expand to 24h / 3d.
+    defaultRangeHours: 6,
+    vtecResampleMinutes: saveData || slow ? 15 : constrained ? 10 : 5,
+    vtecHoursCap: saveData || slow ? 12 : constrained ? 18 : 24,
+    chartMaxPoints: saveData || slow ? 40 : constrained ? 64 : 120,
+    chartAnimations: false,
   };
 }
 
@@ -138,7 +141,7 @@ export function afterNextPaint(fn: () => void, timeoutMs = 48): () => void {
 /** Defer non-critical work; waits longer on constrained/slow clients. */
 export function scheduleSecondary(fn: () => void, profile?: LoadProfile): () => void {
   const p = profile ?? getLoadProfile();
-  const timeout = p.slowNetwork ? 4000 : p.constrained ? 2400 : 800;
+  const timeout = p.slowNetwork ? 4200 : p.constrained ? 2600 : 1100;
   return afterNextPaint(fn, timeout);
 }
 

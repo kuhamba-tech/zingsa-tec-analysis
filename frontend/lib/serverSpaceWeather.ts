@@ -2,6 +2,8 @@
  * Server-only bootstrap for space-weather metric cards.
  * Hits FastAPI directly (not the browser /backend proxy) so SSR HTML can
  * paint live values before client JS hydrates.
+ *
+ * Keep timeouts short so a slow solar feed cannot block first HTML.
  */
 import type { SolarActivityFull, SpaceWeatherCurrent } from "@/lib/types";
 
@@ -11,7 +13,7 @@ const API =
     "",
   );
 
-async function getJson<T>(path: string, timeoutMs = 2500): Promise<T | null> {
+async function getJson<T>(path: string, timeoutMs = 1800): Promise<T | null> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -37,9 +39,9 @@ export type SpaceWeatherBootstrap = {
 };
 
 export async function fetchSpaceWeatherBootstrap(): Promise<SpaceWeatherBootstrap> {
-  const [sw, sa] = await Promise.all([
-    getJson<SpaceWeatherCurrent>("/space-weather/current"),
-    getJson<SolarActivityFull>("/space-weather/solar-activity", 4000),
-  ]);
+  // Prefer /current for first paint; solar can arrive null and hydrate later.
+  const swPromise = getJson<SpaceWeatherCurrent>("/space-weather/current", 1600);
+  const saPromise = getJson<SolarActivityFull>("/space-weather/solar-activity", 1200);
+  const [sw, sa] = await Promise.all([swPromise, saPromise]);
   return { sw, sa };
 }

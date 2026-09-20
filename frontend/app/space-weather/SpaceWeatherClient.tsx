@@ -20,6 +20,7 @@ import SwSectionBanner from "@/components/spaceWeather/SwSectionBanner";
 import { monitoringFreshness, observationTime } from "@/lib/monitoringStatus";
 import HomeStormAlertBanner from "@/components/layout/HomeStormAlertBanner";
 import {
+  afterNextPaint,
   getLoadProfile,
   isDocumentVisible,
   scheduleSecondary,
@@ -543,8 +544,8 @@ export default function SpaceWeatherClient({
       setFeedStatus((prev) => (prev === "ok" || prev === "stale" ? prev : "pending"));
     }
 
-    // Phase 1 — refresh current indices. On mobile with SSR boot, defer the
-    // duplicate /current hit so the main thread stays free for first paint.
+    // Phase 1 — refresh current indices. When SSR/boot already painted cards,
+    // defer the duplicate hit on every device so first paint stays free.
     const refreshCurrent = () => {
       getSpaceWeather(false)
         .then((s) => {
@@ -565,7 +566,7 @@ export default function SpaceWeatherClient({
           }
         });
     };
-    if (!background && alreadyHaveSw && profile.lightPayload) {
+    if (!background && alreadyHaveSw) {
       scheduleSecondary(refreshCurrent, profile);
     } else {
       refreshCurrent();
@@ -586,14 +587,14 @@ export default function SpaceWeatherClient({
         })
         .finally(() => setSaLoading(false));
     };
-    if (!background && alreadyHaveSa && profile.lightPayload) {
+    if (!background && alreadyHaveSa) {
       scheduleSecondary(refreshSolar, profile);
     } else {
       refreshSolar();
     }
 
     // Warm heliospheric cache immediately (deduped); stacks read from store.
-    // Mobile / Save-Data: skip until Live Metric tab needs it — keeps /current free.
+    // First paint: skip — Live Metric / Solar tabs warm on demand.
     if (!profile.deferSecondaryApis) {
       void getHeliosphericMonitor(false, false).catch(() => null);
     }
@@ -679,13 +680,15 @@ export default function SpaceWeatherClient({
   // Never claim “figures show N/A” while we already have live/cached values on screen.
   const showUnavailableBanner = Boolean(freshnessMsg) && !sw;
   const loadProfile = useMemo(() => getLoadProfile(), []);
-  // Start false on SSR + first client paint (hydration-safe). Desktop enables after mount.
+  // Heavy Zimbabwe labs: phones keep the explicit load button; desktop enables
+  // after idle so the first Zimbabwe paint is not blocked by research charts.
   const [mobileHeavyLabs, setMobileHeavyLabs] = useState(false);
   useEffect(() => {
-    if (!getLoadProfile().lightPayload) setMobileHeavyLabs(true);
+    if (getLoadProfile().lightPayload) return;
+    return afterNextPaint(() => setMobileHeavyLabs(true), 1800);
   }, []);
 
-  // When the user opens Live Metric / Solar on mobile, warm the deferred APIs once.
+  // When the user opens Live Metric / Solar, warm deferred APIs once.
   useEffect(() => {
     if (!loadProfile.deferSecondaryApis) return;
     if (tab !== 0 && tab !== 1) return;
