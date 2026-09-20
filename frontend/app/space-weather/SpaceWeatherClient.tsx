@@ -111,8 +111,9 @@ const ChartAnalysisBox = dynamic(() => import("@/components/dashboard/ChartAnaly
 // ── Solar Cycle 25 reference ──────────────────────────────────────────────────
 const SC25_START = new Date("2019-12-01").getTime();
 const SC25_END_EST = new Date("2031-03-01").getTime();
-function getSC25Progress(): number {
-  return Math.min(100, Math.round(((Date.now() - SC25_START) / (SC25_END_EST - SC25_START)) * 100));
+function getSC25Progress(atMs: number): number {
+  const t = Number.isFinite(atMs) && atMs > 0 ? atMs : SC25_START;
+  return Math.min(100, Math.max(0, Math.round(((t - SC25_START) / (SC25_END_EST - SC25_START)) * 100)));
 }
 
 // ── Flare class scale (colours from solarEventColors) ───────────────────────────
@@ -420,24 +421,16 @@ export default function SpaceWeatherClient({
     initialSw ? snapshotTimelines(initialSw) : null,
   );
   const [ekf, setEkf]       = useState<EkfStatus | null>(null);
-  const [tab, setTab] = useState(() => {
-    if (typeof window === "undefined") return 0;
-    try {
-      const raw = (new URLSearchParams(window.location.search).get("tab") || "").toLowerCase();
-      // Zimbabwe is tab index 2 (after Solar Activity; Kp Scale follows it).
-      // Accept legacy ?tab=3 bookmarks that previously pointed here.
-      if (raw === "2" || raw === "3" || raw === "zimbabwe" || raw === "ionosphere" || raw === "local") return 2;
-    } catch {
-      /* ignore */
-    }
-    return 0;
-  });
+  // Always start at 0 so SSR HTML matches the first client paint; URL ?tab= is applied in useEffect.
+  const [tab, setTab] = useState(0);
   const [xrayRange, setXrayRange] = useState<"6H" | "24H">("24H");
 
   useEffect(() => {
     try {
       const params = new URLSearchParams(window.location.search);
       const raw = (params.get("tab") || "").toLowerCase();
+      // Zimbabwe is tab index 2 (after Solar Activity; Kp Scale follows it).
+      // Accept legacy ?tab=3 bookmarks that previously pointed here.
       if (raw === "2" || raw === "3" || raw === "zimbabwe" || raw === "ionosphere" || raw === "local") {
         setTab(2);
       }
@@ -446,7 +439,9 @@ export default function SpaceWeatherClient({
     }
   }, []);
   const [refreshing, setRefreshing] = useState(false);
-  const [now, setNow] = useState(() => (typeof window !== "undefined" ? Date.now() : 0));
+  // Keep SSR and first client paint identical — never seed with Date.now()
+  // (that flips LIVE/DELAYED badges and breaks hydration). Clock starts after mount.
+  const [now, setNow] = useState(0);
   const [lastFetched, setLastFetched] = useState<string | null>(
     () => initialSw?.updated_utc ?? null,
   );
@@ -804,7 +799,9 @@ export default function SpaceWeatherClient({
   const impact = getGnssImpact(kp, s4, flareClass);
 
   // ── Solar Cycle 25 ────────────────────────────────────────────────────────
-  const sc25Progress = getSC25Progress();
+  const sc25Progress = getSC25Progress(
+    now > 0 ? now : Date.parse(sw?.updated_utc ?? "") || 0,
+  );
 
   // ── Pre-processed table rows ──────────────────────────────────────────────
   const activeRegionRows = (Array.isArray(sa?.active_regions) ? sa.active_regions : []).map((r) => [
