@@ -45,6 +45,7 @@ ChartJS.register(
   Legend,
   Filler,
 );
+ChartJS.defaults.color = "#ffffff";
 
 const CorsMap = dynamic(() => import("@/components/maps/CorsMap"), {
   ssr: false,

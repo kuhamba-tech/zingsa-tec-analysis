@@ -20,6 +20,7 @@ import type { LiveObservation, TecMethodComparisonResponse, TecMethodInfo } from
 import ZimbabweLatBandTecCharts from "@/components/spaceWeather/ZimbabweLatBandTecCharts";
 
 ChartJS.register(LinearScale, PointElement, LineElement, Tooltip, Legend, Filler);
+ChartJS.defaults.color = "#ffffff";
 
 const GOPI_COLOR = "#38bdf8";
 const GG_COLOR = "#f59e0b";

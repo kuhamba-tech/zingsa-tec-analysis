@@ -17,6 +17,7 @@ import type { SciPercentileSeries, ZimbabweScientificPlotsResponse } from "@/lib
 import { ZIMBABWE_LAT_BANDS } from "@/lib/zimbabweLatBands";
 
 ChartJS.register(LinearScale, PointElement, LineElement, Tooltip, Legend, Filler);
+ChartJS.defaults.color = "#ffffff";
 
 const QUIET_COLOR = "#0ea5e9";
 const DIST_COLOR = "#dc2626";
