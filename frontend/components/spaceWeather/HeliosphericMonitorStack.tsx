@@ -162,6 +162,7 @@ function KpBarChart({
         options={{
           responsive: true,
           maintainAspectRatio: false,
+          color: "#ffffff",
           interaction: { mode: "index", intersect: false },
           plugins: {
             legend: {
@@ -190,22 +191,32 @@ function KpBarChart({
           scales: {
             x: {
               stacked: true,
-              title: { display: true, text: "UTC", color: "#ffffff", font: { size: 11 } },
+              title: {
+                display: true,
+                text: "UTC",
+                color: "#ffffff",
+                font: { size: 11, weight: "bold" },
+              },
               ticks: {
                 color: "#ffffff",
                 maxRotation: 45,
                 minRotation: 0,
                 autoSkip: true,
                 maxTicksLimit: 10,
-                font: { size: 9 },
+                font: { size: 10, weight: "500" },
               },
               grid: { color: "#1e3a5f" },
             },
             y: {
               min: 0,
               max: 9,
-              title: { display: true, text: "Kp", color: "#ffffff" },
-              ticks: { color: "#ffffff", stepSize: 1 },
+              title: {
+                display: true,
+                text: "Kp",
+                color: "#ffffff",
+                font: { weight: "bold" },
+              },
+              ticks: { color: "#ffffff", stepSize: 1, font: { weight: "500" } },
               grid: { color: "#1e3a5f" },
             },
           },
