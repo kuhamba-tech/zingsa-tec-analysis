@@ -138,14 +138,14 @@ function Section({
 function chartAxis() {
   return {
     x: {
-      title: { display: true, text: "", color: "#475569" },
-      ticks: { color: "#475569" },
-      grid: { color: "rgba(148,163,184,0.35)" },
+      title: { display: true, text: "", color: "#ffffff" },
+      ticks: { color: "#ffffff" },
+      grid: { color: "rgba(148,163,184,0.28)" },
     },
     y: {
-      title: { display: true, text: "VTEC (TECU)", color: "#0f172a" },
-      ticks: { color: "#475569" },
-      grid: { color: "rgba(148,163,184,0.35)" },
+      title: { display: true, text: "VTEC (TECU)", color: "#ffffff" },
+      ticks: { color: "#ffffff" },
+      grid: { color: "rgba(148,163,184,0.28)" },
     },
   };
 }
@@ -400,7 +400,7 @@ export default function NorthSouthTecResearchLab() {
           responsive: true,
           maintainAspectRatio: false,
           plugins: {
-            legend: { labels: { color: "#334155" } },
+            legend: { labels: { color: "#ffffff" } },
             tooltip: {
               callbacks: {
                 label: (ctx: { dataset: { label?: string }; parsed: { y: number | null } }) =>
@@ -440,7 +440,7 @@ export default function NorthSouthTecResearchLab() {
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        plugins: { legend: { labels: { color: "#334155" } } },
+        plugins: { legend: { labels: { color: "#ffffff" } } },
         scales: {
           x: { ...axes.x, type: "linear" as const, min: 0, max: 24 },
           y: axes.y,
@@ -878,7 +878,7 @@ export default function NorthSouthTecResearchLab() {
           {!diurnalChart || !selectedStations.length ? (
             <div className="banner banner-info">Select stations with measured VTEC to plot diurnal curves.</div>
           ) : (
-            <div style={{ background: "#fff", borderRadius: 8, height: 320, padding: "0.4rem" }}>
+            <div style={{ background: "#0a1929", borderRadius: 8, height: 320, padding: "0.4rem" }}>
               <Line data={diurnalChart.data} options={diurnalChart.options} />
             </div>
           )}
@@ -919,7 +919,7 @@ export default function NorthSouthTecResearchLab() {
               <div className="banner banner-info">No synchronized observations near {snapshotHour}:00 CAT for the selected stations.</div>
             ) : (
               <>
-                <div style={{ background: "#fff", borderRadius: 8, height: 300, padding: "0.4rem" }}>
+                <div style={{ background: "#0a1929", borderRadius: 8, height: 300, padding: "0.4rem" }}>
                   <Scatter
                     data={{
                       datasets: [
@@ -956,7 +956,7 @@ export default function NorthSouthTecResearchLab() {
                       responsive: true,
                       maintainAspectRatio: false,
                       plugins: {
-                        legend: { labels: { color: "#334155" } },
+                        legend: { labels: { color: "#ffffff" } },
                         tooltip: {
                           callbacks: {
                             label: (ctx) => {
@@ -971,13 +971,13 @@ export default function NorthSouthTecResearchLab() {
                       },
                       scales: {
                         x: {
-                          title: { display: true, text: "Geographical latitude (°)", color: "#0f172a" },
-                          ticks: { color: "#475569" },
+                          title: { display: true, text: "Geographical latitude (°)", color: "#ffffff" },
+                          ticks: { color: "#ffffff" },
                           grid: { color: "rgba(148,163,184,0.35)" },
                         },
                         y: {
-                          title: { display: true, text: "VTEC (TECU)", color: "#0f172a" },
-                          ticks: { color: "#475569" },
+                          title: { display: true, text: "VTEC (TECU)", color: "#ffffff" },
+                          ticks: { color: "#ffffff" },
                           grid: { color: "rgba(148,163,184,0.35)" },
                         },
                       },
@@ -1032,7 +1032,7 @@ export default function NorthSouthTecResearchLab() {
               </div>
             ) : (
               <>
-                <div style={{ background: "#fff", borderRadius: 8, height: 280, padding: "0.4rem" }}>
+                <div style={{ background: "#0a1929", borderRadius: 8, height: 280, padding: "0.4rem" }}>
                   <Line
                     data={{
                       datasets: [
@@ -1064,19 +1064,19 @@ export default function NorthSouthTecResearchLab() {
                     options={{
                       responsive: true,
                       maintainAspectRatio: false,
-                      plugins: { legend: { labels: { color: "#334155" } } },
+                      plugins: { legend: { labels: { color: "#ffffff" } } },
                       scales: {
                         x: {
                           type: "linear",
                           min: 0,
                           max: 24,
-                          title: { display: true, text: "Local time (CAT)", color: "#0f172a" },
-                          ticks: { color: "#475569" },
+                          title: { display: true, text: "Local time (CAT)", color: "#ffffff" },
+                          ticks: { color: "#ffffff" },
                           grid: { color: "rgba(148,163,184,0.35)" },
                         },
                         y: {
-                          title: { display: true, text: "ΔVTEC (TECU)", color: "#0f172a" },
-                          ticks: { color: "#475569" },
+                          title: { display: true, text: "ΔVTEC (TECU)", color: "#ffffff" },
+                          ticks: { color: "#ffffff" },
                           grid: { color: "rgba(148,163,184,0.35)" },
                         },
                       },
@@ -1103,7 +1103,7 @@ export default function NorthSouthTecResearchLab() {
               </div>
             ) : (
               <>
-                <div style={{ background: "#fff", borderRadius: 8, height: 260, padding: "0.4rem" }}>
+                <div style={{ background: "#0a1929", borderRadius: 8, height: 260, padding: "0.4rem" }}>
                   <Line
                     data={{
                       datasets: [
@@ -1126,19 +1126,19 @@ export default function NorthSouthTecResearchLab() {
                     options={{
                       responsive: true,
                       maintainAspectRatio: false,
-                      plugins: { legend: { labels: { color: "#334155" } } },
+                      plugins: { legend: { labels: { color: "#ffffff" } } },
                       scales: {
                         x: {
                           type: "linear",
                           min: 0,
                           max: 24,
-                          title: { display: true, text: "Local time (CAT)", color: "#0f172a" },
-                          ticks: { color: "#475569" },
+                          title: { display: true, text: "Local time (CAT)", color: "#ffffff" },
+                          ticks: { color: "#ffffff" },
                           grid: { color: "rgba(148,163,184,0.35)" },
                         },
                         y: {
-                          title: { display: true, text: "Gradient (TECU/°)", color: "#0f172a" },
-                          ticks: { color: "#475569" },
+                          title: { display: true, text: "Gradient (TECU/°)", color: "#ffffff" },
+                          ticks: { color: "#ffffff" },
                           grid: { color: "rgba(148,163,184,0.35)" },
                         },
                       },

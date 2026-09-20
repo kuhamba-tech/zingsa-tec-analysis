@@ -97,7 +97,7 @@ function PlotCard({
       {empty ? (
         <div className="banner banner-info">{empty}</div>
       ) : (
-        <div style={{ background: "#ffffff", borderRadius: 8, padding: "0.55rem 0.45rem 0.25rem", height: 300 }}>
+        <div style={{ background: "#0a1929", borderRadius: 8, padding: "0.55rem 0.45rem 0.25rem", height: 300 }}>
           {children}
         </div>
       )}
@@ -114,10 +114,10 @@ function PlotCard({
 }
 
 const axisOpts = {
-  xColor: "#475569",
-  yColor: "#475569",
-  tick: "#475569",
-  title: "#0f172a",
+  xColor: "#ffffff",
+  yColor: "#ffffff",
+  tick: "#ffffff",
+  title: "#ffffff",
 };
 
 export default function ZimbabweScientificTecPlots() {
@@ -254,11 +254,12 @@ export default function ZimbabweScientificTecPlots() {
   const lineOpts = (xLabel: string, yLabel = "VTEC [TECU]") => ({
     responsive: true,
     maintainAspectRatio: false,
+    color: "#ffffff",
     plugins: {
       legend: {
         position: "bottom" as const,
         labels: {
-          color: "#334155",
+          color: "#ffffff",
           boxWidth: 10,
           font: { size: 10 },
           filter: (item: { text?: string }) =>
@@ -280,13 +281,13 @@ export default function ZimbabweScientificTecPlots() {
         type: "linear" as const,
         title: { display: true, text: xLabel, color: axisOpts.xColor },
         ticks: { color: axisOpts.tick },
-        grid: { color: "rgba(148,163,184,0.35)", borderDash: [4, 4] },
+        grid: { color: "rgba(148,163,184,0.28)", borderDash: [4, 4] },
       },
       y: {
         min: 0,
         title: { display: true, text: yLabel, color: axisOpts.yColor },
         ticks: { color: axisOpts.tick },
-        grid: { color: "rgba(148,163,184,0.4)", borderDash: [4, 4] },
+        grid: { color: "rgba(148,163,184,0.28)", borderDash: [4, 4] },
       },
     },
   });
