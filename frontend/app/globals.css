@@ -3404,9 +3404,13 @@ a.home-map-layer-btn {
   font-weight: 800;
   line-height: 1.1;
 }
-.sw-metric-tec-scale .sw-metric-flare-scale-letter,
 .sw-metric-g-scale .sw-metric-flare-scale-letter {
-  font-size: 0.48rem;
+  font-size: 0.62rem;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+.sw-metric-tec-scale .sw-metric-flare-scale-letter {
+  font-size: 0.52rem;
   letter-spacing: 0;
   white-space: nowrap;
 }

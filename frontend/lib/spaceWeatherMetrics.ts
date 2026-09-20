@@ -118,14 +118,14 @@ export interface NoaaGScale {
   isStorm: boolean;
 }
 
-/** NOAA G-scale colour strip — storm codes G0–G5 (kept for tooltips / legacy). */
+/** NOAA G-scale colour strip — storm codes G0–G5. */
 export const NOAA_G_SCALE = [
-  { code: "G0", color: "#00ff88", desc: "Quiet" },
-  { code: "G1", color: "#f97316", desc: "Minor" },
-  { code: "G2", color: "#ef4444", desc: "Moderate" },
-  { code: "G3", color: "#dc2626", desc: "Strong" },
-  { code: "G4", color: "#991b1b", desc: "Severe" },
-  { code: "G5", color: "#a855f7", desc: "Extreme" },
+  { code: "G0", color: "#22c55e", desc: "Quiet / below storm (Kp 0–4)" },
+  { code: "G1", color: "#f97316", desc: "Minor (Kp 5)" },
+  { code: "G2", color: "#ef4444", desc: "Moderate (Kp 6)" },
+  { code: "G3", color: "#dc2626", desc: "Strong (Kp 7)" },
+  { code: "G4", color: "#991b1b", desc: "Severe (Kp 8)" },
+  { code: "G5", color: "#a855f7", desc: "Extreme (Kp 9)" },
 ] as const;
 
 /**
