@@ -7,7 +7,7 @@ import type { LiveStationCounts } from "@/lib/liveStationStatus";
 import { FLARE_SCALE } from "@/lib/solarEventColors";
 import {
   METRIC_EXPLANATIONS,
-  KP_GEOMAGNETIC_SCALE,
+  NOAA_G_SCALE,
   TEC_VTEC_SCALE,
   buildMetricCards,
   interpretMetric,
@@ -85,29 +85,35 @@ function FlareScaleLegend() {
   );
 }
 
-function GScaleLegend({ activeBand }: { activeBand?: string | null }) {
+function GScaleLegend({ activeCode }: { activeCode?: string | null }) {
   return (
-    <div className="sw-metric-flare-scale sw-metric-g-scale" aria-label="Kp geomagnetic scale">
-      {KP_GEOMAGNETIC_SCALE.map((g) => {
-        const active = activeBand === g.id;
+    <div className="sw-metric-flare-scale sw-metric-g-scale" aria-label="NOAA G-scale (G0–G5)">
+      {NOAA_G_SCALE.map((g) => {
+        const active = activeCode === g.code;
         return (
           <div
             className={`sw-metric-flare-scale-item${active ? " is-active" : ""}`}
-            key={g.id}
-            title={`Kp ${
-              g.id === "quiet"
-                ? "0–2"
-                : g.id === "extreme"
-                  ? "9"
-                  : String(g.kpMin)
-            } · ${g.desc}`}
+            key={g.code}
+            title={`${g.code} · ${g.desc}${
+              g.code === "G0"
+                ? " (Kp 0–4)"
+                : g.code === "G1"
+                  ? " (Kp 5)"
+                  : g.code === "G2"
+                    ? " (Kp 6)"
+                    : g.code === "G3"
+                      ? " (Kp 7)"
+                      : g.code === "G4"
+                        ? " (Kp 8)"
+                        : " (Kp 9)"
+            }`}
           >
             <div
               className="sw-metric-flare-scale-bar"
               style={{
                 background: g.color,
                 height: active ? 4 : 2,
-                opacity: active || !activeBand ? 1 : 0.45,
+                opacity: active || !activeCode ? 1 : 0.45,
               }}
             />
             <div
@@ -117,7 +123,7 @@ function GScaleLegend({ activeBand }: { activeBand?: string | null }) {
                 fontWeight: active ? 900 : 800,
               }}
             >
-              {g.short}
+              {g.code}
             </div>
           </div>
         );
@@ -234,7 +240,7 @@ function MetricCardButton({
       {subtitle ? <div className="sw-metric-subtitle">{subtitle}</div> : null}
       {detailRows?.length ? <DetailRows rows={detailRows} /> : null}
       {showFlareScale ? <FlareScaleLegend /> : null}
-      {showGScale ? <GScaleLegend activeBand={activeKpBand ?? activeGCode} /> : null}
+      {showGScale ? <GScaleLegend activeCode={activeGCode ?? null} /> : null}
       {showTecScale ? <TecScaleLegend activeCode={activeTecCode} /> : null}
       {note ? <div className="sw-metric-note">{note}</div> : null}
       <div className="sw-metric-meta">

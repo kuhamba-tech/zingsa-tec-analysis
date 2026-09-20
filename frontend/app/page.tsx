@@ -11,7 +11,7 @@ import { absorbInlineBootPayload, bootSpaceWeather } from "@/lib/bootSpaceWeathe
 import { mergeSpaceWeatherPreferDefined, peekSpaceWeather, subscribeSpaceWeather } from "@/lib/spaceWeatherStore";
 import { peekStations, subscribeStations, stationsAreSpiderAuthoritative } from "@/lib/stationsStore";
 import { mergeSpaceWeatherWithEkf } from "@/lib/homeSpaceWeather";
-import { buildMetricCards, KP_GEOMAGNETIC_SCALE, TEC_VTEC_SCALE } from "@/lib/spaceWeatherMetrics";
+import { buildMetricCards, NOAA_G_SCALE, TEC_VTEC_SCALE } from "@/lib/spaceWeatherMetrics";
 import {
   countLiveStationStatuses,
   formatCorsConnectedShort,
@@ -97,7 +97,7 @@ function HomeMetricCard({
   valueColor,
   loading,
   showGScale,
-  activeKpBand,
+  activeGCode,
   showTecScale,
   activeTecCode,
 }: {
@@ -109,7 +109,7 @@ function HomeMetricCard({
   valueColor: string;
   loading?: boolean;
   showGScale?: boolean;
-  activeKpBand?: string | null;
+  activeGCode?: string | null;
   showTecScale?: boolean;
   activeTecCode?: string | null;
 }) {
@@ -123,30 +123,28 @@ function HomeMetricCard({
       {subtitle ? <div className="sw-metric-subtitle">{subtitle}</div> : null}
       <div className="sw-metric-note">{loading ? "Loading live feed…" : note}</div>
       {showGScale ? (
-        <div className="sw-metric-flare-scale sw-metric-g-scale" aria-label="Kp geomagnetic scale">
-          {KP_GEOMAGNETIC_SCALE.map((g) => {
-            const active = activeKpBand === g.id;
+        <div className="sw-metric-flare-scale sw-metric-g-scale" aria-label="NOAA G-scale (G0–G5)">
+          {NOAA_G_SCALE.map((g) => {
+            const active = activeGCode === g.code;
             return (
               <div
                 className={`sw-metric-flare-scale-item${active ? " is-active" : ""}`}
-                key={g.id}
-                title={`Kp ${
-                  g.id === "quiet" ? "0–2" : g.id === "extreme" ? "9" : String(g.kpMin)
-                } · ${g.desc}`}
+                key={g.code}
+                title={`${g.code} · ${g.desc}`}
               >
                 <div
                   className="sw-metric-flare-scale-bar"
                   style={{
                     background: g.color,
                     height: active ? 4 : 2,
-                    opacity: active || !activeKpBand ? 1 : 0.45,
+                    opacity: active || !activeGCode ? 1 : 0.45,
                   }}
                 />
                 <div
                   className="sw-metric-flare-scale-letter"
                   style={{ color: g.color, fontWeight: active ? 900 : 800 }}
                 >
-                  {g.short}
+                  {g.code}
                 </div>
               </div>
             );
@@ -504,7 +502,7 @@ export default function HomePage() {
                 subtitle={card.subtitle}
                 valueColor={card.valueColor}
                 showGScale={card.showGScale}
-                activeKpBand={card.activeKpBand}
+                activeGCode={card.activeGCode}
                 showTecScale={card.showTecScale}
                 activeTecCode={card.activeTecCode}
                 loading={
