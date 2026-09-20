@@ -482,7 +482,7 @@ export function buildMetricCards(
   const windInterpretation = wind == null ? "Loading…" : solarWindInterpretation(wind);
   const windDetailRows: MetricDetailRow[] = [
     {
-      icon: "🔵",
+      icon: "density",
       label: "Density",
       value:
         density != null && Number.isFinite(density)
@@ -492,7 +492,7 @@ export function buildMetricCards(
             : "Unavailable",
     },
     {
-      icon: "🌡️",
+      icon: "proton_temp",
       label: "Proton Temp.",
       value:
         temp != null && Number.isFinite(temp)
@@ -502,13 +502,13 @@ export function buildMetricCards(
             : "Unavailable",
     },
     {
-      icon: "↕️",
+      icon: "imf_bz",
       label: "IMF Bz",
       value: bz != null && Number.isFinite(bz) ? formatBzDisplay(bz) : solarLoading ? "Updating…" : "Unavailable",
       valueColor: bz != null ? imfBzColor(bz) : undefined,
     },
     {
-      icon: "🌐",
+      icon: "imf_bt",
       label: "IMF Bt",
       value:
         bt != null && Number.isFinite(bt)
@@ -520,7 +520,7 @@ export function buildMetricCards(
   ];
   if (pdyn != null && Number.isFinite(pdyn)) {
     windDetailRows.push({
-      icon: "💨",
+      icon: "dyn_pressure",
       label: "Dyn. pressure",
       value: `${pdyn.toFixed(1)} nPa`,
     });

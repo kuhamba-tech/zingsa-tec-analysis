@@ -15,6 +15,7 @@ import {
   type MetricKey,
 } from "@/lib/spaceWeatherMetrics";
 import TecPrimerBlock from "./TecPrimerBlock";
+import { MetricCardIcon, MetricDetailIcon } from "./MetricCardIcons";
 
 interface Props {
   sw: SpaceWeatherCurrent | null;
@@ -41,17 +42,24 @@ function DetailRows({ rows }: { rows: MetricDetailRow[] }) {
   const isList = rows.some((row) => Boolean(row.icon));
   return (
     <div className={`sw-metric-detail-rows${isList ? " sw-metric-detail-rows-list" : ""}`}>
-      {rows.map((row) => (
-        <div className="sw-metric-detail-row" key={row.label}>
-          <span className="sw-metric-detail-left">
-            {row.icon ? <span className="sw-metric-detail-icon" aria-hidden>{row.icon}</span> : null}
-            <span className="sw-metric-detail-label">{row.label}</span>
-          </span>
-          <span className="sw-metric-detail-value" style={row.valueColor ? { color: row.valueColor } : undefined}>
-            {row.value}
-          </span>
-        </div>
-      ))}
+      {rows.map((row) => {
+        const detailIcon = row.icon ? <MetricDetailIcon kind={row.icon} /> : null;
+        return (
+          <div className="sw-metric-detail-row" key={row.label}>
+            <span className="sw-metric-detail-left">
+              {detailIcon || row.icon ? (
+                <span className="sw-metric-detail-icon" aria-hidden>
+                  {detailIcon ?? row.icon}
+                </span>
+              ) : null}
+              <span className="sw-metric-detail-label">{row.label}</span>
+            </span>
+            <span className="sw-metric-detail-value" style={row.valueColor ? { color: row.valueColor } : undefined}>
+              {row.value}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -108,7 +116,7 @@ function GScaleLegend({ activeCode }: { activeCode?: string | null }) {
 }
 
 function MetricCardButton({
-  icon,
+  metricKey,
   label,
   value,
   note,
@@ -125,7 +133,7 @@ function MetricCardButton({
   disabled,
   onClick,
 }: {
-  icon: string;
+  metricKey: MetricKey;
   label: string;
   value: string;
   note: string;
@@ -146,7 +154,8 @@ function MetricCardButton({
   const isWindList = Boolean(detailRows?.some((r) => r.icon));
   const isFlare = Boolean(showFlareScale);
   const isGStorm = Boolean(showGScale);
-  const isEventCount = !icon;
+  const isEventCount =
+    metricKey === "donki_flares" || metricKey === "donki_cmes" || metricKey === "donki_storms";
 
   return (
     <button
@@ -157,7 +166,9 @@ function MetricCardButton({
       aria-pressed={selected}
       aria-label={`${label}: ${value}. Click for explanation.`}
     >
-      {icon ? <span className="sw-metric-icon">{icon}</span> : null}
+      <span className="sw-metric-icon" aria-hidden>
+        <MetricCardIcon metricKey={metricKey} />
+      </span>
       <div className="sw-metric-label">{label}</div>
       {isFlare && <div className="sw-metric-eyebrow">Current class:</div>}
       <div className="sw-metric-value" style={{ color: valueColor }}>
@@ -392,7 +403,7 @@ export default function ClickableMetricGrid({
         {cards.map((card) => (
           <MetricCardButton
             key={card.key}
-            icon={card.icon}
+            metricKey={card.key}
             label={card.label}
             value={card.value}
             note={card.note}
