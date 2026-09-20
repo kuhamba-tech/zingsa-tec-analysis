@@ -117,7 +117,11 @@ export default function GoesSolarXrayCard({
             }}
           >
             {FLARE_SCALE.map((f) => (
-              <span key={f.cls} style={{ display: "flex", alignItems: "center", gap: "3px" }}>
+              <span
+                key={f.cls}
+                title={`${f.label}: ${f.desc} (${f.flux})`}
+                style={{ display: "flex", alignItems: "center", gap: "3px" }}
+              >
                 <span
                   style={{
                     display: "inline-block",
@@ -127,7 +131,7 @@ export default function GoesSolarXrayCard({
                     borderRadius: "2px",
                   }}
                 />
-                {f.label}
+                {f.cls} · {f.desc}
               </span>
             ))}
           </div>
