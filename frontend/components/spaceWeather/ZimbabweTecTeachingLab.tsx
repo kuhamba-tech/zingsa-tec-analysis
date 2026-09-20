@@ -14,11 +14,8 @@ import { Scatter, Line } from "react-chartjs-2";
 import LineChart from "@/components/charts/LineChart";
 import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
 import { getLiveVtec, getLiveVtecByStation, getStations, getTecMethodComparison } from "@/lib/api";
-import {
-  TEC_METHOD_CMP_HOURS,
-  TEC_METHOD_CMP_LIMIT,
-  TEC_METHOD_CMP_TIMEOUT_MS,
-} from "@/lib/tecMethodCompareParams";
+import { getTecMethodCmpParams } from "@/lib/tecMethodCompareParams";
+import { getLoadProfile } from "@/lib/loadBudget";
 import { formatKnmiUtcTick, sharedTimeDomain, utcTimeAxisProps } from "@/lib/chartTimeAxis";
 import type { ChartAnalysisBlock } from "@/lib/multiSourceChartAnalysis";
 import {
@@ -227,15 +224,21 @@ export default function ZimbabweTecTeachingLab() {
       setLoading(true);
       // Keep first paint light: short station bins + capped live samples.
       // Full-day dense pulls used to saturate the API worker and freeze metric cards.
-      const dayHours = Math.min(12, Math.max(4, Math.ceil(hoursSinceUtcMidnight() * 2) / 2 + 0.5));
+      const profile = getLoadProfile();
+      const dayHours = profile.constrained
+        ? Math.min(8, Math.max(3, Math.ceil(hoursSinceUtcMidnight()) + 0.5))
+        : Math.min(12, Math.max(4, Math.ceil(hoursSinceUtcMidnight() * 2) / 2 + 0.5));
+      const liveLimit = profile.slowNetwork ? 400 : profile.constrained ? 600 : 800;
+      const liveHours = Math.min(profile.constrained ? 3 : 4, dayHours);
+      const resampleMin = profile.constrained ? 20 : 15;
 
       // Apply each feed as it lands so the slow GOPI/Gg comparison cannot block
       // graphs 1–5 (diurnal used to stay empty until comparison finished).
-      const stP = getLiveVtecByStation(dayHours, 15, 45_000).then((rows) => {
+      const stP = getLiveVtecByStation(dayHours, resampleMin, profile.constrained ? 35_000 : 45_000).then((rows) => {
         if (!cancelled) setStations(Array.isArray(rows) ? rows : []);
         return rows;
       });
-      const liveP = getLiveVtec(Math.min(4, dayHours), undefined, 25_000, 800).then((rows) => {
+      const liveP = getLiveVtec(liveHours, undefined, profile.constrained ? 18_000 : 25_000, liveLimit).then((rows) => {
         if (!cancelled) setObs(Array.isArray(rows) ? rows : []);
         return rows;
       });
@@ -244,14 +247,10 @@ export default function ZimbabweTecTeachingLab() {
         return rows;
       });
       // Shared params with TecMethodComparisonLab so both hit one cached API call.
-      getTecMethodComparison(
-        TEC_METHOD_CMP_HOURS,
-        undefined,
-        TEC_METHOD_CMP_LIMIT,
-        TEC_METHOD_CMP_TIMEOUT_MS,
-      )
-        .then((cmp) => {
-          if (!cancelled) setMethodCmp(cmp);
+      const cmp = getTecMethodCmpParams();
+      getTecMethodComparison(cmp.hours, undefined, cmp.limit, cmp.timeoutMs)
+        .then((payload) => {
+          if (!cancelled) setMethodCmp(payload);
         })
         .catch(() => {
           /* Comparison is optional for GOPI-only diurnal fallback. */
