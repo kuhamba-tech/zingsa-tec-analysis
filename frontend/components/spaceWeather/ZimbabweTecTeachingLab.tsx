@@ -25,6 +25,7 @@ import {
   IONO_SHELL_KM,
 } from "@/lib/tecTeachingMath";
 import type { LiveObservation, LiveStationVtecSeries, Station, TecMethodComparisonResponse } from "@/lib/types";
+import ZimbabweLatBandTecCharts from "@/components/spaceWeather/ZimbabweLatBandTecCharts";
 
 ChartJS.register(LinearScale, PointElement, LineElement, Tooltip, Legend, Filler);
 
@@ -97,7 +98,14 @@ function hoursSinceUtcMidnight(now = Date.now()): number {
   return Math.min(24, Math.max(1, (now - startOfUtcDayMs(now)) / 3_600_000));
 }
 
-type GraphId = "vtec-series" | "elev-scatter" | "skyplot" | "ipp" | "diurnal-gopi" | "diurnal-gg";
+type GraphId =
+  | "vtec-series"
+  | "elev-scatter"
+  | "skyplot"
+  | "ipp"
+  | "diurnal-gopi"
+  | "diurnal-gg"
+  | "latband-ncs";
 
 const GRAPH_EXPLANATIONS: Record<GraphId, ChartAnalysisBlock> = {
   "vtec-series": {
@@ -152,6 +160,15 @@ const GRAPH_EXPLANATIONS: Record<GraphId, ChartAnalysisBlock> = {
       "Constellation colours match Method 1 so SV arcs are easy to cross-read.",
       "VEq here uses high-elevation Gg-calibrated VTEC in the same half-hour bins.",
       "When Gg samples are sparse early in the day, the fan fills in as the comparison pipeline accumulates arcs.",
+    ],
+  },
+  "latband-ncs": {
+    lead: "Northern / central / southern Zimbabwe diurnal VTEC for GOPI and Gg — the measured version of the illustrative latitudinal comparison.",
+    bullets: [
+      "Bands follow CORS station latitude: north of −18.2°, central (−18.2° to −20.2°), south of −20.2°.",
+      "GOPI graph: hourly mean VTEC from live station series in each band.",
+      "Gg graph: Cesaroni-calibrated VTEC (or measured Gg−GOPI station offsets applied to the same diurnal when Gg hour coverage is still filling in).",
+      "Magnitudes and which band is highest must come from observations — northern Zimbabwe is not assumed highest a priori.",
     ],
   },
 };
@@ -426,10 +443,9 @@ export default function ZimbabweTecTeachingLab() {
         <div className="metric-label" style={{ marginBottom: "0.35rem" }}>Live CORS ionosphere graphs</div>
         <p className="sw-supporting-text" style={{ margin: 0 }}>
           Zimbabwe CORS NTRIP VTEC / STEC from the live pipeline — VTEC time series, STEC/VTEC versus
-          elevation, satellite skyplot coloured by VTEC, IPP ground tracks, and separate calibrated
-          VTEC fan charts for Method 1 (GOPI) and Method 2 (Gg). Below: a short guide that classifies
-          TEC quantities and explains how the two calculations differ. Click any graph for its
-          scientific explanation.
+          elevation, satellite skyplot coloured by VTEC, IPP ground tracks, calibrated VTEC fans for
+          Method 1 (GOPI) and Method 2 (Gg), and northern / central / southern Zimbabwe diurnal
+          comparisons for both methods. Click any graph for its scientific explanation.
         </p>
         {loading && <div className="banner banner-info" style={{ marginTop: "0.75rem" }}>Loading live CORS VTEC…</div>}
         {error && <div className="banner banner-warn" style={{ marginTop: "0.75rem" }}>{error}</div>}
@@ -601,6 +617,21 @@ export default function ZimbabweTecTeachingLab() {
               : "Not enough Method 2 (Gg) VTEC points yet — comparison samples still accumulating."}
           </div>
         )}
+      </Section>
+
+      <Section
+        title="7 · Northern / central / southern Zimbabwe — GOPI & Gg"
+        subtitle="Measured latitudinal diurnal VTEC comparison (same layout as the illustrative ZINGSA graph)."
+        open={openGraph === "latband-ncs"}
+        onToggle={() => toggleGraph("latband-ncs")}
+        analysis={GRAPH_EXPLANATIONS["latband-ncs"]}
+      >
+        <ZimbabweLatBandTecCharts
+          stationSeries={stations}
+          methodCmp={methodCmp}
+          catalog={catalog}
+          autoload
+        />
       </Section>
     </div>
   );

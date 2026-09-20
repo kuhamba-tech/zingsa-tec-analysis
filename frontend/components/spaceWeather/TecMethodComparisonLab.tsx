@@ -17,13 +17,14 @@ import { getTecMethodCmpParams } from "@/lib/tecMethodCompareParams";
 import type { ChartAnalysisBlock } from "@/lib/multiSourceChartAnalysis";
 import { diurnalPercentilesFullDay, hourOfDayUtc, flatLayerStec } from "@/lib/tecTeachingMath";
 import type { LiveObservation, TecMethodComparisonResponse, TecMethodInfo } from "@/lib/types";
+import ZimbabweLatBandTecCharts from "@/components/spaceWeather/ZimbabweLatBandTecCharts";
 
 ChartJS.register(LinearScale, PointElement, LineElement, Tooltip, Legend, Filler);
 
 const GOPI_COLOR = "#38bdf8";
 const GG_COLOR = "#f59e0b";
 
-type GraphId = "cmp-vtec" | "cmp-elev" | "cmp-sky" | "cmp-diff" | "cmp-diurnal";
+type GraphId = "cmp-vtec" | "cmp-elev" | "cmp-sky" | "cmp-diff" | "cmp-diurnal" | "cmp-latband";
 
 const GRAPH_HELP: Record<GraphId, ChartAnalysisBlock> = {
   "cmp-vtec": {
@@ -64,6 +65,14 @@ const GRAPH_HELP: Record<GraphId, ChartAnalysisBlock> = {
       "Cyan ribbon = GOPI percentiles; amber ribbon = Gg percentiles.",
       "Similar shape with offset = bias model difference (Seemala/GOPI vs Gg joint fit).",
       "Read this together with the teaching guide above (classify VTEC, then compare methods).",
+    ],
+  },
+  "cmp-latband": {
+    lead: "Northern / central / southern Zimbabwe diurnal VTEC — one graph per calibration (GOPI and Gg).",
+    bullets: [
+      "Latitude bands: north of −18.2°, central (−18.2° to −20.2°), south of −20.2° (CORS station latitudes).",
+      "GOPI chart uses measured station VTEC bins; Gg uses Cesaroni-calibrated samples (or measured Gg−GOPI offsets on the same diurnal).",
+      "This replaces the illustrative low/mid/high-latitude sketch with Zimbabwe-specific latitudinal comparison.",
     ],
   },
 };
@@ -577,6 +586,16 @@ export default function TecMethodComparisonLab() {
             }}
           />
         </div>
+      </Section>
+
+      <Section
+        title="C6 · Northern / central / southern Zimbabwe — GOPI & Gg"
+        subtitle="Latitudinal diurnal comparison using measured Zimbabwe CORS data for both methods."
+        open={openGraph === "cmp-latband"}
+        onToggle={() => toggleGraph("cmp-latband")}
+        analysis={GRAPH_HELP["cmp-latband"]}
+      >
+        <ZimbabweLatBandTecCharts methodCmp={data} autoload />
       </Section>
     </div>
   );
