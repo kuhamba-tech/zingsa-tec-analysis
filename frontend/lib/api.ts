@@ -1004,7 +1004,7 @@ export const getLiveVtecByStation = (hours = 6, resampleMinutes = 2, timeoutMs?:
             : Math.max(FETCH_TIMEOUT_MS, 25_000)),
   );
 export const getZimbabweScientificPlots = (hours = 24, resampleMinutes = 15, timeoutMs = 90_000) =>
-  get<ZimbabweScientificPlotsResponse>(
+  getWithRetry<ZimbabweScientificPlotsResponse>(
     "/live/zimbabwe-scientific-plots",
     { hours, resample_minutes: resampleMinutes, _ts: Date.now() },
     timeoutMs,
