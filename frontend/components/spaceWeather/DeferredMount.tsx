@@ -63,7 +63,7 @@ export default function DeferredMount({
     let io: IntersectionObserver | null = null;
     const delayFloor = profile.lightPayload
       ? Math.max(minDelayMs, Math.floor(profile.heavyMountDelayMs * 0.5))
-      : minDelayMs;
+      : Math.max(minDelayMs, 120);
 
     const arm = () => {
       if (cancelled) return;
