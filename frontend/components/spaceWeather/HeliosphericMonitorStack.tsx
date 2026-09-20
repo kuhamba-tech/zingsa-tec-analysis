@@ -18,6 +18,7 @@ import { getHeliosphericMonitor } from "@/lib/api";
 import { peekHeliosphericMonitor } from "@/lib/heliosphericStore";
 import {
   alignTimeDomain,
+  formatUtcDayLabel,
   seriesEpochsFromApi,
   sharedTimeDomain,
   utcTimeAxisProps,
@@ -91,20 +92,39 @@ function PanelShell({
   );
 }
 
+/** 3-hour Kp bin label in UTC, e.g. `13 Sep 00Z` (never local clock). */
+function formatKpUtcBinLabel(ms: number): string {
+  if (!Number.isFinite(ms)) return "";
+  const d = new Date(ms);
+  const hh = String(d.getUTCHours()).padStart(2, "0");
+  return `${formatUtcDayLabel(ms).replace(/ \d{4}$/, "")} ${hh}Z`;
+}
+
 function KpBarChart({
   labels,
+  times,
+  epochMs,
   observed,
   estimated,
   predicted,
 }: {
   labels: string[];
+  times?: string[];
+  epochMs?: (number | null)[];
   observed: (number | null)[];
   estimated: (number | null)[];
   predicted: (number | null)[];
 }) {
+  const utcLabels = useMemo(() => {
+    const epochs = seriesEpochsFromApi(labels, epochMs, times);
+    if (epochs) return epochs.map(formatKpUtcBinLabel);
+    // Fallback: keep API strings but force a trailing Z so local TZ is never implied.
+    return labels.map((l) => (/Z\b/i.test(l) ? l : `${l}Z`));
+  }, [labels, epochMs, times]);
+
   const data = useMemo(
     () => ({
-      labels,
+      labels: utcLabels,
       datasets: [
         {
           label: "Observed Kp",
@@ -132,7 +152,7 @@ function KpBarChart({
         },
       ],
     }),
-    [labels, observed, estimated, predicted],
+    [utcLabels, observed, estimated, predicted],
   );
 
   return (
@@ -150,6 +170,16 @@ function KpBarChart({
             },
             tooltip: {
               callbacks: {
+                title: (items) => {
+                  const idx = items[0]?.dataIndex;
+                  if (idx == null) return "";
+                  const epochs = seriesEpochsFromApi(labels, epochMs, times);
+                  if (epochs && Number.isFinite(epochs[idx])) {
+                    const d = new Date(epochs[idx]);
+                    return d.toISOString().replace("T", " ").replace(/\.\d{3}Z$/, " UTC");
+                  }
+                  return `${utcLabels[idx] ?? ""} UTC`;
+                },
                 label: (ctx) => {
                   const v = ctx.parsed.y;
                   return v == null ? `${ctx.dataset.label}: —` : `${ctx.dataset.label}: ${v.toFixed(2)}`;
@@ -160,9 +190,11 @@ function KpBarChart({
           scales: {
             x: {
               stacked: true,
+              title: { display: true, text: "UTC", color: "#e2e8f0", font: { size: 11 } },
               ticks: {
                 color: "#94a3b8",
-                maxRotation: 0,
+                maxRotation: 45,
+                minRotation: 0,
                 autoSkip: true,
                 maxTicksLimit: 10,
                 font: { size: 9 },
@@ -453,7 +485,7 @@ export default function HeliosphericMonitorStack() {
 
           <PanelShell
             title="GFZ / NOAA planetary Kp · observed & forecast"
-            subtitle="NOAA planetary K-index forecast product · observed (green) · estimated (amber) · predicted (cyan)"
+            subtitle="NOAA planetary K-index forecast · observed (green) · estimated (amber) · predicted (cyan) · time axis UTC"
             panelId="kp"
             selected={selected === "kp"}
             onToggle={toggle}
@@ -462,6 +494,8 @@ export default function HeliosphericMonitorStack() {
             {data.kp.labels.length > 0 ? (
               <KpBarChart
                 labels={data.kp.labels}
+                times={data.kp.times}
+                epochMs={data.kp.epoch_ms}
                 observed={data.kp.observed}
                 estimated={data.kp.estimated}
                 predicted={data.kp.predicted}

@@ -315,7 +315,7 @@ def parse_kp_forecast_series(rows: list[Any]) -> dict[str, Any]:
         if stamp is None or kp is None:
             continue
         iso = stamp.isoformat().replace("+00:00", "Z")
-        labels.append(stamp.strftime("%m-%d %HZ"))
+        labels.append(stamp.strftime("%d %b %HZ"))
         times.append(iso)
         kinds.append(kind)
         observed.append(kp if kind == "observed" else None)
