@@ -31,6 +31,8 @@ import {
 import type { HeliosphericMonitorResponse } from "@/lib/types";
 
 ChartJS.register(CategoryScale, LinearScale, LogarithmicScale, BarElement, Tooltip, Legend);
+ChartJS.defaults.color = "#ffffff";
+ChartJS.defaults.animation = false;
 
 const PROTON_COLORS: Record<string, string> = {
   ">=10 MeV": "#38bdf8",
@@ -163,6 +165,7 @@ function KpBarChart({
           responsive: true,
           maintainAspectRatio: false,
           color: "#ffffff",
+          animation: false,
           interaction: { mode: "index", intersect: false },
           plugins: {
             legend: {
@@ -203,7 +206,7 @@ function KpBarChart({
                 minRotation: 0,
                 autoSkip: true,
                 maxTicksLimit: 10,
-                font: { size: 10, weight: "500" },
+                font: { size: 10 },
               },
               grid: { color: "#1e3a5f" },
             },
@@ -216,7 +219,7 @@ function KpBarChart({
                 color: "#ffffff",
                 font: { weight: "bold" },
               },
-              ticks: { color: "#ffffff", stepSize: 1, font: { weight: "500" } },
+              ticks: { color: "#ffffff", stepSize: 1 },
               grid: { color: "#1e3a5f" },
             },
           },

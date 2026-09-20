@@ -21,6 +21,7 @@ import ZimbabweLatBandTecCharts from "@/components/spaceWeather/ZimbabweLatBandT
 
 ChartJS.register(LinearScale, PointElement, LineElement, Tooltip, Legend, Filler);
 ChartJS.defaults.color = "#ffffff";
+ChartJS.defaults.animation = false;
 
 const GOPI_COLOR = "#38bdf8";
 const GG_COLOR = "#f59e0b";
@@ -576,6 +577,7 @@ export default function TecMethodComparisonLab() {
             options={{
               responsive: true,
               maintainAspectRatio: false,
+              animation: false,
               plugins: {
                 legend: { labels: { color: "#ffffff", boxWidth: 10, font: { size: 10 } } },
                 title: { display: true, text: "Diurnal VTEC — GOPI (cyan) vs Gg (amber)", color: "#ffffff", font: { size: 12 } },

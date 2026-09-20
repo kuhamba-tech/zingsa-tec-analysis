@@ -68,6 +68,14 @@ const nextConfig: NextConfig = {
               enforce: true,
               reuseExistingChunk: true,
             },
+            chartjs: {
+              test: /[\\/]node_modules[\\/](chart\.js|react-chartjs-2)[\\/]/,
+              name: "chartjs",
+              chunks: "all",
+              priority: 35,
+              enforce: true,
+              reuseExistingChunk: true,
+            },
           },
         },
       };

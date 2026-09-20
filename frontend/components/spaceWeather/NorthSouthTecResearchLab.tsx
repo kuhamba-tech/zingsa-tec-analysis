@@ -46,6 +46,7 @@ ChartJS.register(
   Filler,
 );
 ChartJS.defaults.color = "#ffffff";
+ChartJS.defaults.animation = false;
 
 const CorsMap = dynamic(() => import("@/components/maps/CorsMap"), {
   ssr: false,
@@ -400,6 +401,7 @@ export default function NorthSouthTecResearchLab() {
         options: {
           responsive: true,
           maintainAspectRatio: false,
+          animation: false as const,
           plugins: {
             legend: { labels: { color: "#ffffff" } },
             tooltip: {
@@ -441,6 +443,7 @@ export default function NorthSouthTecResearchLab() {
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        animation: false as const,
         plugins: { legend: { labels: { color: "#ffffff" } } },
         scales: {
           x: { ...axes.x, type: "linear" as const, min: 0, max: 24 },
@@ -956,6 +959,7 @@ export default function NorthSouthTecResearchLab() {
                     options={{
                       responsive: true,
                       maintainAspectRatio: false,
+                      animation: false as const,
                       plugins: {
                         legend: { labels: { color: "#ffffff" } },
                         tooltip: {
@@ -1065,6 +1069,7 @@ export default function NorthSouthTecResearchLab() {
                     options={{
                       responsive: true,
                       maintainAspectRatio: false,
+                      animation: false as const,
                       plugins: { legend: { labels: { color: "#ffffff" } } },
                       scales: {
                         x: {
@@ -1127,6 +1132,7 @@ export default function NorthSouthTecResearchLab() {
                     options={{
                       responsive: true,
                       maintainAspectRatio: false,
+                      animation: false as const,
                       plugins: { legend: { labels: { color: "#ffffff" } } },
                       scales: {
                         x: {

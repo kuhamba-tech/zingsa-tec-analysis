@@ -14,10 +14,12 @@ import {
 } from "chart.js";
 import { Line } from "react-chartjs-2";
 import type { Chart as ChartInstance } from "chart.js";
+import { chartRenderBudget, downsampleIndexes } from "@/lib/chartPerf";
 
 ChartJS.register(CategoryScale, LinearScale, LogarithmicScale, PointElement, LineElement, Title, Tooltip, Legend, Filler);
 // Space Weather dark UI — never fall back to Chart.js default grey (#666).
 ChartJS.defaults.color = "#ffffff";
+ChartJS.defaults.animation = false;
 ChartJS.defaults.borderColor = "rgba(148, 163, 184, 0.28)";
 
 interface PointMeta {
@@ -208,19 +210,47 @@ export default function LineChart({
   ySuggestedMax,
 }: Props) {
   const COLORS = ["#168bd2", "#ff8c00", "#00ff88", "#ff4444", "#a78bfa", "#34d399"];
-  const useNumericX = !!xValues && xValues.length === labels.length;
-  const useSecondary = datasets.some((ds) => ds.yAxisId === "y2");
-  const useTertiary = datasets.some((ds) => ds.yAxisId === "y3");
-  const datasetKey = useMemo(() => datasets.map((d) => d.label).join("\0"), [datasets]);
-  const [visible, setVisible] = useState<boolean[]>(() => datasets.map(() => true));
+  const budget = useMemo(() => chartRenderBudget(), []);
+  // Cap drawn points so large VTEC / driver timelines stay interactive.
+  const drawIdx = useMemo(
+    () => downsampleIndexes(labels.length, budget.maxPoints),
+    [labels.length, budget.maxPoints],
+  );
+  const drawLabels = useMemo(() => drawIdx.map((i) => labels[i]), [drawIdx, labels]);
+  const drawXValues = useMemo(
+    () => (xValues ? drawIdx.map((i) => xValues[i] ?? null) : undefined),
+    [drawIdx, xValues],
+  );
+  const drawEpochMs = useMemo(
+    () => (epochMs ? drawIdx.map((i) => epochMs[i] ?? null) : undefined),
+    [drawIdx, epochMs],
+  );
+  const drawTooltipDetails = useMemo(
+    () => (tooltipDetails ? drawIdx.map((i) => tooltipDetails[i] ?? null) : undefined),
+    [drawIdx, tooltipDetails],
+  );
+  const drawDatasets = useMemo(
+    () =>
+      datasets.map((ds) => ({
+        ...ds,
+        data: drawIdx.map((i) => (i < ds.data.length ? ds.data[i] : null)),
+        meta: ds.meta ? drawIdx.map((i) => ds.meta![i] ?? null) : undefined,
+      })),
+    [datasets, drawIdx],
+  );
+  const useNumericX = !!drawXValues && drawXValues.length === drawLabels.length;
+  const useSecondary = drawDatasets.some((ds) => ds.yAxisId === "y2");
+  const useTertiary = drawDatasets.some((ds) => ds.yAxisId === "y3");
+  const datasetKey = useMemo(() => drawDatasets.map((d) => d.label).join("\0"), [drawDatasets]);
+  const [visible, setVisible] = useState<boolean[]>(() => drawDatasets.map(() => true));
   const chartRef = useRef<ChartInstance<"line"> | null>(null);
 
   useEffect(() => {
     setVisible((prev) => {
-      if (prev.length === datasets.length) return prev;
-      return datasets.map((_, i) => prev[i] ?? true);
+      if (prev.length === drawDatasets.length) return prev;
+      return drawDatasets.map((_, i) => prev[i] ?? true);
     });
-  }, [datasetKey, datasets.length]);
+  }, [datasetKey, drawDatasets.length]);
 
   // Sibling charts share syncHoverMs — force a redraw so the crosshair plugin re-runs.
   useEffect(() => {
@@ -286,10 +316,10 @@ export default function LineChart({
         ctx.save();
         ctx.fillStyle = "rgba(255, 68, 68, 0.14)";
         for (const d of dates) {
-          const idx = labels.indexOf(d);
+          const idx = drawLabels.indexOf(d);
           if (idx < 0) continue;
           const x0 = x.getPixelForValue(Math.max(0, idx - 0.5));
-          const x1 = x.getPixelForValue(Math.min(labels.length - 1, idx + 0.5));
+          const x1 = x.getPixelForValue(Math.min(drawLabels.length - 1, idx + 0.5));
           ctx.fillRect(x0, chartArea.top, x1 - x0, chartArea.bottom - chartArea.top);
         }
         ctx.restore();
@@ -297,7 +327,7 @@ export default function LineChart({
     });
   }
 
-  if (epochMs && epochMs.length === labels.length) {
+  if (drawEpochMs && drawEpochMs.length === drawLabels.length) {
     plugins.push({
       id: "syncCrosshair",
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -312,12 +342,12 @@ export default function LineChart({
         const points = chart.getElementsAtEventForMode(event, "index", { intersect: false }, true);
         const idx = points?.[0]?.index;
         if (idx == null) return;
-        const ms = epochMs[idx];
+        const ms = drawEpochMs[idx];
         onSyncHoverMs(ms == null ? null : ms);
       },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       afterDraw(chart: any) {
-        if (syncHoverMs == null || !epochMs.length) return;
+        if (syncHoverMs == null || !drawEpochMs.length) return;
         const xScale = chart.scales.x;
         const { ctx, chartArea } = chart;
         if (!xScale || !chartArea) return;
@@ -329,8 +359,8 @@ export default function LineChart({
         } else {
           let bestIdx = -1;
           let bestDelta = Number.POSITIVE_INFINITY;
-          for (let i = 0; i < epochMs.length; i++) {
-            const ms = epochMs[i];
+          for (let i = 0; i < drawEpochMs.length; i++) {
+            const ms = drawEpochMs[i];
             if (ms == null) continue;
             const delta = Math.abs(ms - syncHoverMs);
             if (delta < bestDelta) {
@@ -359,7 +389,7 @@ export default function LineChart({
     <div>
       {toggleableLegend && (
         <DatasetToggleLegend
-          datasets={datasets}
+          datasets={drawDatasets}
           visible={visible}
           onToggle={toggleDataset}
           colors={COLORS}
@@ -369,11 +399,11 @@ export default function LineChart({
       <Line
         ref={chartRef}
         data={{
-          labels: useNumericX ? undefined : labels,
-          datasets: datasets.map((ds, i) => ({
+          labels: useNumericX ? undefined : drawLabels,
+          datasets: drawDatasets.map((ds, i) => ({
             label: ds.label,
             data: useNumericX
-              ? ds.data.map((v, idx) => ({ x: xValues![idx], y: v }))
+              ? ds.data.map((v, idx) => ({ x: drawXValues![idx], y: v }))
               : ds.data,
             hidden: !(visible[i] ?? true),
             borderColor: ds.color ?? COLORS[i % COLORS.length],
@@ -381,15 +411,16 @@ export default function LineChart({
             fill: ds.fill ?? false,
             borderWidth: ds.borderWidth ?? 2,
             borderDash: ds.borderDash ?? (ds.dashed ? [6, 4] : undefined),
-            pointRadius: compact
-              ? labels.length > 80
+            pointRadius:
+              budget.pointRadius === 0 || drawLabels.length > 80
                 ? 0
-                : 2
-              : labels.length > 200
-                ? 0
-                : 2,
+                : compact
+                  ? 2
+                  : drawLabels.length > 200
+                    ? 0
+                    : budget.pointRadius,
             pointHoverRadius: compact ? 5 : 4,
-            tension: 0.3,
+            tension: budget.tension,
             spanGaps: ds.spanGaps ?? true,
             yAxisID: ds.yAxisId ?? "y",
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -400,6 +431,7 @@ export default function LineChart({
           responsive: true,
           maintainAspectRatio: false,
           color: "#ffffff",
+          animation: budget.animation,
           layout: formatXTick
             ? { padding: { bottom: 22 } }
             : undefined,
@@ -427,9 +459,9 @@ export default function LineChart({
                       return d.toISOString().replace("T", " ").replace(/\.\d{3}Z$/, " UTC");
                     }
                   }
-                  if (epochMs?.length) {
+                  if (drawEpochMs?.length) {
                     const idx = items[0]?.dataIndex;
-                    const ms = idx != null ? epochMs[idx] : null;
+                    const ms = idx != null ? drawEpochMs[idx] : null;
                     if (ms != null) {
                       const d = new Date(ms);
                       return d.toISOString().replace("T", " ").replace(/\.\d{3}Z$/, " UTC");
@@ -441,7 +473,7 @@ export default function LineChart({
                 label: (ctx: any) => {
                   const val = ctx.parsed.y;
                   let line = `${ctx.dataset.label}: ${val ?? "N/A"}`;
-                  const detail = tooltipDetails?.[ctx.dataIndex];
+                  const detail = drawTooltipDetails?.[ctx.dataIndex];
                   if (detail) line += ` — ${detail}`;
                   const meta = ctx.dataset.meta?.[ctx.dataIndex];
                   if (meta) {
@@ -454,7 +486,7 @@ export default function LineChart({
                 afterBody: (items: any[]) => {
                   if (compact) return [];
                   const index = items[0]?.dataIndex;
-                  const detail = index === undefined ? null : tooltipDetails?.[index];
+                  const detail = index === undefined ? null : drawTooltipDetails?.[index];
                   return detail ? [`${tooltipDetailLabel}: ${detail}`] : [];
                 },
               },

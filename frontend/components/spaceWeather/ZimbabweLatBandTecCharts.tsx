@@ -27,6 +27,7 @@ import {
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler);
 ChartJS.defaults.color = "#ffffff";
+ChartJS.defaults.animation = false;
 
 type Props = {
   /** Optional preloaded GOPI station series (skips a second by-station fetch). */
@@ -44,6 +45,7 @@ function chartOptions(title: string) {
     responsive: true,
     maintainAspectRatio: false,
     color: "#ffffff",
+    animation: false as const,
     plugins: {
       legend: {
         position: "bottom" as const,
