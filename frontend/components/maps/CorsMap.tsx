@@ -18,6 +18,8 @@ interface Props {
   height?: number;
   layer?: MapLayer;
   heatmap?: TecHeatmapResponse | null;
+  /** Station code → Gg / Cesaroni live VTEC (TECU) for dual labels on TEC Heat Map. */
+  ggByStation?: Record<string, number | null>;
   proposedCorsSites?: ProposedCorsSite[];
   /** Emphasize one station marker (e.g. uptime analysis selection). */
   highlightCode?: string | null;
@@ -204,11 +206,32 @@ function stationTecValue(station: Station, heatmap: TecHeatmapResponse | null | 
   return cardTec;
 }
 
+function stationGgValue(
+  station: Station,
+  ggByStation: Record<string, number | null> | null | undefined,
+): number | null {
+  if (!ggByStation) return null;
+  const raw = ggByStation[stationKey(station.code)];
+  if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0) return null;
+  return raw;
+}
+
+function formatDualTecLabel(code: string, gopi: number | null, gg: number | null): string {
+  const id = code.toUpperCase();
+  if (gopi != null && gg != null) {
+    return `${id}\nG ${gopi.toFixed(1)}\nGg ${gg.toFixed(1)}`;
+  }
+  if (gopi != null) return `${id}\nG ${gopi.toFixed(1)}`;
+  if (gg != null) return `${id}\nGg ${gg.toFixed(1)}`;
+  return id;
+}
+
 export default function CorsMap({
   stations,
   height = 420,
   layer = "Hybrid",
   heatmap = null,
+  ggByStation = {},
   proposedCorsSites = [],
   highlightCode = null,
   onStationSelect,
@@ -240,6 +263,7 @@ export default function CorsMap({
   const olHelpersRef = useRef<any>(null);
   const stationsRef = useRef(stations);
   const heatmapRef = useRef(heatmap);
+  const ggByStationRef = useRef(ggByStation);
   const layerRef = useRef(layer);
   const proposedSitesRef = useRef(proposedCorsSites);
   const highlightCodeRef = useRef(highlightCode);
@@ -254,6 +278,7 @@ export default function CorsMap({
   setSelectedRef.current = setSelected;
   stationsRef.current = stations;
   heatmapRef.current = heatmap;
+  ggByStationRef.current = ggByStation;
   layerRef.current = layer;
   proposedSitesRef.current = proposedCorsSites;
   highlightCodeRef.current = highlightCode;
@@ -316,6 +341,7 @@ export default function CorsMap({
     return list.map((s) => {
       const f = new Feature({ geometry: new Point(fromLonLat([s.lon, s.lat])), station: s });
       const tecValue = stationTecValue(s, heatmapRef.current);
+      const ggValue = stationGgValue(s, ggByStationRef.current);
       const isRef = networkMode && isReferenceCorsStation(s);
       const isHighlight = Boolean(highlight) && stationKey(s.code) === highlight;
       const markerColor = networkMode
@@ -323,16 +349,18 @@ export default function CorsMap({
           ? "#5ec8ff"
           : "#00ff88"
         : STATUS_COLOR[getLiveStationStatus(s)];
+      const dualTec = showTecLabels && (tecValue != null || ggValue != null);
       const label = networkMode
         ? (() => {
             const base = (s.name || s.code).toUpperCase();
             const rovers = s.connected_rovers;
             return typeof rovers === "number" ? `${base}\n${rovers} rover${rovers === 1 ? "" : "s"}` : base;
           })()
-        : showTecLabels && tecValue != null
-          ? `${s.code.toUpperCase()}\n${tecValue.toFixed(1)}`
+        : dualTec
+          ? formatDualTecLabel(s.code, tecValue, ggValue)
           : s.code.toUpperCase();
       const baseRadius = networkMode ? (isRef ? 8 : 7) : 7;
+      const dualLines = dualTec && tecValue != null && ggValue != null;
       f.setStyle(
         new Style({
           image: new Circle({
@@ -345,10 +373,15 @@ export default function CorsMap({
           }),
           text: new Text({
             text: label,
-            offsetY: showTecLabels && !networkMode ? -22 : -14,
+            offsetY: dualLines ? -30 : showTecLabels && !networkMode ? -22 : -14,
             fill: new Fill({ color: "#fff" }),
             stroke: new Stroke({ color: "#000", width: 3 }),
-            font: showTecLabels && !networkMode ? "bold 11px sans-serif" : "bold 10px sans-serif",
+            font:
+              dualLines
+                ? "bold 10px sans-serif"
+                : showTecLabels && !networkMode
+                  ? "bold 11px sans-serif"
+                  : "bold 10px sans-serif",
             textAlign: "center",
           }),
         }),
@@ -828,6 +861,7 @@ export default function CorsMap({
           const s: Station = f.get("station");
           if (!s) return;
           const tecValue = stationTecValue(s, heatmapRef.current);
+          const ggValue = stationGgValue(s, ggByStationRef.current);
           const heatmapStation = heatmapStationFor(s, heatmapRef.current);
           setSelectedRef.current(s);
           onStationSelectRef.current?.(s);
@@ -841,7 +875,15 @@ export default function CorsMap({
               : "";
           const tecLine =
             tecValue != null
-              ? `<div style="color:#57ff65;font-weight:800">${tecValue.toFixed(1)} TECU</div>`
+              ? `<div style="color:#38bdf8;font-weight:800">GOPI ${tecValue.toFixed(1)} TECU</div>`
+              : "";
+          const ggLine =
+            ggValue != null
+              ? `<div style="color:#f59e0b;font-weight:800">Gg / Cesaroni ${ggValue.toFixed(1)} TECU</div>`
+              : "";
+          const deltaLine =
+            tecValue != null && ggValue != null
+              ? `<div style="color:#ffffff;font-size:0.72rem;font-weight:700">Δ (Gg−G) ${(ggValue - tecValue).toFixed(1)} TECU</div>`
               : "";
           const tecSourceLine =
             heatmapStation
@@ -856,7 +898,7 @@ export default function CorsMap({
             typeof s.connected_rovers === "number"
               ? `<div style="margin-top:0.2rem;color:#c4b5fd;font-weight:700">${s.connected_rovers} connected rover${s.connected_rovers === 1 ? "" : "s"}</div>`
               : "";
-          popupEl.innerHTML = `<b>${s.code.toUpperCase()}</b>${tecLine}${tecSourceLine}${icaoLine}${distLine}${sourcetableLine}${roverLine}<div style="margin-top:0.2rem;color:#ffffff">Click Details →</div>`;
+          popupEl.innerHTML = `<b>${s.code.toUpperCase()}</b>${tecLine}${ggLine}${deltaLine}${tecSourceLine}${icaoLine}${distLine}${sourcetableLine}${roverLine}<div style="margin-top:0.2rem;color:#ffffff">Click Details →</div>`;
           popup.setPosition(evt.coordinate);
           popupEl.style.display = "block";
         } else {
@@ -978,7 +1020,7 @@ export default function CorsMap({
     return () => {
       cancelled = true;
     };
-  }, [layer, heatmap]);
+  }, [layer, heatmap, ggByStation]);
 
   return (
     <div

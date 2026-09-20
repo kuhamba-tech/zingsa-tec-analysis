@@ -1130,15 +1130,38 @@ export interface TecMethodReference {
   doi: string;
 }
 
+export interface TecMethodStationCompare {
+  station: string;
+  gopi_latest: number | null;
+  gg_latest: number | null;
+  gopi_mean: number | null;
+  gg_mean: number | null;
+  delta_latest: number | null;
+  delta_mean: number | null;
+  gopi_samples: number;
+  gg_samples: number;
+  gopi_time?: string | null;
+  gg_time?: string | null;
+}
+
 export interface TecMethodComparisonResponse {
   available: boolean;
   hours: number;
   sample_limit: number;
   gopi: LiveObservation[];
   gg: LiveObservation[];
+  stations?: TecMethodStationCompare[];
   methods: TecMethodInfo[];
   references: TecMethodReference[];
   note?: string | null;
+  summary?: {
+    station_count?: number;
+    paired_stations?: number;
+    mean_delta_latest_tecu?: number | null;
+    mean_delta_mean_tecu?: number | null;
+    gopi_sample_count?: number;
+    gg_sample_count?: number;
+  } | null;
 }
 
 export interface LiveStationVtecPoint {

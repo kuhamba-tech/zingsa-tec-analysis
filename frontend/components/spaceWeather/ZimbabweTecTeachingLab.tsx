@@ -114,7 +114,7 @@ const GRAPH_EXPLANATIONS: Record<GraphId, ChartAnalysisBlock> = {
       "Left panel: STEC versus elevation. Low elevations travel longer through the ionosphere, so STEC is larger for the same VTEC.",
       "The dashed curve is the flat-layer reference STEC ≈ VTEC / sin(E) — a simple teaching comparison, not the operational mapping used in the pipeline.",
       "Right panel: VTEC versus elevation. After mapping, VTEC should be much less elevation-dependent than STEC if the shell model is reasonable.",
-      "Points below ~15° elevation are excluded because mapping uncertainty grows rapidly near the horizon.",
+      "Points below 30° elevation are excluded (same mask as live GOPI / Gg comparison) because mapping uncertainty grows rapidly near the horizon.",
     ],
   },
   skyplot: {

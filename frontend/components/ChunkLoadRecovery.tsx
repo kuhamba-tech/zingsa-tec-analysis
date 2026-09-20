@@ -20,9 +20,8 @@ function isChunkLoadFailure(value: unknown): boolean {
 }
 
 /**
- * After a webpack HMR / Fast Refresh thrash, browsers can keep requesting a
- * stale chunk URL until ChunkLoadError times out. One hard reload usually
- * recovers; avoid loops with a short sessionStorage lock.
+ * Backup recovery after layout.js has loaded. Primary recovery lives in
+ * /zgiis-sw-boot.js so layout-chunk timeouts can still hard-reload.
  */
 export default function ChunkLoadRecovery() {
   useEffect(() => {
@@ -34,7 +33,7 @@ export default function ChunkLoadRecovery() {
       } catch {
         /* ignore */
       }
-    }, 8_000);
+    }, 12_000);
 
     const reloadOnce = () => {
       try {
@@ -44,7 +43,13 @@ export default function ChunkLoadRecovery() {
         // If storage is blocked, still attempt a single reload.
       }
       if (cleared) return;
-      window.location.reload();
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.set("_chunk", String(Date.now()));
+        window.location.replace(url.toString());
+      } catch {
+        window.location.reload();
+      }
     };
 
     const onError = (event: ErrorEvent) => {

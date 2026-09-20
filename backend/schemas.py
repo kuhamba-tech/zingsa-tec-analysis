@@ -1093,15 +1093,33 @@ class TecMethodReference(BaseModel):
     doi: str
 
 
+class TecMethodStationCompare(BaseModel):
+    """Per-station live VTEC summary for GOPI vs Gg (notebook) comparison."""
+
+    station: str
+    gopi_latest: float | None = None
+    gg_latest: float | None = None
+    gopi_mean: float | None = None
+    gg_mean: float | None = None
+    delta_latest: float | None = None  # Gg − GOPI (latest)
+    delta_mean: float | None = None  # Gg − GOPI (window mean)
+    gopi_samples: int = 0
+    gg_samples: int = 0
+    gopi_time: str | None = None
+    gg_time: str | None = None
+
+
 class TecMethodComparisonResponse(BaseModel):
     available: bool = True
     hours: float
     sample_limit: int
     gopi: list[LiveObservation] = []
     gg: list[LiveObservation] = []
+    stations: list[TecMethodStationCompare] = []
     methods: list[TecMethodInfo] = []
     references: list[TecMethodReference] = []
     note: str | None = None
+    summary: dict[str, Any] | None = None
 
 
 class LiveStationVtecPoint(BaseModel):

@@ -992,8 +992,15 @@ export const getLiveVtecByStation = (hours = 6, resampleMinutes = 2, timeoutMs?:
   get<LiveStationVtecSeries[]>(
     "/live/vtec-by-station",
     { hours, resample_minutes: resampleMinutes, _ts: Date.now() },
-    // Endpoint is usually fast; allow an override for teaching/slow environments.
-    timeoutMs ?? (hours >= 24 ? 20_000 : hours >= 12 ? 15_000 : Math.max(FETCH_TIMEOUT_MS, 12_000)),
+    // Cold SQL bins can take 20–60s under concurrent map/lab load; keep headroom.
+    timeoutMs ??
+      (hours >= 24
+        ? 90_000
+        : hours >= 12
+          ? 60_000
+          : hours >= 6
+            ? 45_000
+            : Math.max(FETCH_TIMEOUT_MS, 25_000)),
   );
 export const getLiveStations = () => get<StationLiveStatus[]>("/live/stations");
 export const getLivePipelineStatus = () => get<LivePipelineStatus>("/live/pipeline-status");

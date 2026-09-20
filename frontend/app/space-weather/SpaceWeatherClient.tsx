@@ -414,6 +414,18 @@ export default function SpaceWeatherClient({
   const [ekf, setEkf]       = useState<EkfStatus | null>(null);
   const [tab, setTab]       = useState(0);
   const [xrayRange, setXrayRange] = useState<"6H" | "24H">("24H");
+
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const raw = (params.get("tab") || "").toLowerCase();
+      if (raw === "3" || raw === "zimbabwe" || raw === "ionosphere" || raw === "local") {
+        setTab(3);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
   const [refreshing, setRefreshing] = useState(false);
   const [now, setNow] = useState(0);
   const [lastFetched, setLastFetched] = useState<string | null>(
