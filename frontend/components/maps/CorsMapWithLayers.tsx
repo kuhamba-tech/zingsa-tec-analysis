@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import CorsMap from "./CorsMap";
+import LiveTecMethodComparePanel from "./LiveTecMethodComparePanel";
 import NetworkDistancesPanel from "./NetworkDistancesPanel";
 import TecHeatMapLegend from "./TecHeatMapLegend";
 import { getTecMethodComparison } from "@/lib/api";
@@ -12,10 +13,6 @@ import type { LiveStationCounts } from "@/lib/liveStationStatus";
 
 const StationVtecTimePlots = dynamic(
   () => import("@/components/charts/StationVtecTimePlots"),
-  { ssr: false },
-);
-const LiveTecMethodComparePanel = dynamic(
-  () => import("@/components/maps/LiveTecMethodComparePanel"),
   { ssr: false },
 );
 export type MapLayer =
