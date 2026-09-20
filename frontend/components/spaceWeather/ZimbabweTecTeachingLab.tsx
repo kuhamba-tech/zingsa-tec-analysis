@@ -17,7 +17,6 @@ import { getLiveVtec, getLiveVtecByStation, getStations, getTecMethodComparison 
 import { formatKnmiUtcTick, sharedTimeDomain, utcTimeAxisProps } from "@/lib/chartTimeAxis";
 import type { ChartAnalysisBlock } from "@/lib/multiSourceChartAnalysis";
 import {
-  diurnalPercentilesFullDay,
   flatLayerStec,
   hourOfDayUtc,
   ionosphericPiercePoint,
@@ -96,7 +95,7 @@ function hoursSinceUtcMidnight(now = Date.now()): number {
   return Math.min(24, Math.max(1, (now - startOfUtcDayMs(now)) / 3_600_000));
 }
 
-type GraphId = "vtec-series" | "elev-scatter" | "skyplot" | "ipp" | "diurnal";
+type GraphId = "vtec-series" | "elev-scatter" | "skyplot" | "ipp" | "diurnal-gopi" | "diurnal-gg";
 
 const GRAPH_EXPLANATIONS: Record<GraphId, ChartAnalysisBlock> = {
   "vtec-series": {
@@ -135,13 +134,22 @@ const GRAPH_EXPLANATIONS: Record<GraphId, ChartAnalysisBlock> = {
       "Edge samples (low elevation) pierce farther from the station; zenith samples sit nearly above the receiver.",
     ],
   },
-  diurnal: {
-    lead: "Diurnal fan chart comparing GOPI / Seemala (cyan) and Gg / Ciraolo–Cesaroni (amber) on the same UTC day.",
+  "diurnal-gopi": {
+    lead: "Notebook-style calibrated VTEC fan for Method 1 (GOPI / Seemala): each thin arc is one satellite pass; colour is constellation; the white line is station-zenith VEq.",
     bullets: [
-      "Cyan median + bands = GOPI live CORS VTEC. Amber median + bands = Gg arc-bias calibrated VTEC.",
-      "Offsets between the two medians are calibration differences (DCB / arc bias), not a different ionosphere.",
-      "Only the current UTC calendar day is shown, so the chart builds as the day progresses.",
-      "Read the teaching guide below for STEC vs VTEC classification and the calculation steps that differ.",
+      "Blue = GPS, orange = GLONASS, green = Galileo (BeiDou purple when present).",
+      "VEq is the median VTEC from high-elevation looks (≥ 60°) in each half-hour bin — a zenith reference for the network day.",
+      "Only the current UTC calendar day is shown, so the fan builds as more live samples arrive.",
+      "Absolute TECU can retain residual DCB bias without monthly files; the diurnal shape is still operationally useful.",
+    ],
+  },
+  "diurnal-gg": {
+    lead: "Same fan layout for Method 2 (Gg / Ciraolo–Cesaroni): arc-bias + VTEC(MODIP, LT) calibration on the same CORS samples (elev ≥ 30°, IPP 350 km).",
+    bullets: [
+      "Compare this chart with Method 1 side-by-side — offsets are calibration (bias removal), not a different ionosphere.",
+      "Constellation colours match Method 1 so SV arcs are easy to cross-read.",
+      "VEq here uses high-elevation Gg-calibrated VTEC in the same half-hour bins.",
+      "When Gg samples are sparse early in the day, the fan fills in as the comparison pipeline accumulates arcs.",
     ],
   },
 };
@@ -389,102 +397,17 @@ export default function ZimbabweTecTeachingLab() {
     return pts.filter((_, i) => i % step === 0);
   }, [obs, catalog]);
 
-  const diurnalLive = useMemo(() => {
+  const calibratedFans = useMemo(() => {
     const dayStart = utcDayStart;
-
-    const collectHoursVals = (rows: LiveObservation[]) => {
-      const hoursArr: number[] = [];
-      const vals: number[] = [];
-      for (const o of rows) {
-        if (!isUtcCalendarDay(o.time, dayStart)) continue;
-        if (o.vtec_tecu == null || !Number.isFinite(o.vtec_tecu)) continue;
-        const h = hourOfDayUtc(o.time);
-        if (h == null) continue;
-        hoursArr.push(h);
-        vals.push(o.vtec_tecu);
-      }
-      return { hoursArr, vals };
-    };
-
-    // Prefer dual-method comparison samples when available.
-    const gopiCmp = collectHoursVals(methodCmp?.gopi ?? []);
-    const ggCmp = collectHoursVals(methodCmp?.gg ?? []);
-
-    // Fallback GOPI from live CORS station series + observations.
-    let gopiHours = gopiCmp.hoursArr;
-    let gopiVals = gopiCmp.vals;
-    if (gopiHours.length < 8) {
-      const hoursArr: number[] = [];
-      const vals: number[] = [];
-      for (const s of stations) {
-        for (const p of s.points ?? []) {
-          if (!isUtcCalendarDay(p.time, dayStart)) continue;
-          const h = hourOfDayUtc(p.time);
-          if (h == null || !Number.isFinite(p.vtec_tecu)) continue;
-          hoursArr.push(h);
-          vals.push(p.vtec_tecu);
-        }
-      }
-      for (const o of obs) {
-        if (!isUtcCalendarDay(o.time, dayStart)) continue;
-        if (o.vtec_tecu == null || !Number.isFinite(o.vtec_tecu)) continue;
-        const h = hourOfDayUtc(o.time);
-        if (h == null) continue;
-        hoursArr.push(h);
-        vals.push(o.vtec_tecu);
-      }
-      gopiHours = hoursArr;
-      gopiVals = vals;
-    }
-
-    if (gopiHours.length < 8 && ggCmp.hoursArr.length < 8) return null;
-
-    const gopiFan =
-      gopiHours.length >= 8
-        ? diurnalPercentilesFullDay(gopiHours, gopiVals, { maxVtec: 70 })
-        : null;
-    const ggFan =
-      ggCmp.hoursArr.length >= 8
-        ? diurnalPercentilesFullDay(ggCmp.hoursArr, ggCmp.vals, { maxVtec: 70 })
-        : null;
-
-    const hours = gopiFan?.hours ?? ggFan?.hours ?? [];
-    if (!hours.length) return null;
-    const hasGopi = gopiFan?.p50.some((v) => v != null) ?? false;
-    const hasGg = ggFan?.p50.some((v) => v != null) ?? false;
-    if (!hasGopi && !hasGg) return null;
-
-    // Zenith VEq from live observations (GOPI-calibrated pipeline).
-    const veqBuckets = new Map<number, number[]>();
-    for (const o of obs) {
-      if (!isUtcCalendarDay(o.time, dayStart)) continue;
-      if (o.elevation_deg == null || o.elevation_deg < 60) continue;
-      if (o.vtec_tecu == null || !Number.isFinite(o.vtec_tecu)) continue;
-      if (o.vtec_tecu <= 0 || o.vtec_tecu > 70) continue;
-      const h = hourOfDayUtc(o.time);
-      if (h == null) continue;
-      const bin = Math.round(h * 2) / 2;
-      const arr = veqBuckets.get(bin) ?? [];
-      arr.push(o.vtec_tecu);
-      veqBuckets.set(bin, arr);
-    }
-    const veq = hours.map((h) => {
-      const arr = veqBuckets.get(h);
-      if (!arr?.length) return null;
-      const sorted = arr.slice().sort((a, b) => a - b);
-      return sorted[Math.floor(sorted.length / 2)];
-    });
-
+    const gopiRows: LiveObservation[] =
+      (methodCmp?.gopi?.length ?? 0) >= 8 ? (methodCmp?.gopi ?? []) : obs;
+    const ggRows: LiveObservation[] = methodCmp?.gg ?? [];
     return {
-      hours,
-      gopi: gopiFan,
-      gg: ggFan,
-      veq,
-      dayLabel: utcDayTitle,
-      hasGopi,
-      hasGg,
+      gopi: buildCalibratedFan(gopiRows, dayStart, utcDayTitle, "GOPI / Seemala"),
+      gg: buildCalibratedFan(ggRows, dayStart, utcDayTitle, "Gg / Ciraolo–Cesaroni"),
     };
-  }, [stations, obs, methodCmp, utcDayStart, utcDayTitle]);
+  }, [obs, methodCmp, utcDayStart, utcDayTitle]);
+
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
@@ -492,9 +415,10 @@ export default function ZimbabweTecTeachingLab() {
         <div className="metric-label" style={{ marginBottom: "0.35rem" }}>Live CORS ionosphere graphs</div>
         <p className="sw-supporting-text" style={{ margin: 0 }}>
           Zimbabwe CORS NTRIP VTEC / STEC from the live pipeline — VTEC time series, STEC/VTEC versus
-          elevation, satellite skyplot coloured by VTEC, IPP ground tracks, and diurnal VTEC with
-          GOPI (cyan) vs Gg (amber). Below: a short guide that classifies TEC quantities and explains
-          how the two calculations differ. Click any graph for its scientific explanation.
+          elevation, satellite skyplot coloured by VTEC, IPP ground tracks, and separate calibrated
+          VTEC fan charts for Method 1 (GOPI) and Method 2 (Gg). Below: a short guide that classifies
+          TEC quantities and explains how the two calculations differ. Click any graph for its
+          scientific explanation.
         </p>
         {loading && <div className="banner banner-info" style={{ marginTop: "0.75rem" }}>Loading live CORS VTEC…</div>}
         {error && <div className="banner banner-warn" style={{ marginTop: "0.75rem" }}>{error}</div>}
@@ -635,27 +559,35 @@ export default function ZimbabweTecTeachingLab() {
       </Section>
 
       <Section
-        title="5 · Diurnal VTEC Distribution"
-        subtitle="GOPI (cyan) vs Gg (amber) daily medians and 10th–90th percentile bands on the same UTC day."
-        open={openGraph === "diurnal"}
-        onToggle={() => toggleGraph("diurnal")}
-        analysis={GRAPH_EXPLANATIONS.diurnal}
+        title="5 · Calibrated VTEC — Method 1 (GOPI)"
+        subtitle="Notebook-style fan: per-satellite arcs by constellation + station-zenith VEq (Seemala / GOPI)."
+        open={openGraph === "diurnal-gopi"}
+        onToggle={() => toggleGraph("diurnal-gopi")}
+        analysis={GRAPH_EXPLANATIONS["diurnal-gopi"]}
       >
-        {diurnalLive ? (
-          <div style={{ background: "#0b1220", borderRadius: 8, padding: "0.65rem 0.5rem 0.35rem", height: 340 }}>
-            <DiurnalFanChart
-              hours={diurnalLive.hours}
-              gopi={diurnalLive.gopi}
-              gg={diurnalLive.gg}
-              veq={diurnalLive.veq}
-              dayLabel={diurnalLive.dayLabel}
-              hasGopi={diurnalLive.hasGopi}
-              hasGg={diurnalLive.hasGg}
-            />
-          </div>
+        {calibratedFans.gopi ? (
+          <CalibratedVtecFanChart fan={calibratedFans.gopi} />
         ) : (
           <div className="banner banner-info">
-            {loading ? "Waiting for today’s live CORS samples…" : "Not enough live VTEC points yet for today’s UTC day."}
+            {loading ? "Waiting for today’s GOPI samples…" : "Not enough Method 1 (GOPI) VTEC points yet for today’s UTC day."}
+          </div>
+        )}
+      </Section>
+
+      <Section
+        title="6 · Calibrated VTEC — Method 2 (Gg)"
+        subtitle="Same fan layout for Gg / Ciraolo–Cesaroni calibration (elev ≥ 30°, IPP 350 km)."
+        open={openGraph === "diurnal-gg"}
+        onToggle={() => toggleGraph("diurnal-gg")}
+        analysis={GRAPH_EXPLANATIONS["diurnal-gg"]}
+      >
+        {calibratedFans.gg ? (
+          <CalibratedVtecFanChart fan={calibratedFans.gg} />
+        ) : (
+          <div className="banner banner-info">
+            {loading
+              ? "Waiting for Gg calibration on live samples…"
+              : "Not enough Method 2 (Gg) VTEC points yet — comparison samples still accumulating."}
           </div>
         )}
       </Section>
@@ -663,189 +595,201 @@ export default function ZimbabweTecTeachingLab() {
   );
 }
 
-function xy(
-  hours: number[],
-  values: (number | null)[],
-): { x: number; y: number | null }[] {
-  return hours.map((h, i) => ({ x: h, y: values[i] ?? null }));
-}
+const FAN_CONST = {
+  G: { color: "#3b82f6", label: "GPS" },
+  R: { color: "#f97316", label: "GLONASS" },
+  E: { color: "#22c55e", label: "Galileo" },
+  C: { color: "#a78bfa", label: "BeiDou" },
+} as const;
 
-const GOPI_COLOR = "#38bdf8";
-const GG_COLOR = "#f59e0b";
+type FanConstKey = keyof typeof FAN_CONST;
 
-type FanBands = {
+type CalibratedFan = {
+  methodLabel: string;
+  dayLabel: string;
+  loadedRows: number;
+  validVtec: number;
+  svCount: number;
   hours: number[];
-  p10: (number | null)[];
-  p25: (number | null)[];
-  p50: (number | null)[];
-  p75: (number | null)[];
-  p90: (number | null)[];
+  veq: (number | null)[];
+  arcs: { key: string; constKey: FanConstKey; points: { x: number; y: number }[] }[];
+  presentConsts: FanConstKey[];
 };
 
-function DiurnalFanChart({
-  hours,
-  gopi,
-  gg,
-  veq,
-  dayLabel,
-  hasGopi,
-  hasGg,
-}: {
-  hours: number[];
-  gopi: FanBands | null;
-  gg: FanBands | null;
-  veq: (number | null)[];
-  dayLabel: string;
-  hasGopi: boolean;
-  hasGg: boolean;
-}) {
+function constellationKey(o: LiveObservation): FanConstKey | null {
+  const constellation = (o.constellation ?? "").trim().toUpperCase();
+  const prn = (o.prn ?? "").trim().toUpperCase();
+  if (constellation.includes("GALILEO") || constellation === "E" || prn.startsWith("E")) return "E";
+  if (constellation.includes("GLONASS") || constellation === "R" || prn.startsWith("R")) return "R";
+  if (constellation.includes("BEIDOU") || constellation.includes("BDS") || constellation === "C" || prn.startsWith("C")) {
+    return "C";
+  }
+  if (constellation.includes("GPS") || constellation === "G" || prn.startsWith("G")) return "G";
+  return null;
+}
+
+function buildCalibratedFan(
+  rows: LiveObservation[],
+  dayStart: number,
+  dayLabel: string,
+  methodLabel: string,
+  maxArcs = 90,
+): CalibratedFan | null {
+  const hours = Array.from({ length: 49 }, (_, i) => i * 0.5);
+  const arcsMap = new Map<string, { constKey: FanConstKey; points: { x: number; y: number }[] }>();
+  const veqBuckets = new Map<number, number[]>();
+  let validVtec = 0;
+  const dayRows = rows.filter((o) => isUtcCalendarDay(o.time, dayStart));
+
+  for (const o of dayRows) {
+    if (o.vtec_tecu == null || !Number.isFinite(o.vtec_tecu)) continue;
+    if (o.vtec_tecu <= 0 || o.vtec_tecu > 100) continue;
+    const h = hourOfDayUtc(o.time);
+    if (h == null) continue;
+    validVtec += 1;
+    const ck = constellationKey(o) ?? "G";
+    const prn = (o.prn || "UNK").toUpperCase();
+    const station = (o.station || "?").toLowerCase();
+    const key = `${station}|${ck}|${prn}`;
+    const arc = arcsMap.get(key) ?? { constKey: ck, points: [] };
+    arc.points.push({ x: h, y: o.vtec_tecu });
+    arcsMap.set(key, arc);
+
+    if (o.elevation_deg != null && o.elevation_deg >= 60 && o.vtec_tecu <= 70) {
+      const bin = Math.round(h * 2) / 2;
+      const arr = veqBuckets.get(bin) ?? [];
+      arr.push(o.vtec_tecu);
+      veqBuckets.set(bin, arr);
+    }
+  }
+
+  if (validVtec < 8) return null;
+
+  const arcs = [...arcsMap.entries()]
+    .map(([key, arc]) => ({
+      key,
+      constKey: arc.constKey,
+      points: arc.points.slice().sort((a, b) => a.x - b.x),
+    }))
+    .filter((a) => a.points.length >= 2)
+    .sort((a, b) => b.points.length - a.points.length)
+    .slice(0, maxArcs);
+
+  const veq = hours.map((h) => {
+    const arr = veqBuckets.get(h);
+    if (!arr?.length) return null;
+    const sorted = arr.slice().sort((a, b) => a - b);
+    return sorted[Math.floor(sorted.length / 2)];
+  });
+
+  if (!arcs.length && !veq.some((v) => v != null)) return null;
+
+  const presentConsts = ([...new Set(arcs.map((a) => a.constKey))] as FanConstKey[]).sort();
+  const svCount = new Set(arcs.map((a) => a.key.split("|").slice(1).join("|"))).size;
+
+  return {
+    methodLabel,
+    dayLabel,
+    loadedRows: dayRows.length,
+    validVtec,
+    svCount,
+    hours,
+    veq,
+    arcs,
+    presentConsts,
+  };
+}
+
+function CalibratedVtecFanChart({ fan }: { fan: CalibratedFan }) {
+  const legendSeen = new Set<string>();
   const datasets = [
-    ...(hasGopi && gopi
-      ? [
-          {
-            label: "GOPI 10–90%",
-            data: xy(hours, gopi.p90),
-            borderColor: "transparent",
-            backgroundColor: "rgba(56, 189, 248, 0.22)",
-            fill: "+1" as const,
-            pointRadius: 0,
-            tension: 0.3,
-            spanGaps: false,
-            order: 5,
-          },
-          {
-            label: "GOPI p10",
-            data: xy(hours, gopi.p10),
-            borderColor: "transparent",
-            backgroundColor: "transparent",
-            fill: false,
-            pointRadius: 0,
-            spanGaps: false,
-            order: 5,
-          },
-          {
-            label: "GOPI median",
-            data: xy(hours, gopi.p50),
-            borderColor: GOPI_COLOR,
-            backgroundColor: GOPI_COLOR,
-            borderWidth: 2.5,
-            fill: false,
-            tension: 0.35,
-            pointRadius: 0,
-            spanGaps: false,
-            order: 2,
-          },
-        ]
-      : []),
-    ...(hasGg && gg
-      ? [
-          {
-            label: "Gg 10–90%",
-            data: xy(hours, gg.p90),
-            borderColor: "transparent",
-            backgroundColor: "rgba(245, 158, 11, 0.22)",
-            fill: "+1" as const,
-            pointRadius: 0,
-            tension: 0.3,
-            spanGaps: false,
-            order: 4,
-          },
-          {
-            label: "Gg p10",
-            data: xy(hours, gg.p10),
-            borderColor: "transparent",
-            backgroundColor: "transparent",
-            fill: false,
-            pointRadius: 0,
-            spanGaps: false,
-            order: 4,
-          },
-          {
-            label: "Gg median",
-            data: xy(hours, gg.p50),
-            borderColor: GG_COLOR,
-            backgroundColor: GG_COLOR,
-            borderWidth: 2.5,
-            borderDash: [5, 3] as number[],
-            fill: false,
-            tension: 0.35,
-            pointRadius: 0,
-            spanGaps: false,
-            order: 1,
-          },
-        ]
-      : []),
+    ...fan.arcs.map((arc) => {
+      const meta = FAN_CONST[arc.constKey];
+      const showLegend = !legendSeen.has(arc.constKey);
+      if (showLegend) legendSeen.add(arc.constKey);
+      return {
+        label: showLegend ? meta.label : `${meta.label} · ${arc.key}`,
+        data: arc.points,
+        borderColor: meta.color,
+        backgroundColor: meta.color,
+        borderWidth: 1.1,
+        pointRadius: 0,
+        pointHoverRadius: 2,
+        tension: 0.15,
+        fill: false,
+        spanGaps: false,
+        order: 3,
+      };
+    }),
     {
-      label: "VEq (zenith)",
-      data: xy(hours, veq),
-      borderColor: "#e8eef7",
-      backgroundColor: "#e8eef7",
-      borderWidth: 1.6,
-      borderDash: [6, 4] as number[],
-      fill: false,
-      tension: 0.35,
+      label: "VEq (station zenith)",
+      data: fan.hours.map((h, i) => ({ x: h, y: fan.veq[i] })),
+      borderColor: "#ffffff",
+      backgroundColor: "#ffffff",
+      borderWidth: 2.4,
       pointRadius: 0,
+      tension: 0.35,
+      fill: false,
       spanGaps: false,
       order: 0,
     },
   ];
 
-  const methodTag =
-    hasGopi && hasGg
-      ? "GOPI (cyan) vs Gg (amber)"
-      : hasGg
-        ? "Gg only"
-        : "GOPI / Live CORS";
+  const legendLabels = new Set([...fan.presentConsts.map((k) => FAN_CONST[k].label), "VEq (station zenith)"]);
 
   return (
-    <Line
-      data={{ datasets }}
-      options={{
-        responsive: true,
-        maintainAspectRatio: false,
-        parsing: false,
-        plugins: {
-          legend: {
-            position: "top",
-            align: "end",
-            labels: {
-              color: "#e8eef7",
-              boxWidth: 14,
-              boxHeight: 8,
-              font: { size: 11 },
-              filter: (item) => !["GOPI p10", "Gg p10"].includes(String(item.text)),
+    <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
+      <div style={{ fontSize: "0.72rem", color: "#ffffff" }}>
+        Loaded {fan.loadedRows.toLocaleString()} rows – valid VTEC: {fan.validVtec.toLocaleString()} | SVs: {fan.svCount}
+      </div>
+      <div style={{ background: "#0b1220", borderRadius: 8, padding: "0.55rem 0.45rem 0.25rem", height: 360 }}>
+        <Line
+          data={{ datasets }}
+          options={{
+            responsive: true,
+            maintainAspectRatio: false,
+            parsing: false,
+            plugins: {
+              legend: {
+                position: "top",
+                align: "end",
+                labels: {
+                  color: "#ffffff",
+                  boxWidth: 12,
+                  boxHeight: 8,
+                  font: { size: 11 },
+                  filter: (item) => legendLabels.has(String(item.text)),
+                },
+              },
+              title: {
+                display: true,
+                text: `Calibrated VTEC — ${fan.methodLabel} | ${fan.dayLabel}`,
+                color: "#ffffff",
+                font: { size: 14, weight: "bold" },
+                padding: { bottom: 8 },
+              },
             },
-          },
-          title: {
-            display: true,
-            text: `Diurnal VTEC — ${methodTag} | ${dayLabel}`,
-            color: "#f8fafc",
-            font: { size: 14, weight: "bold" },
-            padding: { bottom: 10 },
-          },
-        },
-        scales: {
-          x: {
-            type: "linear",
-            min: 0,
-            max: 24,
-            title: { display: true, text: "UT [hours]", color: "#e8eef7", font: { size: 12 } },
-            ticks: {
-              color: "#cbd5e1",
-              stepSize: 2,
-              callback: (v) => String(v),
+            scales: {
+              x: {
+                type: "linear",
+                min: 0,
+                max: 24,
+                title: { display: true, text: "UT [hours]", color: "#ffffff", font: { size: 12 } },
+                ticks: { color: "#ffffff", stepSize: 2, callback: (v) => String(v) },
+                grid: { color: "rgba(148,163,184,0.22)" },
+              },
+              y: {
+                min: 0,
+                suggestedMax: 70,
+                title: { display: true, text: "VTEC [TECU]", color: "#ffffff", font: { size: 12 } },
+                ticks: { color: "#ffffff" },
+                grid: { color: "rgba(148,163,184,0.22)" },
+              },
             },
-            grid: { color: "rgba(148,163,184,0.25)" },
-          },
-          y: {
-            title: { display: true, text: "VTEC [TECU]", color: "#e8eef7", font: { size: 12 } },
-            ticks: { color: "#cbd5e1" },
-            grid: { color: "rgba(148,163,184,0.25)" },
-            beginAtZero: false,
-          },
-        },
-      }}
-    />
+          }}
+        />
+      </div>
+    </div>
   );
 }
 
