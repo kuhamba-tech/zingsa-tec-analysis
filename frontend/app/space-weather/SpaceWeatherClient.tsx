@@ -1299,7 +1299,7 @@ export default function SpaceWeatherClient({
         <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
           <p style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>
             Local ionospheric response after Sun→Earth drivers — live Zimbabwe CORS VTEC graphs,
-            a TEC teaching guide (classify STEC/VTEC; GOPI vs Gg calculations from TEC_GNSS_Notebook_v5),
+            a TEC teaching guide (classify STEC/VTEC; GOPI vs Gg = Cesaroni),
             and scintillation / GNSS risk context
           </p>
           <CauseEffectTimelineStack

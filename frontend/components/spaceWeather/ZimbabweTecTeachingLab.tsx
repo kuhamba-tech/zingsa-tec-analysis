@@ -135,7 +135,7 @@ const GRAPH_EXPLANATIONS: Record<GraphId, ChartAnalysisBlock> = {
     ],
   },
   "diurnal-gopi": {
-    lead: "Notebook-style calibrated VTEC fan for Method 1 (GOPI / Seemala): each thin arc is one satellite pass; colour is constellation; the white line is station-zenith VEq.",
+    lead: "Calibrated VTEC fan for Method 1 (GOPI / Seemala): each thin arc is one satellite pass; colour is constellation; the white line is station-zenith VEq.",
     bullets: [
       "Blue = GPS, orange = GLONASS, green = Galileo (BeiDou purple when present).",
       "VEq is the median VTEC from high-elevation looks (≥ 60°) in each half-hour bin — a zenith reference for the network day.",
@@ -144,7 +144,7 @@ const GRAPH_EXPLANATIONS: Record<GraphId, ChartAnalysisBlock> = {
     ],
   },
   "diurnal-gg": {
-    lead: "Same fan layout for Method 2 (Gg / Ciraolo–Cesaroni): arc-bias + VTEC(MODIP, LT) calibration on the same CORS samples (elev ≥ 30°, IPP 350 km).",
+    lead: "Same fan layout for Method 2 (Gg = Cesaroni): arc-bias + VTEC(MODIP, LT) calibration on the same CORS samples (elev ≥ 30°, IPP 350 km).",
     bullets: [
       "Compare this chart with Method 1 side-by-side — offsets are calibration (bias removal), not a different ionosphere.",
       "Constellation colours match Method 1 so SV arcs are easy to cross-read.",
@@ -405,7 +405,7 @@ export default function ZimbabweTecTeachingLab() {
     const ggRows: LiveObservation[] = methodCmp?.gg ?? [];
     return {
       gopi: buildCalibratedFan(gopiRows, dayStart, utcDayTitle, "GOPI / Seemala"),
-      gg: buildCalibratedFan(ggRows, dayStart, utcDayTitle, "Gg / Ciraolo–Cesaroni"),
+      gg: buildCalibratedFan(ggRows, dayStart, utcDayTitle, "Gg = Cesaroni"),
     };
   }, [obs, methodCmp, utcDayStart, utcDayTitle]);
 
@@ -561,7 +561,7 @@ export default function ZimbabweTecTeachingLab() {
 
       <Section
         title="5 · Calibrated VTEC — Method 1 (GOPI)"
-        subtitle="Notebook-style fan: per-satellite arcs by constellation + station-zenith VEq (Seemala / GOPI)."
+        subtitle="Calibrated fan: per-satellite arcs by constellation + station-zenith VEq (Seemala / GOPI)."
         open={openGraph === "diurnal-gopi"}
         onToggle={() => toggleGraph("diurnal-gopi")}
         analysis={GRAPH_EXPLANATIONS["diurnal-gopi"]}
@@ -577,7 +577,7 @@ export default function ZimbabweTecTeachingLab() {
 
       <Section
         title="6 · Calibrated VTEC — Method 2 (Gg)"
-        subtitle="Same fan layout for Gg / Ciraolo–Cesaroni calibration (elev ≥ 30°, IPP 350 km)."
+        subtitle="Same fan layout for Gg = Cesaroni calibration (elev ≥ 30°, IPP 350 km)."
         open={openGraph === "diurnal-gg"}
         onToggle={() => toggleGraph("diurnal-gg")}
         analysis={GRAPH_EXPLANATIONS["diurnal-gg"]}

@@ -879,7 +879,7 @@ export default function CorsMap({
               : "";
           const ggLine =
             ggValue != null
-              ? `<div style="color:#f59e0b;font-weight:800">Gg / Cesaroni ${ggValue.toFixed(1)} TECU</div>`
+              ? `<div style="color:#f59e0b;font-weight:800">Gg = Cesaroni ${ggValue.toFixed(1)} TECU</div>`
               : "";
           const deltaLine =
             tecValue != null && ggValue != null

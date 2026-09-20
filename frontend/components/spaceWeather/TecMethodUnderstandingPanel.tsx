@@ -18,7 +18,7 @@ import {
 
 /**
  * Teaching panel: what TEC is, how to classify TEC quantities, and how
- * GOPI vs Gg (notebook / PyTECGg) calculations differ — for Zimbabwe Response.
+ * GOPI vs Gg = Cesaroni calculations differ — for Zimbabwe Response.
  */
 export default function TecMethodUnderstandingPanel() {
   const [open, setOpen] = useState(true);
@@ -30,10 +30,9 @@ export default function TecMethodUnderstandingPanel() {
           Understand TEC · classify quantities · compare GOPI vs Gg
         </div>
         <p className="sw-supporting-text" style={{ margin: 0 }}>
-          From the TEC_GNSS_Notebook_v5 teaching path: what TEC means, how to label STEC/VTEC and
-          calibration stages, then what changes between{" "}
+          What TEC means, how to label STEC/VTEC and calibration stages, then what changes between{" "}
           <span style={{ color: "#38bdf8", fontWeight: 700 }}>GOPI / Seemala</span> and{" "}
-          <span style={{ color: "#f59e0b", fontWeight: 700 }}>Gg / Ciraolo–Cesaroni (PyTECGg)</span>.
+          <span style={{ color: "#f59e0b", fontWeight: 700 }}>Gg = Cesaroni</span>.
         </p>
         <button
           type="button"
@@ -271,13 +270,13 @@ export default function TecMethodUnderstandingPanel() {
             </p>
           </div>
 
-          {/* 6 · Notebook §3.4 references */}
+          {/* 6 · Gg = Cesaroni references */}
           <div>
             <div className="metric-label" style={{ marginBottom: 6 }}>
-              6 · References (TEC_GNSS_Notebook_v5 §3.4)
+              6 · References (Gg = Cesaroni)
             </div>
             <p className="sw-supporting-text" style={{ margin: "0 0 0.55rem" }}>
-              Method 2 follows these papers and the notebook Gg path — calibration (arc biases +
+              Method 2 follows these papers — calibration (arc biases +
               VTEC(MODIP, LT) least squares) is the key difference from live GOPI, not the elev/IPP
               geometry (both use elev ≥ 30°, IPP 350 km).
             </p>

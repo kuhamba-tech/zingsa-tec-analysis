@@ -42,7 +42,7 @@ export default function TecPrimerBlock({ compact = false }: { compact?: boolean 
           </p>
           <p className="sw-metric-explain-body" style={{ marginTop: "0.45rem", fontSize: "0.78rem" }}>
             On Zimbabwe Ionospheric Response, open the teaching guide for STEC vs VTEC classification
-            and the GOPI vs Gg calculation differences from TEC_GNSS_Notebook_v5.
+            and the GOPI vs Gg = Cesaroni calculation differences.
           </p>
         </>
       )}

@@ -199,7 +199,7 @@ export default function TecHeatmapPage() {
           {mapLayer === "TEC Heat Map" && (
             <div className="tec-map-legend-row" style={{ marginTop: "0.35rem", fontSize: "0.68rem", color: "var(--text-muted)" }}>
               Labels: <span style={{ color: "#38bdf8" }}>G</span> = GOPI ·{" "}
-              <span style={{ color: "#f59e0b" }}>Gg</span> = Cesaroni/Gg
+              <span style={{ color: "#f59e0b" }}>Gg</span> = Cesaroni
             </div>
           )}
         </div>

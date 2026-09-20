@@ -358,19 +358,19 @@ def _build_tec_method_comparison(
     engine = "gg_modip_lt_window_ls"
     if pytecgg:
         engine_note = (
-            f"Engine {engine} (PyTECGg importable): live comparison applies the notebook "
-            "Gg MODIP×LT windowed least-squares to streaming CORS rows — not a full "
+            f"Engine {engine} (PyTECGg importable): live comparison applies Gg = Cesaroni "
+            "MODIP×LT windowed least-squares to streaming CORS rows — not a full "
             "RINEX-day PyTECGg run (that path is for offline obs+nav processing)."
         )
     else:
         engine_note = (
-            f"Engine {engine}: TEC_GNSS_Notebook_v5 §3.2–3.4 arc-bias + VTEC(MODIP μ, LT) "
+            f"Engine {engine}: Gg = Cesaroni arc-bias + VTEC(MODIP μ, LT) "
             "polynomial on the same streaming samples (PyTECGg not installed for full RINEX days)."
         )
     note = (
         "Method 1 (GOPI / Seemala) is the live CORS NTRIP dual-frequency path shown on the "
-        "TEC Heat Map. Method 2 (Gg / Ciraolo–Cesaroni) is driven by TEC_GNSS_Notebook_v5 "
-        "calibration (§3.2–3.4; refs Ciraolo 2007, Cesaroni 2015/2021, Ventriglia/PyTECGg 2026). "
+        "TEC Heat Map. Method 2 (Gg = Cesaroni) uses Ciraolo/Cesaroni calibration "
+        "(refs Ciraolo 2007, Cesaroni 2015/2021, Ventriglia/PyTECGg 2026). "
         f"{engine_note} Both methods use elev ≥ 30° and IPP shell 350 km so ΔVTEC = Gg − GOPI "
         "reflects calibration, not geometry."
     )

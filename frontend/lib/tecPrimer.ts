@@ -53,14 +53,14 @@ export const TEC_CLASSIFICATIONS: {
     term: "Phase / levelled TEC",
     meaning:
       "Precise phase geometry-free combination, anchored to code over each continuous arc (phase levelling). Removes ambiguity but DCBs remain.",
-    howToSpot: "Notebook calls this phase-levelled TEC — not yet fully calibrated.",
+    howToSpot: "Phase-levelled TEC — not yet fully calibrated.",
   },
   {
     id: "calibrated",
     term: "Calibrated TEC",
     meaning:
       "STEC/VTEC after hardware biases (DCB / arc bias) are estimated and removed. Absolute scale depends on the calibration method.",
-    howToSpot: "Gg / PyTECGg output; comparison charts label methods explicitly.",
+    howToSpot: "Gg = Cesaroni output; comparison charts label methods explicitly.",
   },
 ];
 
@@ -108,10 +108,10 @@ export const TEC_METHOD_GUIDES: TecMethodGuide[] = [
   {
     id: "gg",
     short: "Gg",
-    label: "Gg / Ciraolo–Cesaroni (PyTECGg)",
+    label: "Gg = Cesaroni",
     color: "#f59e0b",
     origin:
-      "TEC_GNSS_Notebook_v5 §3.2–3.4 Gg technique (Ciraolo 2007; Cesaroni 2015/2021; PyTECGg / Ventriglia 2026). Calibration — joint arc-bias + VTEC(MODIP, LT) least squares — is the key difference from Method 1.",
+      "Gg / Cesaroni calibration (Ciraolo 2007; Cesaroni 2015/2021; PyTECGg / Ventriglia 2026). Calibration — joint arc-bias + VTEC(MODIP, LT) least squares — is the key difference from Method 1.",
     steps: [
       "Read RINEX observation + navigation (or re-calibrate the same live samples).",
       "Build L₄ / P₄, detect slips, phase-level arcs.",
@@ -153,9 +153,9 @@ export const TEC_METHOD_DIFFERENCES: { topic: string; gopi: string; gg: string }
 ];
 
 export const TEC_METHOD_BOTTOM_LINE =
-  "Both methods measure the same ionosphere. They disagree mainly because they remove hardware biases differently. Use GOPI for live operational monitoring; use Gg (notebook / PyTECGg) when you need calibrated absolute TECU and a clear bias audit trail. Calibration — not geometry — is the key difference (TEC_GNSS_Notebook_v5 §3.2–3.4).";
+  "Both methods measure the same ionosphere. They disagree mainly because they remove hardware biases differently. Use GOPI for live operational monitoring; use Gg = Cesaroni when you need calibrated absolute TECU and a clear bias audit trail. Calibration — not geometry — is the key difference.";
 
-/** Notebook §3.4 references that define Method 2 (Gg) calibration. */
+/** §3.4 references that define Method 2 (Gg = Cesaroni) calibration. */
 export const TEC_METHOD_REFERENCES: {
   cite: string;
   title: string;

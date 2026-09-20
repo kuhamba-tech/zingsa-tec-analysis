@@ -423,7 +423,7 @@ export default function StationVtecTimePlots({
           <h2 className="home-section-heading">{title}</h2>
           <p className="station-vtec-plots-sub">
             Absolute code TEC from the live NTRIP pipeline (GOPI) — solid blue. Dashed amber is DLR
-            Global TEC at each station. Station cards also show Gg (notebook) window means when the
+            Global TEC at each station. Station cards also show Gg (Cesaroni) window means when the
             live calibration finishes. Start with 6h for a fast load; open 24h (day) for the full UTC
             day. EKF predicted lines stay off until a real per-station EKF series exists.
           </p>
@@ -519,7 +519,7 @@ export default function StationVtecTimePlots({
           <div className="station-vtec-plot-head">
             <div>
               <strong>GOPI vs Gg — latest VTEC by station</strong>
-              <span>Same live samples; Gg = TEC_GNSS_Notebook_v5 / PyTECGg calibration</span>
+              <span>Same live samples; Gg = Cesaroni calibration</span>
             </div>
           </div>
           <LineChart

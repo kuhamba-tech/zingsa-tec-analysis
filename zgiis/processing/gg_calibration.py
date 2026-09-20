@@ -91,10 +91,10 @@ GOPI_META = MethodMeta(
 
 GG_META = MethodMeta(
     id="gg",
-    label="Gg / Ciraolo–Cesaroni (PyTECGg)",
+    label="Gg = Cesaroni",
     short="Gg",
     calibration=(
-        "TEC_GNSS_Notebook_v5 §3.2–3.4 Gg technique: geometry-free arcs; 15-min windows; "
+        "Gg = Cesaroni technique: geometry-free arcs; 15-min windows; "
         "joint least squares for VTEC(MODIP μ, LT) polynomial + arc biases / receiver DCB "
         "(Ciraolo 2007; Cesaroni 2015/2021; PyTECGg on full RINEX). "
         "Same geometry as GOPI: elev ≥ 30°, IPP shell 350 km, Re=6378 km — calibration differs."
@@ -428,7 +428,6 @@ def method_catalog() -> list[dict[str, str]]:
                 "gg_modip_lt_window_ls"
                 + ("; pytecgg_importable" if try_pytecgg_available() else "")
             ),
-            "notebook": "TEC_GNSS_Notebook_v5 §3.2–3.4",
         },
     ]
 
