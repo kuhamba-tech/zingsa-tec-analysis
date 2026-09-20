@@ -13,6 +13,11 @@ import {
 import { Scatter, Line } from "react-chartjs-2";
 import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
 import { getTecMethodComparison } from "@/lib/api";
+import {
+  TEC_METHOD_CMP_HOURS,
+  TEC_METHOD_CMP_LIMIT,
+  TEC_METHOD_CMP_TIMEOUT_MS,
+} from "@/lib/tecMethodCompareParams";
 import type { ChartAnalysisBlock } from "@/lib/multiSourceChartAnalysis";
 import { diurnalPercentilesFullDay, hourOfDayUtc, flatLayerStec } from "@/lib/tecTeachingMath";
 import type { LiveObservation, TecMethodComparisonResponse, TecMethodInfo } from "@/lib/types";
@@ -138,7 +143,12 @@ export default function TecMethodComparisonLab() {
     let cancelled = false;
     const load = () => {
       setLoading(true);
-      getTecMethodComparison(8, undefined, 1500, 45_000)
+      getTecMethodComparison(
+        TEC_METHOD_CMP_HOURS,
+        undefined,
+        TEC_METHOD_CMP_LIMIT,
+        TEC_METHOD_CMP_TIMEOUT_MS,
+      )
         .then((payload) => {
           if (cancelled) return;
           setData(payload);

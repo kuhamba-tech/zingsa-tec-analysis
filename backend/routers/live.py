@@ -33,7 +33,7 @@ _VTEC_BY_STATION_CACHE_TTL_S = 90.0
 
 # Heavy Gg re-calibration — short TTL so Zimbabwe tab does not stampede the worker.
 _TEC_METHOD_CMP_CACHE: dict[tuple[float, str | None, int], tuple[float, TecMethodComparisonResponse]] = {}
-_TEC_METHOD_CMP_CACHE_TTL_S = 90.0
+_TEC_METHOD_CMP_CACHE_TTL_S = 180.0
 _TEC_METHOD_CMP_INFLIGHT: dict[tuple[float, str | None, int], asyncio.Future] = {}
 
 
@@ -92,7 +92,9 @@ def _build_live_vtec(
     if db is None:
         return []
     try:
-        df = db.query_recent(hours=hours, station=station)
+        # Cap at SQL: never pull hundreds of thousands of NTRIP rows into pandas.
+        fetch_limit = max(int(limit) * 4, int(limit) + 200) if limit else None
+        df = db.query_recent(hours=hours, station=station, limit=fetch_limit)
         if df is None or getattr(df, "empty", True):
             return []
         if "tec_method" in df.columns:
@@ -280,7 +282,8 @@ def _build_tec_method_comparison(
         hours=hours,
         station=station,
         limit=limit,
-        enrich_geometry=True,
+        # Elevation is almost always stored on live rows — skip nav look-ups.
+        enrich_geometry=False,
     )
     # Tag as GOPI for comparison UI even when DB method strings vary.
     gopi: list[LiveObservation] = []
@@ -403,8 +406,8 @@ async def tec_method_comparison(
     """
     # Cap work: comparison UI does not need 10k samples and two parallel builds
     # were hanging the single uvicorn worker (socket hang-ups → blank page).
-    hours = float(min(12.0, max(0.5, hours)))
-    limit = int(min(1500, max(100, limit)))
+    hours = float(min(8.0, max(0.5, hours)))
+    limit = int(min(600, max(100, limit)))
     cache_key = (round(hours, 1), (station or "").lower() or None, limit)
     now = time.time()
     cached = _TEC_METHOD_CMP_CACHE.get(cache_key)

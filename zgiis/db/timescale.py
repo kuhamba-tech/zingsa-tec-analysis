@@ -381,8 +381,15 @@ class TecDB:
         hours: float = 24.0,
         station: Optional[str] = None,
         constellation: Optional[str] = None,
+        limit: Optional[int] = None,
     ) -> pd.DataFrame:
-        """VTEC observations from the last N hours."""
+        """VTEC observations from the last N hours.
+
+        When ``limit`` is set, only the newest N rows are returned (then sorted
+        ascending). Live charts/comparisons must pass a limit — unbounded
+        SELECT * over hours of NTRIP ingest can exceed hundreds of thousands
+        of rows and stall the API worker.
+        """
         since = (datetime.now(tz=timezone.utc) - timedelta(hours=hours)).isoformat()
         clauses = ["time >= ?"]
         params: list = [since]
@@ -393,7 +400,17 @@ class TecDB:
             clauses.append("constellation = ?")
             params.append(constellation)
 
-        sql = f"SELECT * FROM vtec_obs WHERE {' AND '.join(clauses)} ORDER BY time"
+        where = " AND ".join(clauses)
+        if limit is not None and int(limit) > 0:
+            # Newest-first limit, then restore chronological order for consumers.
+            sql = (
+                f"SELECT * FROM ("
+                f"SELECT * FROM vtec_obs WHERE {where} ORDER BY time DESC LIMIT ?"
+                f") AS recent ORDER BY time"
+            )
+            params.append(int(limit))
+        else:
+            sql = f"SELECT * FROM vtec_obs WHERE {where} ORDER BY time"
         try:
             if self._is_pg:
                 sql = sql.replace("?", "%s")
