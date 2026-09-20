@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
-import { getStations, getTecHeatmap } from "@/lib/api";
+import { getStations, getTecHeatmap, getTecMethodComparison } from "@/lib/api";
 import { peekStations } from "@/lib/stationsStore";
 import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
 import { heatmapQualityBanner, icaoTecLabel, icaoTecLevel, inferHeatmapQuality } from "@/lib/icaoTecAdvisory";
@@ -26,6 +26,7 @@ export default function TecHeatmapPage() {
   const [status, setStatus] = useState<FeedStatus>(() => (peekStations().length ? "stale" : "pending"));
   const [heatmapStatus, setHeatmapStatus] = useState<FeedStatus>("pending");
   const [lastFetchedAt, setLastFetchedAt] = useState<Date | null>(null);
+  const [ggByStation, setGgByStation] = useState<Record<string, number | null>>({});
 
   const loadHeatmap = useCallback(async (background = false) => {
     // Do not flip status to pending on interval refresh — that flashes banners/UI.
@@ -59,6 +60,38 @@ export default function TecHeatmapPage() {
     const id = window.setInterval(() => loadHeatmap(true), HEATMAP_REFRESH_MS);
     return () => window.clearInterval(id);
   }, [loadHeatmap]);
+
+  useEffect(() => {
+    if (mapLayer !== "TEC Heat Map") return;
+    let cancelled = false;
+    const loadGg = () => {
+      getTecMethodComparison(2, undefined, 300, 60_000)
+        .then((res) => {
+          if (cancelled) return;
+          const map: Record<string, number | null> = {};
+          for (const row of res.stations ?? []) {
+            const code = row.station.toLowerCase().replace(/_+$/, "");
+            const val =
+              typeof row.gg_latest === "number" && Number.isFinite(row.gg_latest)
+                ? row.gg_latest
+                : typeof row.gg_mean === "number" && Number.isFinite(row.gg_mean)
+                  ? row.gg_mean
+                  : null;
+            map[code] = val;
+          }
+          setGgByStation(map);
+        })
+        .catch(() => {
+          if (!cancelled) setGgByStation({});
+        });
+    };
+    loadGg();
+    const id = window.setInterval(loadGg, 90_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [mapLayer]);
 
   const freshnessMsg = useFeedFreshness("cors-stations", status);
   const displayHeatmap = useMemo(
@@ -144,7 +177,13 @@ export default function TecHeatmapPage() {
       </div>
 
       <div className="tec-map-frame">
-        <CorsMap stations={stations} height={520} layer={mapLayer} heatmap={displayHeatmap} />
+        <CorsMap
+          stations={stations}
+          height={520}
+          layer={mapLayer}
+          heatmap={displayHeatmap}
+          ggByStation={mapLayer === "TEC Heat Map" ? ggByStation : {}}
+        />
         <div className="tec-map-legend">
           <div className="tec-map-legend-title">Station Status</div>
           {[
@@ -157,6 +196,12 @@ export default function TecHeatmapPage() {
               <span>{label}</span>
             </div>
           ))}
+          {mapLayer === "TEC Heat Map" && (
+            <div className="tec-map-legend-row" style={{ marginTop: "0.35rem", fontSize: "0.68rem", color: "var(--text-muted)" }}>
+              Labels: <span style={{ color: "#38bdf8" }}>G</span> = GOPI ·{" "}
+              <span style={{ color: "#f59e0b" }}>Gg</span> = Cesaroni/Gg
+            </div>
+          )}
         </div>
       </div>
 
