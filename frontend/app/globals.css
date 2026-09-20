@@ -7235,10 +7235,30 @@ a.home-map-layer-btn {
 }
 .space-weather-page .page-title {
   /* Sit in the same scale band as the header clock digits. */
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
   font-size: clamp(1.75rem, 3.2vw, 2.35rem);
   font-weight: 800;
   line-height: 1.12;
   letter-spacing: -0.02em;
+}
+.space-weather-page .sw-page-title-mark {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 1.15em;
+  height: 1.15em;
+  line-height: 0;
+}
+.space-weather-page .sw-page-title-mark svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.space-weather-page .sw-page-title-text {
+  min-width: 0;
 }
 .space-weather-page .sw-monitor-status {
   gap: 0.4rem 0.85rem;
