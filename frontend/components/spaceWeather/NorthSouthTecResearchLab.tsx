@@ -13,7 +13,7 @@ import {
   Filler,
 } from "chart.js";
 import { Line, Scatter } from "react-chartjs-2";
-import { getNorthSouthTecResearch } from "@/lib/api";
+import { getNorthSouthTecResearch, getStations } from "@/lib/api";
 import { getLoadProfile } from "@/lib/loadBudget";
 import type {
   NorthSouthTecResearchResponse,
@@ -152,6 +152,7 @@ function chartAxis() {
 
 export default function NorthSouthTecResearchLab() {
   const [data, setData] = useState<NorthSouthTecResearchResponse | null>(null);
+  const [catalogStations, setCatalogStations] = useState<Station[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hours, setHours] = useState(24);
@@ -171,6 +172,10 @@ export default function NorthSouthTecResearchLab() {
     setLoading(true);
     const profile = getLoadProfile();
     const resample = Math.max(aggMin, hours > 48 ? 15 : aggMin);
+    // Always warm the CORS catalog so the map is populated even before research series arrives.
+    getStations(false)
+      .then((rows) => setCatalogStations(Array.isArray(rows) ? rows : []))
+      .catch(() => {/* keep prior catalog */});
     getNorthSouthTecResearch(
       hours,
       resample,
@@ -230,20 +235,46 @@ export default function NorthSouthTecResearchLab() {
     [stations, selected],
   );
 
-  const mapStations: Station[] = useMemo(
-    () =>
-      stations.map((s) => ({
-        code: s.station_id,
-        name: s.name,
+  const mapStations: Station[] = useMemo(() => {
+    const byCode = new Map<string, Station>();
+
+    // Full ZINGSA CORS inventory first — map must show every site even before VTEC arrives.
+    for (const s of catalogStations) {
+      const code = normalizeStationCode(s.code);
+      byCode.set(code, {
+        ...s,
+        code,
+        current_tec: s.current_tec,
+      });
+    }
+
+    // Overlay research-archive coordinates + latest measured VTEC.
+    for (const s of stations) {
+      const code = normalizeStationCode(s.station_id);
+      const prev = byCode.get(code);
+      const hasLive = Boolean(s.live_vtec_available && s.latest_vtec_tecu != null && s.latest_vtec_tecu > 0);
+      byCode.set(code, {
+        code,
+        name: s.name || prev?.name || code.toUpperCase(),
         lat: s.latitude,
         lon: s.longitude,
-        status: s.live_vtec_available ? "online" : s.operational_status || "offline",
-        constellations: ["GPS"],
-        current_tec: s.latest_vtec_tecu,
-        height_m: s.altitude_m,
-      })),
-    [stations],
-  );
+        status: hasLive ? "online" : (s.operational_status || prev?.status || "offline"),
+        // Mark as live NTRIP so CorsMap applies measured VTEC colours (not grey placeholders).
+        status_source: hasLive ? "ntrip" : prev?.status_source ?? "catalog",
+        ntrip_verdict: hasLive ? "msm_streaming" : prev?.ntrip_verdict ?? null,
+        constellations: prev?.constellations?.length ? prev.constellations : ["GPS"],
+        current_tec: hasLive ? s.latest_vtec_tecu : prev?.current_tec ?? null,
+        height_m: s.altitude_m ?? prev?.height_m ?? null,
+      });
+    }
+
+    // Catalog + research overlay is enough; never invent coordinates.
+    return [...byCode.values()].sort((a, b) => a.code.localeCompare(b.code));
+  }, [catalogStations, stations]);
+
+  const mapLiveCount = mapStations.filter(
+    (s) => s.current_tec != null && Number(s.current_tec) > 0,
+  ).length;
 
   const toggleStation = (code: string) => {
     setSelected((prev) =>
@@ -705,26 +736,33 @@ export default function NorthSouthTecResearchLab() {
         ))}
       </div>
 
-      {subTab === "stations" && data && (
+      {subTab === "stations" && (
         <>
           <Section
             title="North–South Ionospheric TEC Analysis — CORS selection"
             subtitle="Select individual stations, latitudinal groups, or the suggested transect. Grouping uses actual station latitudes."
           >
             <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem", marginBottom: "0.5rem" }}>
-              <button type="button" className="btn" onClick={applyTransect}>Apply suggested N–S transect</button>
+              <button type="button" className="btn" onClick={applyTransect} disabled={!data?.suggested_transect?.length}>
+                Apply suggested N–S transect
+              </button>
               {ZIMBABWE_LAT_BANDS.map((b) => (
-                <button key={b.id} type="button" className="btn" onClick={() => selectBand(b.id)} style={{ borderColor: b.color }}>
+                <button key={b.id} type="button" className="btn" onClick={() => selectBand(b.id)} style={{ borderColor: b.color }} disabled={!stations.length}>
                   Select {b.label}
                 </button>
               ))}
               <button type="button" className="btn" onClick={() => setSelected([])}>Clear</button>
             </div>
             <p className="sw-supporting-text" style={{ margin: 0, fontSize: "0.75rem" }}>
-              Suggested transect: {(data.suggested_transect || []).map((c) => c.toUpperCase()).join(" → ") || "insufficient stations"}
-              {" · "}Grouping: {String(data.grouping.method)} (N≥{Number(data.grouping.northern_min_lat).toFixed(2)}°, C≥{Number(data.grouping.central_min_lat).toFixed(2)}°)
-              {selected.length < 3 ? " · At least three stations recommended for spatial comparison." : ""}
+              Suggested transect: {(data?.suggested_transect || []).map((c) => c.toUpperCase()).join(" → ") || (loading ? "loading…" : "insufficient stations")}
+              {data ? ` · Grouping: ${String(data.grouping.method)} (N≥${Number(data.grouping.northern_min_lat).toFixed(2)}°, C≥${Number(data.grouping.central_min_lat).toFixed(2)}°)` : ""}
+              {selected.length < 3 ? " · At least three stations recommended for a spatial comparison." : ""}
             </p>
+            {stations.length === 0 ? (
+              <div className="banner banner-info" role="status">
+                {loading ? "Loading CORS station table…" : "CORS research metadata unavailable — map still uses the network catalog when loaded."}
+              </div>
+            ) : (
             <div style={{ overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.78rem" }}>
                 <thead>
@@ -762,20 +800,34 @@ export default function NorthSouthTecResearchLab() {
                 </tbody>
               </table>
             </div>
+            )}
           </Section>
 
-          <Section title="Interactive Zimbabwe CORS map" subtitle="Click a marker to toggle selection. Colours reflect latest measured VTEC where available.">
-            <div style={{ minHeight: 360 }}>
-              <CorsMap
-                stations={mapStations}
-                height={380}
-                highlightCode={selected[selected.length - 1] ?? null}
-                onStationSelect={(st) => {
-                  if (!st) return;
-                  toggleStation(normalizeStationCode(st.code));
-                }}
-              />
-            </div>
+          <Section
+            title="Interactive Zimbabwe CORS map"
+            subtitle={`${mapStations.length} CORS sites on the map · ${mapLiveCount} with live measured VTEC (coloured). Click a marker to toggle selection.`}
+          >
+            {mapStations.length === 0 ? (
+              <div className="banner banner-info" role="status">
+                Loading ZINGSA CORS station inventory onto the map…
+              </div>
+            ) : (
+              <div style={{ minHeight: 360 }}>
+                <CorsMap
+                  stations={mapStations}
+                  height={380}
+                  highlightCode={selected[selected.length - 1] ?? null}
+                  onStationSelect={(st) => {
+                    if (!st) return;
+                    toggleStation(normalizeStationCode(st.code));
+                  }}
+                />
+              </div>
+            )}
+            <p className="sw-supporting-text" style={{ margin: 0, fontSize: "0.72rem" }}>
+              Marker colours use the live CORS VTEC palette when a station has a current measured value.
+              Grey markers are sites without a live VTEC sample in this window (still selectable).
+            </p>
           </Section>
         </>
       )}
