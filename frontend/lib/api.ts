@@ -33,6 +33,7 @@ import type {
   LiveStationVtecSeries,
   TecMethodComparisonResponse,
   ZimbabweScientificPlotsResponse,
+  NorthSouthTecResearchResponse,
   GlobalTecByStationResponse,
   NavigationNewsBriefApi,
   NavigationNewsBundleApi,
@@ -1006,6 +1007,16 @@ export const getLiveVtecByStation = (hours = 6, resampleMinutes = 2, timeoutMs?:
 export const getZimbabweScientificPlots = (hours = 24, resampleMinutes = 15, timeoutMs = 90_000) =>
   getWithRetry<ZimbabweScientificPlotsResponse>(
     "/live/zimbabwe-scientific-plots",
+    { hours, resample_minutes: resampleMinutes, _ts: Date.now() },
+    timeoutMs,
+  );
+export const getNorthSouthTecResearch = (
+  hours = 24,
+  resampleMinutes = 15,
+  timeoutMs = 90_000,
+) =>
+  getWithRetry<NorthSouthTecResearchResponse>(
+    "/live/north-south-tec-research",
     { hours, resample_minutes: resampleMinutes, _ts: Date.now() },
     timeoutMs,
   );
