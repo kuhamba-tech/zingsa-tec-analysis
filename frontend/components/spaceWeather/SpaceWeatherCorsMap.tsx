@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { getStations, getTecHeatmap } from "@/lib/api";
+import { loadCorsMapWithLayers } from "@/lib/loadCorsMapWithLayers";
 import {
   countLiveStationStatuses,
   countSpiderLiveStationStatuses,
@@ -12,15 +13,18 @@ import { peekStations, subscribeStations, stationsAreSpiderAuthoritative } from 
 import { mergeTecHeatmapWithStations } from "@/lib/tecHeatmapMerge";
 import type { Station, TecHeatmapResponse } from "@/lib/types";
 
-const CorsMapWithLayers = dynamic(() => import("@/components/maps/CorsMapWithLayers"), {
-  ssr: false,
-  loading: () => (
-    <div className="home-map-loading" role="status" aria-live="polite">
-      <span className="home-map-loading-spinner" aria-hidden="true" />
-      <span>Loading interactive CORS map…</span>
-    </div>
-  ),
-});
+const CorsMapWithLayers = dynamic(
+  () => loadCorsMapWithLayers().then((m) => m.default),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="home-map-loading" role="status" aria-live="polite">
+        <span className="home-map-loading-spinner" aria-hidden="true" />
+        <span>Loading interactive CORS map…</span>
+      </div>
+    ),
+  },
+);
 
 function useCorsMapHeight(preferred = 440): number {
   const [height, setHeight] = useState(() => {
