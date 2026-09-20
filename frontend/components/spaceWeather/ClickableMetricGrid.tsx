@@ -67,9 +67,13 @@ function DetailRows({ rows }: { rows: MetricDetailRow[] }) {
 
 function FlareScaleLegend() {
   return (
-    <div className="sw-metric-flare-scale" aria-label="GOES flare class scale">
+    <div className="sw-metric-flare-scale" aria-label="GOES flare class scale (NOAA)">
       {FLARE_SCALE.map((f) => (
-        <div className="sw-metric-flare-scale-item" key={f.cls}>
+        <div
+          className="sw-metric-flare-scale-item"
+          key={f.cls}
+          title={`${f.label}: ${f.desc} solar X-ray (${f.flux})`}
+        >
           <div className="sw-metric-flare-scale-bar" style={{ background: f.color }} />
           <div className="sw-metric-flare-scale-letter" style={{ color: f.color }}>
             {f.cls}-

@@ -3411,6 +3411,18 @@ a.home-map-layer-btn {
   white-space: nowrap;
 }
 .sw-metric-flare-scale-desc {
+  display: block;
+  margin-top: 0.08rem;
+  font-size: 0.48rem;
+  font-weight: 600;
+  line-height: 1.1;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* G / TEC legends already use the meaning as the primary label */
+.sw-metric-g-scale .sw-metric-flare-scale-desc {
   display: none;
 }
 .sw-metric-g-scale .sw-metric-flare-scale-item.is-active .sw-metric-flare-scale-letter {

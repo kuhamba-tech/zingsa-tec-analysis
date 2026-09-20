@@ -1,10 +1,13 @@
-/** GOES flare-class and DONKI 7-day event count colours — aligned with the flare scale legend. */
+/** GOES flare-class scale — NOAA/GOES soft X-ray (0.1–0.8 nm).
+ * Letter steps are ×10 in peak flux; R1+ radio blackouts begin at M1.
+ * @see https://www.spaceweather.gov/phenomena/solar-flares-radio-blackouts/
+ */
 export const FLARE_SCALE = [
-  { cls: "A", color: "#22c55e", label: "A-Class", desc: "Background" },
-  { cls: "B", color: "#eab308", label: "B-Class", desc: "Minor" },
-  { cls: "C", color: "#f97316", label: "C-Class", desc: "Moderate" },
-  { cls: "M", color: "#ef4444", label: "M-Class", desc: "Major" },
-  { cls: "X", color: "#a855f7", label: "X-Class", desc: "Extreme" },
+  { cls: "A", color: "#22c55e", label: "A-Class", desc: "Quiet", flux: "≥10⁻⁸ W/m²" },
+  { cls: "B", color: "#eab308", label: "B-Class", desc: "Low", flux: "≥10⁻⁷ W/m²" },
+  { cls: "C", color: "#f97316", label: "C-Class", desc: "Small", flux: "≥10⁻⁶ W/m²" },
+  { cls: "M", color: "#ef4444", label: "M-Class", desc: "Medium", flux: "≥10⁻⁵ W/m² · R1+" },
+  { cls: "X", color: "#a855f7", label: "X-Class", desc: "Extreme", flux: "≥10⁻⁴ W/m² · R3+" },
 ] as const;
 
 const QUIET = "#22c55e";
