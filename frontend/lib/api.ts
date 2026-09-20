@@ -105,7 +105,8 @@ const SW_BOOT_TIMEOUT_MS = 6_000;
 const SW_FAST_TIMEOUT_MS = 8_000;
 /** Solar monitor hits NOAA + NASA DONKI; allow cold-start headroom + one retry. */
 const SOLAR_TIMEOUT_MS = 55_000;
-const HELIO_TIMEOUT_MS = 45_000;
+/** Heliospheric monitor: allow cold NOAA + one retry before aborting. */
+const HELIO_TIMEOUT_MS = 60_000;
 const REPORT_TIMEOUT_MS = 60_000;
 const LIVE_REFRESH_MIN_MS = 20_000;
 /** Short gap before one retry — long delays hurt first paint on mobile. */

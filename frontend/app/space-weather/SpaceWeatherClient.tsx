@@ -3,7 +3,7 @@
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent } from "react";
-import { getSpaceWeather, getSolarActivity, getTimelines, refreshSpaceWeather, getStations, getEkfStatus } from "@/lib/api";
+import { getSpaceWeather, getSolarActivity, getTimelines, refreshSpaceWeather, getStations, getEkfStatus, getHeliosphericMonitor } from "@/lib/api";
 import { peekSpaceWeather, publishSpaceWeather, subscribeSpaceWeather } from "@/lib/spaceWeatherStore";
 import { absorbInlineBootPayload, bootSpaceWeather } from "@/lib/bootSpaceWeather";
 import { bootSolarActivity } from "@/lib/bootSolarActivity";
@@ -509,7 +509,8 @@ export default function SpaceWeatherClient({
       setFeedStatus((prev) => (prev === "ok" || prev === "stale" ? prev : "pending"));
     }
 
-    // Phase 1 — current + solar in parallel so all metric cards fill together.
+    // Phase 1 — current + solar + heliospheric warm so chart stacks do not
+    // cold-start NOAA after DeferredMount (that was the "API … timed out" card).
     getSpaceWeather(false)
       .then((s) => {
         // publishSpaceWeather merges; prefer store so stations_online=0 cannot wipe SSR.
@@ -543,6 +544,9 @@ export default function SpaceWeatherClient({
         setSaError(error instanceof Error ? error.message : "Solar monitor API unreachable");
       })
       .finally(() => setSaLoading(false));
+
+    // Warm heliospheric cache immediately (deduped); stacks read from store.
+    void getHeliosphericMonitor(false, false).catch(() => null);
 
     // Phase 2 — charts / stations / EKF after paint.
     const runSecondary = () => {

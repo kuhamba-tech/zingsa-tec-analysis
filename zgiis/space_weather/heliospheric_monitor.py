@@ -42,7 +42,9 @@ PROTON_ENERGIES = (">=10 MeV", ">=50 MeV", ">=100 MeV", ">=500 MeV")
 _HEADERS = {"Accept": "application/json", "User-Agent": "ZGIIS/1.0 (Zimbabwe space-weather dashboard)"}
 _CACHE: dict[str, Any] = {}
 _CACHE_LOCK = threading.Lock()
+_CACHE_REFRESHING: set[str] = set()
 _CACHE_TTL_SECONDS = 300
+_UNAVAILABLE_CACHE_TTL_SECONDS = 45
 _FETCH_TIMEOUT_SECONDS = 8
 _FETCH_WORKERS = 6
 
@@ -373,19 +375,7 @@ def _fetch_all_sources() -> dict[str, tuple[Any | None, str | None]]:
     return results
 
 
-def build_heliospheric_monitor(*, force_refresh: bool = False) -> dict[str, Any]:
-    cache_key = "heliospheric_monitor"
-    now = time.time()
-    with _CACHE_LOCK:
-        cached = _CACHE.get(cache_key)
-        if (
-            not force_refresh
-            and cached
-            and now - cached["ts"] < _CACHE_TTL_SECONDS
-            and isinstance(cached.get("data"), dict)
-        ):
-            return cached["data"]
-
+def _build_payload_from_sources() -> dict[str, Any]:
     fetched = _fetch_all_sources()
     protons_raw, protons_err = fetched["protons"]
     xray_raw, xray_err = fetched["xray"]
@@ -409,7 +399,7 @@ def build_heliospheric_monitor(*, force_refresh: bool = False) -> dict[str, Any]
         or kp["labels"]
         or dst["labels"]
     )
-    payload = {
+    return {
         "mode": "live" if has_any else "unavailable",
         "source": "NOAA SWPC GOES X-ray/protons · RTSW mag/wind · planetary Kp · Kyoto Dst",
         "updated_utc": datetime.datetime.now(datetime.timezone.utc)
@@ -431,11 +421,79 @@ def build_heliospheric_monitor(*, force_refresh: bool = False) -> dict[str, Any]
             "dst": dst_err,
         },
     }
+
+
+def _payload_has_series(payload: dict[str, Any] | None) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    if payload.get("mode") == "live":
+        return True
+    for key in ("xray", "protons", "imf", "solar_wind", "kp", "dst"):
+        series = payload.get(key) or {}
+        if isinstance(series, dict) and series.get("labels"):
+            return True
+    return False
+
+
+def _refresh_heliospheric_cache(cache_key: str, stale: dict[str, Any] | None) -> None:
+    try:
+        payload = _build_payload_from_sources()
+        # Keep a usable last-known payload if NOAA is briefly all-down.
+        if _payload_has_series(payload) or not _payload_has_series(stale):
+            with _CACHE_LOCK:
+                _CACHE[cache_key] = {"ts": time.time(), "data": payload}
+    finally:
+        with _CACHE_LOCK:
+            _CACHE_REFRESHING.discard(cache_key)
+
+
+def build_heliospheric_monitor(*, force_refresh: bool = False) -> dict[str, Any]:
+    """Return heliospheric panels. Prefer cache; never block the UI on TTL expiry.
+
+    Fresh cache hits return immediately. Expired-but-usable payloads are served
+    stale-while-revalidate (background NOAA refresh). Only a true cold miss
+    waits on the NOAA fan-out.
+    """
+    cache_key = "heliospheric_monitor"
+    now = time.time()
     with _CACHE_LOCK:
-        _CACHE[cache_key] = {"ts": now, "data": payload}
+        cached = _CACHE.get(cache_key)
+
+    if force_refresh:
+        payload = _build_payload_from_sources()
+        with _CACHE_LOCK:
+            _CACHE[cache_key] = {"ts": time.time(), "data": payload}
+        return payload
+
+    if cached and isinstance(cached.get("data"), dict):
+        data = cached["data"]
+        ttl = (
+            _UNAVAILABLE_CACHE_TTL_SECONDS
+            if data.get("mode") == "unavailable"
+            else _CACHE_TTL_SECONDS
+        )
+        age = now - float(cached.get("ts") or 0.0)
+        if age < ttl:
+            return data
+        if _payload_has_series(data):
+            with _CACHE_LOCK:
+                if cache_key not in _CACHE_REFRESHING:
+                    _CACHE_REFRESHING.add(cache_key)
+                    threading.Thread(
+                        target=_refresh_heliospheric_cache,
+                        args=(cache_key, data),
+                        daemon=True,
+                        name="heliospheric-swr",
+                    ).start()
+            return data
+
+    payload = _build_payload_from_sources()
+    with _CACHE_LOCK:
+        _CACHE[cache_key] = {"ts": time.time(), "data": payload}
     return payload
 
 
 def clear_heliospheric_monitor_cache() -> None:
     with _CACHE_LOCK:
         _CACHE.clear()
+        _CACHE_REFRESHING.clear()
