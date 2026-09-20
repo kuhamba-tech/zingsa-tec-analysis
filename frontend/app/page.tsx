@@ -154,7 +154,7 @@ function HomeMetricCard({
       {showTecScale ? (
         <div
           className="sw-metric-flare-scale sw-metric-g-scale sw-metric-tec-scale"
-          aria-label="Typical VTEC scale"
+          aria-label="VTEC magnitude scale (not time of day)"
         >
           {TEC_VTEC_SCALE.map((level) => {
             const active = activeTecCode === level.code;
@@ -162,7 +162,7 @@ function HomeMetricCard({
               <div
                 className={`sw-metric-flare-scale-item${active ? " is-active" : ""}`}
                 key={level.code}
-                title={`${level.desc}: ${level.range} TECU`}
+                title={`${level.desc}: ${level.range} TECU (magnitude band, not clock time)`}
               >
                 <div
                   className="sw-metric-flare-scale-bar"
