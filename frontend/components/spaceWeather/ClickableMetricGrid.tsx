@@ -7,7 +7,7 @@ import type { LiveStationCounts } from "@/lib/liveStationStatus";
 import { FLARE_SCALE } from "@/lib/solarEventColors";
 import {
   METRIC_EXPLANATIONS,
-  NOAA_G_SCALE,
+  KP_GEOMAGNETIC_SCALE,
   TEC_VTEC_SCALE,
   buildMetricCards,
   interpretMetric,
@@ -81,23 +81,29 @@ function FlareScaleLegend() {
   );
 }
 
-function GScaleLegend({ activeCode }: { activeCode?: string | null }) {
+function GScaleLegend({ activeBand }: { activeBand?: string | null }) {
   return (
-    <div className="sw-metric-flare-scale sw-metric-g-scale" aria-label="NOAA G-scale">
-      {NOAA_G_SCALE.map((g) => {
-        const active = activeCode === g.code;
+    <div className="sw-metric-flare-scale sw-metric-g-scale" aria-label="Kp geomagnetic scale">
+      {KP_GEOMAGNETIC_SCALE.map((g) => {
+        const active = activeBand === g.id;
         return (
           <div
             className={`sw-metric-flare-scale-item${active ? " is-active" : ""}`}
-            key={g.code}
-            title={`${g.code} — ${g.desc}`}
+            key={g.id}
+            title={`Kp ${
+              g.id === "quiet"
+                ? "0–2"
+                : g.id === "extreme"
+                  ? "9"
+                  : String(g.kpMin)
+            } · ${g.desc}`}
           >
             <div
               className="sw-metric-flare-scale-bar"
               style={{
                 background: g.color,
                 height: active ? 4 : 2,
-                opacity: active || !activeCode ? 1 : 0.45,
+                opacity: active || !activeBand ? 1 : 0.45,
               }}
             />
             <div
@@ -107,9 +113,8 @@ function GScaleLegend({ activeCode }: { activeCode?: string | null }) {
                 fontWeight: active ? 900 : 800,
               }}
             >
-              {g.desc}
+              {g.short}
             </div>
-            <div className="sw-metric-flare-scale-desc">{g.code}</div>
           </div>
         );
       })}
@@ -170,6 +175,7 @@ function MetricCardButton({
   showFlareScale,
   showGScale,
   activeGCode,
+  activeKpBand,
   showTecScale,
   activeTecCode,
   selected,
@@ -189,6 +195,7 @@ function MetricCardButton({
   showFlareScale?: boolean;
   showGScale?: boolean;
   activeGCode?: string | null;
+  activeKpBand?: string | null;
   showTecScale?: boolean;
   activeTecCode?: string | null;
   selected: boolean;
@@ -223,7 +230,7 @@ function MetricCardButton({
       {subtitle ? <div className="sw-metric-subtitle">{subtitle}</div> : null}
       {detailRows?.length ? <DetailRows rows={detailRows} /> : null}
       {showFlareScale ? <FlareScaleLegend /> : null}
-      {showGScale ? <GScaleLegend activeCode={activeGCode} /> : null}
+      {showGScale ? <GScaleLegend activeBand={activeKpBand ?? activeGCode} /> : null}
       {showTecScale ? <TecScaleLegend activeCode={activeTecCode} /> : null}
       {note ? <div className="sw-metric-note">{note}</div> : null}
       <div className="sw-metric-meta">
@@ -463,6 +470,7 @@ export default function ClickableMetricGrid({
             showFlareScale={card.showFlareScale}
             showGScale={card.showGScale}
             activeGCode={card.activeGCode}
+            activeKpBand={card.activeKpBand}
             showTecScale={card.showTecScale}
             activeTecCode={card.activeTecCode}
             selected={selected === card.key}

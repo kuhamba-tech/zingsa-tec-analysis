@@ -56,6 +56,8 @@ export interface MetricCardSpec {
   showGScale?: boolean;
   /** Active G-scale code to emphasize (e.g. "G0"). */
   activeGCode?: string | null;
+  /** Active KP-band id on the Geomagnetic Storm card (quiet/unsettled/…). */
+  activeKpBand?: string | null;
   /** Show N/D/H/S/X typical-VTEC scale under the Zimbabwe Ionosphere card. */
   showTecScale?: boolean;
   /** Active TEC-scale code to emphasize (e.g. "D"). */
@@ -116,15 +118,32 @@ export interface NoaaGScale {
   isStorm: boolean;
 }
 
-/** NOAA G-scale colour strip — same visual language as the GOES A–X flare scale. */
+/** NOAA G-scale colour strip — storm codes G0–G5 (kept for tooltips / legacy). */
 export const NOAA_G_SCALE = [
   { code: "G0", color: "#00ff88", desc: "Quiet" },
-  { code: "G1", color: "#eab308", desc: "Minor" },
-  { code: "G2", color: "#f97316", desc: "Moderate" },
-  { code: "G3", color: "#ef4444", desc: "Strong" },
-  { code: "G4", color: "#dc2626", desc: "Severe" },
+  { code: "G1", color: "#f97316", desc: "Minor" },
+  { code: "G2", color: "#ef4444", desc: "Moderate" },
+  { code: "G3", color: "#dc2626", desc: "Strong" },
+  { code: "G4", color: "#991b1b", desc: "Severe" },
   { code: "G5", color: "#a855f7", desc: "Extreme" },
 ] as const;
+
+/**
+ * KP geomagnetic scale reference used on the Geomagnetic Storm metric card
+ * (Quiet → Unsettled → Active → Minor Storm → Moderate G2 … Extreme G5).
+ */
+export const KP_GEOMAGNETIC_SCALE = [
+  { id: "quiet", code: "G0", desc: "Quiet", short: "Quiet", color: "#22c55e", kpMin: 0, kpMaxExclusive: 3 },
+  { id: "unsettled", code: "G0", desc: "Unsettled", short: "Unsettled", color: "#84cc16", kpMin: 3, kpMaxExclusive: 4 },
+  { id: "active", code: "G0", desc: "Active", short: "Active", color: "#eab308", kpMin: 4, kpMaxExclusive: 5 },
+  { id: "minor", code: "G1", desc: "Minor Storm", short: "Minor", color: "#f97316", kpMin: 5, kpMaxExclusive: 6 },
+  { id: "moderate", code: "G2", desc: "Moderate G2", short: "Moderate", color: "#ef4444", kpMin: 6, kpMaxExclusive: 7 },
+  { id: "strong", code: "G3", desc: "Strong G3", short: "Strong", color: "#dc2626", kpMin: 7, kpMaxExclusive: 8 },
+  { id: "severe", code: "G4", desc: "Severe G4", short: "Severe", color: "#991b1b", kpMin: 8, kpMaxExclusive: 9 },
+  { id: "extreme", code: "G5", desc: "Extreme G5", short: "Extreme", color: "#a855f7", kpMin: 9, kpMaxExclusive: Number.POSITIVE_INFINITY },
+] as const;
+
+export type KpGeomagneticBandId = (typeof KP_GEOMAGNETIC_SCALE)[number]["id"];
 
 /**
  * Typical VTEC levels for the Zimbabwe Ionosphere card scale
@@ -177,11 +196,11 @@ export function formatKpEqualsDisplay(kp: number | null | undefined, loading = f
 }
 
 /**
- * NOAA G-scale from Kp (KP geomagnetic scale reference):
- * Kp 0–2 Quiet (G0), 3 Unsettled, 4 Active, 5 Minor Storm (G1) …
+ * KP geomagnetic scale from Kp (matches the KP Scale reference tab):
+ * 0–2 Quiet, 3 Unsettled, 4 Active, 5 Minor Storm, 6 Moderate G2 …
  * Never label Kp 0–2 as "No Storm".
  */
-export function noaaGScaleFromKp(kp: number | null | undefined, loading = false): NoaaGScale {
+export function noaaGScaleFromKp(kp: number | null | undefined, loading = false): NoaaGScale & { bandId: KpGeomagneticBandId | "—" } {
   if (kp == null || !Number.isFinite(kp)) {
     return {
       code: "—",
@@ -190,85 +209,94 @@ export function noaaGScaleFromKp(kp: number | null | undefined, loading = false)
       note: loading ? "Kp loading" : "Kp feed unavailable",
       color: "#94a3b8",
       isStorm: false,
+      bandId: "—",
     };
   }
   if (kp < 3) {
     return {
       code: "G0",
       title: "Quiet",
-      display: `G0 — Quiet`,
+      display: "Quiet",
       note: `Kp ${formatKpDisplay(kp)}`,
-      color: "#00ff88",
+      color: "#22c55e",
       isStorm: false,
+      bandId: "quiet",
     };
   }
   if (kp < 4) {
     return {
       code: "G0",
       title: "Unsettled",
-      display: `G0 — Unsettled`,
+      display: "Unsettled",
       note: `Kp ${formatKpDisplay(kp)}`,
       color: "#84cc16",
       isStorm: false,
+      bandId: "unsettled",
     };
   }
   if (kp < 5) {
     return {
       code: "G0",
       title: "Active",
-      display: `G0 — Active`,
+      display: "Active",
       note: `Kp ${formatKpDisplay(kp)} · Below G1 storm threshold`,
       color: "#eab308",
       isStorm: false,
+      bandId: "active",
     };
   }
   if (kp < 6) {
     return {
       code: "G1",
       title: "Minor Storm",
-      display: `G1 — Minor Storm`,
+      display: "Minor Storm",
       note: `Kp ${formatKpDisplay(kp)}`,
-      color: "#eab308",
+      color: "#f97316",
       isStorm: true,
+      bandId: "minor",
     };
   }
   if (kp < 7) {
     return {
       code: "G2",
-      title: "Moderate",
-      display: `G2 — Moderate`,
+      title: "Moderate G2",
+      display: "Moderate G2",
       note: `Kp ${formatKpDisplay(kp)}`,
-      color: "#f97316",
+      color: "#ef4444",
       isStorm: true,
+      bandId: "moderate",
     };
   }
   if (kp < 8) {
     return {
       code: "G3",
-      title: "Strong",
-      display: `G3 — Strong`,
+      title: "Strong G3",
+      display: "Strong G3",
       note: `Kp ${formatKpDisplay(kp)}`,
-      color: "#ef4444",
+      color: "#dc2626",
       isStorm: true,
+      bandId: "strong",
     };
   }
   if (kp < 9) {
     return {
       code: "G4",
-      title: "Severe",
-      display: `G4 — Severe`,
+      title: "Severe G4",
+      display: "Severe G4",
       note: `Kp ${formatKpDisplay(kp)}`,
-      color: "#ef4444",
+      color: "#991b1b",
       isStorm: true,
+      bandId: "severe",
     };
   }
   return {
     code: "G5",
-    title: "Extreme",
-    display: `G5 — Extreme`,
+    title: "Extreme G5",
+    display: "Extreme G5",
     note: `Kp ${formatKpDisplay(kp)}`,
     color: "#a855f7",
     isStorm: true,
+    bandId: "extreme",
   };
 }
 
@@ -684,6 +712,7 @@ export function buildMetricCards(
       freshness: kp == null ? (indicesLoading ? "DELAYED" : "UNAVAILABLE") : indicesFresh,
       showGScale: true,
       activeGCode: kp == null ? null : g.code,
+      activeKpBand: kp == null ? null : g.bandId,
     },
     {
       key: "dst",
