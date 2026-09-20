@@ -29,7 +29,7 @@ router = APIRouter(prefix="/live", tags=["live"])
 log = logging.getLogger(__name__)
 
 _VTEC_BY_STATION_CACHE: dict[tuple[float, int], tuple[float, list[LiveStationVtecSeries]]] = {}
-_VTEC_BY_STATION_CACHE_TTL_S = 75.0
+_VTEC_BY_STATION_CACHE_TTL_S = 90.0
 
 # Heavy Gg re-calibration — short TTL so Zimbabwe tab does not stampede the worker.
 _TEC_METHOD_CMP_CACHE: dict[tuple[float, str | None, int], tuple[float, TecMethodComparisonResponse]] = {}
