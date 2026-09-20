@@ -32,24 +32,36 @@ export function formatUtcDayLabel(ms: number): string {
   return `${d.getUTCDate()} ${UTC_MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
 }
 
+/** Shorter day stamp for axis ticks, e.g. `18 Sep`. */
+export function formatUtcDayShort(ms: number): string {
+  const d = new Date(snapUtcMinute(ms));
+  return `${d.getUTCDate()} ${UTC_MONTHS[d.getUTCMonth()]}`;
+}
+
 /**
- * KNMI-style UTC labels for Live Metric Timelines (24–72h windows):
- * text labels only at 00:00 / 06:00 / 12:00 / 18:00, with calendar day.
+ * KNMI-style UTC labels: HH:mm on major ticks; calendar day only at 00:00 UTC
+ * so multi-day axes stay readable (no repeated “16 Sep 2026” under every 6h tick).
  */
 export function formatKnmiUtcTick(ms: number): string {
-  return formatUtcAxisTick(ms, { majorHours: 6, includeDate: true });
+  return formatUtcAxisTick(ms, { majorHours: 6 });
 }
 
 export interface UtcAxisTickOptions {
   /** Label every N hours (1 for 6h window, 6 for 24h/72h). Default 6. */
   majorHours?: number;
-  /** Include the calendar day under HH:mm on major ticks (not only midnight). */
+  /**
+   * When true, also stamp the day on the first major tick if the window has no
+   * midnight (short 6h slices). Default false — day only at 00:00 UTC.
+   * @deprecated Prefer midnight-only; kept for rare short-window call sites.
+   */
   includeDate?: boolean;
+  /** First major tick ms in the domain — used when includeDate and no midnight. */
+  firstMajorMs?: number;
 }
 
 /**
- * Easy-to-follow UTC axis labels: `HH:mm` with the day underneath as
- * `18 Sep 2026` (never opaque `09-18`).
+ * Easy-to-follow UTC axis labels: `HH:mm`, with the day underneath only at
+ * **00:00 UTC** (`18 Sep`) so day boundaries are clear without crowding.
  */
 export function formatUtcAxisTick(ms: number, opts: UtcAxisTickOptions = {}): string {
   if (!Number.isFinite(ms)) return "";
@@ -59,9 +71,13 @@ export function formatUtcAxisTick(ms: number, opts: UtcAxisTickOptions = {}): st
   const hh = d.getUTCHours();
   if (hh % majorHours !== 0) return "";
   const time = `${String(hh).padStart(2, "0")}:00`;
-  // Midnight always carries the day; multi-day axes also stamp other majors.
-  if (hh === 0 || opts.includeDate) {
-    return `${time}\n${formatUtcDayLabel(ms)}`;
+  // Day stamp only at midnight — repeating the date every 6h made axes unreadable.
+  if (hh === 0) {
+    return `${time}\n${formatUtcDayShort(ms)}`;
+  }
+  // Short windows with no midnight: stamp the day once on the first major tick.
+  if (opts.includeDate && opts.firstMajorMs != null && ms === opts.firstMajorMs) {
+    return `${time}\n${formatUtcDayShort(ms)}`;
   }
   return time;
 }
@@ -105,9 +121,8 @@ export function alignTimeDomain(
 }
 
 /**
- * Standard numeric UTC axis props for LineChart — matches Live NOAA Kp Timeline,
- * with the calendar day (`18 Sep 2026`) under HH:mm whenever the window spans
- * a day or more.
+ * Standard numeric UTC axis props for LineChart — matches Live NOAA Kp Timeline.
+ * Calendar day appears only under 00:00 UTC ticks so multi-day charts stay legible.
  */
 export function utcTimeAxisProps(
   domain: { min: number; max: number } | null,
@@ -127,17 +142,26 @@ export function utcTimeAxisProps(
   const majorMs = majorHours * ONE_H_MS;
   const crossesUtcDay =
     startOfUtcDay(domain.min) !== startOfUtcDay(Math.max(domain.min, domain.max - 1));
-  // On long windows only midnight gets the day (via formatUtcAxisTick) to avoid
-  // crowding; on ~24h windows stamp every major tick so the day is obvious.
-  const includeDate =
-    opts.includeDate ??
-    ((rangeHours >= 12 && rangeHours <= 36) || (rangeHours < 12 && crossesUtcDay));
+  // Day label at 00:00 only. Short windows with no midnight get one date on the first major tick.
+  let midnightInRange = false;
+  {
+    let t = startOfUtcDay(domain.min);
+    if (t < domain.min) t += 24 * ONE_H_MS;
+    midnightInRange = t <= domain.max;
+  }
+  const firstMajorMs = Math.ceil(domain.min / majorMs) * majorMs;
+  const includeDate = opts.includeDate ?? (!midnightInRange && (crossesUtcDay || rangeHours < 12));
   return {
     xMin: domain.min,
     xMax: domain.max,
     xStepSize: ONE_H_MS,
     xMajorStepMs: majorMs,
-    formatXTick: (ms: number) => formatUtcAxisTick(ms, { majorHours, includeDate }),
+    formatXTick: (ms: number) =>
+      formatUtcAxisTick(ms, {
+        majorHours,
+        includeDate,
+        firstMajorMs: includeDate ? firstMajorMs : undefined,
+      }),
     xLabel: "UTC",
   };
 }
