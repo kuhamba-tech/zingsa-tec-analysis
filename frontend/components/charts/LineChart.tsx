@@ -16,6 +16,9 @@ import { Line } from "react-chartjs-2";
 import type { Chart as ChartInstance } from "chart.js";
 
 ChartJS.register(CategoryScale, LinearScale, LogarithmicScale, PointElement, LineElement, Title, Tooltip, Legend, Filler);
+// Space Weather dark UI — never fall back to Chart.js default grey (#666).
+ChartJS.defaults.color = "#ffffff";
+ChartJS.defaults.borderColor = "rgba(148, 163, 184, 0.28)";
 
 interface PointMeta {
   error?: number | null;
@@ -396,6 +399,7 @@ export default function LineChart({
         options={{
           responsive: true,
           maintainAspectRatio: false,
+          color: "#ffffff",
           layout: formatXTick
             ? { padding: { bottom: 22 } }
             : undefined,

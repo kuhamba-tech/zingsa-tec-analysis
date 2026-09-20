@@ -28,6 +28,7 @@ import type { LiveObservation, LiveStationVtecSeries, Station, TecMethodComparis
 import ZimbabweLatBandTecCharts from "@/components/spaceWeather/ZimbabweLatBandTecCharts";
 
 ChartJS.register(LinearScale, PointElement, LineElement, Tooltip, Legend, Filler);
+ChartJS.defaults.color = "#ffffff";
 
 const STATION_COLORS = ["#38bdf8", "#fbbf24", "#a78bfa", "#34d399", "#f97316", "#f472b6", "#22d3ee", "#fb7185"];
 const CONST_COLORS: Record<string, string> = {

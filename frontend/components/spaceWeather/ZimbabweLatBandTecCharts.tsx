@@ -26,6 +26,7 @@ import {
 } from "@/lib/zimbabweLatBands";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler);
+ChartJS.defaults.color = "#ffffff";
 
 type Props = {
   /** Optional preloaded GOPI station series (skips a second by-station fetch). */
