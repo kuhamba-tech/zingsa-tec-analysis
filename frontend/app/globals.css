@@ -7699,19 +7699,35 @@ a.home-map-layer-btn {
     font-size: 0.82rem;
   }
 
-  .space-weather-page .tabs {
+  .space-weather-page .tabs,
+  .space-weather-page .sw-space-tabs {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
     flex-wrap: nowrap;
     gap: 0.35rem;
     padding-bottom: 0.15rem;
+    scrollbar-width: thin;
+    overscroll-behavior-x: contain;
   }
 
   .space-weather-page .tab {
     flex: 0 0 auto;
-    min-height: 40px;
+    min-height: 44px;
     font-size: 0.78rem;
-    padding: 0.45rem 0.7rem;
+    padding: 0.55rem 0.85rem;
+    touch-action: manipulation;
+  }
+
+  .space-weather-page .sw-hide-on-narrow {
+    display: none !important;
+  }
+
+  .space-weather-page .sw-noaa-shortcut {
+    padding: 0.65rem 0.75rem;
+  }
+
+  .space-weather-page .dashboard-metric-grid.sw-metric-grid {
+    gap: 0.55rem;
   }
 
   .sw-cors-map-section,
@@ -7725,7 +7741,7 @@ a.home-map-layer-btn {
   }
 
   .sw-deferred-block {
-    contain-intrinsic-size: 280px;
+    contain-intrinsic-size: 240px;
   }
 }
 
@@ -7748,6 +7764,10 @@ a.home-map-layer-btn {
     font-size: 1.1rem;
   }
 
+  .space-weather-page .sw-metric-flare-scale-desc {
+    font-size: 0.42rem;
+  }
+
   .cors-map-shell {
     height: min(260px, 38vh) !important;
     min-height: 220px;
@@ -7755,7 +7775,14 @@ a.home-map-layer-btn {
 
   .home-page .sw-deferred-block,
   .sw-deferred-block {
-    contain-intrinsic-size: 240px;
+    contain-intrinsic-size: 220px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .space-weather-page .tab,
+  .space-weather-page .sw-metric-card {
+    transition: none;
   }
 }
 

@@ -14,6 +14,10 @@ export type LoadProfile = {
   pollIntervalMs: number;
   /** Max points for /space-weather/timelines. */
   timelineMaxPoints: number;
+  /** Extra delay before mounting heavy below-fold labs (ms). */
+  heavyMountDelayMs: number;
+  /** Skip warming heliospheric / timeline APIs on first paint. */
+  deferSecondaryApis: boolean;
 };
 
 function connectionHints(): { saveData: boolean; slow: boolean } {
@@ -28,6 +32,17 @@ function connectionHints(): { saveData: boolean; slow: boolean } {
   return { saveData: Boolean(conn?.saveData), slow };
 }
 
+function isConstrainedViewport(): boolean {
+  if (typeof window === "undefined") return false;
+  const narrow =
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(max-width: 768px)").matches;
+  const coarse =
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(pointer: coarse)").matches;
+  return narrow || coarse;
+}
+
 export function getLoadProfile(): LoadProfile {
   if (typeof window === "undefined") {
     return {
@@ -36,19 +51,21 @@ export function getLoadProfile(): LoadProfile {
       lightPayload: false,
       pollIntervalMs: 45_000,
       timelineMaxPoints: 168,
+      heavyMountDelayMs: 600,
+      deferSecondaryApis: false,
     };
   }
-  const narrow =
-    typeof window.matchMedia === "function" &&
-    window.matchMedia("(max-width: 768px)").matches;
+  const constrained = isConstrainedViewport();
   const { saveData, slow } = connectionHints();
-  const lightPayload = narrow || saveData || slow;
+  const lightPayload = constrained || saveData || slow;
   return {
-    constrained: narrow,
+    constrained,
     slowNetwork: saveData || slow,
     lightPayload,
-    pollIntervalMs: saveData || slow ? 90_000 : narrow ? 60_000 : 45_000,
-    timelineMaxPoints: lightPayload ? 96 : 168,
+    pollIntervalMs: saveData || slow ? 120_000 : constrained ? 90_000 : 45_000,
+    timelineMaxPoints: saveData || slow ? 48 : constrained ? 72 : 168,
+    heavyMountDelayMs: saveData || slow ? 2200 : constrained ? 1400 : 600,
+    deferSecondaryApis: lightPayload,
   };
 }
 
@@ -91,7 +108,7 @@ export function afterNextPaint(fn: () => void, timeoutMs = 48): () => void {
 /** Defer non-critical work; waits longer on constrained/slow clients. */
 export function scheduleSecondary(fn: () => void, profile?: LoadProfile): () => void {
   const p = profile ?? getLoadProfile();
-  const timeout = p.lightPayload ? 2200 : 900;
+  const timeout = p.slowNetwork ? 3200 : p.constrained ? 2000 : 900;
   return afterNextPaint(fn, timeout);
 }
 

@@ -568,19 +568,26 @@ export default function SpaceWeatherClient({
       .finally(() => setSaLoading(false));
 
     // Warm heliospheric cache immediately (deduped); stacks read from store.
-    void getHeliosphericMonitor(false, false).catch(() => null);
+    // Mobile / Save-Data: skip until Live Metric tab needs it — keeps /current free.
+    if (!profile.deferSecondaryApis) {
+      void getHeliosphericMonitor(false, false).catch(() => null);
+    }
 
     // Phase 2 — charts / stations / EKF after paint.
     const runSecondary = () => {
-      getTimelines(profile.timelineMaxPoints)
-        .then(setTl)
-        .catch(() => null);
+      if (!profile.deferSecondaryApis) {
+        getTimelines(profile.timelineMaxPoints)
+          .then(setTl)
+          .catch(() => null);
+      }
       getStations(false)
         .then((stations) => applyStationsSnapshot(stations, setLiveStationCounts, setLiveMeanVtec))
         .catch(() => null);
-      getEkfStatus()
-        .then(setEkf)
-        .catch(() => null);
+      if (!profile.deferSecondaryApis) {
+        getEkfStatus()
+          .then(setEkf)
+          .catch(() => null);
+      }
     };
 
     if (background) {
@@ -640,6 +647,16 @@ export default function SpaceWeatherClient({
   const freshnessMsg = useFeedFreshness("space-weather", feedStatus);
   // Never claim “figures show N/A” while we already have live/cached values on screen.
   const showUnavailableBanner = Boolean(freshnessMsg) && !sw;
+  const loadProfile = useMemo(() => getLoadProfile(), []);
+
+  // When the user opens Live Metric / Solar on mobile, warm the deferred APIs once.
+  useEffect(() => {
+    if (!loadProfile.deferSecondaryApis) return;
+    if (tab !== 0 && tab !== 1) return;
+    void getHeliosphericMonitor(false, false).catch(() => null);
+    getTimelines(loadProfile.timelineMaxPoints).then(setTl).catch(() => null);
+    getEkfStatus().then(setEkf).catch(() => null);
+  }, [tab, loadProfile]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -980,39 +997,58 @@ export default function SpaceWeatherClient({
       </div>
 
       {/* NOAA bulletins live on Alerts (/storm-watch); keep a short pointer here. */}
-      <section className="card" aria-label="NOAA alerts shortcut">
+      <section className="card sw-noaa-shortcut" aria-label="NOAA alerts shortcut">
         <SwSectionBanner
           icon="🔔"
           title="NOAA alerts, watches and warnings"
           meta={<Link href="/storm-watch/">Open Alerts →</Link>}
         />
-        <p className="sw-supporting-text" style={{ margin: "0.75rem 0 0" }}>
+        <p className="sw-supporting-text sw-hide-on-narrow" style={{ margin: "0.75rem 0 0" }}>
           Recent SWPC bulletins and feed status are listed on the Alerts page with storm watches.
         </p>
       </section>
-      <DeferredMount
-        className="sw-deferred-block"
-        minHeight={320}
-        rootMargin="80px 0px"
-        fallback={sectionFallback}
-      >
-        {/* Timelines live under Live Metric; keep station readings + CORS map here. */}
-        <CauseEffectTimelineStack variant="overview" />
-      </DeferredMount>
-      <DeferredMount
-        className="sw-deferred-block"
-        minHeight={120}
-        rootMargin="60px 0px"
-        fallback={sectionFallback}
-      >
-        <IndexScaleReference />
-        <AdvancedScientificIndices sw={sw} solar={sa} />
-      </DeferredMount>
+
+      {/* Overview stacks only on Live Metric — never compete with Zimbabwe / Solar tabs. */}
+      {tab === 0 && (
+        <>
+          <DeferredMount
+            className="sw-deferred-block"
+            minHeight={320}
+            rootMargin="80px 0px"
+            minDelayMs={loadProfile.heavyMountDelayMs}
+            fallback={sectionFallback}
+          >
+            <CauseEffectTimelineStack variant="overview" />
+          </DeferredMount>
+          <DeferredMount
+            className="sw-deferred-block"
+            minHeight={120}
+            rootMargin="60px 0px"
+            minDelayMs={loadProfile.heavyMountDelayMs + 400}
+            fallback={sectionFallback}
+          >
+            <IndexScaleReference />
+            <AdvancedScientificIndices sw={sw} solar={sa} />
+          </DeferredMount>
+        </>
+      )}
 
       {/* ── Tabs ── */}
-      <div className="tabs">
+      <div className="tabs sw-space-tabs" role="tablist" aria-label="Space weather views">
         {["Live Metric Timelines", "Solar Activity", "Kp Scale", "Zimbabwe Ionospheric Response"].map((t, i) => (
-          <button key={t} className={`tab${tab === i ? " active" : ""}`} onClick={() => { setTab(i); setSelectedGraph(null); }}>{t}</button>
+          <button
+            key={t}
+            type="button"
+            role="tab"
+            aria-selected={tab === i}
+            className={`tab${tab === i ? " active" : ""}`}
+            onClick={() => {
+              setTab(i);
+              setSelectedGraph(null);
+            }}
+          >
+            {t}
+          </button>
         ))}
       </div>
 
@@ -1316,7 +1352,7 @@ export default function SpaceWeatherClient({
             className="sw-deferred-block"
             minHeight={280}
             rootMargin="200px 0px"
-            minDelayMs={400}
+            minDelayMs={loadProfile.heavyMountDelayMs}
             fallback={sectionFallback}
           >
             <CauseEffectTimelineStack
@@ -1351,7 +1387,7 @@ export default function SpaceWeatherClient({
             className="sw-deferred-block"
             minHeight={320}
             rootMargin="160px 0px"
-            minDelayMs={900}
+            minDelayMs={loadProfile.heavyMountDelayMs + 500}
             fallback={sectionFallback}
           >
             <ZimbabweTecTeachingLab />
@@ -1360,7 +1396,7 @@ export default function SpaceWeatherClient({
             className="sw-deferred-block"
             minHeight={200}
             rootMargin="120px 0px"
-            minDelayMs={1200}
+            minDelayMs={loadProfile.heavyMountDelayMs + 900}
             fallback={sectionFallback}
           >
             <TecMethodUnderstandingPanel />
@@ -1369,7 +1405,7 @@ export default function SpaceWeatherClient({
             className="sw-deferred-block"
             minHeight={360}
             rootMargin="100px 0px"
-            minDelayMs={1600}
+            minDelayMs={loadProfile.heavyMountDelayMs + 1300}
             fallback={sectionFallback}
           >
             <TecMethodComparisonLab />
