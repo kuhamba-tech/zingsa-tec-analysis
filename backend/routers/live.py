@@ -294,8 +294,33 @@ def _build_tec_method_comparison(
             )
         )
 
-    gg_raw = calibrate_gg_from_observations(
-        [
+    # Station lat/lon feed MODIP μ and Local Time (notebook §3.2) — calibration key.
+    try:
+        from zgiis.cors.stations import get_station as _get_cors_station
+    except Exception:  # pragma: no cover
+        _get_cors_station = None  # type: ignore[assignment]
+
+    station_ll: dict[str, tuple[float, float]] = {}
+
+    def _station_ll(code: str) -> tuple[float, float]:
+        key = (code or "").lower()
+        if key in station_ll:
+            return station_ll[key]
+        lat, lon = -19.0, 30.0
+        if _get_cors_station is not None and key:
+            try:
+                st = _get_cors_station(key)
+                if st is not None:
+                    lat, lon = float(st.lat), float(st.lon)
+            except Exception:
+                pass
+        station_ll[key] = (lat, lon)
+        return lat, lon
+
+    gg_input: list[dict] = []
+    for o in gopi:
+        lat, lon = _station_ll(o.station)
+        gg_input.append(
             {
                 "time": o.time,
                 "station": o.station,
@@ -305,10 +330,12 @@ def _build_tec_method_comparison(
                 "azimuth_deg": o.azimuth_deg,
                 "stec_tecu": o.stec_tecu,
                 "vtec_tecu": o.vtec_tecu,
+                "lat": lat,
+                "lon": lon,
             }
-            for o in gopi
-        ]
-    )
+        )
+
+    gg_raw = calibrate_gg_from_observations(gg_input)
     gg = [
         LiveObservation(
             time=str(r.get("time") or ""),
@@ -320,19 +347,31 @@ def _build_tec_method_comparison(
             constellation=r.get("constellation"),
             prn=r.get("prn"),
             tec_method=str(r.get("tec_method") or "gg_ciraolo_window_ls"),
-            bias_method=str(r.get("bias_method") or "gg_arc_bias_lt_poly"),
+            bias_method=str(r.get("bias_method") or "gg_arc_bias_modip_lt_poly"),
             arc_bias_tecu=r.get("arc_bias_tecu"),
         )
         for r in gg_raw
     ]
 
     stations, summary = _station_method_summary(gopi, gg)
-    engine = "pytecgg" if try_pytecgg_available() else "gg_window_ls_fallback"
+    pytecgg = try_pytecgg_available()
+    engine = "pytecgg_rinex" if pytecgg else "gg_modip_lt_window_ls"
+    if pytecgg:
+        engine_note = (
+            f"Engine {engine}: PyTECGg is importable; live comparison still applies the "
+            "notebook Gg MODIP×LT windowed least-squares to streaming CORS rows (full "
+            "RINEX-day PyTECGg when obs+nav files are processed offline)."
+        )
+    else:
+        engine_note = (
+            f"Engine {engine}: TEC_GNSS_Notebook_v5 §3.2–3.4 arc-bias + VTEC(MODIP μ, LT) "
+            "polynomial on the same streaming samples (not a full RINEX-day PyTECGg run)."
+        )
     note = (
         "Method 1 (GOPI / Seemala) is the live CORS NTRIP dual-frequency path shown on the "
-        "TEC Heat Map. Method 2 (Gg / Ciraolo–Cesaroni) re-calibrates the same samples with "
-        f"the TEC_GNSS_Notebook_v5 / PyTECGg bias model ({engine}): arc biases + VTEC(MODIP, LT) "
-        "polynomial. Both methods use elev ≥ 30° and IPP shell 350 km so ΔVTEC = Gg − GOPI "
+        "TEC Heat Map. Method 2 (Gg / Ciraolo–Cesaroni) is driven by TEC_GNSS_Notebook_v5 "
+        "calibration (§3.2–3.4; refs Ciraolo 2007, Cesaroni 2015/2021, Ventriglia/PyTECGg 2026). "
+        f"{engine_note} Both methods use elev ≥ 30° and IPP shell 350 km so ΔVTEC = Gg − GOPI "
         "reflects calibration, not geometry."
     )
     return TecMethodComparisonResponse(
