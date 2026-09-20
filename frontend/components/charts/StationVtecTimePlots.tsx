@@ -334,6 +334,9 @@ function StationChartCard({
             label: "Gg = Cesaroni",
             data: merged.gg,
             color: GG_COLOR,
+            // Dotted gold — distinct from solid GOPI and dashed Global TEC.
+            borderDash: [2, 3],
+            borderWidth: 2.5,
             fill: false,
             spanGaps: true,
           },
