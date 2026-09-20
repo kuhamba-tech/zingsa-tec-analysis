@@ -439,9 +439,15 @@ export default function SpaceWeatherClient({
     }
   }, []);
   const [refreshing, setRefreshing] = useState(false);
-  // Keep SSR and first client paint identical — never seed with Date.now()
-  // (that flips LIVE/DELAYED badges and breaks hydration). Clock starts after mount.
-  const [now, setNow] = useState(0);
+  // Seed from boot snapshot times (identical on server + first client paint).
+  // Never use Date.now() here — that flips LIVE/DELAYED badges and breaks hydration.
+  // Real wall-clock updates start in the mount effect below.
+  const [now, setNow] = useState(() => {
+    const candidates = [initialSw?.updated_utc, initialSa?.updated]
+      .map((t) => (t ? Date.parse(/Z|[+-]\d{2}:?\d{2}$/i.test(t) ? t : `${t}Z`) : NaN))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    return candidates.length ? Math.max(...candidates) : 0;
+  });
   const [lastFetched, setLastFetched] = useState<string | null>(
     () => initialSw?.updated_utc ?? null,
   );
@@ -532,45 +538,59 @@ export default function SpaceWeatherClient({
     // Keep SSR/boot values on screen — never flip to Connecting/Updating while a
     // snapshot is already painted (peek OR React state from initialSw/initialSa).
     const alreadyHaveSw = Boolean(peekSpaceWeather());
+    const alreadyHaveSa = Boolean(peekSolarActivity());
     if (!background && !alreadyHaveSw) {
       setFeedStatus((prev) => (prev === "ok" || prev === "stale" ? prev : "pending"));
     }
 
-    // Phase 1 — current + solar + heliospheric warm so chart stacks do not
-    // cold-start NOAA after DeferredMount (that was the "API … timed out" card).
-    getSpaceWeather(false)
-      .then((s) => {
-        // publishSpaceWeather merges; prefer store so stations_online=0 cannot wipe SSR.
-        const merged = peekSpaceWeather() ?? s;
-        setSw(merged);
-        setTl((prev) => prev ?? snapshotTimelines(merged));
-        setFeedStatus("ok");
-        setLastFetched(new Date().toISOString());
-      })
-      .catch(() => {
-        const cached = peekSpaceWeather();
-        if (cached) {
-          setSw(cached);
-          setTl((prev) => prev ?? snapshotTimelines(cached));
-          setFeedStatus("stale");
-        } else {
-          setFeedStatus((prev) => (prev === "stale" || prev === "ok" ? "stale" : "down"));
-        }
-      });
+    // Phase 1 — refresh current indices. On mobile with SSR boot, defer the
+    // duplicate /current hit so the main thread stays free for first paint.
+    const refreshCurrent = () => {
+      getSpaceWeather(false)
+        .then((s) => {
+          const merged = peekSpaceWeather() ?? s;
+          setSw(merged);
+          setTl((prev) => prev ?? snapshotTimelines(merged));
+          setFeedStatus("ok");
+          setLastFetched(new Date().toISOString());
+        })
+        .catch(() => {
+          const cached = peekSpaceWeather();
+          if (cached) {
+            setSw(cached);
+            setTl((prev) => prev ?? snapshotTimelines(cached));
+            setFeedStatus("stale");
+          } else {
+            setFeedStatus((prev) => (prev === "stale" || prev === "ok" ? "stale" : "down"));
+          }
+        });
+    };
+    if (!background && alreadyHaveSw && profile.lightPayload) {
+      scheduleSecondary(refreshCurrent, profile);
+    } else {
+      refreshCurrent();
+    }
 
     // Do not force saLoading=true when SSR/boot already supplied solar cards.
-    if (!background && !peekSolarActivity()) {
+    if (!background && !alreadyHaveSa) {
       setSaLoading((prev) => prev || true);
     }
-    getSolarActivity(false, false)
-      .then((payload) => {
-        setSa(payload);
-        setSaError(payload?.error ?? null);
-      })
-      .catch((error: unknown) => {
-        setSaError(error instanceof Error ? error.message : "Solar monitor API unreachable");
-      })
-      .finally(() => setSaLoading(false));
+    const refreshSolar = () => {
+      getSolarActivity(false, false)
+        .then((payload) => {
+          setSa(payload);
+          setSaError(payload?.error ?? null);
+        })
+        .catch((error: unknown) => {
+          setSaError(error instanceof Error ? error.message : "Solar monitor API unreachable");
+        })
+        .finally(() => setSaLoading(false));
+    };
+    if (!background && alreadyHaveSa && profile.lightPayload) {
+      scheduleSecondary(refreshSolar, profile);
+    } else {
+      refreshSolar();
+    }
 
     // Warm heliospheric cache immediately (deduped); stacks read from store.
     // Mobile / Save-Data: skip until Live Metric tab needs it — keeps /current free.
@@ -585,9 +605,6 @@ export default function SpaceWeatherClient({
           .then(setTl)
           .catch(() => null);
       }
-      getStations(false)
-        .then((stations) => applyStationsSnapshot(stations, setLiveStationCounts, setLiveMeanVtec))
-        .catch(() => null);
       if (!profile.deferSecondaryApis) {
         getEkfStatus()
           .then(setEkf)
@@ -595,12 +612,21 @@ export default function SpaceWeatherClient({
       }
     };
 
+    const runStations = () => {
+      getStations(false)
+        .then((stations) => applyStationsSnapshot(stations, setLiveStationCounts, setLiveMeanVtec))
+        .catch(() => null);
+    };
+
     if (background) {
       runSecondary();
+      runStations();
       return;
     }
 
     scheduleSecondary(runSecondary, profile);
+    // Station catalog is heavy JSON — wait longer on phones so metric cards win.
+    window.setTimeout(runStations, profile.stationsDeferMs);
   }, []);
 
   useEffect(() => {
@@ -653,6 +679,11 @@ export default function SpaceWeatherClient({
   // Never claim “figures show N/A” while we already have live/cached values on screen.
   const showUnavailableBanner = Boolean(freshnessMsg) && !sw;
   const loadProfile = useMemo(() => getLoadProfile(), []);
+  // Start false on SSR + first client paint (hydration-safe). Desktop enables after mount.
+  const [mobileHeavyLabs, setMobileHeavyLabs] = useState(false);
+  useEffect(() => {
+    if (!getLoadProfile().lightPayload) setMobileHeavyLabs(true);
+  }, []);
 
   // When the user opens Live Metric / Solar on mobile, warm the deferred APIs once.
   useEffect(() => {
@@ -1380,6 +1411,22 @@ export default function SpaceWeatherClient({
           >
             <ZimbabweTecTeachingLab />
           </DeferredMount>
+          {!mobileHeavyLabs ? (
+            <div className="card" style={{ padding: "0.9rem 1rem" }}>
+              <p className="sw-supporting-text" style={{ margin: "0 0 0.65rem" }}>
+                Research charts, North–South lab, and Gg comparison are deferred on this
+                device so Space Weather opens faster. Load them when you need them.
+              </p>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setMobileHeavyLabs(true)}
+              >
+                Load research &amp; comparison labs
+              </button>
+            </div>
+          ) : (
+            <>
           <DeferredMount
             className="sw-deferred-block"
             minHeight={480}
@@ -1416,6 +1463,8 @@ export default function SpaceWeatherClient({
           >
             <TecMethodComparisonLab />
           </DeferredMount>
+            </>
+          )}
         </div>
       )}
 

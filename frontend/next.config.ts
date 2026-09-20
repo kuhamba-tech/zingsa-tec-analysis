@@ -14,6 +14,10 @@ const nextConfig: NextConfig = {
   images: {
     unoptimized: true,
   },
+  experimental: {
+    // Tree-shake heavy chart/map barrels so mobile chunks stay smaller.
+    optimizePackageImports: ["chart.js", "react-chartjs-2", "ol"],
+  },
   // Next 16 blocks disallowed hosts for /_next/* in development, which can
   // prevent hydration and leave Live Metric stuck on "Connecting".
   // Allow local + Cursor/cloud preview hostnames used to open the forwarded port.

@@ -250,10 +250,14 @@ export default function CauseEffectTimelineStack({
   const [vtecLoading, setVtecLoading] = useState(true);
   const [syncHoverMs, setSyncHoverMs] = useState<number | null>(null);
   const [geoTab, setGeoTab] = useState<GeoTab>("kp");
-  const [rangeHours, setRangeHours] = useState<6 | 24 | 72>(24);
+  const loadProfile = useMemo(() => getLoadProfile(), []);
+  const [rangeHours, setRangeHours] = useState<6 | 24 | 72>(loadProfile.defaultRangeHours);
   // Overview only needs a light station snapshot for the readings strip — keep it cheap.
-  const vtecHours = showChrome && !showLocal ? Math.min(rangeHours, 6) : Math.min(rangeHours, 48);
-  const vtecResample = showChrome && !showLocal ? 10 : 2;
+  const vtecHours = showChrome && !showLocal
+    ? Math.min(rangeHours, 6)
+    : Math.min(rangeHours, loadProfile.vtecHoursCap);
+  const vtecResample =
+    showChrome && !showLocal ? 10 : loadProfile.vtecResampleMinutes;
   const [now, setNow] = useState(0);
   const [vtecRefreshFailed, setVtecRefreshFailed] = useState(false);
   const [openPanel, setOpenPanel] = useState<string | null>(null);
