@@ -7747,6 +7747,19 @@ a.home-map-layer-btn {
   .sw-deferred-block {
     contain-intrinsic-size: 240px;
   }
+
+  .space-weather-page .sw-metric-card {
+    padding: 0.7rem 0.75rem;
+  }
+
+  .space-weather-page .sw-metric-value {
+    font-size: clamp(1.15rem, 4.5vw, 1.45rem);
+  }
+
+  /* Keep chart canvases shorter on phones so less GPU work on first paint. */
+  .space-weather-page .sw-driver-timelines [style*="height"] {
+    max-height: 200px;
+  }
 }
 
 @media (max-width: 560px) {

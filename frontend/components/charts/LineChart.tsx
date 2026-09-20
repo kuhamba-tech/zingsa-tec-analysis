@@ -378,8 +378,14 @@ export default function LineChart({
             fill: ds.fill ?? false,
             borderWidth: ds.borderWidth ?? 2,
             borderDash: ds.borderDash ?? (ds.dashed ? [6, 4] : undefined),
-            pointRadius: compact ? 4 : labels.length > 200 ? 0 : 2,
-            pointHoverRadius: compact ? 7 : 4,
+            pointRadius: compact
+              ? labels.length > 80
+                ? 0
+                : 2
+              : labels.length > 200
+                ? 0
+                : 2,
+            pointHoverRadius: compact ? 5 : 4,
             tension: 0.3,
             spanGaps: ds.spanGaps ?? true,
             yAxisID: ds.yAxisId ?? "y",

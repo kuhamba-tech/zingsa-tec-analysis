@@ -42,11 +42,15 @@ export default function DeferredMount({
       return;
     }
     const profile = getLoadProfile();
-    setMargin(profile.lightPayload ? "40px 0px" : "140px 0px");
+    // Tighter preload on phones so OpenLayers / Chart.js stay off the critical path.
+    setMargin(profile.slowNetwork ? "0px 0px" : profile.lightPayload ? "24px 0px" : "120px 0px");
   }, [rootMargin]);
 
   useEffect(() => {
-    if (eager && minDelayMs <= 0) {
+    const profile = getLoadProfile();
+    // Never eager-mount heavy blocks on mobile / Save-Data — first paint stays metric cards.
+    const allowEager = eager && minDelayMs <= 0 && !profile.lightPayload;
+    if (allowEager) {
       setVisible(true);
       return;
     }
@@ -57,13 +61,16 @@ export default function DeferredMount({
     let cancelled = false;
     let delayHandle: number | null = null;
     let io: IntersectionObserver | null = null;
+    const delayFloor = profile.lightPayload
+      ? Math.max(minDelayMs, Math.floor(profile.heavyMountDelayMs * 0.5))
+      : minDelayMs;
 
     const arm = () => {
       if (cancelled) return;
-      if (minDelayMs > 0) {
+      if (delayFloor > 0) {
         delayHandle = window.setTimeout(() => {
           if (!cancelled) setVisible(true);
-        }, minDelayMs) as unknown as number;
+        }, delayFloor) as unknown as number;
       } else {
         setVisible(true);
       }
@@ -71,7 +78,7 @@ export default function DeferredMount({
 
     // Prefer IntersectionObserver; fall back to a short idle delay.
     if (typeof IntersectionObserver === "undefined") {
-      const id = window.setTimeout(arm, 400);
+      const id = window.setTimeout(arm, profile.lightPayload ? 800 : 400);
       return () => {
         cancelled = true;
         window.clearTimeout(id);
