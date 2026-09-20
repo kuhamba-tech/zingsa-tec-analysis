@@ -32,6 +32,7 @@ import type {
   LiveVtecHealth,
   LiveStationVtecSeries,
   TecMethodComparisonResponse,
+  ZimbabweScientificPlotsResponse,
   GlobalTecByStationResponse,
   NavigationNewsBriefApi,
   NavigationNewsBundleApi,
@@ -1001,6 +1002,12 @@ export const getLiveVtecByStation = (hours = 6, resampleMinutes = 2, timeoutMs?:
           : hours >= 6
             ? 45_000
             : Math.max(FETCH_TIMEOUT_MS, 25_000)),
+  );
+export const getZimbabweScientificPlots = (hours = 24, resampleMinutes = 15, timeoutMs = 90_000) =>
+  get<ZimbabweScientificPlotsResponse>(
+    "/live/zimbabwe-scientific-plots",
+    { hours, resample_minutes: resampleMinutes, _ts: Date.now() },
+    timeoutMs,
   );
 export const getLiveStations = () => get<StationLiveStatus[]>("/live/stations");
 export const getLivePipelineStatus = () => get<LivePipelineStatus>("/live/pipeline-status");

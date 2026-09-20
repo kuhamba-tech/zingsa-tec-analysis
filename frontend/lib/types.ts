@@ -1178,6 +1178,95 @@ export interface LiveStationVtecSeries {
   mean_vtec: number | null;
 }
 
+export interface SciPercentileSeries {
+  p50: (number | null)[];
+  p25: (number | null)[];
+  p75: (number | null)[];
+  n: number[];
+}
+
+export interface ZimbabweScientificPlotsResponse {
+  generated_at: string;
+  hours: number;
+  resample_minutes: number;
+  diurnal_latband: {
+    hours: number[];
+    northern: SciPercentileSeries;
+    central: SciPercentileSeries;
+    southern: SciPercentileSeries;
+    station_counts: Record<string, number>;
+    sample_count: number;
+    uncertainty?: string;
+    note?: string;
+  };
+  seasonal: {
+    available: boolean;
+    seasons: Array<{
+      id: string;
+      label: string;
+      doy_center: number;
+      window_days: number;
+      available: boolean;
+      partial?: boolean;
+      hours: number[];
+      p50: (number | null)[];
+      p25: (number | null)[];
+      p75: (number | null)[];
+      n: number[];
+      stations: string[];
+      date_start: string | null;
+      date_end: string | null;
+      sample_count: number;
+      note?: string;
+      uncertainty?: string;
+    }>;
+    archive?: Record<string, unknown>;
+    uncertainty?: string;
+    note?: string;
+  };
+  modip_transect: {
+    points: Array<{
+      station: string;
+      name: string;
+      lat: number;
+      lon: number | null;
+      modip_deg: number;
+      vtec_mean: number;
+      vtec_p25: number;
+      vtec_p75: number;
+      vtec_std: number;
+      n: number;
+      band: string;
+    }>;
+    regression: {
+      slope_tecu_per_deg: number;
+      intercept_tecu: number;
+      r2: number;
+      n: number;
+    } | null;
+    modip_model?: { name: string; description: string; offset_deg: number };
+    uncertainty?: string;
+    note?: string;
+  };
+  quiet_disturbed: {
+    hours: number[];
+    quiet: SciPercentileSeries;
+    disturbed: SciPercentileSeries;
+    quiet_sample_count: number;
+    disturbed_sample_count: number;
+    kp_threshold: number;
+    available: boolean;
+    uncertainty?: string;
+    note?: string;
+  };
+  integrity?: {
+    no_synthetic_tec?: boolean;
+    uncertainty?: string;
+    seasonal_archive_limited?: boolean;
+    modip_approximate?: boolean;
+  };
+}
+
 export interface GlobalTecStationPoint {
   time: string;
   vtec_tecu: number;
