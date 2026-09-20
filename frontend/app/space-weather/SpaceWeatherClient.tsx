@@ -424,7 +424,9 @@ export default function SpaceWeatherClient({
     if (typeof window === "undefined") return 0;
     try {
       const raw = (new URLSearchParams(window.location.search).get("tab") || "").toLowerCase();
-      if (raw === "3" || raw === "zimbabwe" || raw === "ionosphere" || raw === "local") return 3;
+      // Zimbabwe is tab index 2 (after Solar Activity; Kp Scale follows it).
+      // Accept legacy ?tab=3 bookmarks that previously pointed here.
+      if (raw === "2" || raw === "3" || raw === "zimbabwe" || raw === "ionosphere" || raw === "local") return 2;
     } catch {
       /* ignore */
     }
@@ -436,8 +438,8 @@ export default function SpaceWeatherClient({
     try {
       const params = new URLSearchParams(window.location.search);
       const raw = (params.get("tab") || "").toLowerCase();
-      if (raw === "3" || raw === "zimbabwe" || raw === "ionosphere" || raw === "local") {
-        setTab(3);
+      if (raw === "2" || raw === "3" || raw === "zimbabwe" || raw === "ionosphere" || raw === "local") {
+        setTab(2);
       }
     } catch {
       /* ignore */
@@ -1043,7 +1045,7 @@ export default function SpaceWeatherClient({
 
       {/* ── Tabs ── */}
       <div className="tabs sw-space-tabs" role="tablist" aria-label="Space weather views">
-        {["Live Metric Timelines", "Solar Activity", "Kp Scale", "Zimbabwe Ionospheric Response"].map((t, i) => (
+        {["Live Metric Timelines", "Solar Activity", "Zimbabwe Ionospheric Response", "Kp Scale"].map((t, i) => (
           <button
             key={t}
             type="button"
@@ -1331,24 +1333,8 @@ export default function SpaceWeatherClient({
         </div>
       )}
 
-      {/* ── Tab 2: Kp Scale ── */}
+      {/* ── Tab 2: Zimbabwe Ionospheric Response ── */}
       {tab === 2 && (
-        <div className="card">
-          <div className="metric-label" style={{ marginBottom: "0.8rem" }}>Kp Geomagnetic Scale Reference</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
-            {KP_BANDS.map(({ range, label, color }) => (
-              <div key={range} style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
-                <div style={{ width: "60px", height: "24px", background: color, borderRadius: "4px", flexShrink: 0 }} />
-                <span style={{ fontWeight: 700, width: "40px", flexShrink: 0 }}>{range}</span>
-                <span>{label}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ── Tab 3: Zimbabwe Ionospheric Response ── */}
-      {tab === 3 && (
         <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
           <p style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>
             Local ionospheric response after Sun→Earth drivers — live Zimbabwe CORS VTEC graphs,
@@ -1437,6 +1423,22 @@ export default function SpaceWeatherClient({
           >
             <TecMethodComparisonLab />
           </DeferredMount>
+        </div>
+      )}
+
+      {/* ── Tab 3: Kp Scale ── */}
+      {tab === 3 && (
+        <div className="card">
+          <div className="metric-label" style={{ marginBottom: "0.8rem" }}>Kp Geomagnetic Scale Reference</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+            {KP_BANDS.map(({ range, label, color }) => (
+              <div key={range} style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
+                <div style={{ width: "60px", height: "24px", background: color, borderRadius: "4px", flexShrink: 0 }} />
+                <span style={{ fontWeight: 700, width: "40px", flexShrink: 0 }}>{range}</span>
+                <span>{label}</span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
