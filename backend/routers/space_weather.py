@@ -173,6 +173,47 @@ def _ntrip_stream_counts() -> tuple[int | None, int | None]:
         return None, None
 
 
+def _neon_mean_vtec() -> float | None:
+    """Read last non-null mean_vtec from Neon without the SpaceWeatherDB singleton.
+
+    Vercel serverless can leave SpaceWeatherDB on a SQLite fallback after a
+    brief pooler blip; bypass that for the Zimbabwe Ionosphere card.
+    """
+    try:
+        import math
+
+        import psycopg2
+
+        from zgiis.db.config import database_dsn
+
+        dsn = database_dsn()
+        if not dsn:
+            return None
+        conn = psycopg2.connect(dsn)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT mean_vtec
+                    FROM space_weather_log
+                    WHERE mean_vtec IS NOT NULL AND mean_vtec > 1
+                    ORDER BY time DESC
+                    LIMIT 1
+                    """
+                )
+                row = cur.fetchone()
+        finally:
+            conn.close()
+        if not row or row[0] is None:
+            return None
+        value = float(row[0])
+        if math.isnan(value) or value <= 1.0:
+            return None
+        return round(value, 2)
+    except Exception:
+        return None
+
+
 @router.get("/current", response_model=SpaceWeatherCurrent)
 def current(_=Depends(require_api_key)):
     """Dashboard snapshot — keep this path free of Spider login / Neon stalls."""
@@ -220,29 +261,36 @@ def current(_=Depends(require_api_key)):
     # Prefer a row that actually has VTEC so empty "dashboard" polls do not hide
     # a healthier local_vtec_to_neon / scheduler snapshot.
     if sw.get("mean_vtec") is None and sw.get("vtec_tecu") is None:
-        try:
-            from backend.space_weather_logger import get_db as get_sw_db
+        neon_vtec = _neon_mean_vtec()
+        if neon_vtec is not None:
+            sw["mean_vtec"] = neon_vtec
+        else:
+            try:
+                from backend.space_weather_logger import get_db as get_sw_db
 
-            db = get_sw_db()
-            latest = None
-            if hasattr(db, "latest_snapshot_with_vtec"):
-                latest = db.latest_snapshot_with_vtec()
-            if latest is None:
-                latest = db.latest_snapshot()
-            if latest is not None:
-                raw = latest.get("mean_vtec") if isinstance(latest, dict) else None
-                if raw is None and hasattr(latest, "get"):
-                    raw = latest.get("mean_vtec")
-                if raw is not None and float(raw) > 1.0:
-                    sw["mean_vtec"] = round(float(raw), 2)
-        except Exception:
-            pass
+                db = get_sw_db()
+                latest = None
+                if hasattr(db, "latest_snapshot_with_vtec"):
+                    latest = db.latest_snapshot_with_vtec()
+                if latest is None:
+                    latest = db.latest_snapshot()
+                if latest is not None:
+                    raw = latest.get("mean_vtec") if isinstance(latest, dict) else None
+                    if raw is None and hasattr(latest, "get"):
+                        raw = latest.get("mean_vtec")
+                    if raw is not None and float(raw) > 1.0:
+                        sw["mean_vtec"] = round(float(raw), 2)
+            except Exception:
+                pass
     threading.Thread(
         target=log_snapshot,
         kwargs={"source": "dashboard", "force": False},
         daemon=True,
         name="sw-log-snapshot",
     ).start()
+    mean_vtec = sw.get("mean_vtec")
+    if mean_vtec is None:
+        mean_vtec = sw.get("vtec_tecu")
     return SpaceWeatherCurrent(
         kp=sw.get("kp"),
         kp_condition=sw.get("kp_condition"),
@@ -256,7 +304,7 @@ def current(_=Depends(require_api_key)):
         stations_online=sw.get("stations_online"),
         stations_total=sw.get("stations_total"),
         plasma_speed=sw.get("solar_wind_speed") or sw.get("plasma_speed"),
-        mean_vtec=sw.get("mean_vtec") or sw.get("vtec_tecu"),
+        mean_vtec=mean_vtec,
         updated_utc=sw.get("updated_utc") or sw.get("timestamp"),
     )
 

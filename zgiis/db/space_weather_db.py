@@ -23,7 +23,6 @@ from zgiis.db.config import database_backend_label, database_dsn
 
 log = logging.getLogger(__name__)
 
-_TSDB_DSN = database_dsn()
 _SQLITE_PATH = Path(__file__).resolve().parents[2] / "static" / "data" / "space_weather_log.sqlite"
 
 _GNSS_RISK_SCORES = {
@@ -116,9 +115,11 @@ def snapshot_from_sw_dict(sw: dict[str, Any], *, source: str = "api") -> dict[st
 
 
 class SpaceWeatherDB:
-    def __init__(self, dsn: str = _TSDB_DSN):
-        self._dsn = dsn
-        self._is_pg = bool(dsn)
+    def __init__(self, dsn: str | None = None):
+        # Resolve DSN at construction time so Vercel cold starts see env that
+        # was loaded after module import.
+        self._dsn = dsn if dsn is not None else database_dsn()
+        self._is_pg = bool(self._dsn)
         self._conn = None
         self._init()
 
