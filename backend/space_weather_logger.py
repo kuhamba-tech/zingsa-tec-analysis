@@ -61,6 +61,16 @@ def log_snapshot(*, source: str = "scheduler", force: bool = False) -> bool:
         sw = get_space_weather(use_third_party=False)
         row = snapshot_from_sw_dict(sw, source=source)
         _attach_mean_vtec(row)
+        # Vercel dashboard polls often have no TecDB / NTRIP — writing
+        # stations_online=0 + mean_vtec=NULL would become latest and make
+        # production Zimbabwe Ionosphere flip to Unavailable.
+        online = int(row.get("stations_online") or 0)
+        if row.get("mean_vtec") is None and online <= 0 and source in {
+            "dashboard",
+            "api",
+        }:
+            _last_logged_at = now
+            return False
         get_db().insert_snapshot(row)
         _last_logged_at = now
         log.debug("space weather snapshot logged at %s", row.get("time"))

@@ -296,6 +296,21 @@ class SpaceWeatherDB:
             return None
         return df.iloc[0].to_dict()
 
+    def latest_snapshot_with_vtec(self) -> dict[str, Any] | None:
+        """Most recent row that actually carries mean_vtec (skip empty dashboard polls)."""
+        sql = """
+        SELECT * FROM space_weather_log
+        WHERE mean_vtec IS NOT NULL AND mean_vtec > 1
+        ORDER BY time DESC LIMIT 1
+        """
+        if self._is_pg:
+            df = pd.read_sql(sql, self._conn)
+        else:
+            df = pd.read_sql_query(sql, self._conn)
+        if df.empty:
+            return None
+        return df.iloc[0].to_dict()
+
     def close(self) -> None:
         if self._conn:
             self._conn.close()

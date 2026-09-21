@@ -217,11 +217,18 @@ def current(_=Depends(require_api_key)):
         except Exception:
             pass
     # Vercel serverless has no in-process NTRIP decode — use last logged snapshot.
+    # Prefer a row that actually has VTEC so empty "dashboard" polls do not hide
+    # a healthier local_vtec_to_neon / scheduler snapshot.
     if sw.get("mean_vtec") is None and sw.get("vtec_tecu") is None:
         try:
             from backend.space_weather_logger import get_db as get_sw_db
 
-            latest = get_sw_db().latest_snapshot()
+            db = get_sw_db()
+            latest = None
+            if hasattr(db, "latest_snapshot_with_vtec"):
+                latest = db.latest_snapshot_with_vtec()
+            if latest is None:
+                latest = db.latest_snapshot()
             if latest is not None:
                 raw = latest.get("mean_vtec") if isinstance(latest, dict) else None
                 if raw is None and hasattr(latest, "get"):
