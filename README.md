@@ -1,5 +1,7 @@
 # Zimbabwe GNSS Ionospheric Information System (ZGIIS)
 
+Source of truth: [`kuhamba-tech/zingsa-tec-analysis`](https://github.com/kuhamba-tech/zingsa-tec-analysis) (`master`).
+
 ZGIIS consists of a Next.js frontend and a FastAPI backend. The legacy
 Streamlit interface has been removed.
 
