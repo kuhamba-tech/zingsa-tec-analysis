@@ -3,6 +3,7 @@
  * Hits FastAPI directly (not the browser /backend proxy) so SSR HTML can
  * paint live values before client JS hydrates.
  *
+ * Prefer /current for first paint; solar can arrive null and hydrate later.
  * Keep timeouts short so a slow solar feed cannot block first HTML.
  */
 import type { SolarActivityFull, SpaceWeatherCurrent } from "@/lib/types";
@@ -39,9 +40,13 @@ export type SpaceWeatherBootstrap = {
 };
 
 export async function fetchSpaceWeatherBootstrap(): Promise<SpaceWeatherBootstrap> {
-  // Prefer /current for first paint; solar can arrive null and hydrate later.
-  const swPromise = getJson<SpaceWeatherCurrent>("/space-weather/current", 1600);
-  const saPromise = getJson<SolarActivityFull>("/space-weather/solar-activity", 1200);
-  const [sw, sa] = await Promise.all([swPromise, saPromise]);
+  const swPromise = getJson<SpaceWeatherCurrent>("/space-weather/current", 1100);
+  // Solar is secondary — do not let DONKI/NOAA hold the HTML shell.
+  const saPromise = getJson<SolarActivityFull>("/space-weather/solar-activity", 700);
+  const sw = await swPromise;
+  const sa = await Promise.race([
+    saPromise,
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), 450)),
+  ]);
   return { sw, sa };
 }

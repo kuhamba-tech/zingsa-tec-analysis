@@ -226,7 +226,12 @@ def clear_space_weather_cache() -> None:
 
 
 def _request_noaa_json(url: str) -> Any:
-    """Fetch a NOAA JSON product with one retry for transient failures."""
+    """Fetch a NOAA JSON product with one retry for transient failures.
+
+    Keep the connect/read budget tight so a cold dashboard fill cannot sit on
+    a hung NOAA socket for tens of seconds. Stale-while-revalidate already
+    serves last-known values while a background refresh finishes.
+    """
     if not _REQUESTS_AVAILABLE:
         return None
     import time
@@ -235,14 +240,14 @@ def _request_noaa_json(url: str) -> Any:
         try:
             response = requests.get(
                 url,
-                timeout=10,
+                timeout=(2.0, 3.5),
                 headers=_NOAA_HEADERS,
             )
             response.raise_for_status()
             return response.json()
         except Exception:
             if attempt == 0:
-                time.sleep(0.25)
+                time.sleep(0.12)
     return None
 
 

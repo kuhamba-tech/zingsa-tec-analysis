@@ -59,7 +59,11 @@ def log_snapshot(*, source: str = "scheduler", force: bool = False) -> bool:
         from zgiis.db.space_weather_db import snapshot_from_sw_dict
 
         sw = get_space_weather(use_third_party=False)
+        if not isinstance(sw, dict):
+            return False
         row = snapshot_from_sw_dict(sw, source=source)
+        if not isinstance(row, dict):
+            return False
         _attach_mean_vtec(row)
         # Vercel dashboard polls often have no TecDB / NTRIP — writing
         # stations_online=0 + mean_vtec=NULL would become latest and make
