@@ -98,9 +98,16 @@ async function ensureFrontend() {
   await new Promise((r) => setTimeout(r, 800));
   clearNextCache();
 
+  const nextBin = path.join(frontend, "node_modules", ".bin", "next");
+  if (!existsSync(nextBin)) {
+    console.error("Missing frontend/node_modules — run npm install in frontend/ first.");
+    process.exit(1);
+  }
+  // Prefer the local binary: system `npx` can fail with
+  // "Class extends value undefined is not a constructor" on some Node builds.
   start(
-    "npx",
-    ["next", "dev", "--webpack", "--port", "3000", "--hostname", "127.0.0.1"],
+    nextBin,
+    ["dev", "--webpack", "--port", "3000", "--hostname", "127.0.0.1"],
     frontend,
     "frontend :3000",
   );
