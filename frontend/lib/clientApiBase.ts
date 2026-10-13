@@ -30,8 +30,19 @@ export function resolveClientApiBase(): string {
   const local =
     hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
   const vercelHost = hostname.includes("vercel.app") || hostname.includes("vercel.com");
+  // Cursor Cloud Agent port forwards (p-<port>-pod-*.agent.cvm.dev) — use the
+  // Next Route Handler proxy so authenticated document sessions keep working
+  // when /backend rewrites are flaky through the ingress.
+  const cursorCloudPreview =
+    hostname.includes("agent.cvm.dev") ||
+    hostname.endsWith(".cvm.dev") ||
+    hostname.includes("cursorusercontent.com");
 
-  // Next dev / common frontend ports / Cursor port-forward previews — same-origin /backend.
+  if (cursorCloudPreview) {
+    return `${origin}/api/zgiis`;
+  }
+
+  // Next dev / common frontend ports — same-origin /backend rewrite.
   // Never fall through to /api on unknown tunnel hosts in development: that 404s and
   // leaves Live Metric stuck on Connecting / Updating….
   if (

@@ -30,7 +30,11 @@ const nextConfig: NextConfig = {
     "*.cursor.com",
     // Cursor Cloud Agent port-forward previews (p-<port>-pod-*.agent.cvm.dev)
     "*.agent.cvm.dev",
+    "**.agent.cvm.dev",
     "*.cvm.dev",
+    "**.cvm.dev",
+    // Exact host from current agent preview (also covered by wildcards).
+    "p-3100-pod-ejgw4odx2bes3jj4x7kbv7nsoi-ec84681ac143a9c58fa4-us4.agent.cvm.dev",
     "*.ngrok-free.app",
     "*.ngrok.io",
   ],
