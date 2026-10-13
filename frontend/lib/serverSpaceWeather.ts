@@ -40,13 +40,13 @@ export type SpaceWeatherBootstrap = {
 };
 
 export async function fetchSpaceWeatherBootstrap(): Promise<SpaceWeatherBootstrap> {
-  const swPromise = getJson<SpaceWeatherCurrent>("/space-weather/current", 1100);
-  // Solar is secondary — do not let DONKI/NOAA hold the HTML shell.
-  const saPromise = getJson<SolarActivityFull>("/space-weather/solar-activity", 700);
+  // Keep SSR budget tight so Cursor previews paint metric cards quickly.
+  const swPromise = getJson<SpaceWeatherCurrent>("/space-weather/current", 900);
+  const saPromise = getJson<SolarActivityFull>("/space-weather/solar-activity", 500);
   const sw = await swPromise;
   const sa = await Promise.race([
     saPromise,
-    new Promise<null>((resolve) => setTimeout(() => resolve(null), 450)),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), 280)),
   ]);
   return { sw, sa };
 }

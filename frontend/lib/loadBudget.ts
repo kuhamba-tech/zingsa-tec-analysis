@@ -69,9 +69,9 @@ export function getLoadProfile(): LoadProfile {
       lightPayload: true,
       pollIntervalMs: 90_000,
       timelineMaxPoints: 48,
-      heavyMountDelayMs: 1400,
+      heavyMountDelayMs: 400,
       deferSecondaryApis: true,
-      stationsDeferMs: 1800,
+      stationsDeferMs: 600,
       defaultRangeHours: 6,
       vtecResampleMinutes: 10,
       vtecHoursCap: 18,
@@ -89,10 +89,10 @@ export function getLoadProfile(): LoadProfile {
     // Both desktop and mobile: longer polls reduce background contention.
     pollIntervalMs: saveData || slow ? 180_000 : constrained ? 120_000 : 60_000,
     timelineMaxPoints: saveData || slow ? 32 : constrained ? 48 : 96,
-    heavyMountDelayMs: saveData || slow ? 3000 : constrained ? 2000 : 700,
+    heavyMountDelayMs: saveData || slow ? 1200 : constrained ? 700 : 180,
     // Always skip heliospheric/timeline warm on first paint — tabs warm on demand.
     deferSecondaryApis: true,
-    stationsDeferMs: saveData || slow ? 3500 : constrained ? 2200 : 900,
+    stationsDeferMs: saveData || slow ? 1800 : constrained ? 900 : 350,
     // Short first window everywhere; users can expand to 24h / 3d.
     defaultRangeHours: 6,
     vtecResampleMinutes: saveData || slow ? 15 : constrained ? 10 : 5,

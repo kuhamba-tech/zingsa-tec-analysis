@@ -49,10 +49,14 @@ import type { EkfPoint, EkfStatus, SpaceWeatherCurrent, SolarActivityFull, Space
 import { DashboardHeaderClocks } from "@/components/dashboard/DashboardClocks";
 import SpaceWeatherTitleIcon from "@/components/spaceWeather/SpaceWeatherTitleIcon";
 
+/** Quiet placeholder — avoid a wall of "Loading section…" on first paint. */
 const sectionFallback = (
-  <div className="banner banner-info" role="status" style={{ margin: "0.75rem 0" }}>
-    Loading section…
-  </div>
+  <div
+    className="sw-deferred-block"
+    role="status"
+    aria-label="Loading charts"
+    style={{ minHeight: 8, margin: "0.35rem 0" }}
+  />
 );
 
 const CauseEffectTimelineStack = dynamic(
