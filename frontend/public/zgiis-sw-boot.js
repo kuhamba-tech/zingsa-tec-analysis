@@ -88,7 +88,7 @@
     var vercel = host.indexOf("vercel.app") >= 0 || host.indexOf("vercel.com") >= 0;
     var base;
     // Prefer Next /backend proxy for local + Cursor/cloud previews. Only Vercel uses /api.
-    if (port === "3000" || port === "3001" || port === "43128") {
+    if (port === "3000" || port === "3001" || port === "3100" || port === "43128") {
       base = origin + "/backend";
     } else if (local && port === "8000") {
       base = origin;

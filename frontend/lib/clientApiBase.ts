@@ -38,6 +38,7 @@ export function resolveClientApiBase(): string {
     process.env.NODE_ENV === "development" ||
     port === "3000" ||
     port === "3001" ||
+    port === "3100" ||
     port === "43128"
   ) {
     return `${origin}/backend`;

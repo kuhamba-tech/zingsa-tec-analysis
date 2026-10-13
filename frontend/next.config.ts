@@ -27,6 +27,7 @@ const nextConfig: NextConfig = {
     "*.cursor.sh",
     "*.cursorapi.com",
     "*.cursorusercontent.com",
+    "*.cursor.com",
     "*.ngrok-free.app",
     "*.ngrok.io",
   ],
