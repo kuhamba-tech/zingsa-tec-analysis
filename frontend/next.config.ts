@@ -28,6 +28,9 @@ const nextConfig: NextConfig = {
     "*.cursorapi.com",
     "*.cursorusercontent.com",
     "*.cursor.com",
+    // Cursor Cloud Agent port-forward previews (p-<port>-pod-*.agent.cvm.dev)
+    "*.agent.cvm.dev",
+    "*.cvm.dev",
     "*.ngrok-free.app",
     "*.ngrok.io",
   ],
