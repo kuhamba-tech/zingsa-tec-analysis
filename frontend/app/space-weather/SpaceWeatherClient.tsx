@@ -1099,6 +1099,10 @@ export default function SpaceWeatherClient({
           className="sw-deferred-block"
           minHeight={280}
           rootMargin="20px 0px"
+          // Active tab must mount immediately — Cursor/cloud previews can leave
+          // IntersectionObserver deferred blocks stuck on "Loading section…".
+          eager
+          minDelayMs={0}
           fallback={sectionFallback}
         >
         <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
