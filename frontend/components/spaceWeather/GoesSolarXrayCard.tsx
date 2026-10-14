@@ -1,10 +1,22 @@
 "use client";
 
 import type { CSSProperties, KeyboardEvent } from "react";
-import LineChart from "@/components/charts/LineChart";
-import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
+import dynamic from "next/dynamic";
 import { FLARE_SCALE } from "@/lib/solarEventColors";
 import type { ChartAnalysisBlock } from "@/lib/multiSourceChartAnalysis";
+
+/** Keep chart.js out of this card's webpack chunk (avoids ~2MB ChunkLoadError on CVM). */
+const LineChart = dynamic(() => import("@/components/charts/LineChart"), {
+  ssr: false,
+  loading: () => (
+    <div className="banner banner-info" role="status">
+      Loading chart…
+    </div>
+  ),
+});
+const ChartAnalysisBox = dynamic(() => import("@/components/dashboard/ChartAnalysisBox"), {
+  ssr: false,
+});
 
 type AxisProps = {
   xMin?: number;

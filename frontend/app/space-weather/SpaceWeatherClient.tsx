@@ -71,7 +71,10 @@ const HeliosphericMonitorStack = dynamic(
   { ssr: false, loading: () => sectionFallback },
 );
 const GoesSolarXrayCard = dynamic(
-  () => import("@/components/spaceWeather/GoesSolarXrayCard"),
+  () =>
+    import("@/lib/loadGoesSolarXrayCard").then(({ loadGoesSolarXrayCard }) =>
+      loadGoesSolarXrayCard().then((m) => m.default),
+    ),
   { ssr: false, loading: () => sectionFallback },
 );
 const SolarCycleFullRecordCharts = dynamic(
