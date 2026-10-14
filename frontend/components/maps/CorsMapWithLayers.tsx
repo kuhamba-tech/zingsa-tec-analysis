@@ -360,7 +360,7 @@ export default function CorsMapWithLayers({
       {tecLayerActive && (
         <div className="home-live-tec-below" aria-live="polite">
           <div className="home-live-tec-below-label">
-            Live TEC · G = GOPI (NTRIP) · Gg = Cesaroni
+            Live TEC · G = GOPI (NTRIP, operational) · Gg = Cesaroni (research calibration)
           </div>
           {heatmap?.available ? (
             <>

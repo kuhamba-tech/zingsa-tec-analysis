@@ -39,6 +39,10 @@ MAX_POLY_DEGREE = 2
 ELEV_MASK_DEG = 30.0
 # Magnetic dip equator offset over Africa (~15°E) — notebook Fig 5.
 AFRICA_MAG_EQ_OFFSET_DEG = 5.0
+# Live NTRIP windows are short: unbounded arc biases can invent 100+ TECU
+# "Gg" spikes that are calibration failures, not ionosphere (e.g. BEIT 126).
+MAX_LIVE_VTEC_TECU = 90.0
+MAX_ARC_BIAS_ABS_TECU = 35.0
 
 GG_REFERENCES = [
     {
@@ -263,7 +267,7 @@ def calibrate_gg_from_observations(
         if not math.isfinite(m) or m <= 0:
             continue
         vtec_map = stec_f / m
-        if not (0.0 < vtec_map < 250.0):
+        if not (0.0 < vtec_map < MAX_LIVE_VTEC_TECU):
             continue
 
         lat = raw.get("ipp_lat")
@@ -349,7 +353,7 @@ def calibrate_gg_from_observations(
                 arc_idx = idx[arcs_k[idx] == arc]
                 bias = float(np.median(mapped_k[arc_idx]) - global_med)
                 vtec_c = float(mapped_k[j] - bias)
-                if not (0.0 < vtec_c < 250.0):
+                if not _gg_vtec_plausible(vtec_c, float(mapped_k[j]), bias):
                     continue
                 out.append(
                     {
@@ -377,7 +381,7 @@ def calibrate_gg_from_observations(
             # Calibrated VTEC = mapped VTEC − arc bias; blend toward poly surface
             vtec_c = float(mapped_k[j] - bias)
             vtec_c = 0.85 * vtec_c + 0.15 * poly_v
-            if not (0.0 < vtec_c < 250.0):
+            if not _gg_vtec_plausible(vtec_c, float(mapped_k[j]), bias):
                 continue
             base = {
                 k: v
@@ -397,6 +401,18 @@ def calibrate_gg_from_observations(
                 }
             )
     return out
+
+
+def _gg_vtec_plausible(vtec_c: float, mapped_vtec: float, arc_bias: float) -> bool:
+    """Drop underconstrained live Gg solutions that invent extreme TECU."""
+    if not (0.0 < vtec_c < MAX_LIVE_VTEC_TECU):
+        return False
+    if abs(float(arc_bias)) > MAX_ARC_BIAS_ABS_TECU:
+        return False
+    # Arc bias should not rewrite the sample into a different ionosphere.
+    if abs(float(vtec_c) - float(mapped_vtec)) > MAX_ARC_BIAS_ABS_TECU:
+        return False
+    return True
 
 
 def try_pytecgg_available() -> bool:

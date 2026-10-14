@@ -214,10 +214,14 @@ def _station_method_summary(
                 val = float(o.vtec_tecu)
             except (TypeError, ValueError):
                 continue
-            if not (0.0 < val < 200.0):
+            if not (0.0 < val < 90.0):
                 continue
             out.setdefault(code, []).append((str(o.time or ""), val))
         return out
+
+    # Live Gg on short NTRIP windows can still diverge; hide pairs where
+    # |Δ| exceeds a calibration-failure threshold so map labels stay physical.
+    MAX_PAIR_DELTA_TECU = 40.0
 
     gopi_b = _bucket(gopi)
     gg_b = _bucket(gg)
@@ -237,6 +241,12 @@ def _station_method_summary(
         q_mean = (sum(q_vals) / len(q_vals)) if q_vals else None
         d_latest = (q_latest - g_latest) if (q_latest is not None and g_latest is not None) else None
         d_mean = (q_mean - g_mean) if (q_mean is not None and g_mean is not None) else None
+        if d_latest is not None and abs(d_latest) > MAX_PAIR_DELTA_TECU:
+            q_latest = None
+            d_latest = None
+        if d_mean is not None and abs(d_mean) > MAX_PAIR_DELTA_TECU:
+            q_mean = None
+            d_mean = None
         if d_latest is not None:
             deltas_latest.append(d_latest)
         if d_mean is not None:
@@ -381,7 +391,9 @@ def _build_tec_method_comparison(
         "TEC Heat Map. Method 2 (Gg = Cesaroni) uses Ciraolo/Cesaroni calibration "
         "(refs Ciraolo 2007, Cesaroni 2015/2021, Ventriglia/PyTECGg 2026). "
         f"{engine_note} Both methods use elev ≥ 30° and IPP shell 350 km so ΔVTEC = Gg − GOPI "
-        "reflects calibration, not geometry."
+        "reflects calibration, not geometry. Large live gaps usually mean underconstrained "
+        "Gg arc biases on short NTRIP windows (not a second ionosphere) — trust G for "
+        "operations; Gg is a research overlay until a full RINEX-day PyTECGg run."
     )
     return TecMethodComparisonResponse(
         available=bool(gopi),
