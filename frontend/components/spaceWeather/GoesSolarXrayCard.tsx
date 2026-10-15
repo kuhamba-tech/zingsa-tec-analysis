@@ -5,8 +5,10 @@ import dynamic from "next/dynamic";
 import { FLARE_SCALE } from "@/lib/solarEventColors";
 import type { ChartAnalysisBlock } from "@/lib/multiSourceChartAnalysis";
 
-/** Keep chart.js out of this card's webpack chunk (avoids ~2MB ChunkLoadError on CVM). */
-const LineChart = dynamic(() => import("@/components/charts/LineChart"), {
+import { loadLineChart } from "@/lib/loadLineChart";
+
+/** Shared Chart.js line chunk — one download for all Space Weather graphs. */
+const LineChart = dynamic(() => loadLineChart().then((m) => m.default), {
   ssr: false,
   loading: () => (
     <div className="banner banner-info" role="status">

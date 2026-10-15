@@ -1,9 +1,19 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import LineChart from "@/components/charts/LineChart";
+import dynamic from "next/dynamic";
 import SwSectionBanner from "@/components/spaceWeather/SwSectionBanner";
 import { getSolarActivity } from "@/lib/api";
+import { loadLineChart } from "@/lib/loadLineChart";
+
+const LineChart = dynamic(() => loadLineChart().then((m) => m.default), {
+  ssr: false,
+  loading: () => (
+    <div className="banner banner-info" role="status">
+      Loading chart…
+    </div>
+  ),
+});
 import {
   ONE_H_MS,
   parseTimelineEpoch,

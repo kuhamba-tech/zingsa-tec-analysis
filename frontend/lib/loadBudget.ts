@@ -104,7 +104,8 @@ export function getLoadProfile(): LoadProfile {
     // Both desktop and mobile: longer polls reduce background contention.
     pollIntervalMs: slowNetwork ? 180_000 : constrained ? 120_000 : 60_000,
     timelineMaxPoints: slowNetwork ? 32 : constrained ? 48 : 96,
-    heavyMountDelayMs: cursorPreview ? 1600 : slowNetwork ? 1200 : constrained ? 700 : 180,
+    // Cursor: short delay so shared Chart.js can prefetch, then graphs mount.
+    heavyMountDelayMs: cursorPreview ? 550 : slowNetwork ? 900 : constrained ? 500 : 120,
     // Always skip heliospheric/timeline warm on first paint — tabs warm on demand.
     deferSecondaryApis: true,
     stationsDeferMs: cursorPreview ? 2200 : slowNetwork ? 1800 : constrained ? 900 : 350,
@@ -156,7 +157,14 @@ export function afterNextPaint(fn: () => void, timeoutMs = 48): () => void {
 /** Defer non-critical work; waits longer on constrained/slow clients. */
 export function scheduleSecondary(fn: () => void, profile?: LoadProfile): () => void {
   const p = profile ?? getLoadProfile();
-  const timeout = p.slowNetwork ? 4200 : p.constrained ? 2600 : 1100;
+  // Cursor CVM: warm graph APIs sooner so charts are not starved after paint.
+  const timeout = isCursorCloudPreview()
+    ? 700
+    : p.slowNetwork
+      ? 4200
+      : p.constrained
+        ? 2600
+        : 1100;
   return afterNextPaint(fn, timeout);
 }
 

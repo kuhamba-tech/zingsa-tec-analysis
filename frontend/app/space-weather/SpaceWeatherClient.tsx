@@ -25,6 +25,7 @@ import {
   isDocumentVisible,
   scheduleSecondary,
 } from "@/lib/loadBudget";
+import { prefetchLineChart } from "@/lib/loadLineChart";
 import type { ChartAnalysisBlock } from "@/lib/multiSourceChartAnalysis";
 import {
   analyzeF107Timeline,
@@ -639,6 +640,9 @@ export default function SpaceWeatherClient({
 
   useEffect(() => {
     const profile = getLoadProfile();
+    // Start Chart.js download immediately after first paint so GOES / timelines
+    // do not wait on a cold multi-MB chunk over the Cursor ingress.
+    const stopPrefetch = afterNextPaint(() => prefetchLineChart(), 40);
     void bootSpaceWeather().then((boot) => {
       if (!boot) return;
       setSw(boot);
@@ -671,6 +675,7 @@ export default function SpaceWeatherClient({
       if (!peekSpaceWeather()) fetchAll(false);
     }, 5_500);
     return () => {
+      stopPrefetch();
       window.clearInterval(id);
       window.clearTimeout(watchdog);
       window.clearTimeout(retry1);
