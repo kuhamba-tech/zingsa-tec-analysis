@@ -692,13 +692,18 @@ export default function SpaceWeatherClient({
   // Never claim “figures show N/A” while we already have live/cached values on screen.
   const showUnavailableBanner = Boolean(freshnessMsg) && !sw;
   const loadProfile = useMemo(() => getLoadProfile(), []);
-  // Heavy Zimbabwe labs: phones keep the explicit load button; desktop enables
-  // after idle so the first Zimbabwe paint is not blocked by research charts.
+  // Heavy Zimbabwe labs (seasonal TEC climatology, North–South, Gg compare):
+  // keep an explicit load button on light/CVM first paint, but enable once the
+  // user opens the Zimbabwe tab — otherwise climatology looks “removed”.
   const [mobileHeavyLabs, setMobileHeavyLabs] = useState(false);
   useEffect(() => {
     if (getLoadProfile().lightPayload) return;
     return afterNextPaint(() => setMobileHeavyLabs(true), 1800);
   }, []);
+  useEffect(() => {
+    if (tab !== 2 || mobileHeavyLabs) return;
+    return afterNextPaint(() => setMobileHeavyLabs(true), 250);
+  }, [tab, mobileHeavyLabs]);
 
   // When the user opens Live Metric / Solar, warm chart APIs after paint —
   // never compete with metric-card hydration on Cursor CVM previews.
@@ -1435,15 +1440,15 @@ export default function SpaceWeatherClient({
           {!mobileHeavyLabs ? (
             <div className="card" style={{ padding: "0.9rem 1rem" }}>
               <p className="sw-supporting-text" style={{ margin: "0 0 0.65rem" }}>
-                Research charts, North–South lab, and Gg comparison are deferred on this
-                device so Space Weather opens faster. Load them when you need them.
+                Seasonal TEC climatology (equinox/solstice), North–South research, and Gg
+                comparison are deferred so this tab opens faster. Load them when you need them.
               </p>
               <button
                 type="button"
                 className="btn"
                 onClick={() => setMobileHeavyLabs(true)}
               >
-                Load research &amp; comparison labs
+                Load TEC climatology &amp; research labs
               </button>
             </div>
           ) : (

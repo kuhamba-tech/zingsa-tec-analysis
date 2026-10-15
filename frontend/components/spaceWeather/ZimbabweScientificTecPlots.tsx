@@ -299,13 +299,13 @@ export default function ZimbabweScientificTecPlots() {
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
       <div className="card">
         <div className="metric-label" style={{ marginBottom: 4 }}>
-          Scientific TEC analysis — four observation-based plots
+          TEC climatology &amp; scientific plots — four observation-based charts
         </div>
         <p className="sw-supporting-text" style={{ margin: 0 }}>
-          Diurnal latitudinal comparison, equinox/solstice seasonal composites, TEC versus
-          approximate MODIP along the Zimbabwe north–south CORS transect, and quiet versus
-          disturbed geomagnetic conditions. Shaded ribbons are interquartile ranges (25th–75th
-          percentile) from measured samples — not arbitrary error bars.
+          Diurnal latitudinal comparison, seasonal TEC climatology (equinox/solstice windows),
+          TEC versus approximate MODIP along the Zimbabwe north–south CORS transect, and quiet
+          versus disturbed geomagnetic conditions. Shaded ribbons are interquartile ranges
+          (25th–75th percentile) from measured samples — not arbitrary error bars.
         </p>
         {loading && (
           <p className="sw-supporting-text" style={{ margin: "0.5rem 0 0" }}>
@@ -352,8 +352,8 @@ export default function ZimbabweScientificTecPlots() {
       </PlotCard>
 
       <PlotCard
-        title="2 · Seasonal TEC — equinox & solstice windows"
-        subtitle="Diurnal composites within ±15 days of March equinox, June solstice, September equinox, and December solstice (CMN archive)."
+        title="2 · Seasonal TEC climatology — equinox & solstice windows"
+        subtitle="Climatology composites within ±15 days of March equinox, June solstice, September equinox, and December solstice (CMN archive)."
         uncertainty={seasonal?.uncertainty}
         note={seasonal?.note}
         empty={
