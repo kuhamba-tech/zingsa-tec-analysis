@@ -246,6 +246,13 @@ function fmt(value: number | null | undefined, digits = 2) {
   return typeof value === "number" && Number.isFinite(value) ? value.toFixed(digits) : "N/A";
 }
 
+/** Anchor a day-of-year to a calendar month label for the climatology reference year. */
+function doyMonthLabel(doy: number, year: number) {
+  const safeDoy = Math.min(Math.max(Math.round(doy), 1), 366);
+  const date = new Date(Date.UTC(year, 0, safeDoy));
+  return date.toLocaleString("en-GB", { month: "short", timeZone: "UTC" });
+}
+
 function timeSeriesLink(date: string, station: string) {
   const params = new URLSearchParams({ start: date, end: date, tab: "storms" });
   if (station) params.set("station", station);
@@ -271,6 +278,7 @@ export default function AnomalyDetectionPage() {
   const [stationCatalog, setStationCatalog] = useState<Station[]>([]);
   const [trainStarting, setTrainStarting] = useState(false);
   const [pct, setPct] = useState(95);
+  const [refYear, setRefYear] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -367,6 +375,27 @@ export default function AnomalyDetectionPage() {
     const top = anomalyDays.slice().sort((a, b) => b.mean_vtec - a.mean_vtec)[0];
     return interpretAnomalyDay(top, pct);
   }, [anomalyDays, pct]);
+  const climatologyYears = useMemo(() => {
+    const years = new Set<number>();
+    for (const row of solar) {
+      if (Number.isFinite(row.year)) years.add(row.year);
+    }
+    for (const day of anomalies) {
+      const y = Number(day.date.slice(0, 4));
+      if (Number.isFinite(y)) years.add(y);
+    }
+    return Array.from(years).sort((a, b) => a - b);
+  }, [solar, anomalies]);
+
+  useEffect(() => {
+    if (!climatologyYears.length) return;
+    if (refYear == null || !climatologyYears.includes(refYear)) {
+      setRefYear(climatologyYears[0]);
+    }
+  }, [climatologyYears, refYear]);
+
+  const climatologyYear = refYear ?? climatologyYears[0] ?? new Date().getUTCFullYear();
+
   const highSeason = seasonal.reduce<SeasonalRow | null>(
     (best, item) => (!best || item.mean > best.mean ? item : best),
     null,
@@ -436,6 +465,28 @@ export default function AnomalyDetectionPage() {
               </option>
             ))}
           </select>
+        </div>
+        <div>
+          <div className="metric-label">Reference year (climatology)</div>
+          <select
+            aria-label="Reference year for climatology"
+            value={climatologyYear}
+            onChange={(event) => setRefYear(Number(event.target.value))}
+            disabled={climatologyYears.length === 0}
+          >
+            {climatologyYears.length === 0 ? (
+              <option value={climatologyYear}>No archive years yet</option>
+            ) : (
+              climatologyYears.map((year) => (
+                <option key={year} value={year}>
+                  {year}
+                </option>
+              ))
+            )}
+          </select>
+          <p className="small-note" style={{ marginTop: "0.35rem" }}>
+            Anchors Storm Comparison month labels to this year&apos;s calendar.
+          </p>
         </div>
         {!kpAvailable && !loading && anomalies.length > 0 && (
           <p className="small-note">GFZ Kp index unavailable — storm flags may be incomplete.</p>
@@ -707,9 +758,15 @@ export default function AnomalyDetectionPage() {
 
           {stormComparison.length > 0 ? (
             <div className="card">
-              <div className="metric-label">Mean VTEC by day of year (DOY)</div>
+              <div className="metric-label">
+                Storm vs Quiet Day VTEC by Month ({climatologyYear})
+              </div>
+              <p className="small-note">
+                Day-of-year means plotted against months using the climatology reference year{" "}
+                {climatologyYear}.
+              </p>
               <LineChart
-                labels={stormComparison.map((r) => String(r.doy))}
+                labels={stormComparison.map((r) => doyMonthLabel(r.doy, climatologyYear))}
                 datasets={[
                   {
                     label: "Quiet days (Kp < 3)",

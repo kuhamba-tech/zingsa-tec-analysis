@@ -30,7 +30,10 @@ export default function AnomalyGuidePanel() {
           <span className="anomaly-guide-icon">⛈️</span>
           <div>
             <strong>Storm Comparison</strong>
-            <p>Compares quiet days (Kp &lt; 3) vs storm days (Kp ≥ 5) to show how geomagnetic activity lifts TEC over the year.</p>
+            <p>
+              Compares quiet days (Kp &lt; 3) vs storm days (Kp ≥ 5). Use{" "}
+              <em>Reference year (climatology)</em> above to anchor the month axis.
+            </p>
           </div>
         </div>
         <div className="anomaly-guide-item">
