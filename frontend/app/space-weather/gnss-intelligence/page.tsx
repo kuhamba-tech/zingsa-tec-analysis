@@ -274,19 +274,35 @@ function AudienceNewsCard({
 }
 
 export default function GnssIntelligencePage() {
+  // SSR-safe defaults only — never peek client stores in useState, or the first
+  // client paint (with warm cache) diverges from the server HTML and hydrates fail.
   const [bundle, setBundle] = useState<GnssForecastBundle | null>(null);
-  const [sw, setSw] = useState<SpaceWeatherCurrent | null>(() => peekSpaceWeather());
-  const [loading, setLoading] = useState(() => !peekSpaceWeather() && peekStations().length === 0);
+  const [sw, setSw] = useState<SpaceWeatherCurrent | null>(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const swRef = useRef<SpaceWeatherCurrent | null>(peekSpaceWeather());
+  const [clockReady, setClockReady] = useState(false);
+  const swRef = useRef<SpaceWeatherCurrent | null>(null);
   swRef.current = sw;
 
   useEffect(() => {
     let cancelled = false;
+    setClockReady(true);
+
+    const cachedSw = peekSpaceWeather();
+    const cachedStations = peekStations();
+    if (cachedSw) {
+      swRef.current = cachedSw;
+      setSw(cachedSw);
+      if (cachedStations.length > 0) {
+        setBundle(buildGnssForecastBundle(cachedSw, cachedStations));
+        setLoading(false);
+      }
+    }
 
     async function load(background = false) {
       if (!background) {
-        setLoading(!peekSpaceWeather() && peekStations().length === 0);
+        const hasWarmCache = Boolean(peekSpaceWeather()) || peekStations().length > 0;
+        setLoading(!hasWarmCache && !swRef.current);
         setError(null);
       }
       try {
@@ -336,7 +352,8 @@ export default function GnssIntelligencePage() {
   const forecasts = bundle?.forecasts ?? [];
   const nationalTone = bundle ? effectiveNavigationTone(forecasts, sw) : "excellent";
   const sourceTimestamp = sw?.updated_utc ?? null;
-  const sourceAgeMinutes = timestampAgeMinutes(sourceTimestamp);
+  // Age labels use Date.now() — only compute after mount so SSR/client HTML match.
+  const sourceAgeMinutes = clockReady ? timestampAgeMinutes(sourceTimestamp) : null;
   const sourceTimestampLabel = formatNewsTimestamp(sourceTimestamp);
   const generatedTimestampLabel = formatNewsTimestamp(bundle?.computedAt);
   const sourceIsStale = sourceAgeMinutes != null && sourceAgeMinutes > 30;
@@ -430,9 +447,11 @@ export default function GnssIntelligencePage() {
             title="Analysis — how to read today's Navigation News"
           />
         )}
-        {loading && !bundle && (
-          <div className="banner banner-info">Preparing audience briefs from live inputs…</div>
-        )}
+        <div className="gnwi-news-loading-slot" aria-live="polite">
+          {loading && !bundle ? (
+            <div className="banner banner-info">Preparing audience briefs from live inputs…</div>
+          ) : null}
+        </div>
         <div className="card gnwi-agent-api">
           <h3 className="gnwi-agent-api-title">Broadcast agent API</h3>
           <p className="gnwi-agent-api-lead">
