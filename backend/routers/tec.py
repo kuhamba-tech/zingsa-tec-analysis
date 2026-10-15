@@ -212,7 +212,7 @@ async def gfz_kp_analysis(
     station: str | None = Query(None),
     _=Depends(require_api_key),
 ):
-    """Fetch GFZ Potsdam Kp/ap/Ap/Cp indices and correlate with archived VTEC."""
+    """Fetch GFZ Potsdam Kp/ap/Ap/SN/F10.7 (TXT since-1932 + nowcast) and correlate with archived VTEC."""
     try:
         start_d = date.fromisoformat(start[:10])
         end_d = date.fromisoformat(end[:10])

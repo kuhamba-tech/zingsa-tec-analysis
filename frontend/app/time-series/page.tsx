@@ -704,8 +704,16 @@ export default function TimeSeriesPage() {
         </div>
         <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", margin: 0 }}>
           Load daily space-weather indices from all four providers in one request, then compare Kp, Dst, F10.7,
-          SSN, and Ap on shared charts. COSMIC-2 adds provisional GNSS radio-occultation ionPrf archive coverage
-          from UCAR for independent ionospheric profile context.
+          SSN, and Ap on shared charts. GFZ uses the official{" "}
+          <a href="https://kp.gfz.de/app/files/Kp_ap_Ap_SN_F107_since_1932.txt" target="_blank" rel="noreferrer">
+            Kp_ap_Ap_SN_F107_since_1932.txt
+          </a>{" "}
+          archive plus{" "}
+          <a href="https://kp.gfz.de/app/files/Kp_ap_Ap_SN_F107_nowcast.txt" target="_blank" rel="noreferrer">
+            nowcast.txt
+          </a>
+          . COSMIC-2 adds provisional GNSS radio-occultation ionPrf archive coverage from UCAR for independent
+          ionospheric profile context.
         </p>
         <div className="omni-range-grid">
           <label>
