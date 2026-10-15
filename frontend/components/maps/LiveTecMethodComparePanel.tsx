@@ -77,8 +77,10 @@ export default function LiveTecMethodComparePanel({ className = "" }: { classNam
         <div>
           <div className="live-tec-method-compare-title">Live VTEC method comparison</div>
           <p className="live-tec-method-compare-lead">
-            Same CORS dual-frequency samples, two calibrations — so you can see why absolute TECU
-            can differ while the ionosphere is shared.
+            Same CORS dual-frequency samples, two calibrations — so absolute TECU can differ
+            while the ionosphere is shared. Large Δ (tens of TECU) on live windows means Gg
+            arc-bias fit is underconstrained, not a real second TEC field — use{" "}
+            <strong style={{ color: GOPI_COLOR }}>G (GOPI)</strong> for operations.
           </p>
         </div>
         <Link href="/space-weather/?tab=zimbabwe" className="live-tec-method-compare-link">

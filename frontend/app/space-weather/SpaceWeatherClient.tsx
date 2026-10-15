@@ -25,6 +25,7 @@ import {
   isDocumentVisible,
   scheduleSecondary,
 } from "@/lib/loadBudget";
+import { prefetchLineChart } from "@/lib/loadLineChart";
 import type { ChartAnalysisBlock } from "@/lib/multiSourceChartAnalysis";
 import {
   analyzeF107Timeline,
@@ -49,10 +50,14 @@ import type { EkfPoint, EkfStatus, SpaceWeatherCurrent, SolarActivityFull, Space
 import { DashboardHeaderClocks } from "@/components/dashboard/DashboardClocks";
 import SpaceWeatherTitleIcon from "@/components/spaceWeather/SpaceWeatherTitleIcon";
 
+/** Quiet placeholder — avoid a wall of "Loading section…" on first paint. */
 const sectionFallback = (
-  <div className="banner banner-info" role="status" style={{ margin: "0.75rem 0" }}>
-    Loading section…
-  </div>
+  <div
+    className="sw-deferred-block"
+    role="status"
+    aria-label="Loading charts"
+    style={{ minHeight: 8, margin: "0.35rem 0" }}
+  />
 );
 
 const CauseEffectTimelineStack = dynamic(
@@ -67,7 +72,10 @@ const HeliosphericMonitorStack = dynamic(
   { ssr: false, loading: () => sectionFallback },
 );
 const GoesSolarXrayCard = dynamic(
-  () => import("@/components/spaceWeather/GoesSolarXrayCard"),
+  () =>
+    import("@/lib/loadGoesSolarXrayCard").then(({ loadGoesSolarXrayCard }) =>
+      loadGoesSolarXrayCard().then((m) => m.default),
+    ),
   { ssr: false, loading: () => sectionFallback },
 );
 const SolarCycleFullRecordCharts = dynamic(
@@ -632,6 +640,9 @@ export default function SpaceWeatherClient({
 
   useEffect(() => {
     const profile = getLoadProfile();
+    // Start Chart.js download immediately after first paint so GOES / timelines
+    // do not wait on a cold multi-MB chunk over the Cursor ingress.
+    const stopPrefetch = afterNextPaint(() => prefetchLineChart(), 40);
     void bootSpaceWeather().then((boot) => {
       if (!boot) return;
       setSw(boot);
@@ -664,6 +675,7 @@ export default function SpaceWeatherClient({
       if (!peekSpaceWeather()) fetchAll(false);
     }, 5_500);
     return () => {
+      stopPrefetch();
       window.clearInterval(id);
       window.clearTimeout(watchdog);
       window.clearTimeout(retry1);
@@ -688,13 +700,16 @@ export default function SpaceWeatherClient({
     return afterNextPaint(() => setMobileHeavyLabs(true), 1800);
   }, []);
 
-  // When the user opens Live Metric / Solar, warm deferred APIs once.
+  // When the user opens Live Metric / Solar, warm chart APIs after paint —
+  // never compete with metric-card hydration on Cursor CVM previews.
   useEffect(() => {
     if (!loadProfile.deferSecondaryApis) return;
     if (tab !== 0 && tab !== 1) return;
-    void getHeliosphericMonitor(false, false).catch(() => null);
-    getTimelines(loadProfile.timelineMaxPoints).then(setTl).catch(() => null);
-    getEkfStatus().then(setEkf).catch(() => null);
+    return scheduleSecondary(() => {
+      void getHeliosphericMonitor(false, false).catch(() => null);
+      getTimelines(loadProfile.timelineMaxPoints).then(setTl).catch(() => null);
+      getEkfStatus().then(setEkf).catch(() => null);
+    }, loadProfile);
   }, [tab, loadProfile]);
 
   const handleRefresh = async () => {
@@ -1055,8 +1070,8 @@ export default function SpaceWeatherClient({
           <DeferredMount
             className="sw-deferred-block"
             minHeight={320}
-            rootMargin="80px 0px"
-            minDelayMs={loadProfile.heavyMountDelayMs}
+            rootMargin="40px 0px"
+            minDelayMs={loadProfile.heavyMountDelayMs + 800}
             fallback={sectionFallback}
           >
             <CauseEffectTimelineStack variant="overview" />
@@ -1064,8 +1079,8 @@ export default function SpaceWeatherClient({
           <DeferredMount
             className="sw-deferred-block"
             minHeight={120}
-            rootMargin="60px 0px"
-            minDelayMs={loadProfile.heavyMountDelayMs + 400}
+            rootMargin="40px 0px"
+            minDelayMs={loadProfile.heavyMountDelayMs + 1200}
             fallback={sectionFallback}
           >
             <IndexScaleReference />
@@ -1095,12 +1110,6 @@ export default function SpaceWeatherClient({
 
       {/* ── Tab 0: Timelines ── */}
       {tab === 0 && (
-        <DeferredMount
-          className="sw-deferred-block"
-          minHeight={280}
-          rootMargin="20px 0px"
-          fallback={sectionFallback}
-        >
         <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
           <p style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>
             Chronological Sun→Earth→Zimbabwe order using the Solar Activity GOES X-ray and Heliospheric Monitor graphs, then local VTEC / CORS / GNSS
@@ -1111,6 +1120,7 @@ export default function SpaceWeatherClient({
             <span>solar monitor-live data</span>
           </div>
 
+          {/* First paint: only GOES + F10.7. Heavy stacks wait so CVM ingress is not flooded. */}
           <GoesSolarXrayCard
             title="1 · SOLAR X-RAY FLUX (GOES-16) · 0.1–0.8 nm"
             xraySlice={xraySlice}
@@ -1144,42 +1154,50 @@ export default function SpaceWeatherClient({
           <DeferredMount
             className="sw-deferred-block"
             minHeight={280}
-            rootMargin="120px 0px"
+            rootMargin="80px 0px"
+            minDelayMs={loadProfile.heavyMountDelayMs}
             fallback={sectionFallback}
           >
             <HeliosphericMonitorStack />
           </DeferredMount>
 
-          <CauseEffectTimelineStack
-            variant="local"
-            localStartNumber={4}
-            afterVtec={
-              stationsOnlinePoints.length > 0 ? (
-                <TimelineCard
-                  graphId="cors-online"
-                  title="5 · Live CORS Stations Online Timeline"
-                  pts={stationsOnlinePoints}
-                  color="#00ff88"
-                  yLabel="Stations online"
-                  source="ZINGSA CORS station-health — current live count"
-                  analysis={timelineAnalyses.stations}
-                  expanded={selectedGraph === "cors-online"}
-                  onToggle={toggleGraph}
-                  ekfPoints={ekf?.series.stations_online?.points}
-                  ekfColor="#86efac"
-                  emptyMsg="Live CORS telemetry unavailable."
-                  {...liveMetricSync}
-                />
-              ) : (
-                <div className="card">
-                  <div className="metric-label" style={{ marginBottom: "0.6rem" }}>5 · Live CORS Stations Online Timeline</div>
-                  <div className="banner banner-info">Live CORS telemetry is unavailable — no station count timeline.</div>
-                </div>
-              )
-            }
-          />
+          <DeferredMount
+            className="sw-deferred-block"
+            minHeight={320}
+            rootMargin="60px 0px"
+            minDelayMs={loadProfile.heavyMountDelayMs + 500}
+            fallback={sectionFallback}
+          >
+            <CauseEffectTimelineStack
+              variant="local"
+              localStartNumber={4}
+              afterVtec={
+                stationsOnlinePoints.length > 0 ? (
+                  <TimelineCard
+                    graphId="cors-online"
+                    title="5 · Live CORS Stations Online Timeline"
+                    pts={stationsOnlinePoints}
+                    color="#00ff88"
+                    yLabel="Stations online"
+                    source="ZINGSA CORS station-health — current live count"
+                    analysis={timelineAnalyses.stations}
+                    expanded={selectedGraph === "cors-online"}
+                    onToggle={toggleGraph}
+                    ekfPoints={ekf?.series.stations_online?.points}
+                    ekfColor="#86efac"
+                    emptyMsg="Live CORS telemetry unavailable."
+                    {...liveMetricSync}
+                  />
+                ) : (
+                  <div className="card">
+                    <div className="metric-label" style={{ marginBottom: "0.6rem" }}>5 · Live CORS Stations Online Timeline</div>
+                    <div className="banner banner-info">Live CORS telemetry is unavailable — no station count timeline.</div>
+                  </div>
+                )
+              }
+            />
+          </DeferredMount>
         </div>
-        </DeferredMount>
       )}
 
       {/* ── Tab 1: Solar Activity (detailed) ── */}

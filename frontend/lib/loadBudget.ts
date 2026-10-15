@@ -33,6 +33,17 @@ export type LoadProfile = {
   chartAnimations: boolean;
 };
 
+/** Cursor Cloud Agent port-forward previews pay a large JS tax over the ingress. */
+export function isCursorCloudPreview(): boolean {
+  if (typeof window === "undefined") return false;
+  const host = window.location.hostname || "";
+  return (
+    host.includes("agent.cvm.dev") ||
+    host.endsWith(".cvm.dev") ||
+    host.includes("cursorusercontent.com")
+  );
+}
+
 function connectionHints(): { saveData: boolean; slow: boolean } {
   if (typeof navigator === "undefined") return { saveData: false, slow: false };
   const conn = (
@@ -69,9 +80,9 @@ export function getLoadProfile(): LoadProfile {
       lightPayload: true,
       pollIntervalMs: 90_000,
       timelineMaxPoints: 48,
-      heavyMountDelayMs: 1400,
+      heavyMountDelayMs: 400,
       deferSecondaryApis: true,
-      stationsDeferMs: 1800,
+      stationsDeferMs: 600,
       defaultRangeHours: 6,
       vtecResampleMinutes: 10,
       vtecHoursCap: 18,
@@ -81,23 +92,28 @@ export function getLoadProfile(): LoadProfile {
   }
   const constrained = isConstrainedViewport();
   const { saveData, slow } = connectionHints();
-  const lightPayload = constrained || saveData || slow;
+  const cursorPreview = isCursorCloudPreview();
+  // Cursor CVM ingress + multi-MB webpack chunks: always start light even on
+  // a wide desktop viewport so metric cards win over Chart.js / OpenLayers.
+  const lightPayload = constrained || saveData || slow || cursorPreview;
+  const slowNetwork = saveData || slow || cursorPreview;
   return {
-    constrained,
-    slowNetwork: saveData || slow,
+    constrained: constrained || cursorPreview,
+    slowNetwork,
     lightPayload,
     // Both desktop and mobile: longer polls reduce background contention.
-    pollIntervalMs: saveData || slow ? 180_000 : constrained ? 120_000 : 60_000,
-    timelineMaxPoints: saveData || slow ? 32 : constrained ? 48 : 96,
-    heavyMountDelayMs: saveData || slow ? 3000 : constrained ? 2000 : 700,
+    pollIntervalMs: slowNetwork ? 180_000 : constrained ? 120_000 : 60_000,
+    timelineMaxPoints: slowNetwork ? 32 : constrained ? 48 : 96,
+    // Cursor: short delay so shared Chart.js can prefetch, then graphs mount.
+    heavyMountDelayMs: cursorPreview ? 550 : slowNetwork ? 900 : constrained ? 500 : 120,
     // Always skip heliospheric/timeline warm on first paint — tabs warm on demand.
     deferSecondaryApis: true,
-    stationsDeferMs: saveData || slow ? 3500 : constrained ? 2200 : 900,
+    stationsDeferMs: cursorPreview ? 2200 : slowNetwork ? 1800 : constrained ? 900 : 350,
     // Short first window everywhere; users can expand to 24h / 3d.
     defaultRangeHours: 6,
-    vtecResampleMinutes: saveData || slow ? 15 : constrained ? 10 : 5,
-    vtecHoursCap: saveData || slow ? 12 : constrained ? 18 : 24,
-    chartMaxPoints: saveData || slow ? 40 : constrained ? 64 : 120,
+    vtecResampleMinutes: slowNetwork ? 15 : constrained ? 10 : 5,
+    vtecHoursCap: slowNetwork ? 12 : constrained ? 18 : 24,
+    chartMaxPoints: cursorPreview ? 48 : slowNetwork ? 40 : constrained ? 64 : 120,
     chartAnimations: false,
   };
 }
@@ -141,7 +157,14 @@ export function afterNextPaint(fn: () => void, timeoutMs = 48): () => void {
 /** Defer non-critical work; waits longer on constrained/slow clients. */
 export function scheduleSecondary(fn: () => void, profile?: LoadProfile): () => void {
   const p = profile ?? getLoadProfile();
-  const timeout = p.slowNetwork ? 4200 : p.constrained ? 2600 : 1100;
+  // Cursor CVM: warm graph APIs sooner so charts are not starved after paint.
+  const timeout = isCursorCloudPreview()
+    ? 700
+    : p.slowNetwork
+      ? 4200
+      : p.constrained
+        ? 2600
+        : 1100;
   return afterNextPaint(fn, timeout);
 }
 

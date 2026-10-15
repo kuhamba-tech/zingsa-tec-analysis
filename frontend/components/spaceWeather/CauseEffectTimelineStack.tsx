@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import LocalIonosphereObservations from "./LocalIonosphereObservations";
 import DeferredMount from "./DeferredMount";
-import GoesXrayLastDayChart from "./GoesXrayLastDayChart";
 import SpaceWeatherCorsMap from "./SpaceWeatherCorsMap";
 import SwSectionBanner from "./SwSectionBanner";
 import TecPrimerBlock from "./TecPrimerBlock";
@@ -25,7 +24,9 @@ import type {
   SpaceWeatherTimelines,
 } from "@/lib/types";
 
-const LineChart = dynamic(() => import("@/components/charts/LineChart"), {
+import { loadLineChart } from "@/lib/loadLineChart";
+
+const LineChart = dynamic(() => loadLineChart().then((m) => m.default), {
   ssr: false,
   loading: () => (
     <div className="banner banner-info" role="status">
@@ -35,6 +36,12 @@ const LineChart = dynamic(() => import("@/components/charts/LineChart"), {
 });
 const ChartAnalysisBox = dynamic(() => import("@/components/dashboard/ChartAnalysisBox"), {
   ssr: false,
+});
+const GoesXrayLastDayChart = dynamic(() => import("./GoesXrayLastDayChart"), {
+  ssr: false,
+  loading: () => (
+    <div className="banner banner-info" role="status">Loading chart…</div>
+  ),
 });
 
 const PRIORITY_STATIONS = ["hara", "bula", "masv", "kari", "beit"] as const;

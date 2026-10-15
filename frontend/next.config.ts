@@ -2,11 +2,15 @@ import type { NextConfig } from "next";
 import path from "path";
 
 const isDev = process.env.NODE_ENV === "development";
+// Vercel runs the Next server + Python /api routers. Static `output: "export"`
+// is for offline/`serve out` previews only — it cannot ship App Router proxies.
+const useStaticExport =
+  !isDev && process.env.VERCEL !== "1" && process.env.ZGIIS_STATIC_EXPORT === "1";
 
 const nextConfig: NextConfig = {
-  // Static export for Vercel; keep a real Next server in `next dev` so we can
-  // proxy /backend → FastAPI (needed when only the frontend port is forwarded).
-  ...(isDev ? {} : { output: "export" as const }),
+  // Keep a real Next server in `next dev` (and on Vercel) so we can proxy
+  // /backend and /api/zgiis → FastAPI when the preview ingress forwards one port.
+  ...(useStaticExport ? { output: "export" as const } : {}),
   trailingSlash: true,
   // Keep `/backend/...` paths without forced trailing slashes so the FastAPI
   // proxy hits `/space-weather/current` (200) instead of `/.../current/` (404).
@@ -27,6 +31,14 @@ const nextConfig: NextConfig = {
     "*.cursor.sh",
     "*.cursorapi.com",
     "*.cursorusercontent.com",
+    "*.cursor.com",
+    // Cursor Cloud Agent port-forward previews (p-<port>-pod-*.agent.cvm.dev)
+    "*.agent.cvm.dev",
+    "**.agent.cvm.dev",
+    "*.cvm.dev",
+    "**.cvm.dev",
+    // Exact host from current agent preview (also covered by wildcards).
+    "p-3100-pod-ejgw4odx2bes3jj4x7kbv7nsoi-ec84681ac143a9c58fa4-us4.agent.cvm.dev",
     "*.ngrok-free.app",
     "*.ngrok.io",
   ],

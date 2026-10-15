@@ -1,10 +1,24 @@
 "use client";
 
 import type { CSSProperties, KeyboardEvent } from "react";
-import LineChart from "@/components/charts/LineChart";
-import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
+import dynamic from "next/dynamic";
 import { FLARE_SCALE } from "@/lib/solarEventColors";
 import type { ChartAnalysisBlock } from "@/lib/multiSourceChartAnalysis";
+
+import { loadLineChart } from "@/lib/loadLineChart";
+
+/** Shared Chart.js line chunk — one download for all Space Weather graphs. */
+const LineChart = dynamic(() => loadLineChart().then((m) => m.default), {
+  ssr: false,
+  loading: () => (
+    <div className="banner banner-info" role="status">
+      Loading chart…
+    </div>
+  ),
+});
+const ChartAnalysisBox = dynamic(() => import("@/components/dashboard/ChartAnalysisBox"), {
+  ssr: false,
+});
 
 type AxisProps = {
   xMin?: number;

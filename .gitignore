@@ -59,6 +59,7 @@ Thumbs.db
 
 .vercel
 .deploy-head/
+frontend/.dev-api-stash/
 
 # Claude Code local settings -- settings.json has held a live DB credential in an
 # allowlisted command string before; never let any of this be committed.

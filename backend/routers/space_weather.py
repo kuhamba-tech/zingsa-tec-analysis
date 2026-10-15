@@ -189,9 +189,12 @@ def _neon_mean_vtec() -> float | None:
         dsn = database_dsn()
         if not dsn:
             return None
-        conn = psycopg2.connect(dsn)
+        # Hard cap so a hung pooler cannot stall /space-weather/current.
+        conn = psycopg2.connect(dsn, connect_timeout=1)
         try:
+            conn.set_session(readonly=True, autocommit=True)
             with conn.cursor() as cur:
+                cur.execute("SET LOCAL statement_timeout = 1200")
                 cur.execute(
                     """
                     SELECT mean_vtec
@@ -214,8 +217,16 @@ def _neon_mean_vtec() -> float | None:
         return None
 
 
-@router.get("/current", response_model=SpaceWeatherCurrent)
-def current(_=Depends(require_api_key)):
+_CURRENT_CACHE_TTL_S = 2.0
+_CURRENT_CACHE: dict[str, object] = {"ts": 0.0, "payload": None}
+_CURRENT_CACHE_LOCK = threading.Lock()
+
+_TIMELINES_CACHE_TTL_S = 8.0
+_TIMELINES_CACHE: dict[str, object] = {}
+_TIMELINES_CACHE_LOCK = threading.Lock()
+
+
+def _build_current_payload() -> SpaceWeatherCurrent:
     """Dashboard snapshot — keep this path free of Spider login / Neon stalls."""
     sw = _sw()
     try:
@@ -247,10 +258,11 @@ def current(_=Depends(require_api_key)):
         try:
             from backend.routers.cors_network import _safe_station_live_vtec
 
-            # allow_db=True on /current — this path already hits archive counts.
+            # Page-load path: skip TecDB so /current never waits on SQLite/Neon
+            # station aggregates. Snapshot + Neon mean_vtec cover the gap.
             vals = [
                 float(v)
-                for v in _safe_station_live_vtec(0.25, allow_db=True).values()
+                for v in _safe_station_live_vtec(0.25, allow_db=False).values()
                 if v is not None and float(v) > 1.0
             ]
             if vals:
@@ -261,27 +273,28 @@ def current(_=Depends(require_api_key)):
     # Prefer a row that actually has VTEC so empty "dashboard" polls do not hide
     # a healthier local_vtec_to_neon / scheduler snapshot.
     if sw.get("mean_vtec") is None and sw.get("vtec_tecu") is None:
+        # Prefer local SQLite snapshot first (instant); Neon only if still empty.
+        try:
+            from backend.space_weather_logger import get_db as get_sw_db
+
+            db = get_sw_db()
+            latest = None
+            if hasattr(db, "latest_snapshot_with_vtec"):
+                latest = db.latest_snapshot_with_vtec()
+            if latest is None:
+                latest = db.latest_snapshot()
+            if latest is not None:
+                raw = latest.get("mean_vtec") if isinstance(latest, dict) else None
+                if raw is None and hasattr(latest, "get"):
+                    raw = latest.get("mean_vtec")
+                if raw is not None and float(raw) > 1.0:
+                    sw["mean_vtec"] = round(float(raw), 2)
+        except Exception:
+            pass
+    if sw.get("mean_vtec") is None and sw.get("vtec_tecu") is None:
         neon_vtec = _neon_mean_vtec()
         if neon_vtec is not None:
             sw["mean_vtec"] = neon_vtec
-        else:
-            try:
-                from backend.space_weather_logger import get_db as get_sw_db
-
-                db = get_sw_db()
-                latest = None
-                if hasattr(db, "latest_snapshot_with_vtec"):
-                    latest = db.latest_snapshot_with_vtec()
-                if latest is None:
-                    latest = db.latest_snapshot()
-                if latest is not None:
-                    raw = latest.get("mean_vtec") if isinstance(latest, dict) else None
-                    if raw is None and hasattr(latest, "get"):
-                        raw = latest.get("mean_vtec")
-                    if raw is not None and float(raw) > 1.0:
-                        sw["mean_vtec"] = round(float(raw), 2)
-            except Exception:
-                pass
     threading.Thread(
         target=log_snapshot,
         kwargs={"source": "dashboard", "force": False},
@@ -307,6 +320,25 @@ def current(_=Depends(require_api_key)):
         mean_vtec=mean_vtec,
         updated_utc=sw.get("updated_utc") or sw.get("timestamp"),
     )
+
+
+@router.get("/current", response_model=SpaceWeatherCurrent)
+def current(_=Depends(require_api_key)):
+    """Dashboard snapshot with a short coalescing cache for SSR + client bursts."""
+    import time
+
+    now = time.monotonic()
+    with _CURRENT_CACHE_LOCK:
+        cached = _CURRENT_CACHE.get("payload")
+        ts = float(_CURRENT_CACHE.get("ts") or 0.0)
+        if cached is not None and (now - ts) < _CURRENT_CACHE_TTL_S:
+            return cached  # type: ignore[return-value]
+
+    payload = _build_current_payload()
+    with _CURRENT_CACHE_LOCK:
+        _CURRENT_CACHE["payload"] = payload
+        _CURRENT_CACHE["ts"] = time.monotonic()
+    return payload
 
 
 @router.get("/solar-activity", response_model=SolarActivityFull)
@@ -383,7 +415,23 @@ def timelines(
 ):
     # Sync route so NOAA/SQLite work runs in the threadpool and does not
     # starve other handlers (heliospheric-monitor was timing out behind this).
-    return limit_timelines(build_timelines(_sw()), max_points=max_points)
+    import time
+
+    key = int(max_points)
+    now = time.monotonic()
+    with _TIMELINES_CACHE_LOCK:
+        entry = _TIMELINES_CACHE.get(key)
+        if entry and (now - float(entry["ts"])) < _TIMELINES_CACHE_TTL_S:
+            return entry["payload"]  # type: ignore[index]
+
+    payload = limit_timelines(build_timelines(_sw()), max_points=max_points)
+    with _TIMELINES_CACHE_LOCK:
+        _TIMELINES_CACHE[key] = {"ts": time.monotonic(), "payload": payload}
+        # Bound memory if clients request many max_points variants.
+        if len(_TIMELINES_CACHE) > 12:
+            oldest = min(_TIMELINES_CACHE.items(), key=lambda item: float(item[1]["ts"]))[0]
+            _TIMELINES_CACHE.pop(oldest, None)
+    return payload
 
 
 @router.post("/refresh", status_code=204)
@@ -392,6 +440,11 @@ async def refresh(_=Depends(require_api_key)):
     from zgiis.space_weather.fetch_indices import clear_space_weather_cache
 
     clear_space_weather_cache()
+    with _CURRENT_CACHE_LOCK:
+        _CURRENT_CACHE["payload"] = None
+        _CURRENT_CACHE["ts"] = 0.0
+    with _TIMELINES_CACHE_LOCK:
+        _TIMELINES_CACHE.clear()
     log_snapshot(source="refresh", force=True)
     sw = _sw()
     compute_ekf_status(sw, dispatch_notifications=True)

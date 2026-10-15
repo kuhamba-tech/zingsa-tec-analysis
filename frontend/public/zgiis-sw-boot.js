@@ -87,8 +87,14 @@
     var local = host === "localhost" || host === "127.0.0.1" || host === "[::1]";
     var vercel = host.indexOf("vercel.app") >= 0 || host.indexOf("vercel.com") >= 0;
     var base;
-    // Prefer Next /backend proxy for local + Cursor/cloud previews. Only Vercel uses /api.
-    if (port === "3000" || port === "3001" || port === "43128") {
+    // Cursor Cloud Agent previews: use the Next Route Handler proxy.
+    var cursorCloud =
+      host.indexOf("agent.cvm.dev") >= 0 ||
+      host.indexOf(".cvm.dev") >= 0 ||
+      host.indexOf("cursorusercontent.com") >= 0;
+    if (cursorCloud) {
+      base = origin + "/api/zgiis";
+    } else if (port === "3000" || port === "3001" || port === "3100" || port === "43128") {
       base = origin + "/backend";
     } else if (local && port === "8000") {
       base = origin;

@@ -64,12 +64,12 @@ function clearNextCache() {
   }
 }
 
-function start(command, args, cwd, label) {
+function start(command, args, cwd, label, extraEnv = {}) {
   const child = spawn(command, args, {
     cwd,
     stdio: "ignore",
     detached: true,
-    env: process.env,
+    env: { ...process.env, ...extraEnv },
   });
   child.unref();
   console.log(`started ${label} (pid ${child.pid})`);
@@ -98,9 +98,16 @@ async function ensureFrontend() {
   await new Promise((r) => setTimeout(r, 800));
   clearNextCache();
 
+  const nextBin = path.join(frontend, "node_modules", ".bin", "next");
+  if (!existsSync(nextBin)) {
+    console.error("Missing frontend/node_modules — run npm install in frontend/ first.");
+    process.exit(1);
+  }
+  // Prefer the local binary: system `npx` can fail with
+  // "Class extends value undefined is not a constructor" on some Node builds.
   start(
-    "npx",
-    ["next", "dev", "--webpack", "--port", "3000", "--hostname", "127.0.0.1"],
+    nextBin,
+    ["dev", "--webpack", "--port", "3000", "--hostname", "127.0.0.1"],
     frontend,
     "frontend :3000",
   );
@@ -121,6 +128,12 @@ async function main() {
       ["backend.main:app", "--host", "127.0.0.1", "--port", "8000"],
       root,
       "API :8000",
+      {
+        // Warm NOAA/solar caches in background so the first dashboard APIs stay fast.
+        ZGIIS_BACKGROUND_SERVICES: process.env.ZGIIS_BACKGROUND_SERVICES || "1",
+        // Defer heavy NTRIP ingest briefly so boot HTTP stays responsive.
+        ZGIIS_LIVE_START_DELAY_SEC: process.env.ZGIIS_LIVE_START_DELAY_SEC || "15",
+      },
     );
   } else {
     console.log("API already running on http://127.0.0.1:8000");

@@ -669,6 +669,10 @@ class GfzKpDailyPoint(BaseModel):
     ap: float | None = None
     ap_daily: float | None = None
     cp: float | None = None
+    sn: int | None = None
+    f107: float | None = None
+    f107_adj: float | None = None
+    definitive: int | None = None
     storm_flag: bool = False
     storm_class: str = "Quiet"
     mean_vtec: float | None = None
@@ -679,12 +683,15 @@ class GfzKpStormDay(BaseModel):
     kp: float | None = None
     ap: float | None = None
     cp: float | None = None
+    sn: int | None = None
+    f107: float | None = None
     storm_class: str
     mean_vtec: float | None = None
 
 
 class GfzKpAnalysisResponse(BaseModel):
     source: str
+    files: list[str] = []
     start_date: str | None = None
     end_date: str | None = None
     days: int = 0
@@ -692,6 +699,8 @@ class GfzKpAnalysisResponse(BaseModel):
     max_kp: float | None = None
     max_ap: float | None = None
     mean_cp: float | None = None
+    max_sn: int | None = None
+    max_f107: float | None = None
     mean_vtec_storm: float | None = None
     mean_vtec_quiet: float | None = None
     series: list[GfzKpDailyPoint] = []

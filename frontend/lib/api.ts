@@ -100,19 +100,19 @@ function apiBase(): string {
 }
 
 const KEY = process.env.NEXT_PUBLIC_API_KEY ?? "";
-const FETCH_TIMEOUT_MS = 18_000;
+const FETCH_TIMEOUT_MS = 12_000;
 const ANALYSIS_TIMEOUT_MS = 120_000;
 /** First paint for /current — fail fast so UI leaves "Connecting". */
-const SW_BOOT_TIMEOUT_MS = 6_000;
-const SW_FAST_TIMEOUT_MS = 8_000;
+const SW_BOOT_TIMEOUT_MS = 4_000;
+const SW_FAST_TIMEOUT_MS = 5_000;
 /** Solar monitor hits NOAA + NASA DONKI; allow cold-start headroom + one retry. */
-const SOLAR_TIMEOUT_MS = 55_000;
+const SOLAR_TIMEOUT_MS = 35_000;
 /** Heliospheric monitor: allow cold NOAA + one retry before aborting. */
-const HELIO_TIMEOUT_MS = 60_000;
+const HELIO_TIMEOUT_MS = 40_000;
 const REPORT_TIMEOUT_MS = 60_000;
 const LIVE_REFRESH_MIN_MS = 20_000;
 /** Short gap before one retry — long delays hurt first paint on mobile. */
-const RETRY_GAP_MS = 280;
+const RETRY_GAP_MS = 160;
 
 let lastSolarNetworkAt = 0;
 let lastHelioNetworkAt = 0;

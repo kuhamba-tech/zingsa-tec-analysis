@@ -113,7 +113,11 @@ export default function GfzKpAnalysisPanel({
   error,
 }: Props) {
   if (loading) {
-    return <div className="banner banner-info">Fetching GFZ Potsdam indices (Kp, ap, Ap, Cp)…</div>;
+    return (
+      <div className="banner banner-info">
+        Fetching GFZ Potsdam TXT indices (Kp, ap, Ap, SN, F10.7 since 1932 + nowcast)…
+      </div>
+    );
   }
   if (error) {
     return <div className="banner banner-alert">{error}</div>;
@@ -160,12 +164,21 @@ export default function GfzKpAnalysisPanel({
           <span>High TEC</span>
         </div>
         <p>
-          <strong>GFZ Potsdam geomagnetic context</strong> — Official Kp index from{" "}
+          <strong>GFZ Potsdam geomagnetic context</strong> — Official{" "}
+          <code>Kp_ap_Ap_SN_F107</code> product from{" "}
           <a href="https://kp.gfz.de/en/data" target="_blank" rel="noreferrer">
             GFZ Helmholtz Centre for Geosciences
           </a>
-          . Red bands on the VTEC chart mark storm days (Kp ≥ 5 or Ap ≥ 50). Kp/ap are aggregated from 3-hourly
-          nowcast/definitive values; Ap and Cp are daily planetary indices.
+          :{" "}
+          <a href="https://kp.gfz.de/app/files/Kp_ap_Ap_SN_F107_since_1932.txt" target="_blank" rel="noreferrer">
+            since_1932.txt
+          </a>{" "}
+          (historical) +{" "}
+          <a href="https://kp.gfz.de/app/files/Kp_ap_Ap_SN_F107_nowcast.txt" target="_blank" rel="noreferrer">
+            nowcast.txt
+          </a>
+          . Storm shading uses Kp ≥ 5 or Ap ≥ 50. Daily Kp/ap come from eight 3-hour bins; Ap, SN, and F10.7obs
+          are daily columns from the same files.
         </p>
       </div>
 
@@ -190,9 +203,14 @@ export default function GfzKpAnalysisPanel({
           <div className="omni-stat-note">Daily planetary Ap</div>
         </div>
         <div className="card omni-stat-card">
-          <div className="metric-label">Mean Cp</div>
-          <div className="omni-stat-value">{fmt(gfz.mean_cp, 2)}</div>
-          <div className="omni-stat-note">Planetary Cp index</div>
+          <div className="metric-label">Peak SN</div>
+          <div className="omni-stat-value">{fmt(gfz.max_sn ?? null, 0)}</div>
+          <div className="omni-stat-note">SILSO sunspot number</div>
+        </div>
+        <div className="card omni-stat-card">
+          <div className="metric-label">Peak F10.7</div>
+          <div className="omni-stat-value">{fmt(gfz.max_f107 ?? null, 1)}</div>
+          <div className="omni-stat-note">Observed sfu (TXT)</div>
         </div>
         <div className="card omni-stat-card">
           <div className="metric-label">VTEC storm vs quiet</div>
@@ -253,7 +271,7 @@ export default function GfzKpAnalysisPanel({
       </div>
 
       <div className="card">
-        <div style={{ fontWeight: 700, marginBottom: "0.6rem" }}>Planetary indices — Ap &amp; Cp</div>
+        <div style={{ fontWeight: 700, marginBottom: "0.6rem" }}>Planetary Ap (+ Cp when JSON fallback)</div>
         <LineChart
           labels={labels}
           datasets={[
@@ -262,13 +280,43 @@ export default function GfzKpAnalysisPanel({
               data: gfz.series.map((r) => (apFor(r) !== null ? (apFor(r)! / 10) : 0)),
               color: "#ffcc00",
             },
-            { label: "Cp", data: gfz.series.map((r) => r.cp ?? 0), color: "#a78bfa" },
+            ...(gfz.series.some((r) => r.cp != null)
+              ? [{ label: "Cp", data: gfz.series.map((r) => r.cp ?? 0), color: "#a78bfa" }]
+              : []),
           ]}
           yLabel="Ap÷10 / Cp"
           height={220}
           tooltipDetails={stormTypesFor(labels)}
         />
       </div>
+
+      {gfz.series.some((r) => r.sn != null || r.f107 != null) && (
+        <div className="card">
+          <div style={{ fontWeight: 700, marginBottom: "0.6rem" }}>Solar indices from GFZ TXT — SN &amp; F10.7</div>
+          <LineChart
+            labels={labels}
+            datasets={[
+              {
+                label: "SN (SILSO)",
+                data: gfz.series.map((r) => r.sn ?? 0),
+                color: "#f97316",
+              },
+              {
+                label: "F10.7obs (sfu ÷10)",
+                data: gfz.series.map((r) => (r.f107 != null ? r.f107 / 10 : 0)),
+                color: "#38bdf8",
+                dashed: true,
+              },
+            ]}
+            yLabel="SN / F10.7÷10"
+            height={220}
+            tooltipDetails={stormTypesFor(labels)}
+          />
+          <p style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "0.45rem" }}>
+            F10.7 scaled ÷10 for a shared axis (e.g. 150 sfu → 15.0). SN is CC BY-NC 4.0 (WDC-SILSO).
+          </p>
+        </div>
+      )}
 
       {gfz.storms.length > 0 ? (
         <div className="card card-accent">

@@ -830,6 +830,10 @@ export interface GfzKpDailyPoint {
   ap: number | null;
   ap_daily: number | null;
   cp: number | null;
+  sn?: number | null;
+  f107?: number | null;
+  f107_adj?: number | null;
+  definitive?: number | null;
   storm_flag: boolean;
   storm_class: string;
   mean_vtec: number | null;
@@ -840,12 +844,15 @@ export interface GfzKpStormDay {
   kp: number | null;
   ap: number | null;
   cp: number | null;
+  sn?: number | null;
+  f107?: number | null;
   storm_class: string;
   mean_vtec: number | null;
 }
 
 export interface GfzKpAnalysisResponse {
   source: string;
+  files?: string[];
   start_date: string | null;
   end_date: string | null;
   days: number;
@@ -853,6 +860,8 @@ export interface GfzKpAnalysisResponse {
   max_kp: number | null;
   max_ap: number | null;
   mean_cp: number | null;
+  max_sn?: number | null;
+  max_f107?: number | null;
   mean_vtec_storm: number | null;
   mean_vtec_quiet: number | null;
   series: GfzKpDailyPoint[];
