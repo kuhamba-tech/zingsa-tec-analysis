@@ -1388,9 +1388,9 @@ export default function SpaceWeatherClient({
         <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
           <p style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>
             Zimbabwe-only ionosphere content: live CORS VTEC graphs, STEC/VTEC teaching,
-            GOPI vs Gg = Cesaroni comparison, North–South spatial TEC research, and
-            scintillation / GNSS risk context. Geomagnetic Kp colour bands live on the
-            separate <strong>Kp Scale</strong> tab.
+            seasonal TEC climatology (equinox/solstice), GOPI vs Gg = Cesaroni comparison,
+            North–South spatial TEC research, and scintillation / GNSS risk context.
+            Geomagnetic Kp colour bands live on the separate <strong>Kp Scale</strong> tab.
           </p>
           {/* Defer heavy CORS / Gg labs so metric cards keep the API free on first paint. */}
           <DeferredMount
