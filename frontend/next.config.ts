@@ -2,11 +2,15 @@ import type { NextConfig } from "next";
 import path from "path";
 
 const isDev = process.env.NODE_ENV === "development";
+// Vercel runs the Next server + Python /api routers. Static `output: "export"`
+// is for offline/`serve out` previews only — it cannot ship App Router proxies.
+const useStaticExport =
+  !isDev && process.env.VERCEL !== "1" && process.env.ZGIIS_STATIC_EXPORT === "1";
 
 const nextConfig: NextConfig = {
-  // Static export for Vercel; keep a real Next server in `next dev` so we can
-  // proxy /backend → FastAPI (needed when only the frontend port is forwarded).
-  ...(isDev ? {} : { output: "export" as const }),
+  // Keep a real Next server in `next dev` (and on Vercel) so we can proxy
+  // /backend and /api/zgiis → FastAPI when the preview ingress forwards one port.
+  ...(useStaticExport ? { output: "export" as const } : {}),
   trailingSlash: true,
   // Keep `/backend/...` paths without forced trailing slashes so the FastAPI
   // proxy hits `/space-weather/current` (200) instead of `/.../current/` (404).

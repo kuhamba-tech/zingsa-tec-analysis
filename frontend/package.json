@@ -4,9 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "next dev --webpack",
-    "build": "node ./scripts/prepare-static-export.mjs stash && (next build; status=$?; node ./scripts/prepare-static-export.mjs restore; exit $status)",
+    "build": "if [ \"$VERCEL\" = \"1\" ]; then next build; else node ./scripts/prepare-static-export.mjs stash && (ZGIIS_STATIC_EXPORT=1 next build; status=$?; node ./scripts/prepare-static-export.mjs restore; exit $status); fi",
     "start": "next start",
-    "preview": "npx --yes serve out -p 3000"
+    "preview": "ZGIIS_STATIC_EXPORT=1 npm run build && npx --yes serve out -p 3000"
   },
   "dependencies": {
     "chart.js": "^4.5.1",
