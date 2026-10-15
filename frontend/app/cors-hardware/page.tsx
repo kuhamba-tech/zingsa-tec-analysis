@@ -195,10 +195,8 @@ export default function CorsHardwarePage() {
           <p className="hardware-eyebrow">ZINGSA CORS Network</p>
           <h1>Station Hardware Specification</h1>
           <p>
-            Equipment photos and specifications are taken from the{" "}
-            <strong>Leica Geosystems Technical Offer for ZIGSA</strong> (24-Sep-21) — GR50 GNSS
-            Reference Server and AR20 3D choke-ring antenna deployed across the Zimbabwe CORS
-            network.
+            Equipment photos and specifications: GR50 GNSS Reference Server and AR20 3D choke-ring
+            antenna deployed across the Zimbabwe CORS network.
           </p>
         </div>
       </section>
