@@ -239,37 +239,71 @@ def _build_current_payload() -> SpaceWeatherCurrent:
                 sw["stations_total"] = ntrip_total
     except Exception:
         log.exception("station count overlay failed on /space-weather/current")
-    # Prefer in-memory collector samples; fall back to recent station VTEC so the
-    # Zimbabwe Ionosphere card is not stuck on Unavailable when Spider is down.
-    if sw.get("mean_vtec") is None and sw.get("vtec_tecu") is None:
-        try:
-            from backend.live_manager import latest_vtec_by_station
+    # Prefer fresh live station VTEC over snapshot/Neon. Snapshot/Neon can keep
+    # a stale midday peak (e.g. 44.5 TECU) while the observations panel shows
+    # the true live mean (~15–20 TECU). Use the same rule as that panel: mean of
+    # each station's latest binned VTEC within the last 15 minutes.
+    live_mean: float | None = None
+    try:
+        from backend.live_manager import latest_vtec_by_station
 
-            vals = [
-                float(v)
-                for v in latest_vtec_by_station().values()
-                if v is not None and float(v) > 1.0
-            ]
+        vals = [
+            float(v)
+            for v in latest_vtec_by_station().values()
+            if v is not None and float(v) > 1.0
+        ]
+        if vals:
+            live_mean = round(sum(vals) / len(vals), 2)
+    except Exception:
+        pass
+    if live_mean is None:
+        try:
+            from datetime import datetime, timedelta, timezone
+
+            from backend.routers.live import _build_live_vtec_by_station
+
+            series = _build_live_vtec_by_station(hours=2.0, resample_minutes=10)
+            now = datetime.now(timezone.utc)
+            cutoff = now - timedelta(minutes=15)
+            vals: list[float] = []
+            for row in series:
+                points = getattr(row, "points", None) or []
+                if not points:
+                    continue
+                last = points[-1]
+                raw_t = getattr(last, "time", None)
+                raw_v = getattr(last, "vtec_tecu", None)
+                if raw_t is None or raw_v is None:
+                    continue
+                try:
+                    ts = datetime.fromisoformat(str(raw_t).replace("Z", "+00:00"))
+                    value = float(raw_v)
+                except (TypeError, ValueError):
+                    continue
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+                if ts >= cutoff and value > 1.0:
+                    vals.append(value)
             if vals:
-                sw["mean_vtec"] = round(sum(vals) / len(vals), 2)
+                live_mean = round(sum(vals) / len(vals), 2)
         except Exception:
-            pass
-    if sw.get("mean_vtec") is None and sw.get("vtec_tecu") is None:
+            log.exception("live observation-aligned mean_vtec failed")
+    if live_mean is None:
         try:
             from backend.routers.cors_network import _safe_station_live_vtec
 
-            # Page-load path: skip TecDB so /current never waits on SQLite/Neon
-            # station aggregates. Snapshot + Neon mean_vtec cover the gap.
             vals = [
                 float(v)
-                for v in _safe_station_live_vtec(0.25, allow_db=False).values()
+                for v in _safe_station_live_vtec(0.25, allow_db=True).values()
                 if v is not None and float(v) > 1.0
             ]
             if vals:
-                sw["mean_vtec"] = round(sum(vals) / len(vals), 2)
+                live_mean = round(sum(vals) / len(vals), 2)
         except Exception:
             pass
-    # Vercel serverless has no in-process NTRIP decode — use last logged snapshot.
+    if live_mean is not None:
+        sw["mean_vtec"] = live_mean
+    # Vercel serverless / no live samples — use last logged snapshot.
     # Prefer a row that actually has VTEC so empty "dashboard" polls do not hide
     # a healthier local_vtec_to_neon / scheduler snapshot.
     if sw.get("mean_vtec") is None and sw.get("vtec_tecu") is None:
