@@ -17,19 +17,26 @@ export default function LocalIonosphereObservations({ stations, now, refreshFail
     return { station, latest, status };
   });
   const fresh = rows.filter((row) => row.status === "LIVE" && row.latest);
-  const values = fresh.map((row) => row.latest!.vtec_tecu);
+  // Prefer LIVE for the mean; if ingest is lagging, still surface DELAYED readings
+  // so a successful API response is not shown as a blank "Unavailable" panel.
+  const delayed = rows.filter((row) => row.status === "DELAYED" && row.latest);
+  const contributing = fresh.length > 0 ? fresh : delayed;
+  const values = contributing.map((row) => row.latest!.vtec_tecu);
   const mean = values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
   const rangeMin = values.length ? Math.min(...values) : null;
   const rangeMax = values.length ? Math.max(...values) : null;
   const anyLive = fresh.length > 0;
-  const tone = refreshFailed ? "warn" : anyLive ? "ok" : loading ? "warn" : "off";
+  const anyDelayed = delayed.length > 0;
+  const tone = refreshFailed ? "warn" : anyLive ? "ok" : loading || anyDelayed ? "warn" : "off";
   const statusLabel = refreshFailed
     ? "Refresh failed"
     : anyLive
       ? "Live Data"
       : loading
         ? "Loading"
-        : "Unavailable";
+        : anyDelayed
+          ? "Delayed"
+          : "Unavailable";
 
   const meanColor = vtecColor(mean);
   // Match CORS Connected metric card — always brand blue when counts are live.
@@ -71,7 +78,9 @@ export default function LocalIonosphereObservations({ stations, now, refreshFail
         <div>
           <span>Stations contributing</span>
           <strong style={{ color: stationsColor }}>
-            {loading ? "Loading…" : `${fresh.length} of ${rows.length} returned`}
+            {loading
+              ? "Loading…"
+              : `${contributing.length} of ${rows.length} returned${anyLive ? "" : anyDelayed ? " (delayed)" : ""}`}
           </strong>
         </div>
         <div>

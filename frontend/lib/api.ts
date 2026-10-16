@@ -101,11 +101,15 @@ function apiBase(): string {
 }
 
 const KEY = process.env.NEXT_PUBLIC_API_KEY ?? "";
-const FETCH_TIMEOUT_MS = 12_000;
+/** Default GET timeout — home mounts several feeds at once; short aborts cancel queued fetches. */
+const FETCH_TIMEOUT_MS = 25_000;
 const ANALYSIS_TIMEOUT_MS = 120_000;
 /** First paint for /current — fail fast so UI leaves "Connecting". */
 const SW_BOOT_TIMEOUT_MS = 4_000;
 const SW_FAST_TIMEOUT_MS = 5_000;
+/** Timelines + EKF are heavy and often share the browser connection pool on home. */
+const TIMELINES_TIMEOUT_MS = 45_000;
+const EKF_TIMEOUT_MS = 45_000;
 /** Solar monitor hits NOAA + NASA DONKI; allow cold-start headroom + one retry. */
 const SOLAR_TIMEOUT_MS = 35_000;
 /** Heliospheric monitor: allow cold NOAA + one retry before aborting. */
@@ -387,10 +391,14 @@ export const getHeliosphericMonitor = (forceRefresh = false, requireNetwork = fa
 export const getTimelines = (maxPoints = 168) => {
   const capped = Math.max(24, Math.min(2000, Math.round(maxPoints)));
   return dedupeGet(`space-weather/timelines:${capped}`, () =>
-    getWithRetry<SpaceWeatherTimelines>("/space-weather/timelines", {
-      max_points: capped,
-      _ts: Date.now(),
-    }),
+    getWithRetry<SpaceWeatherTimelines>(
+      "/space-weather/timelines",
+      {
+        max_points: capped,
+        _ts: Date.now(),
+      },
+      TIMELINES_TIMEOUT_MS,
+    ),
   );
 };
 export const refreshSpaceWeather = () =>
@@ -406,10 +414,15 @@ export const getSpaceWeatherReport = (period: SpaceWeatherReportPeriod = "hourly
     { period, _ts: Date.now() },
     REPORT_TIMEOUT_MS,
   );
-export const getEkfStatus = () => get<EkfStatus>("/space-weather/ekf", { _ts: Date.now() });
+export const getEkfStatus = () =>
+  dedupeGet("space-weather/ekf", () =>
+    get<EkfStatus>("/space-weather/ekf", { _ts: Date.now() }, EKF_TIMEOUT_MS),
+  );
 /** Retried EKF fetch — use on manual refresh only; avoid blocking the 60s poll. */
 export const getEkfStatusWithRetry = () =>
-  getWithRetry<EkfStatus>("/space-weather/ekf", { _ts: Date.now() });
+  dedupeGet("space-weather/ekf:retry", () =>
+    getWithRetry<EkfStatus>("/space-weather/ekf", { _ts: Date.now() }, EKF_TIMEOUT_MS),
+  );
 export const getStormAlertStatus = () => get<StormAlertStatus>("/space-weather/storm-alerts/status");
 export const getEkfAlertLog = (hours = 24) => get<EkfAlert[]>("/space-weather/ekf/alerts", { hours });
 export const ackEkfAlert = (alertId: string) =>
