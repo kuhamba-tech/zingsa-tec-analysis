@@ -5,10 +5,6 @@
   "buildCommand": "cd frontend && npm run build",
   "outputDirectory": "frontend/.next",
   "functions": {
-    "main.py": {
-      "maxDuration": 60,
-      "memory": 1024
-    },
     "api/index.py": {
       "maxDuration": 60,
       "memory": 1024
@@ -26,6 +22,18 @@
       "memory": 1024
     },
     "api/core-router.py": {
+      "maxDuration": 60,
+      "memory": 1024
+    },
+    "api/health.py": {
+      "maxDuration": 30,
+      "memory": 512
+    },
+    "api/navigation-news-router.py": {
+      "maxDuration": 60,
+      "memory": 1024
+    },
+    "api/processing-router.py": {
       "maxDuration": 60,
       "memory": 1024
     }
