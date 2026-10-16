@@ -13,9 +13,11 @@ import {
   Filler,
 } from "chart.js";
 import { Line, Scatter } from "react-chartjs-2";
-import { getNorthSouthTecResearch, getStations } from "@/lib/api";
+import { getLiveVtecByStation, getNorthSouthTecResearch, getStations } from "@/lib/api";
 import { getLoadProfile } from "@/lib/loadBudget";
+import { mergeStationsWithLiveVtec } from "@/lib/mergeLiveVtecStations";
 import type {
+  LiveStationVtecSeries,
   NorthSouthTecResearchResponse,
   NorthSouthTecResearchStation,
   Station,
@@ -155,6 +157,7 @@ function chartAxis() {
 export default function NorthSouthTecResearchLab() {
   const [data, setData] = useState<NorthSouthTecResearchResponse | null>(null);
   const [catalogStations, setCatalogStations] = useState<Station[]>([]);
+  const [liveVtec, setLiveVtec] = useState<LiveStationVtecSeries[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hours, setHours] = useState(24);
@@ -217,14 +220,20 @@ export default function NorthSouthTecResearchLab() {
     return () => window.clearInterval(id);
   }, [load]);
 
-  // Prefetch full CORS inventory immediately so the map is never empty while research series loads.
+  // Prefetch full CORS inventory + live VTEC so map colours match Home / Live Space Weather.
   useEffect(() => {
     let cancelled = false;
+    const profile = getLoadProfile();
     getStations(false)
       .then((rows) => {
         if (!cancelled && Array.isArray(rows) && rows.length) setCatalogStations(rows);
       })
       .catch(() => {/* keep empty until load() retries */});
+    getLiveVtecByStation(Math.min(24, Math.max(6, profile.vtecHoursCap)), profile.vtecResampleMinutes)
+      .then((rows) => {
+        if (!cancelled && Array.isArray(rows)) setLiveVtec(rows);
+      })
+      .catch(() => null);
     return () => {
       cancelled = true;
     };
@@ -283,9 +292,11 @@ export default function NorthSouthTecResearchLab() {
       });
     }
 
-    // Catalog + research overlay is enough; never invent coordinates.
-    return [...byCode.values()].sort((a, b) => a.code.localeCompare(b.code));
-  }, [catalogStations, stations]);
+    // Prefer the same /live/vtec-by-station colours used on Home + Live Space Weather.
+    return mergeStationsWithLiveVtec([...byCode.values()], liveVtec).sort((a, b) =>
+      a.code.localeCompare(b.code),
+    );
+  }, [catalogStations, stations, liveVtec]);
 
   const mapLiveCount = mapStations.filter(
     (s) => s.current_tec != null && Number(s.current_tec) > 0,

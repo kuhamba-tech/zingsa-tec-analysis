@@ -73,6 +73,10 @@ const HeliosphericMonitorStack = dynamic(
   () => import("@/components/spaceWeather/HeliosphericMonitorStack"),
   { ssr: false, loading: () => sectionFallback },
 );
+const LiveMetricTimelines = dynamic(
+  () => import("@/components/spaceWeather/LiveMetricTimelines"),
+  { ssr: false, loading: () => sectionFallback },
+);
 const GoesSolarXrayCard = dynamic(
   () =>
     import("@/lib/loadGoesSolarXrayCard").then(({ loadGoesSolarXrayCard }) =>
@@ -1119,97 +1123,8 @@ export default function SpaceWeatherClient({
         ))}
       </div>
 
-      {/* ── Tab 0: Timelines ── */}
-      {tab === 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-          <p style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>
-            Chronological Sun→Earth→Zimbabwe order using the Solar Activity GOES X-ray and Heliospheric Monitor graphs, then local VTEC / CORS / GNSS
-          </p>
-
-          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.5rem 0.8rem", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "0.85rem", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase" }}>
-            <span className={`dot ${solarFeedLive ? "dot-ok" : "dot-warn"}`} style={{ width: "7px", height: "7px" }} />
-            <span>solar monitor-live data</span>
-          </div>
-
-          {/* First paint: only GOES + F10.7. Heavy stacks wait so CVM ingress is not flooded. */}
-          <GoesSolarXrayCard
-            title="1 · SOLAR X-RAY FLUX (GOES-16) · 0.1–0.8 nm"
-            xraySlice={xraySlice}
-            xrayLabels={xrayLabels}
-            xrayEpochs={xrayEpochs}
-            xrayAxis={xrayAxis}
-            xrayRange={xrayRange}
-            onRangeChange={setXrayRange}
-            explanationOpen={xrayExplanationOpen}
-            onToggle={() => toggleGraph("xray")}
-            analysis={xrayAnalysis}
-          />
-
-          <TimelineCard
-            graphId="f107"
-            title="2 · Live NOAA F10.7 Solar Flux Timeline"
-            pts={f107Points}
-            color="#ffcc00"
-            yLabel="F10.7 (sfu)"
-            threshold={{ value: 150, label: "High activity (150 sfu)" }}
-            source="NOAA SWPC F10.7 cm flux feed"
-            analysis={timelineAnalyses.f107}
-            expanded={selectedGraph === "f107"}
-            onToggle={toggleGraph}
-            ekfPoints={ekf?.series.f107?.points}
-            ekfColor="#fde68a"
-            emptyMsg="Live NOAA F10.7 feed unavailable."
-            {...liveMetricSync}
-          />
-
-          <DeferredMount
-            className="sw-deferred-block"
-            minHeight={280}
-            rootMargin="120px 0px"
-            minDelayMs={0}
-            fallback={sectionFallback}
-          >
-            <HeliosphericMonitorStack />
-          </DeferredMount>
-
-          <DeferredMount
-            className="sw-deferred-block"
-            minHeight={320}
-            rootMargin="100px 0px"
-            minDelayMs={0}
-            fallback={sectionFallback}
-          >
-            <CauseEffectTimelineStack
-              variant="local"
-              localStartNumber={4}
-              afterVtec={
-                stationsOnlinePoints.length > 0 ? (
-                  <TimelineCard
-                    graphId="cors-online"
-                    title="5 · Live CORS Stations Online Timeline"
-                    pts={stationsOnlinePoints}
-                    color="#00ff88"
-                    yLabel="Stations online"
-                    source="ZINGSA CORS station-health — current live count"
-                    analysis={timelineAnalyses.stations}
-                    expanded={selectedGraph === "cors-online"}
-                    onToggle={toggleGraph}
-                    ekfPoints={ekf?.series.stations_online?.points}
-                    ekfColor="#86efac"
-                    emptyMsg="Live CORS telemetry unavailable."
-                    {...liveMetricSync}
-                  />
-                ) : (
-                  <div className="card">
-                    <div className="metric-label" style={{ marginBottom: "0.6rem" }}>5 · Live CORS Stations Online Timeline</div>
-                    <div className="banner banner-info">Live CORS telemetry is unavailable — no station count timeline.</div>
-                  </div>
-                )
-              }
-            />
-          </DeferredMount>
-        </div>
-      )}
+      {/* ── Tab 0: Timelines (shared stack with Home) ── */}
+      {tab === 0 && <LiveMetricTimelines showIntro />}
 
       {/* ── Tab 1: Solar Activity (detailed) ── */}
       {tab === 1 && (

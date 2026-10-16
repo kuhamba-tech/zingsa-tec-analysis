@@ -2,16 +2,21 @@
 
 import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
-import { getStations, getTecHeatmap } from "@/lib/api";
+import { getLiveVtecByStation, getStations, getTecHeatmap } from "@/lib/api";
 import { loadCorsMapWithLayers } from "@/lib/loadCorsMapWithLayers";
 import {
   countLiveStationStatuses,
   countSpiderLiveStationStatuses,
 } from "@/lib/liveStationStatus";
+import { getLoadProfile } from "@/lib/loadBudget";
+import {
+  countStationsWithLiveVtec,
+  mergeStationsWithLiveVtec,
+} from "@/lib/mergeLiveVtecStations";
 import { peekSpaceWeather, subscribeSpaceWeather } from "@/lib/spaceWeatherStore";
 import { peekStations, subscribeStations, stationsAreSpiderAuthoritative } from "@/lib/stationsStore";
 import { mergeTecHeatmapWithStations } from "@/lib/tecHeatmapMerge";
-import type { Station, TecHeatmapResponse } from "@/lib/types";
+import type { LiveStationVtecSeries, Station, TecHeatmapResponse } from "@/lib/types";
 
 const CorsMapWithLayers = dynamic(
   () => loadCorsMapWithLayers().then((m) => m.default),
@@ -57,6 +62,7 @@ function useCorsMapHeight(preferred = 440): number {
 export default function SpaceWeatherCorsMap({ height: preferredHeight = 440 }: { height?: number }) {
   const height = useCorsMapHeight(preferredHeight);
   const [stations, setStations] = useState<Station[]>(() => peekStations());
+  const [liveVtec, setLiveVtec] = useState<LiveStationVtecSeries[]>([]);
   const [stationsLoading, setStationsLoading] = useState(() => peekStations().length === 0);
   const [heatmap, setHeatmap] = useState<TecHeatmapResponse | null>(null);
   const [riskLevel, setRiskLevel] = useState(() => peekSpaceWeather()?.gnss_risk ?? "Low");
@@ -94,8 +100,24 @@ export default function SpaceWeatherCorsMap({ height: preferredHeight = 440 }: {
         if (!cancelled) setStationsLoading(false);
       });
 
+    // Same live VTEC series the Zimbabwe / Live Metric graphs use — colours match.
+    const profile = getLoadProfile();
+    const hours = Math.min(24, Math.max(6, profile.vtecHoursCap));
+    getLiveVtecByStation(hours, profile.vtecResampleMinutes)
+      .then((rows) => {
+        if (!cancelled && Array.isArray(rows)) setLiveVtec(rows);
+      })
+      .catch(() => null);
+
+    const refreshVtec = window.setInterval(() => {
+      getLiveVtecByStation(hours, profile.vtecResampleMinutes)
+        .then((rows) => {
+          if (!cancelled && Array.isArray(rows)) setLiveVtec(rows);
+        })
+        .catch(() => null);
+    }, 120_000);
+
     // Heatmap is decorative for the Hybrid layer — never block station dots.
-    // On narrow viewports, wait longer so metric paint and scroll stay responsive.
     const loadHeatmap = () => {
       void getTecHeatmap(0.05, false)
         .then((hm) => {
@@ -118,6 +140,7 @@ export default function SpaceWeatherCorsMap({ height: preferredHeight = 440 }: {
 
     return () => {
       cancelled = true;
+      window.clearInterval(refreshVtec);
       if (idleId != null && "cancelIdleCallback" in window) {
         window.cancelIdleCallback(idleId);
       }
@@ -125,29 +148,41 @@ export default function SpaceWeatherCorsMap({ height: preferredHeight = 440 }: {
     };
   }, []);
 
-  const spiderLive = stationsAreSpiderAuthoritative(stations);
+  const displayStations = useMemo(
+    () => mergeStationsWithLiveVtec(stations, liveVtec),
+    [stations, liveVtec],
+  );
+  const spiderLive = stationsAreSpiderAuthoritative(displayStations);
   const liveCounts = useMemo(() => {
     if (spiderLive) {
-      return countSpiderLiveStationStatuses(stations) ?? countLiveStationStatuses(stations);
+      return countSpiderLiveStationStatuses(displayStations) ?? countLiveStationStatuses(displayStations);
     }
-    return countLiveStationStatuses(stations);
-  }, [stations, spiderLive]);
+    return countLiveStationStatuses(displayStations);
+  }, [displayStations, spiderLive]);
   const displayHeatmap = useMemo(
-    () => mergeTecHeatmapWithStations(heatmap, stations),
-    [heatmap, stations],
+    () => mergeTecHeatmapWithStations(heatmap, displayStations),
+    [heatmap, displayStations],
   );
   const ntripProbedAt =
-    stations.find((s) => s.ntrip_probed_at)?.ntrip_probed_at ?? null;
+    displayStations.find((s) => s.ntrip_probed_at)?.ntrip_probed_at ?? null;
+  const liveVtecCount = countStationsWithLiveVtec(displayStations);
 
   return (
     <div id="cors-network" className="sw-cors-map-section home-cors-map-section">
+      <p className="sw-supporting-text" style={{ margin: "0 0 0.55rem" }}>
+        {displayStations.length} CORS sites on the map
+        {liveVtecCount > 0
+          ? ` · ${liveVtecCount} with live measured VTEC (coloured)`
+          : " · waiting for live VTEC colours"}
+        . Same live feed as Space Weather graphs.
+      </p>
       <CorsMapWithLayers
-        stations={stations}
+        stations={displayStations}
         height={height}
         riskLevel={riskLevel}
         liveCounts={liveCounts}
         ntripProbedAt={ntripProbedAt}
-        stationsLoading={stationsLoading && stations.length === 0}
+        stationsLoading={stationsLoading && displayStations.length === 0}
         heatmap={displayHeatmap}
       />
     </div>

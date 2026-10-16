@@ -10,7 +10,19 @@ const CauseEffectTimelineStack = dynamic(
     ssr: false,
     loading: () => (
       <div className="banner banner-info" role="status" style={{ margin: "0.75rem 0" }}>
-        Loading timelines and CORS map…
+        Loading CORS map…
+      </div>
+    ),
+  },
+);
+
+const LiveMetricTimelines = dynamic(
+  () => import("@/components/spaceWeather/LiveMetricTimelines"),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="banner banner-info" role="status" style={{ margin: "0.75rem 0" }}>
+        Loading live Space Weather graphs…
       </div>
     ),
   },
@@ -19,8 +31,8 @@ const CauseEffectTimelineStack = dynamic(
 type State = { error: Error | null; retry: number };
 
 /**
- * Isolates timeline/map chunk-load failures so a bad dynamic import cannot
- * leave the National Dashboard stuck on "Loading timelines and CORS map…".
+ * Home page: same CORS map + Live Metric graphs as Space Weather.
+ * Isolates chunk-load failures so a bad dynamic import cannot blank the dashboard.
  */
 export default class HomeTimelinesGate extends Component<object, State> {
   state: State = { error: null, retry: 0 };
@@ -48,7 +60,7 @@ export default class HomeTimelinesGate extends Component<object, State> {
     if (this.state.error) {
       return (
         <div className="banner banner-warn" role="alert" style={{ margin: "0.75rem 0" }}>
-          Timelines and CORS map failed to load.
+          Live Space Weather graphs failed to load.
           <button
             type="button"
             className="btn"
@@ -67,6 +79,13 @@ export default class HomeTimelinesGate extends Component<object, State> {
         </div>
       );
     }
-    return <CauseEffectTimelineStack key={this.state.retry} />;
+    return (
+      <div key={this.state.retry} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+        {/* Same ionosphere readings + CORS map as Space Weather overview */}
+        <CauseEffectTimelineStack variant="overview" />
+        {/* Identical Live Metric graph stack as Space Weather → Live Metric Timelines */}
+        <LiveMetricTimelines showIntro />
+      </div>
+    );
   }
 }
