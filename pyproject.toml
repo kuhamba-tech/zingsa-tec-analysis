@@ -17,7 +17,9 @@ dependencies = [
 ]
 
 [tool.vercel]
-entrypoint = "backend.main:app"
+# Root main.py is also a Vercel default FastAPI location (avoids
+# FASTAPI_ENTRYPOINT_NOT_FOUND when the project Framework Preset is FastAPI).
+entrypoint = "main:app"
 
 [tool.vercel.scripts]
 build = "python scripts/vercel_build.py"

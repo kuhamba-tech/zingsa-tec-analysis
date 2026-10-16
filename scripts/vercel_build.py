@@ -35,7 +35,25 @@ def run(cmd: list[str], cwd: Path) -> None:
 def main() -> None:
     npm = "npm.cmd" if sys.platform == "win32" else "npm"
     run([npm, "install"], FRONTEND)
-    run([npm, "run", "build"], FRONTEND)
+    # frontend/package.json skips static export when VERCEL=1 (Next server mode).
+    # This script is the FastAPI-preset build hook and must always produce out/.
+    export_env = {
+        **os.environ,
+        "ZGIIS_STATIC_EXPORT": "1",
+        # Unset so package.json takes the static-export branch.
+        "VERCEL": "",
+    }
+    print("+ forcing static export for FastAPI vercel build hook")
+    subprocess.run(
+        [
+            npm,
+            "run",
+            "build",
+        ],
+        cwd=FRONTEND,
+        check=True,
+        env=export_env,
+    )
 
     if not OUT.is_dir():
         raise SystemExit(f"Next.js export missing: {OUT}")
