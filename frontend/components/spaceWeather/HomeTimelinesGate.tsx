@@ -28,14 +28,35 @@ const LiveMetricTimelines = dynamic(
   },
 );
 
-type State = { error: Error | null; retry: number };
+type State = { error: Error | null; retry: number; mounted: boolean };
+
+function TimelinesLoading(): ReactNode {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+      <div className="banner banner-info" role="status" style={{ margin: "0.75rem 0" }}>
+        Loading CORS map…
+      </div>
+      <div className="banner banner-info" role="status" style={{ margin: "0.75rem 0" }}>
+        Loading live Space Weather graphs…
+      </div>
+    </div>
+  );
+}
 
 /**
  * Home page: same CORS map + Live Metric graphs as Space Weather.
  * Isolates chunk-load failures so a bad dynamic import cannot blank the dashboard.
+ *
+ * Dynamic charts use `ssr: false`, so we wait until after mount before rendering
+ * them — otherwise the server HTML (loading markup) disagrees with the client's
+ * Suspense boundary and React throws a hydration error.
  */
 export default class HomeTimelinesGate extends Component<object, State> {
-  state: State = { error: null, retry: 0 };
+  state: State = { error: null, retry: 0, mounted: false };
+
+  componentDidMount() {
+    this.setState({ mounted: true });
+  }
 
   static getDerivedStateFromError(error: Error): Partial<State> {
     return { error };
@@ -78,6 +99,9 @@ export default class HomeTimelinesGate extends Component<object, State> {
           </button>
         </div>
       );
+    }
+    if (!this.state.mounted) {
+      return <TimelinesLoading />;
     }
     return (
       <div key={this.state.retry} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>

@@ -33,7 +33,11 @@ export default function DeferredMount({
   minHeight,
 }: Props) {
   const ref = useRef<HTMLDivElement | null>(null);
-  const [visible, setVisible] = useState(eager && minDelayMs <= 0);
+  // Always start hidden so SSR HTML matches the client's first paint.
+  // `eager` / IntersectionObserver only run after mount — otherwise
+  // `dynamic(..., { ssr: false })` children hydrate as <Suspense> while the
+  // server emitted their loading (or fully resolved) markup.
+  const [visible, setVisible] = useState(false);
   const [margin, setMargin] = useState(rootMargin ?? "120px 0px");
 
   useEffect(() => {
