@@ -10,7 +10,13 @@ export default function LocalIonosphereObservations({ stations, now, refreshFail
   loading: boolean;
 }) {
   const rows = stations.map((station) => {
-    const latest = station.points.filter((point) => Number.isFinite(point.vtec_tecu) && observationEpoch(point.time) !== null)
+    // Same floor as /space-weather/current mean_vtec so the card stays in lockstep.
+    const latest = station.points.filter(
+      (point) =>
+        Number.isFinite(point.vtec_tecu) &&
+        point.vtec_tecu > 1.0 &&
+        observationEpoch(point.time) !== null,
+    )
       .reduce<(typeof station.points)[number] | null>((last, point) =>
         !last || observationEpoch(point.time)! > observationEpoch(last.time)! ? point : last, null);
     const status = monitoringFreshness(latest?.time, now, Boolean(latest), refreshFailed);

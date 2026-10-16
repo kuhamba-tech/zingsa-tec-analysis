@@ -41,6 +41,7 @@ import HomeStormAlertBanner from "@/components/layout/HomeStormAlertBanner";
 import ClientOnly from "@/components/spaceWeather/ClientOnly";
 import HomeTimelinesGate from "@/components/spaceWeather/HomeTimelinesGate";
 import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
+import { peekLiveIonoMean, subscribeLiveIonoMean } from "@/lib/liveIonoMean";
 import type {
   Station,
   SpaceWeatherCurrent,
@@ -220,6 +221,9 @@ export default function HomeClient({ initialSw = null }: HomeClientProps) {
   );
   const [ntripRefreshing, setNtripRefreshing] = useState(false);
   const [gettingStartedOpen, setGettingStartedOpen] = useState(true);
+  const [liveMeanVtec, setLiveMeanVtec] = useState<number | null>(
+    () => peekLiveIonoMean().mean,
+  );
 
   useEffect(() => {
     if (!initialSw) return;
@@ -307,6 +311,14 @@ export default function HomeClient({ initialSw = null }: HomeClientProps) {
     setStations((prev) => mergeStationsPreferLive(prev, next, { nextIsLiveProbe: false }));
     setStationsLoading(false);
   }), []);
+
+  useEffect(
+    () =>
+      subscribeLiveIonoMean((snap) => {
+        if (snap.mean != null) setLiveMeanVtec(snap.mean);
+      }),
+    [],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -457,6 +469,7 @@ export default function HomeClient({ initialSw = null }: HomeClientProps) {
   const homeCards = buildMetricCards(displaySw, {
     // Catalog-only snapshots (cold Vercel) must not override Spider/SW counts.
     liveStationCounts: spiderLive ? liveCounts : undefined,
+    liveMeanVtec,
     ekfFilled,
     indicesLoading: metricsPending,
   })

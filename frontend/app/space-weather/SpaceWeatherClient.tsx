@@ -14,6 +14,7 @@ import {
   absorbInlineSolarBootPayload,
 } from "@/lib/solarActivityStore";
 import { peekStations, subscribeStations } from "@/lib/stationsStore";
+import { peekLiveIonoMean, subscribeLiveIonoMean } from "@/lib/liveIonoMean";
 import ClickableMetricGrid from "@/components/spaceWeather/ClickableMetricGrid";
 import DeferredMount from "@/components/spaceWeather/DeferredMount";
 import SwSectionBanner from "@/components/spaceWeather/SwSectionBanner";
@@ -370,6 +371,8 @@ function applyStationsSnapshot(
   setLiveMeanVtec: (v: number | null) => void,
 ) {
   setLiveStationCounts(countSpiderLiveStationStatuses(stations));
+  // Prefer the observation-aligned iono store; station current_tec is fallback only.
+  if (peekLiveIonoMean().mean != null) return;
   const mean = meanStationVtec(stations);
   if (mean != null) setLiveMeanVtec(mean);
 }
@@ -470,7 +473,9 @@ export default function SpaceWeatherClient({
     initialSw ? "stale" : "pending",
   );
   const [liveStationCounts, setLiveStationCounts] = useState<LiveStationCounts | null>(null);
-  const [liveMeanVtec, setLiveMeanVtec] = useState<number | null>(null);
+  const [liveMeanVtec, setLiveMeanVtec] = useState<number | null>(
+    () => peekLiveIonoMean().mean,
+  );
   const [selectedSolarInfo, setSelectedSolarInfo] = useState<SolarInfoKey>("summary");
   const [selectedGraph, setSelectedGraph] = useState<string | null>(null);
   const [timelineSyncMs, setTimelineSyncMs] = useState<number | null>(null);
@@ -502,6 +507,8 @@ export default function SpaceWeatherClient({
     if (cachedStations.length) {
       applyStationsSnapshot(cachedStations, setLiveStationCounts, setLiveMeanVtec);
     }
+    const iono = peekLiveIonoMean();
+    if (iono.mean != null) setLiveMeanVtec(iono.mean);
     // Layout boot may finish after first paint — pull into React state.
     const bootPoll = window.setInterval(() => {
       const swBoot = absorbInlineBootPayload();
@@ -697,6 +704,14 @@ export default function SpaceWeatherClient({
   useEffect(() => subscribeStations((next) => {
     if (next.length) applyStationsSnapshot(next, setLiveStationCounts, setLiveMeanVtec);
   }), []);
+
+  useEffect(
+    () =>
+      subscribeLiveIonoMean((snap) => {
+        if (snap.mean != null) setLiveMeanVtec(snap.mean);
+      }),
+    [],
+  );
 
   const freshnessMsg = useFeedFreshness("space-weather", feedStatus);
   // Never claim “figures show N/A” while we already have live/cached values on screen.

@@ -71,7 +71,7 @@ export interface MetricCardOptions {
   liveStationCounts?: LiveStationCounts | null;
   ekfFilled?: Set<string>;
   solar?: SolarActivityFull | null;
-  /** Optional live network mean when /current mean_vtec is empty. */
+  /** Live calculated station mean — preferred over /current when present. */
   liveMeanVtec?: number | null;
   /** True while solar-activity feed is still resolving (avoid N/A flash). */
   solarLoading?: boolean;
@@ -499,7 +499,9 @@ export function buildMetricCards(
   const density = sa?.solar_wind?.density ?? null;
   const pdyn = sa?.solar_wind?.dynamic_pressure ?? null;
   const southMin = sa?.solar_wind?.southward_duration_minutes ?? null;
-  const vtec = sw?.mean_vtec ?? opts?.liveMeanVtec ?? null;
+  // Prefer the live calculated station mean (same rule as observations panel)
+  // so the Zimbabwe ionosphere card never lags on a stale /current snapshot.
+  const vtec = opts?.liveMeanVtec ?? sw?.mean_vtec ?? null;
   const g = noaaGScaleFromKp(kp, indicesLoading);
 
   const liveOnline = liveCounts ? connectedStreamCount(liveCounts) : null;
@@ -597,12 +599,15 @@ export function buildMetricCards(
     });
   }
 
+  const usingLiveIono = opts?.liveMeanVtec != null && Number.isFinite(opts.liveMeanVtec);
   const ionoNote =
     vtec == null
       ? indicesLoading
         ? "Loading live CORS VTEC…"
         : "Awaiting live CORS VTEC"
-      : `ΔTEC / ROTI: reference baseline under development`;
+      : usingLiveIono
+        ? "Live station mean · last 15 min (same as observations)"
+        : `ΔTEC / ROTI: reference baseline under development`;
 
   const activityLabel = sa?.activity_label?.trim() || null;
   const activityColor = sa?.activity_color?.trim() || "#eab308";
@@ -615,7 +620,13 @@ export function buildMetricCards(
   const plasmaFresh = wind == null ? (solarLoading || indicesLoading ? "DELAYED" : freshnessFromFeed(feeds.solar_wind_plasma, now, solarRefreshFailed)) : freshnessFromFeed(feeds.solar_wind_plasma, now, solarRefreshFailed);
   const magFresh = bz == null ? (solarLoading ? "DELAYED" : freshnessFromFeed(feeds.solar_wind_mag, now, solarRefreshFailed)) : freshnessFromFeed(feeds.solar_wind_mag, now, solarRefreshFailed);
   const indicesFresh: FeedFreshness = indicesLoading ? "DELAYED" : monitoringFreshness(sw?.updated_utc, now, Boolean(sw), Boolean(opts?.refreshFailed));
-  const vtecFresh: FeedFreshness = vtec != null ? indicesFresh : indicesLoading ? "DELAYED" : "UNAVAILABLE";
+  const vtecFresh: FeedFreshness = usingLiveIono
+    ? "LIVE"
+    : vtec != null
+      ? indicesFresh
+      : indicesLoading
+        ? "DELAYED"
+        : "UNAVAILABLE";
 
   const donkiLive = sa?.donki_status === "live";
   const donkiFlares = Array.isArray(sa?.donki_flares) ? sa.donki_flares : [];
@@ -892,7 +903,7 @@ export function interpretMetric(
   const total = sw?.stations_total;
   const sa = opts?.solar;
   const bz = sa?.solar_wind?.bz ?? null;
-  const vtec = sw?.mean_vtec ?? opts?.liveMeanVtec ?? null;
+  const vtec = opts?.liveMeanVtec ?? sw?.mean_vtec ?? null;
 
   switch (key) {
     case "solar_activity": {

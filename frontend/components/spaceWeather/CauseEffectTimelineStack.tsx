@@ -10,6 +10,7 @@ import dynamic from "next/dynamic";
 import { getHeliosphericMonitor, getLiveVtecByStation, getTimelines } from "@/lib/api";
 import { getLoadProfile } from "@/lib/loadBudget";
 import { peekHeliosphericMonitor } from "@/lib/heliosphericStore";
+import { publishLiveIonoFromStations } from "@/lib/liveIonoMean";
 import {
   ONE_H_MS,
   SIX_H_MS,
@@ -349,10 +350,16 @@ export default function CauseEffectTimelineStack({
     };
     setNow(Date.now());
     void refresh();
-    const poll = window.setInterval(() => { void refresh(); }, 60_000);
+    // Keep ionosphere card + observations on the same calculated cadence.
+    const poll = window.setInterval(() => { void refresh(); }, 30_000);
     const clock = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => { cancelled = true; window.clearInterval(poll); window.clearInterval(clock); };
   }, [rangeHours, showDrivers, showLocal, fetchVtec, showChrome, vtecHours, vtecResample]);
+
+  useEffect(() => {
+    if (!fetchVtec) return;
+    publishLiveIonoFromStations(vtec, now || Date.now());
+  }, [vtec, now, fetchVtec]);
 
   const plottedStations = useMemo(() => {
     const available = vtec.filter((station) => station.points?.length);

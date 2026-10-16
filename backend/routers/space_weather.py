@@ -239,55 +239,54 @@ def _build_current_payload() -> SpaceWeatherCurrent:
                 sw["stations_total"] = ntrip_total
     except Exception:
         log.exception("station count overlay failed on /space-weather/current")
-    # Prefer fresh live station VTEC over snapshot/Neon. Snapshot/Neon can keep
-    # a stale midday peak (e.g. 44.5 TECU) while the observations panel shows
-    # the true live mean (~15–20 TECU). Use the same rule as that panel: mean of
-    # each station's latest binned VTEC within the last 15 minutes.
+    # Always prefer the observation-panel calculation (latest binned VTEC per
+    # station, ≤15 min) so /current stays in lockstep with live CORS math.
+    # In-memory decode / short window means are fallbacks only.
     live_mean: float | None = None
     try:
-        from backend.live_manager import latest_vtec_by_station
+        from datetime import datetime, timedelta, timezone
 
-        vals = [
-            float(v)
-            for v in latest_vtec_by_station().values()
-            if v is not None and float(v) > 1.0
-        ]
+        from backend.routers.live import _build_live_vtec_by_station
+
+        series = _build_live_vtec_by_station(hours=2.0, resample_minutes=10)
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(minutes=15)
+        vals: list[float] = []
+        for row in series:
+            points = getattr(row, "points", None) or []
+            if not points:
+                continue
+            last = points[-1]
+            raw_t = getattr(last, "time", None)
+            raw_v = getattr(last, "vtec_tecu", None)
+            if raw_t is None or raw_v is None:
+                continue
+            try:
+                ts = datetime.fromisoformat(str(raw_t).replace("Z", "+00:00"))
+                value = float(raw_v)
+            except (TypeError, ValueError):
+                continue
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            if ts >= cutoff and value > 1.0:
+                vals.append(value)
         if vals:
             live_mean = round(sum(vals) / len(vals), 2)
     except Exception:
-        pass
+        log.exception("live observation-aligned mean_vtec failed")
     if live_mean is None:
         try:
-            from datetime import datetime, timedelta, timezone
+            from backend.live_manager import latest_vtec_by_station
 
-            from backend.routers.live import _build_live_vtec_by_station
-
-            series = _build_live_vtec_by_station(hours=2.0, resample_minutes=10)
-            now = datetime.now(timezone.utc)
-            cutoff = now - timedelta(minutes=15)
-            vals: list[float] = []
-            for row in series:
-                points = getattr(row, "points", None) or []
-                if not points:
-                    continue
-                last = points[-1]
-                raw_t = getattr(last, "time", None)
-                raw_v = getattr(last, "vtec_tecu", None)
-                if raw_t is None or raw_v is None:
-                    continue
-                try:
-                    ts = datetime.fromisoformat(str(raw_t).replace("Z", "+00:00"))
-                    value = float(raw_v)
-                except (TypeError, ValueError):
-                    continue
-                if ts.tzinfo is None:
-                    ts = ts.replace(tzinfo=timezone.utc)
-                if ts >= cutoff and value > 1.0:
-                    vals.append(value)
+            vals = [
+                float(v)
+                for v in latest_vtec_by_station().values()
+                if v is not None and float(v) > 1.0
+            ]
             if vals:
                 live_mean = round(sum(vals) / len(vals), 2)
         except Exception:
-            log.exception("live observation-aligned mean_vtec failed")
+            pass
     if live_mean is None:
         try:
             from backend.routers.cors_network import _safe_station_live_vtec
