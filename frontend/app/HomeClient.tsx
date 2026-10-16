@@ -39,7 +39,6 @@ import {
 } from "@/lib/loadBudget";
 import HomeStormAlertBanner from "@/components/layout/HomeStormAlertBanner";
 import ClientOnly from "@/components/spaceWeather/ClientOnly";
-import DeferredMount from "@/components/spaceWeather/DeferredMount";
 import HomeTimelinesGate from "@/components/spaceWeather/HomeTimelinesGate";
 import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
 import type {
@@ -551,17 +550,7 @@ export default function HomeClient({ initialSw = null }: HomeClientProps) {
         </section>
       </div>
 
-      <DeferredMount
-        className="sw-deferred-block"
-        minHeight={320}
-        rootMargin="480px 0px"
-        eager
-        fallback={
-          <div className="banner banner-info" role="status" style={{ margin: "0.75rem 0" }}>
-            Loading timelines and CORS map…
-          </div>
-        }
-      >
+      <div className="sw-deferred-block" style={{ minHeight: 320 }}>
         <ClientOnly
           fallback={
             <div className="banner banner-info" role="status" style={{ margin: "0.75rem 0" }}>
@@ -571,7 +560,7 @@ export default function HomeClient({ initialSw = null }: HomeClientProps) {
         >
           <HomeTimelinesGate />
         </ClientOnly>
-      </DeferredMount>
+      </div>
 
       <section className="home-getting-started" aria-label="Getting started">
         <div className="home-getting-started-panel">

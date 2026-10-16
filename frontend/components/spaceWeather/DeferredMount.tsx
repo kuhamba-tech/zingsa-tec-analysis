@@ -52,8 +52,9 @@ export default function DeferredMount({
 
   useEffect(() => {
     const profile = getLoadProfile();
-    // Never eager-mount heavy blocks on mobile / Save-Data — first paint stays metric cards.
-    const allowEager = eager && minDelayMs <= 0 && !profile.lightPayload;
+    // Honor `eager` after mount (SSR always starts hidden for hydration safety).
+    // Only withhold eager on Save-Data / truly slow links so first paint stays light.
+    const allowEager = eager && minDelayMs <= 0 && !profile.slowNetwork;
     if (allowEager) {
       setVisible(true);
       return;
