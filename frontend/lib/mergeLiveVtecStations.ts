@@ -12,7 +12,49 @@ export function normalizeStationCode(code: string | null | undefined): string {
     .replace(/_+$/, "");
 }
 
-/** Build station_code → latest VTEC (TECU) from /live/vtec-by-station. */
+/**
+ * Trusted live VTEC for map/card colouring: short-window consensus beats a
+ * single spiked latest sample (CENT/GOKW ~90+ TECU while heat stayed ~20–40).
+ */
+export function trustedLiveVtec(row: LiveStationVtecSeries): number | null {
+  const pts = Array.isArray(row.points) ? row.points : [];
+  const recent: number[] = [];
+  for (let i = pts.length - 1; i >= 0 && recent.length < 5; i -= 1) {
+    const v = pts[i]?.vtec_tecu;
+    if (v != null && Number.isFinite(v) && v > 0) recent.push(v);
+  }
+  // Median resists one bad latest bin better than mean.
+  const shortConsensus =
+    recent.length > 0
+      ? [...recent].sort((a, b) => a - b)[Math.floor(recent.length / 2)]
+      : null;
+
+  let latest = row.latest_vtec;
+  if ((latest == null || !Number.isFinite(latest) || latest <= 0) && recent.length) {
+    latest = recent[0];
+  }
+
+  if (latest != null && Number.isFinite(latest) && latest > 0) {
+    // Reject single-epoch spikes that disagree with the short-window consensus.
+    if (
+      shortConsensus != null &&
+      Math.abs(latest - shortConsensus) > Math.max(12, 0.4 * shortConsensus)
+    ) {
+      return shortConsensus;
+    }
+    return latest;
+  }
+
+  if (shortConsensus != null && shortConsensus > 0) return shortConsensus;
+
+  const seriesMean = row.mean_vtec;
+  if (seriesMean != null && Number.isFinite(seriesMean) && seriesMean > 0) {
+    return seriesMean;
+  }
+  return null;
+}
+
+/** Build station_code → trusted live VTEC (TECU) from /live/vtec-by-station. */
 export function latestVtecByStation(
   series: LiveStationVtecSeries[] | null | undefined,
 ): Map<string, number> {
@@ -21,27 +63,16 @@ export function latestVtecByStation(
   for (const row of series) {
     const code = normalizeStationCode(row.station);
     if (!code) continue;
-    let latest = row.latest_vtec;
-    if (latest == null || !Number.isFinite(latest) || latest <= 0) {
-      const pts = Array.isArray(row.points) ? row.points : [];
-      for (let i = pts.length - 1; i >= 0; i -= 1) {
-        const v = pts[i]?.vtec_tecu;
-        if (v != null && Number.isFinite(v) && v > 0) {
-          latest = v;
-          break;
-        }
-      }
-    }
-    if (latest != null && Number.isFinite(latest) && latest > 0) {
-      out.set(code, latest);
-    }
+    const vtec = trustedLiveVtec(row);
+    if (vtec != null) out.set(code, vtec);
   }
   return out;
 }
 
 /**
- * Copy catalog stations and apply live VTEC as current_tec so CorsMap uses the
- * same measured palette as Local Ionosphere / Live Metric graphs.
+ * Copy catalog stations and apply trusted live VTEC as current_tec (spike-filtered)
+ * so Hybrid colouring stays aligned with short-window NTRIP decode. TEC Heat Map
+ * marker G labels prefer /tec/heatmap measured VTEC via resolveStationMapVtec.
  */
 export function mergeStationsWithLiveVtec(
   stations: Station[],

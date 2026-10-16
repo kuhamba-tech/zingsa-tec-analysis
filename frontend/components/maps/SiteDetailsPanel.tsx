@@ -6,6 +6,7 @@ import { siteStatusColor, stationDetailRows, stationConnectivityExplanation } fr
 import { getLiveStationStatus } from "@/lib/liveStationStatus";
 import { icaoTecColor, icaoTecDistanceLabel, icaoTecLabel } from "@/lib/icaoTecAdvisory";
 import { liveVtecSourceFromHeatmap, liveVtecSourceLabel } from "@/lib/liveVtecLabels";
+import { heatmapStationFor, resolveStationMapVtec } from "@/lib/stationMapVtec";
 import LineChart from "@/components/charts/LineChart";
 
 interface Props {
@@ -16,51 +17,6 @@ interface Props {
 
 function stationKey(code: string | null | undefined): string {
   return (code ?? "").toLowerCase().replace(/_+$/, "");
-}
-
-function heatmapStationFor(station: Station, heatmap?: TecHeatmapResponse | null) {
-  const code = stationKey(station.code);
-  return heatmap?.stations.find((s) => stationKey(s.code) === code) ?? null;
-}
-
-function isInterpolatedSource(source: string | null | undefined): boolean {
-  return /estimate|interpolated|surface/i.test(source ?? "");
-}
-
-function heatmapVtec(station: Station, heatmap?: TecHeatmapResponse | null): number | null {
-  const heatStation = heatmapStationFor(station, heatmap);
-  if (heatStation && /processed_archive/i.test(heatStation.source ?? "")) {
-    return null;
-  }
-
-  // Streaming measured live NTRIP overrides any surface estimate.
-  const measuredLive =
-    heatStation &&
-    (heatStation.obs_count ?? 0) > 0 &&
-    !isInterpolatedSource(heatStation.source);
-  if (measuredLive) {
-    const fromHeatmap = heatStation.vtec;
-    if (typeof fromHeatmap === "number" && Number.isFinite(fromHeatmap) && fromHeatmap > 0) {
-      return fromHeatmap;
-    }
-  }
-
-  // Non-streaming: allow interpolated live-surface VTEC on the card/map.
-  if (
-    heatStation &&
-    isInterpolatedSource(heatStation.source) &&
-    typeof heatStation.vtec === "number" &&
-    Number.isFinite(heatStation.vtec) &&
-    heatStation.vtec > 0
-  ) {
-    return heatStation.vtec;
-  }
-
-  const liveStatus = getLiveStationStatus(station);
-  if (liveStatus === "offline" || liveStatus === "unavailable") return null;
-  return typeof station.current_tec === "number" && Number.isFinite(station.current_tec) && station.current_tec > 0
-    ? station.current_tec
-    : null;
 }
 
 function formatArchiveTime(value: string | null | undefined): string {
@@ -132,7 +88,7 @@ export default function SiteDetailsPanel({ station, heatmap = null, onClose }: P
   const [vtecValues, setVtecValues] = useState<number[]>([]);
   const [vtecLoading, setVtecLoading] = useState(true);
   const rows = stationDetailRows(station);
-  const vtec = heatmapVtec(station, heatmap);
+  const vtec = resolveStationMapVtec(station, heatmap);
   const heatmapStation = heatmapStationFor(station, heatmap);
   const tecSource = heatmapStation
     ? liveVtecSourceLabel(
