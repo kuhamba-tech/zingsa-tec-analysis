@@ -1,8 +1,9 @@
 /**
  * Shared Zimbabwe ionosphere mean — same rule as LocalIonosphereObservations:
- * mean of each station's latest VTEC point within the freshness window.
+ * mean of each station's trusted live VTEC within the freshness window.
  */
 import type { LiveStationVtecSeries } from "@/lib/types";
+import { trustedLiveVtec } from "@/lib/mergeLiveVtecStations";
 import { monitoringFreshness, observationEpoch } from "@/lib/monitoringStatus";
 
 export type LiveIonoMeanSnapshot = {
@@ -50,12 +51,15 @@ export function computeLiveIonoMean(
       false,
       maxAgeMinutes,
     );
-    return { latest, status };
+    const vtec = trustedLiveVtec(station);
+    return { latest, status, vtec };
   });
   const fresh = rows.filter((row) => row.status === "LIVE" && row.latest);
   const delayed = rows.filter((row) => row.status === "DELAYED" && row.latest);
   const contributing = fresh.length > 0 ? fresh : delayed;
-  const values = contributing.map((row) => row.latest!.vtec_tecu);
+  const values = contributing
+    .map((row) => row.vtec)
+    .filter((v): v is number => v != null && Number.isFinite(v) && v > 0);
   const mean =
     values.length > 0
       ? Math.round((values.reduce((sum, value) => sum + value, 0) / values.length) * 100) / 100

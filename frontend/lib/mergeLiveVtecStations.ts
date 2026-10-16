@@ -12,46 +12,63 @@ export function normalizeStationCode(code: string | null | undefined): string {
     .replace(/_+$/, "");
 }
 
+function median(values: number[]): number | null {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.floor(sorted.length / 2)] ?? null;
+}
+
+function withinConsensus(value: number, ref: number): boolean {
+  return Math.abs(value - ref) <= Math.max(12, 0.4 * ref);
+}
+
 /**
- * Trusted live VTEC for map/card colouring: short-window consensus beats a
- * single spiked latest sample (CENT/GOKW ~90+ TECU while heat stayed ~20–40).
+ * Trusted live VTEC for map/card colouring.
+ *
+ * Rejects single-epoch and multi-bin spike runs (e.g. CHIR/GSU ~130–200 TECU)
+ * by anchoring the short window to the longer series mean when available.
  */
 export function trustedLiveVtec(row: LiveStationVtecSeries): number | null {
+  const seriesMean =
+    row.mean_vtec != null && Number.isFinite(row.mean_vtec) && row.mean_vtec > 0
+      ? row.mean_vtec
+      : null;
+
   const pts = Array.isArray(row.points) ? row.points : [];
   const recent: number[] = [];
-  for (let i = pts.length - 1; i >= 0 && recent.length < 5; i -= 1) {
+  for (let i = pts.length - 1; i >= 0 && recent.length < 8; i -= 1) {
     const v = pts[i]?.vtec_tecu;
     if (v != null && Number.isFinite(v) && v > 0) recent.push(v);
   }
-  // Median resists one bad latest bin better than mean.
-  const shortConsensus =
-    recent.length > 0
-      ? [...recent].sort((a, b) => a - b)[Math.floor(recent.length / 2)]
-      : null;
+
+  // Prefer recent samples that agree with the longer-window series mean.
+  const anchored =
+    seriesMean != null ? recent.filter((v) => withinConsensus(v, seriesMean)) : [...recent];
+
+  const pool =
+    anchored.length > 0 ? anchored : seriesMean != null ? [seriesMean] : recent;
+
+  if (!pool.length) {
+    const latest = row.latest_vtec;
+    if (latest != null && Number.isFinite(latest) && latest > 0) {
+      // Soft ceiling when we have no series context — matches backend memory gate.
+      if (latest <= 55) return latest;
+    }
+    return null;
+  }
+
+  const consensus = median(pool);
+  if (consensus == null || consensus <= 0) return null;
 
   let latest = row.latest_vtec;
   if ((latest == null || !Number.isFinite(latest) || latest <= 0) && recent.length) {
     latest = recent[0];
   }
 
-  if (latest != null && Number.isFinite(latest) && latest > 0) {
-    // Reject single-epoch spikes that disagree with the short-window consensus.
-    if (
-      shortConsensus != null &&
-      Math.abs(latest - shortConsensus) > Math.max(12, 0.4 * shortConsensus)
-    ) {
-      return shortConsensus;
-    }
+  if (latest != null && Number.isFinite(latest) && latest > 0 && withinConsensus(latest, consensus)) {
     return latest;
   }
-
-  if (shortConsensus != null && shortConsensus > 0) return shortConsensus;
-
-  const seriesMean = row.mean_vtec;
-  if (seriesMean != null && Number.isFinite(seriesMean) && seriesMean > 0) {
-    return seriesMean;
-  }
-  return null;
+  return consensus;
 }
 
 /** Build station_code → trusted live VTEC (TECU) from /live/vtec-by-station. */
@@ -99,4 +116,13 @@ export function countStationsWithLiveVtec(stations: Station[]): number {
   return stations.filter(
     (s) => s.current_tec != null && Number.isFinite(s.current_tec) && Number(s.current_tec) > 0,
   ).length;
+}
+
+/** Drop network outliers from a list of TECU samples (median-anchored). */
+export function filterVtecNetworkOutliers(values: number[]): number[] {
+  const finite = values.filter((v) => Number.isFinite(v) && v > 0);
+  const med = median(finite);
+  if (med == null || finite.length < 3) return finite;
+  const kept = finite.filter((v) => withinConsensus(v, med) || Math.abs(v - med) <= Math.max(28, med * 1.25));
+  return kept.length >= Math.min(3, finite.length) ? kept : finite;
 }

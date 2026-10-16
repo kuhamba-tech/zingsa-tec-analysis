@@ -1,5 +1,6 @@
 import SwSectionBanner from "./SwSectionBanner";
 import type { LiveStationVtecSeries } from "@/lib/types";
+import { trustedLiveVtec } from "@/lib/mergeLiveVtecStations";
 import { monitoringFreshness, observationEpoch, observationTime } from "@/lib/monitoringStatus";
 import { formatVtecDisplay, vtecColor } from "@/lib/spaceWeatherMetrics";
 
@@ -20,14 +21,18 @@ export default function LocalIonosphereObservations({ stations, now, refreshFail
       .reduce<(typeof station.points)[number] | null>((last, point) =>
         !last || observationEpoch(point.time)! > observationEpoch(last.time)! ? point : last, null);
     const status = monitoringFreshness(latest?.time, now, Boolean(latest), refreshFailed);
-    return { station, latest, status };
+    // Spike-filtered VTEC — same consensus as map G labels / live merge.
+    const vtec = trustedLiveVtec(station);
+    return { station, latest, status, vtec };
   });
   const fresh = rows.filter((row) => row.status === "LIVE" && row.latest);
   // Prefer LIVE for the mean; if ingest is lagging, still surface DELAYED readings
   // so a successful API response is not shown as a blank "Unavailable" panel.
   const delayed = rows.filter((row) => row.status === "DELAYED" && row.latest);
   const contributing = fresh.length > 0 ? fresh : delayed;
-  const values = contributing.map((row) => row.latest!.vtec_tecu);
+  const values = contributing
+    .map((row) => row.vtec)
+    .filter((v): v is number => v != null && Number.isFinite(v) && v > 0);
   const mean = values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
   const rangeMin = values.length ? Math.min(...values) : null;
   const rangeMax = values.length ? Math.max(...values) : null;
@@ -105,11 +110,11 @@ export default function LocalIonosphereObservations({ stations, now, refreshFail
         <div className="sw-table-scroll">
           <table className="sw-observation-table">
             <thead><tr><th scope="col">Station</th><th scope="col">VTEC</th><th scope="col">Observed (UTC)</th><th scope="col">Status</th></tr></thead>
-            <tbody>{rows.map(({ station, latest, status }) => (
+            <tbody>{rows.map(({ station, latest, status, vtec }) => (
               <tr key={station.station}>
                 <th scope="row">{station.name || station.station}</th>
-                <td style={latest ? { color: vtecColor(latest.vtec_tecu), fontWeight: 700 } : undefined}>
-                  {latest ? formatVtecDisplay(latest.vtec_tecu) : "Unavailable"}
+                <td style={vtec != null ? { color: vtecColor(vtec), fontWeight: 700 } : undefined}>
+                  {vtec != null ? formatVtecDisplay(vtec) : "Unavailable"}
                 </td>
                 <td>{observationTime(latest?.time)}</td>
                 <td>{status}</td>

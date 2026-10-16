@@ -1,5 +1,6 @@
 import type { Station, TecHeatmapResponse } from "@/lib/types";
 import { getLiveStationStatus } from "@/lib/liveStationStatus";
+import { filterVtecNetworkOutliers } from "@/lib/mergeLiveVtecStations";
 
 function stationKey(code: string | null | undefined): string {
   return (code ?? "").toLowerCase().replace(/_+$/, "");
@@ -7,6 +8,24 @@ function stationKey(code: string | null | undefined): string {
 
 function isInterpolatedSource(source: string | null | undefined): boolean {
   return /estimate|interpolated|surface/i.test(source ?? "");
+}
+
+function rangeFromStations(
+  stations: Array<{ vtec: number; obs_count?: number | null; source?: string | null }>,
+): { min: number | null; max: number | null } {
+  // Prefer measured NTRIP samples for the Live TEC footer so surface estimates
+  // and residual spikes cannot widen G min–max past the true calculated band.
+  const measured = stations
+    .filter((s) => (s.obs_count ?? 0) > 0 && !isInterpolatedSource(s.source))
+    .map((s) => s.vtec)
+    .filter((v) => Number.isFinite(v) && v > 0);
+  const pool = filterVtecNetworkOutliers(
+    measured.length > 0
+      ? measured
+      : stations.map((s) => s.vtec).filter((v) => Number.isFinite(v) && v > 0),
+  );
+  if (!pool.length) return { min: null, max: null };
+  return { min: Math.min(...pool), max: Math.max(...pool) };
 }
 
 function isArchiveHeatmap(heatmap: TecHeatmapResponse | null | undefined): boolean {
@@ -110,14 +129,14 @@ export function mergeTecHeatmapWithStations(
       })
       .filter((s): s is NonNullable<typeof s> => s != null);
 
-    const values = heatmapStations.map((s) => s.vtec).filter((v) => Number.isFinite(v));
     const measuredCount = heatmapStations.filter((s) => (s.obs_count ?? 0) > 0).length;
+    const range = rangeFromStations(heatmapStations);
     return {
       ...liveHeatmap,
       stations: heatmapStations,
       heat_points: liveHeatmap.heat_points,
-      tec_min: values.length > 0 ? Math.min(...values) : liveHeatmap.tec_min,
-      tec_max: values.length > 0 ? Math.max(...values) : liveHeatmap.tec_max,
+      tec_min: range.min ?? liveHeatmap.tec_min,
+      tec_max: range.max ?? liveHeatmap.tec_max,
       station_count: heatmapStations.length,
       data_quality: liveHeatmap.data_quality,
       message:
@@ -136,7 +155,12 @@ export function mergeTecHeatmapWithStations(
     return liveHeatmap;
   }
 
-  const heatmapStations = reporting.map((s) => ({
+  const rawVals = reporting.map((s) => s.current_tec as number);
+  const keptVals = new Set(filterVtecNetworkOutliers(rawVals));
+  const trusted = reporting.filter((s) => keptVals.has(s.current_tec as number));
+  const useStations = trusted.length >= Math.min(3, reporting.length) ? trusted : reporting;
+
+  const heatmapStations = useStations.map((s) => ({
     code: s.code,
     name: s.name,
     lat: s.lat,
@@ -146,7 +170,7 @@ export function mergeTecHeatmapWithStations(
     source: "live",
   }));
 
-  const tecValues = heatmapStations.map((s) => s.vtec);
+  const range = rangeFromStations(heatmapStations);
   const heatPoints = heatmapStations.map((s) => ({
     lon: s.lon,
     lat: s.lat,
@@ -161,14 +185,14 @@ export function mergeTecHeatmapWithStations(
     heat_points: heatPoints,
     grid: null,
     bounds: [25.5, -22.5, 33.5, -15.5],
-    tec_min: Math.min(...tecValues),
-    tec_max: Math.max(...tecValues),
+    tec_min: range.min,
+    tec_max: range.max,
     station_count: heatmapStations.length,
     updated_at: null,
     message:
-      reporting.length === 1
+      useStations.length === 1
         ? "1 connected CORS site reporting live VTEC from NTRIP decode."
-        : `${reporting.length} connected CORS sites reporting live VTEC from NTRIP decode.`,
+        : `${useStations.length} connected CORS sites reporting live VTEC from NTRIP decode.`,
     data_quality: "stations_only",
     icao_mod_tecu: 125,
     icao_sev_tecu: 175,
