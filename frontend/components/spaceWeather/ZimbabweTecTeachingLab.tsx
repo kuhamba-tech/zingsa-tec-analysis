@@ -239,33 +239,48 @@ export default function ZimbabweTecTeachingLab() {
 
   useEffect(() => {
     let cancelled = false;
+    const hasStationPoints = (rows: unknown) =>
+      Array.isArray(rows) &&
+      rows.some(
+        (row) =>
+          row &&
+          typeof row === "object" &&
+          Array.isArray((row as LiveStationVtecSeries).points) &&
+          (row as LiveStationVtecSeries).points.length > 0,
+      );
+    const hasLiveSamples = (rows: unknown) => Array.isArray(rows) && rows.length > 0;
+
     const load = () => {
       setLoading(true);
-      // Keep first paint light: short station bins + capped live samples.
-      // Full-day dense pulls used to saturate the API worker and freeze metric cards.
+      setError(null);
+      // Prefer enough history for a readable UT axis — short windows look like a
+      // single spike and make the feed appear "down" even when Golwe/NTRIP is up.
       const profile = getLoadProfile();
+      const sinceMidnight = Math.ceil(hoursSinceUtcMidnight()) + 1;
       const dayHours = profile.constrained
-        ? Math.min(8, Math.max(3, Math.ceil(hoursSinceUtcMidnight()) + 0.5))
-        : Math.min(12, Math.max(4, Math.ceil(hoursSinceUtcMidnight() * 2) / 2 + 0.5));
+        ? Math.min(24, Math.max(18, sinceMidnight))
+        : Math.min(24, Math.max(18, sinceMidnight));
       const liveLimit = profile.slowNetwork ? 400 : profile.constrained ? 600 : 800;
-      const liveHours = Math.min(profile.constrained ? 3 : 4, dayHours);
-      const resampleMin = profile.constrained ? 20 : 15;
+      const liveHours = Math.min(profile.constrained ? 4 : 6, dayHours);
+      const resampleMin = profile.constrained ? 15 : 10;
 
-      // Apply each feed as it lands so the slow GOPI/Gg comparison cannot block
-      // graphs 1–5 (diurnal used to stay empty until comparison finished).
-      const stP = getLiveVtecByStation(dayHours, resampleMin, profile.constrained ? 35_000 : 45_000).then((rows) => {
-        if (!cancelled) setStations(Array.isArray(rows) ? rows : []);
+      // Apply each feed as it lands so graphs 1–5 paint without waiting on GOPI/Gg.
+      const stP = getLiveVtecByStation(dayHours, resampleMin, profile.constrained ? 45_000 : 60_000).then((rows) => {
+        if (cancelled) return rows;
+        setStations(Array.isArray(rows) ? rows : []);
+        if (hasStationPoints(rows)) setLoading(false);
         return rows;
       });
-      const liveP = getLiveVtec(liveHours, undefined, profile.constrained ? 18_000 : 25_000, liveLimit).then((rows) => {
-        if (!cancelled) setObs(Array.isArray(rows) ? rows : []);
+      const liveP = getLiveVtec(liveHours, undefined, profile.constrained ? 20_000 : 30_000, liveLimit).then((rows) => {
+        if (cancelled) return rows;
+        setObs(Array.isArray(rows) ? rows : []);
+        if (hasLiveSamples(rows)) setLoading(false);
         return rows;
       });
       const catP = getStations(false).then((rows) => {
         if (!cancelled && Array.isArray(rows) && rows.length) setCatalog(rows);
         return rows;
       });
-      // Shared params with TecMethodComparisonLab so both hit one cached API call.
       const cmp = getTecMethodCmpParams();
       getTecMethodComparison(cmp.hours, undefined, cmp.limit, cmp.timeoutMs)
         .then((payload) => {
@@ -278,12 +293,16 @@ export default function ZimbabweTecTeachingLab() {
       Promise.allSettled([stP, liveP, catP]).then(([st, live, cat]) => {
         if (cancelled) return;
         if (cat.status !== "fulfilled" || !Array.isArray(cat.value) || cat.value.length === 0) {
-          getStations(false).then((rows) => {
-            if (!cancelled && Array.isArray(rows) && rows.length) setCatalog(rows);
-          }).catch(() => {});
+          getStations(false)
+            .then((rows) => {
+              if (!cancelled && Array.isArray(rows) && rows.length) setCatalog(rows);
+            })
+            .catch(() => {});
         }
-        const fails = [st, live].filter((r) => r.status === "rejected").length;
-        setError(fails === 2 ? "Live CORS VTEC feeds unavailable right now." : null);
+        const stOk = st.status === "fulfilled" && hasStationPoints(st.value);
+        const liveOk = live.status === "fulfilled" && hasLiveSamples(live.value);
+        // Only warn when both primary feeds failed — never while usable data is on screen.
+        setError(!stOk && !liveOk ? "Live CORS VTEC feeds unavailable right now." : null);
         setUpdatedAt(new Date().toISOString());
         setLoading(false);
       });
@@ -291,8 +310,7 @@ export default function ZimbabweTecTeachingLab() {
     load();
     const unlock = window.setTimeout(() => {
       if (!cancelled) setLoading(false);
-    }, 8000);
-    // Keep the UTC-day chart live
+    }, 10_000);
     const refresh = window.setInterval(load, 120_000);
     return () => {
       cancelled = true;
@@ -305,30 +323,33 @@ export default function ZimbabweTecTeachingLab() {
   const utcDayTitle = useMemo(() => utcDayLabel(utcDayStart), [utcDayStart]);
 
   const stationSeries = useMemo(() => {
-    return stations
-      .filter((s) => s.points?.length)
-      .slice(0, 8)
-      .map((s, i) => {
-        const epochs: number[] = [];
-        const values: (number | null)[] = [];
-        const labels: string[] = [];
-        for (const p of s.points) {
-          const ms = Date.parse(p.time);
-          if (!Number.isFinite(ms)) continue;
-          epochs.push(ms);
-          values.push(p.vtec_tecu);
-          labels.push(p.time);
-        }
-        return {
-          station: s.station,
-          color: STATION_COLORS[i % STATION_COLORS.length],
-          epochs,
-          values,
-          labels,
-          latest: s.latest_vtec,
-          mean: s.mean_vtec,
-        };
-      });
+    const selected = stations.filter((s) => s.points?.length).slice(0, 8);
+    const epochSet = new Set<number>();
+    for (const s of selected) {
+      for (const p of s.points) {
+        const ms = Date.parse(p.time);
+        if (Number.isFinite(ms)) epochSet.add(ms);
+      }
+    }
+    const epochs = Array.from(epochSet).sort((a, b) => a - b);
+    const labels = epochs.map((ms) => new Date(ms).toISOString());
+    return selected.map((s, i) => {
+      const byTime = new Map<number, number | null>();
+      for (const p of s.points) {
+        const ms = Date.parse(p.time);
+        if (!Number.isFinite(ms)) continue;
+        byTime.set(ms, p.vtec_tecu);
+      }
+      return {
+        station: s.station,
+        color: STATION_COLORS[i % STATION_COLORS.length],
+        epochs,
+        values: epochs.map((ms) => byTime.get(ms) ?? null),
+        labels,
+        latest: s.latest_vtec,
+        mean: s.mean_vtec,
+      };
+    });
   }, [stations]);
 
   const vtecTimeAxis = useMemo(() => {
@@ -449,9 +470,13 @@ export default function ZimbabweTecTeachingLab() {
           Method 1 (GOPI) and Method 2 (Gg), and northern / central / southern Zimbabwe diurnal
           comparisons for both methods. Click any graph for its scientific explanation.
         </p>
-        {loading && <div className="banner banner-info" style={{ marginTop: "0.75rem" }}>Loading live CORS VTEC…</div>}
-        {error && <div className="banner banner-warn" style={{ marginTop: "0.75rem" }}>{error}</div>}
-        {updatedAt && !loading && (
+        {loading && !stationSeries.length && !obs.length && (
+          <div className="banner banner-info" style={{ marginTop: "0.75rem" }}>Loading live CORS VTEC…</div>
+        )}
+        {!loading && error && (
+          <div className="banner banner-warn" style={{ marginTop: "0.75rem" }}>{error}</div>
+        )}
+        {updatedAt && (stationSeries.length > 0 || obs.length > 0) && (
           <p className="sw-supporting-text" style={{ margin: "0.55rem 0 0" }}>
             Updated {new Date(updatedAt).toUTCString()} · {stationSeries.length} stations with series · {obs.length.toLocaleString()} live samples
           </p>
