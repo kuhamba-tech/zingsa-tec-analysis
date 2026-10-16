@@ -640,9 +640,12 @@ export default function SpaceWeatherClient({
 
   useEffect(() => {
     const profile = getLoadProfile();
-    // Start Chart.js download immediately after first paint so GOES / timelines
-    // do not wait on a cold multi-MB chunk over the Cursor ingress.
-    const stopPrefetch = afterNextPaint(() => prefetchLineChart(), 40);
+    // Start Chart.js immediately — do not wait on idle/paint or graphs stall.
+    prefetchLineChart();
+    // Warm graph JSON in parallel with metric cards (Live Metric is default tab).
+    void getHeliosphericMonitor(false, false).catch(() => null);
+    getTimelines(profile.timelineMaxPoints).then(setTl).catch(() => null);
+    getEkfStatus().then(setEkf).catch(() => null);
     void bootSpaceWeather().then((boot) => {
       if (!boot) return;
       setSw(boot);
@@ -675,7 +678,6 @@ export default function SpaceWeatherClient({
       if (!peekSpaceWeather()) fetchAll(false);
     }, 5_500);
     return () => {
-      stopPrefetch();
       window.clearInterval(id);
       window.clearTimeout(watchdog);
       window.clearTimeout(retry1);

@@ -273,8 +273,11 @@ export default function HomeClient({ initialSw = null }: HomeClientProps) {
     void bootSpaceWeather().then((sw) => {
       if (sw) applySw(sw, "ok");
     });
-    // Prefetch heavy timeline/map chunk after first paint (desktop + mobile).
+    // Prefetch Chart.js + timeline stack ASAP so Space Weather graphs open warm.
     const cancelPrefetch = scheduleSecondary(() => {
+      void import("@/lib/loadLineChart")
+        .then(({ prefetchLineChart }) => prefetchLineChart())
+        .catch(() => null);
       void import("@/lib/loadCauseEffectTimeline")
         .then(({ prefetchCauseEffectTimelineStack }) => {
           prefetchCauseEffectTimelineStack();

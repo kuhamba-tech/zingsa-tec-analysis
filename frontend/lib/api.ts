@@ -87,6 +87,7 @@ import { peekSpaceWeather, publishSpaceWeather } from "./spaceWeatherStore";
 import { peekSolarActivity, publishSolarActivity } from "./solarActivityStore";
 import { peekHeliosphericMonitor, rememberHeliosphericMonitor } from "./heliosphericStore";
 import { peekStations, publishStations, purgeStaleStationsCache, stationsAreLiveAuthoritative } from "./stationsStore";
+import { getLoadProfile } from "./loadBudget";
 import {
   getSpaceWeatherNetworkAt,
   noteSpaceWeatherNetworkOk,
@@ -329,15 +330,24 @@ export const getSolarCycleIndices = (startYear = 1965, forceRefresh = false) =>
     ),
   );
 
+/** Cap heliospheric panel points for faster graph transfer on light clients. */
+function heliosphericMaxPoints(): number {
+  const profile = getLoadProfile();
+  // Slightly above chartMaxPoints so Chart.js still has headroom to downsample.
+  return Math.max(48, Math.min(360, profile.chartMaxPoints * 3));
+}
+
 export const getHeliosphericMonitor = (forceRefresh = false, requireNetwork = false) => {
+  const maxPoints = heliosphericMaxPoints();
+  const cacheKey = `space-weather/heliospheric-monitor:${maxPoints}`;
   const cached = peekHeliosphericMonitor();
   if (!forceRefresh && !requireNetwork && cached) {
     const recentlyFetched = Date.now() - lastHelioNetworkAt < LIVE_REFRESH_MIN_MS;
     if (recentlyFetched) return Promise.resolve(cached);
-    const pending = dedupeGet("space-weather/heliospheric-monitor", () =>
+    const pending = dedupeGet(cacheKey, () =>
       get<HeliosphericMonitorResponse>(
         "/space-weather/heliospheric-monitor",
-        { _ts: Date.now() },
+        { _ts: Date.now(), max_points: maxPoints },
         HELIO_TIMEOUT_MS,
       )
         .then((data) => {
@@ -350,25 +360,28 @@ export const getHeliosphericMonitor = (forceRefresh = false, requireNetwork = fa
     return Promise.resolve(cached);
   }
 
-  return dedupeGet(`space-weather/heliospheric-monitor${forceRefresh ? ":refresh" : ""}${requireNetwork ? ":verified" : ""}`, () =>
-    get<HeliosphericMonitorResponse>(
-      "/space-weather/heliospheric-monitor",
-      {
-        _ts: Date.now(),
-        ...(forceRefresh ? { force_refresh: "true" } : {}),
-      },
-      HELIO_TIMEOUT_MS,
-    )
-      .then((data) => {
-        lastHelioNetworkAt = Date.now();
-        return rememberHeliosphericMonitor(data);
-      })
-      .catch((err) => {
-        if (requireNetwork) throw err;
-        const fallback = peekHeliosphericMonitor();
-        if (fallback) return fallback;
-        throw err;
-      }),
+  return dedupeGet(
+    `${cacheKey}${forceRefresh ? ":refresh" : ""}${requireNetwork ? ":verified" : ""}`,
+    () =>
+      get<HeliosphericMonitorResponse>(
+        "/space-weather/heliospheric-monitor",
+        {
+          _ts: Date.now(),
+          max_points: maxPoints,
+          ...(forceRefresh ? { force_refresh: "true" } : {}),
+        },
+        HELIO_TIMEOUT_MS,
+      )
+        .then((data) => {
+          lastHelioNetworkAt = Date.now();
+          return rememberHeliosphericMonitor(data);
+        })
+        .catch((err) => {
+          if (requireNetwork) throw err;
+          const fallback = peekHeliosphericMonitor();
+          if (fallback) return fallback;
+          throw err;
+        }),
   );
 };
 export const getTimelines = (maxPoints = 168) => {

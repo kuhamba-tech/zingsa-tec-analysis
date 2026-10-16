@@ -46,7 +46,17 @@ async function proxy(req: NextRequest, pathParts: string[]) {
     const out = new NextResponse(body, { status: upstream.status });
     const contentType = upstream.headers.get("content-type");
     if (contentType) out.headers.set("Content-Type", contentType);
-    out.headers.set("Cache-Control", "no-store");
+    // Short private cache for hot graph/metric GETs — cuts repeat proxy latency.
+    const joined = pathParts.join("/");
+    const shortCache =
+      req.method === "GET" &&
+      /^(space-weather\/(current|timelines|heliospheric-monitor|solar-activity|ekf)|cors\/stations|live\/vtec-by-station)/.test(
+        joined,
+      );
+    out.headers.set(
+      "Cache-Control",
+      shortCache ? "private, max-age=8, stale-while-revalidate=24" : "no-store",
+    );
     return out;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

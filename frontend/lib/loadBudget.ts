@@ -80,9 +80,9 @@ export function getLoadProfile(): LoadProfile {
       lightPayload: true,
       pollIntervalMs: 90_000,
       timelineMaxPoints: 48,
-      heavyMountDelayMs: 400,
-      deferSecondaryApis: true,
-      stationsDeferMs: 600,
+      heavyMountDelayMs: 200,
+      deferSecondaryApis: false,
+      stationsDeferMs: 500,
       defaultRangeHours: 6,
       vtecResampleMinutes: 10,
       vtecHoursCap: 18,
@@ -104,11 +104,11 @@ export function getLoadProfile(): LoadProfile {
     // Both desktop and mobile: longer polls reduce background contention.
     pollIntervalMs: slowNetwork ? 180_000 : constrained ? 120_000 : 60_000,
     timelineMaxPoints: slowNetwork ? 32 : constrained ? 48 : 96,
-    // Cursor: short delay so shared Chart.js can prefetch, then graphs mount.
-    heavyMountDelayMs: cursorPreview ? 550 : slowNetwork ? 900 : constrained ? 500 : 120,
-    // Always skip heliospheric/timeline warm on first paint — tabs warm on demand.
-    deferSecondaryApis: true,
-    stationsDeferMs: cursorPreview ? 2200 : slowNetwork ? 1800 : constrained ? 900 : 350,
+    // Keep below-fold labs slightly deferred; graph data itself warms immediately.
+    heavyMountDelayMs: cursorPreview ? 220 : slowNetwork ? 600 : constrained ? 350 : 80,
+    // Live Metric is the default tab — warm timeline/heliospheric APIs with cards.
+    deferSecondaryApis: false,
+    stationsDeferMs: cursorPreview ? 900 : slowNetwork ? 1200 : constrained ? 700 : 250,
     // Short first window everywhere; users can expand to 24h / 3d.
     defaultRangeHours: 6,
     vtecResampleMinutes: slowNetwork ? 15 : constrained ? 10 : 5,
@@ -157,14 +157,14 @@ export function afterNextPaint(fn: () => void, timeoutMs = 48): () => void {
 /** Defer non-critical work; waits longer on constrained/slow clients. */
 export function scheduleSecondary(fn: () => void, profile?: LoadProfile): () => void {
   const p = profile ?? getLoadProfile();
-  // Cursor CVM: warm graph APIs sooner so charts are not starved after paint.
+  // Keep secondary warm close to first paint so graphs are not starved.
   const timeout = isCursorCloudPreview()
-    ? 700
+    ? 120
     : p.slowNetwork
-      ? 4200
+      ? 1800
       : p.constrained
-        ? 2600
-        : 1100;
+        ? 900
+        : 280;
   return afterNextPaint(fn, timeout);
 }
 

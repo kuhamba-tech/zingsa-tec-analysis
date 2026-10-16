@@ -618,13 +618,19 @@ def solar_cycle_indices(
 @router.get("/heliospheric-monitor", response_model=HeliosphericMonitorResponse)
 def heliospheric_monitor(
     force_refresh: bool = Query(False),
+    max_points: int | None = Query(
+        None,
+        ge=24,
+        le=2000,
+        description="Optional stride cap per panel for faster graph payloads",
+    ),
     _=Depends(require_api_key),
 ):
     """KNMI-style stacked heliospheric panels from live NOAA SWPC feeds."""
     from zgiis.space_weather.heliospheric_monitor import build_heliospheric_monitor
 
     try:
-        payload = build_heliospheric_monitor(force_refresh=force_refresh)
+        payload = build_heliospheric_monitor(force_refresh=force_refresh, max_points=max_points)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Heliospheric monitor fetch failed: {exc}") from exc
     return HeliosphericMonitorResponse(**payload)

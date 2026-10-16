@@ -101,6 +101,53 @@ def downsample(points: list[dict[str, Any]], *, max_points: int = 288) -> list[d
     return sampled
 
 
+def _thin_index(length: int, max_points: int) -> list[int]:
+    if length <= max_points or max_points < 8:
+        return list(range(length))
+    step = max(1, math.ceil(length / max_points))
+    idx = list(range(0, length, step))
+    if idx[-1] != length - 1:
+        idx.append(length - 1)
+    return idx
+
+
+def thin_aligned_panel(panel: dict[str, Any] | None, *, max_points: int) -> dict[str, Any] | None:
+    """Stride-thin parallel label/value arrays for lighter graph payloads."""
+    if not isinstance(panel, dict):
+        return panel
+    labels = panel.get("labels")
+    if not isinstance(labels, list) or len(labels) <= max_points:
+        return panel
+    idx = _thin_index(len(labels), max_points)
+    out: dict[str, Any] = dict(panel)
+    for key, value in panel.items():
+        if isinstance(value, list) and len(value) == len(labels):
+            out[key] = [value[i] for i in idx]
+        elif isinstance(value, dict):
+            nested: dict[str, Any] = {}
+            for nested_key, nested_value in value.items():
+                if isinstance(nested_value, list) and len(nested_value) == len(labels):
+                    nested[nested_key] = [nested_value[i] for i in idx]
+                else:
+                    nested[nested_key] = nested_value
+            out[key] = nested
+    return out
+
+
+def thin_heliospheric_payload(payload: dict[str, Any], *, max_points: int) -> dict[str, Any]:
+    """Return a copy of the monitor payload with each panel capped to max_points."""
+    if max_points <= 0 or not isinstance(payload, dict):
+        return payload
+    capped = max(24, min(2000, int(max_points)))
+    out = dict(payload)
+    for key in ("xray", "protons", "imf", "solar_wind", "kp", "dst"):
+        panel = payload.get(key)
+        thinned = thin_aligned_panel(panel if isinstance(panel, dict) else None, max_points=capped)
+        if thinned is not None:
+            out[key] = thinned
+    return out
+
+
 def parse_proton_series(rows: list[Any], *, energies: tuple[str, ...] = PROTON_ENERGIES) -> dict[str, Any]:
     """Pivot GOES integral proton rows into per-energy timelines aligned by time."""
     wanted = set(energies)
@@ -447,12 +494,13 @@ def _refresh_heliospheric_cache(cache_key: str, stale: dict[str, Any] | None) ->
             _CACHE_REFRESHING.discard(cache_key)
 
 
-def build_heliospheric_monitor(*, force_refresh: bool = False) -> dict[str, Any]:
+def build_heliospheric_monitor(*, force_refresh: bool = False, max_points: int | None = None) -> dict[str, Any]:
     """Return heliospheric panels. Prefer cache; never block the UI on TTL expiry.
 
     Fresh cache hits return immediately. Expired-but-usable payloads are served
     stale-while-revalidate (background NOAA refresh). Only a true cold miss
-    waits on the NOAA fan-out.
+    waits on the NOAA fan-out. Optional max_points thins panels for faster
+    graph transfer without rebuilding the NOAA cache.
     """
     cache_key = "heliospheric_monitor"
     now = time.time()
@@ -463,7 +511,7 @@ def build_heliospheric_monitor(*, force_refresh: bool = False) -> dict[str, Any]
         payload = _build_payload_from_sources()
         with _CACHE_LOCK:
             _CACHE[cache_key] = {"ts": time.time(), "data": payload}
-        return payload
+        return thin_heliospheric_payload(payload, max_points=max_points) if max_points else payload
 
     if cached and isinstance(cached.get("data"), dict):
         data = cached["data"]
@@ -474,7 +522,7 @@ def build_heliospheric_monitor(*, force_refresh: bool = False) -> dict[str, Any]
         )
         age = now - float(cached.get("ts") or 0.0)
         if age < ttl:
-            return data
+            return thin_heliospheric_payload(data, max_points=max_points) if max_points else data
         if _payload_has_series(data):
             with _CACHE_LOCK:
                 if cache_key not in _CACHE_REFRESHING:
@@ -485,12 +533,12 @@ def build_heliospheric_monitor(*, force_refresh: bool = False) -> dict[str, Any]
                         daemon=True,
                         name="heliospheric-swr",
                     ).start()
-            return data
+            return thin_heliospheric_payload(data, max_points=max_points) if max_points else data
 
     payload = _build_payload_from_sources()
     with _CACHE_LOCK:
         _CACHE[cache_key] = {"ts": time.time(), "data": payload}
-    return payload
+    return thin_heliospheric_payload(payload, max_points=max_points) if max_points else payload
 
 
 def clear_heliospheric_monitor_cache() -> None:
