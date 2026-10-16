@@ -38,6 +38,7 @@ import {
   scheduleSecondary,
 } from "@/lib/loadBudget";
 import HomeStormAlertBanner from "@/components/layout/HomeStormAlertBanner";
+import ClientOnly from "@/components/spaceWeather/ClientOnly";
 import DeferredMount from "@/components/spaceWeather/DeferredMount";
 import HomeTimelinesGate from "@/components/spaceWeather/HomeTimelinesGate";
 import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
@@ -561,7 +562,15 @@ export default function HomeClient({ initialSw = null }: HomeClientProps) {
           </div>
         }
       >
-        <HomeTimelinesGate />
+        <ClientOnly
+          fallback={
+            <div className="banner banner-info" role="status" style={{ margin: "0.75rem 0" }}>
+              Loading timelines and CORS map…
+            </div>
+          }
+        >
+          <HomeTimelinesGate />
+        </ClientOnly>
       </DeferredMount>
 
       <section className="home-getting-started" aria-label="Getting started">

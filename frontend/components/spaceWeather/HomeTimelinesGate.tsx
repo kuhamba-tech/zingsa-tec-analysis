@@ -1,38 +1,20 @@
 "use client";
 
-import { Component, type ReactNode } from "react";
-import dynamic from "next/dynamic";
-import { loadCauseEffectTimelineStack } from "@/lib/loadCauseEffectTimeline";
+import { Component, type ComponentType, type ReactNode } from "react";
 
-const CauseEffectTimelineStack = dynamic(
-  () => loadCauseEffectTimelineStack().then((m) => m.default),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="banner banner-info" role="status" style={{ margin: "0.75rem 0" }}>
-        Loading CORS map…
-      </div>
-    ),
-  },
-);
-
-const LiveMetricTimelines = dynamic(
-  () => import("@/components/spaceWeather/LiveMetricTimelines"),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="banner banner-info" role="status" style={{ margin: "0.75rem 0" }}>
-        Loading live Space Weather graphs…
-      </div>
-    ),
-  },
-);
-
-type State = { error: Error | null; retry: number; mounted: boolean };
+type State = {
+  error: Error | null;
+  retry: number;
+  CauseEffect: ComponentType<{ variant?: string }> | null;
+  LiveMetrics: ComponentType<{ showIntro?: boolean }> | null;
+};
 
 function TimelinesLoading(): ReactNode {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+    <div
+      data-home-timelines="loading"
+      style={{ display: "flex", flexDirection: "column", gap: "1rem" }}
+    >
       <div className="banner banner-info" role="status" style={{ margin: "0.75rem 0" }}>
         Loading CORS map…
       </div>
@@ -43,19 +25,66 @@ function TimelinesLoading(): ReactNode {
   );
 }
 
+async function loadTimelineModules(): Promise<{
+  CauseEffect: ComponentType<{ variant?: string }>;
+  LiveMetrics: ComponentType<{ showIntro?: boolean }>;
+}> {
+  const [{ loadCauseEffectTimelineStack }, liveMod] = await Promise.all([
+    import("@/lib/loadCauseEffectTimeline"),
+    import("@/components/spaceWeather/LiveMetricTimelines"),
+  ]);
+  const causeMod = await loadCauseEffectTimelineStack();
+  return {
+    CauseEffect: causeMod.default as ComponentType<{ variant?: string }>,
+    LiveMetrics: liveMod.default as ComponentType<{ showIntro?: boolean }>,
+  };
+}
+
 /**
  * Home page: same CORS map + Live Metric graphs as Space Weather.
  * Isolates chunk-load failures so a bad dynamic import cannot blank the dashboard.
  *
- * Dynamic charts use `ssr: false`, so we wait until after mount before rendering
- * them — otherwise the server HTML (loading markup) disagrees with the client's
- * Suspense boundary and React throws a hydration error.
+ * Chart stacks load only after mount — no module-level `next/dynamic({ ssr: false })` —
+ * so SSR never emits a LoadableComponent/Suspense tree that disagrees with the client.
  */
 export default class HomeTimelinesGate extends Component<object, State> {
-  state: State = { error: null, retry: 0, mounted: false };
+  state: State = {
+    error: null,
+    retry: 0,
+    CauseEffect: null,
+    LiveMetrics: null,
+  };
+
+  private cancelled = false;
+  private loadGeneration = 0;
 
   componentDidMount() {
-    this.setState({ mounted: true });
+    this.cancelled = false;
+    void this.loadChunks();
+  }
+
+  componentWillUnmount() {
+    this.cancelled = true;
+  }
+
+  private async loadChunks() {
+    const generation = ++this.loadGeneration;
+    try {
+      const mods = await loadTimelineModules();
+      if (this.cancelled || generation !== this.loadGeneration) return;
+      this.setState({
+        error: null,
+        CauseEffect: mods.CauseEffect,
+        LiveMetrics: mods.LiveMetrics,
+      });
+    } catch (err) {
+      if (this.cancelled || generation !== this.loadGeneration) return;
+      this.setState({
+        error: err instanceof Error ? err : new Error(String(err)),
+        CauseEffect: null,
+        LiveMetrics: null,
+      });
+    }
   }
 
   static getDerivedStateFromError(error: Error): Partial<State> {
@@ -92,7 +121,13 @@ export default class HomeTimelinesGate extends Component<object, State> {
               } catch {
                 /* ignore */
               }
-              this.setState((s) => ({ error: null, retry: s.retry + 1 }));
+              this.setState((s) => ({
+                error: null,
+                retry: s.retry + 1,
+                CauseEffect: null,
+                LiveMetrics: null,
+              }));
+              void this.loadChunks();
             }}
           >
             Retry
@@ -100,15 +135,20 @@ export default class HomeTimelinesGate extends Component<object, State> {
         </div>
       );
     }
-    if (!this.state.mounted) {
+
+    const { CauseEffect, LiveMetrics, retry } = this.state;
+    if (!CauseEffect || !LiveMetrics) {
       return <TimelinesLoading />;
     }
+
     return (
-      <div key={this.state.retry} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-        {/* Same ionosphere readings + CORS map as Space Weather overview */}
-        <CauseEffectTimelineStack variant="overview" />
-        {/* Identical Live Metric graph stack as Space Weather → Live Metric Timelines */}
-        <LiveMetricTimelines showIntro />
+      <div
+        key={retry}
+        data-home-timelines="ready"
+        style={{ display: "flex", flexDirection: "column", gap: "1rem" }}
+      >
+        <CauseEffect variant="overview" />
+        <LiveMetrics showIntro />
       </div>
     );
   }
