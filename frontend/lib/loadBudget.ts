@@ -79,14 +79,14 @@ export function getLoadProfile(): LoadProfile {
       slowNetwork: false,
       lightPayload: true,
       pollIntervalMs: 90_000,
-      timelineMaxPoints: 48,
-      heavyMountDelayMs: 200,
+      timelineMaxPoints: 40,
+      heavyMountDelayMs: 0,
       deferSecondaryApis: false,
-      stationsDeferMs: 500,
+      stationsDeferMs: 350,
       defaultRangeHours: 6,
       vtecResampleMinutes: 10,
-      vtecHoursCap: 18,
-      chartMaxPoints: 64,
+      vtecHoursCap: 12,
+      chartMaxPoints: 48,
       chartAnimations: false,
     };
   }
@@ -101,19 +101,17 @@ export function getLoadProfile(): LoadProfile {
     constrained: constrained || cursorPreview,
     slowNetwork,
     lightPayload,
-    // Both desktop and mobile: longer polls reduce background contention.
-    pollIntervalMs: slowNetwork ? 180_000 : constrained ? 120_000 : 60_000,
-    timelineMaxPoints: slowNetwork ? 32 : constrained ? 48 : 96,
-    // Keep below-fold labs slightly deferred; graph data itself warms immediately.
-    heavyMountDelayMs: cursorPreview ? 220 : slowNetwork ? 600 : constrained ? 350 : 80,
-    // Live Metric is the default tab — warm timeline/heliospheric APIs with cards.
+    // Longer polls free bandwidth for interactive graph refreshes.
+    pollIntervalMs: slowNetwork ? 240_000 : constrained ? 150_000 : 90_000,
+    timelineMaxPoints: slowNetwork ? 28 : constrained ? 40 : 72,
+    // Live Metric graphs mount without artificial delay — data is already warming.
+    heavyMountDelayMs: 0,
     deferSecondaryApis: false,
-    stationsDeferMs: cursorPreview ? 900 : slowNetwork ? 1200 : constrained ? 700 : 250,
-    // Short first window everywhere; users can expand to 24h / 3d.
+    stationsDeferMs: cursorPreview ? 500 : slowNetwork ? 800 : constrained ? 450 : 150,
     defaultRangeHours: 6,
     vtecResampleMinutes: slowNetwork ? 15 : constrained ? 10 : 5,
-    vtecHoursCap: slowNetwork ? 12 : constrained ? 18 : 24,
-    chartMaxPoints: cursorPreview ? 48 : slowNetwork ? 40 : constrained ? 64 : 120,
+    vtecHoursCap: slowNetwork ? 6 : constrained ? 12 : 18,
+    chartMaxPoints: cursorPreview ? 40 : slowNetwork ? 36 : constrained ? 56 : 96,
     chartAnimations: false,
   };
 }
@@ -157,14 +155,14 @@ export function afterNextPaint(fn: () => void, timeoutMs = 48): () => void {
 /** Defer non-critical work; waits longer on constrained/slow clients. */
 export function scheduleSecondary(fn: () => void, profile?: LoadProfile): () => void {
   const p = profile ?? getLoadProfile();
-  // Keep secondary warm close to first paint so graphs are not starved.
+  // Run almost immediately after paint — graphs need JSON ASAP.
   const timeout = isCursorCloudPreview()
-    ? 120
+    ? 0
     : p.slowNetwork
-      ? 1800
+      ? 600
       : p.constrained
-        ? 900
-        : 280;
+        ? 200
+        : 0;
   return afterNextPaint(fn, timeout);
 }
 

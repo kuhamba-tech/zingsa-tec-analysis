@@ -25,7 +25,9 @@ import {
   isDocumentVisible,
   scheduleSecondary,
 } from "@/lib/loadBudget";
-import { prefetchLineChart } from "@/lib/loadLineChart";
+import { loadLineChart, prefetchLineChart } from "@/lib/loadLineChart";
+import { prefetchCauseEffectTimelineStack } from "@/lib/loadCauseEffectTimeline";
+import { loadGoesSolarXrayCard } from "@/lib/loadGoesSolarXrayCard";
 import type { ChartAnalysisBlock } from "@/lib/multiSourceChartAnalysis";
 import {
   analyzeF107Timeline,
@@ -110,7 +112,7 @@ const AdvancedScientificIndices = dynamic(
   () => import("@/components/spaceWeather/AdvancedScientificIndices"),
   { ssr: false, loading: () => sectionFallback },
 );
-const LineChart = dynamic(() => import("@/components/charts/LineChart"), {
+const LineChart = dynamic(() => loadLineChart().then((m) => m.default), {
   ssr: false,
   loading: () => <div className="banner banner-info" role="status">Loading chart…</div>,
 });
@@ -640,8 +642,10 @@ export default function SpaceWeatherClient({
 
   useEffect(() => {
     const profile = getLoadProfile();
-    // Start Chart.js immediately — do not wait on idle/paint or graphs stall.
+    // Start Chart.js + Live Metric graph chunks immediately.
     prefetchLineChart();
+    prefetchCauseEffectTimelineStack();
+    void loadGoesSolarXrayCard().catch(() => null);
     // Warm graph JSON in parallel with metric cards (Live Metric is default tab).
     void getHeliosphericMonitor(false, false).catch(() => null);
     getTimelines(profile.timelineMaxPoints).then(setTl).catch(() => null);
@@ -1161,8 +1165,8 @@ export default function SpaceWeatherClient({
           <DeferredMount
             className="sw-deferred-block"
             minHeight={280}
-            rootMargin="80px 0px"
-            minDelayMs={loadProfile.heavyMountDelayMs}
+            rootMargin="120px 0px"
+            minDelayMs={0}
             fallback={sectionFallback}
           >
             <HeliosphericMonitorStack />
@@ -1171,8 +1175,8 @@ export default function SpaceWeatherClient({
           <DeferredMount
             className="sw-deferred-block"
             minHeight={320}
-            rootMargin="60px 0px"
-            minDelayMs={loadProfile.heavyMountDelayMs + 500}
+            rootMargin="100px 0px"
+            minDelayMs={0}
             fallback={sectionFallback}
           >
             <CauseEffectTimelineStack
