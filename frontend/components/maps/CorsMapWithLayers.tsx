@@ -6,6 +6,7 @@ import LiveTecMethodComparePanel from "./LiveTecMethodComparePanel";
 import NetworkDistancesPanel from "./NetworkDistancesPanel";
 import TecHeatMapLegend from "./TecHeatMapLegend";
 import { getTecMethodComparison } from "@/lib/api";
+import { idwFillByStation, stationCodeKey, type LatLonSite } from "@/lib/idwSurface";
 import { heatmapQualityBanner, icaoTecLabel, icaoTecLevel, inferHeatmapQuality } from "@/lib/icaoTecAdvisory";
 import type { ProposedCorsSite } from "@/lib/corsGeneticOptimizer";
 import type { Station, TecHeatmapResponse } from "@/lib/types";
@@ -34,6 +35,8 @@ interface Props {
   heatmap?: TecHeatmapResponse | null;
   highlightCode?: string | null;
   onStationSelect?: (station: Station | null) => void;
+  /** Layer shown on first paint. Space weather opens on live TEC. */
+  initialLayer?: MapLayer;
   /** Layer buttons to show. Defaults to the full National Dashboard set. */
   layers?: MapLayer[];
   /** Sourcetable identity mismatch banner (home page). Off for RINEX picker. */
@@ -58,6 +61,8 @@ export const NETWORK_DISTANCES_LAYERS: MapLayer[] = ["Network Distances"];
 export const BASE_MAP_LAYERS: MapLayer[] = ["Hybrid", "Satellite", "Street"];
 
 const LAYERS: MapLayer[] = HOME_MAP_LAYERS;
+/** One caster rotation. Own Gg inside this window stays; older gaps are interpolated. */
+const GG_FRESH_MS = 30 * 60_000;
 
 function riskColor(level: string): string {
   if (level === "High") return "#ff4444";
@@ -75,13 +80,18 @@ export default function CorsMapWithLayers({
   heatmap = null,
   highlightCode = null,
   onStationSelect,
+  initialLayer,
   layers = LAYERS,
   showSourcetableWarning = true,
 }: Props) {
   const availableLayers = layers.length > 0 ? layers : LAYERS;
-  const [layer, setLayer] = useState<MapLayer>(availableLayers[0] ?? "Hybrid");
+  const startingLayer =
+    initialLayer && availableLayers.includes(initialLayer)
+      ? initialLayer
+      : (availableLayers[0] ?? "Hybrid");
+  const [layer, setLayer] = useState<MapLayer>(startingLayer);
   const [proposedCorsSites, setProposedCorsSites] = useState<ProposedCorsSite[]>([]);
-  const [ggByStation, setGgByStation] = useState<Record<string, number | null>>({});
+  const [measuredGg, setMeasuredGg] = useState<Record<string, number>>({});
 
   useEffect(() => {
     if (!availableLayers.includes(layer)) {
@@ -103,21 +113,24 @@ export default function CorsMapWithLayers({
       getTecMethodComparison(2, undefined, 300, 60_000)
         .then((res) => {
           if (cancelled) return;
-          const map: Record<string, number | null> = {};
+          const map: Record<string, number> = {};
           for (const row of res.stations ?? []) {
             const code = row.station.toLowerCase().replace(/_+$/, "");
             const val =
               typeof row.gg_latest === "number" && Number.isFinite(row.gg_latest)
                 ? row.gg_latest
-                : typeof row.gg_mean === "number" && Number.isFinite(row.gg_mean)
-                  ? row.gg_mean
-                  : null;
+                : null;
+            const observationMs = Date.parse(row.gg_time ?? "");
+            // Historical calibration means must never masquerade as live labels.
+            if (val == null || !Number.isFinite(observationMs) || Date.now() - observationMs > GG_FRESH_MS) {
+              continue;
+            }
             map[code] = val;
           }
-          setGgByStation(map);
+          setMeasuredGg(map);
         })
         .catch(() => {
-          if (!cancelled) setGgByStation({});
+          if (!cancelled) setMeasuredGg({});
         });
     };
     load();
@@ -140,6 +153,26 @@ export default function CorsMapWithLayers({
     /NTRIP-connected|awaiting MSM|decode needs|sampled live VTEC/i.test(qualityBanner);
   const aviationAdvisory =
     maxVtec != null && (icaoTecLevel(maxVtec) === "mod" || icaoTecLevel(maxVtec) === "sev");
+
+  const surfaceSites = useMemo(() => {
+    const byCode = new Map<string, LatLonSite>();
+    for (const site of stations) {
+      if (!Number.isFinite(site.lat) || !Number.isFinite(site.lon)) continue;
+      byCode.set(stationCodeKey(site.code), { code: site.code, lat: site.lat, lon: site.lon });
+    }
+    for (const site of heatmap?.stations ?? []) {
+      const key = stationCodeKey(site.code);
+      if (byCode.has(key) || !Number.isFinite(site.lat) || !Number.isFinite(site.lon)) continue;
+      byCode.set(key, { code: site.code, lat: site.lat, lon: site.lon });
+    }
+    return [...byCode.values()];
+  }, [stations, heatmap]);
+
+  const ggSurface = useMemo(
+    () => idwFillByStation(surfaceSites, measuredGg),
+    [surfaceSites, measuredGg],
+  );
+  const ggByStation = ggSurface.values;
 
   const dualStationLines = useMemo(() => {
     if (!heatmap?.stations?.length) return [];
@@ -397,7 +430,7 @@ export default function CorsMapWithLayers({
         </div>
       )}
 
-      {tecLayerActive && <LiveTecMethodComparePanel />}
+      {tecLayerActive && <LiveTecMethodComparePanel stations={surfaceSites} />}
 
       {tecLayerActive && (
         <TecHeatMapLegend className="tec-heatmap-legend-below" maxVtec={maxVtec} />

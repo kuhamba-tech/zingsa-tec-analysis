@@ -9,6 +9,7 @@ If TimescaleDB is available the time-series tables are promoted to hypertables.
 from __future__ import annotations
 
 import logging
+import hashlib
 import math
 import os
 import sqlite3
@@ -235,12 +236,26 @@ class TecDB:
             "tecp_tecu": "DOUBLE PRECISION" if self._is_pg else "REAL",
             "tec_method": "TEXT",
             "bias_method": "TEXT",
+            "observation_id": "TEXT",
+            "stored_at": "TEXT",
+            "received_at": "TEXT",
+            "station_latitude": "DOUBLE PRECISION",
+            "station_longitude": "DOUBLE PRECISION",
+            "ipp_latitude": "DOUBLE PRECISION",
+            "ipp_longitude": "DOUBLE PRECISION",
+            "region": "TEXT",
+            "quality_flag": "TEXT",
+            "processing_version": "TEXT",
+            "data_source": "TEXT",
         }
         try:
             if self._is_pg:
                 with self._conn.cursor() as cur:
                     for name, sql_type in columns.items():
                         cur.execute(f"ALTER TABLE vtec_obs ADD COLUMN IF NOT EXISTS {name} {sql_type}")
+                self._conn.commit()
+                with self._conn.cursor() as cur:
+                    cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS vtec_obs_identity ON vtec_obs (time, observation_id)")
                 self._conn.commit()
                 return
 
@@ -251,6 +266,8 @@ class TecDB:
             for name, sql_type in columns.items():
                 if name not in existing:
                     self._conn.execute(f"ALTER TABLE vtec_obs ADD COLUMN {name} {sql_type}")
+            self._conn.commit()
+            self._conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS vtec_obs_identity ON vtec_obs (time, observation_id)")
             self._conn.commit()
         except Exception as exc:
             # Without a rollback, a failed statement here leaves the
@@ -274,6 +291,22 @@ class TecDB:
         if not records:
             return 0
 
+        from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
+        from zgiis.processing.north_south_tec_research import zimbabwe_lat_band
+        catalog = {s.code.lower().rstrip('_'): s for s in ZIMBABWE_CORS_STATIONS}
+        records = [dict(r) for r in records]
+        for r in records:
+            stamp = r['epoch']
+            if isinstance(stamp, str):
+                stamp = datetime.fromisoformat(stamp.replace('Z', '+00:00'))
+            r['epoch'] = stamp.replace(tzinfo=timezone.utc) if stamp.tzinfo is None else stamp.astimezone(timezone.utc)
+            r['station'] = str(r.get('station', '')).lower().rstrip('_')
+            r.setdefault('constellation', 'GPS')
+            st = catalog.get(r['station'])
+            r['station_latitude'] = st.lat if st else None
+            r['station_longitude'] = st.lon if st else None
+            r['region'] = zimbabwe_lat_band(st.lat) if st else None
+
         rows = [
             (
                 (r["epoch"].isoformat()
@@ -289,6 +322,12 @@ class TecDB:
                 r.get("cnr_dbhz"),
                 r.get("tec_method"),
                 r.get("bias_method"),
+                hashlib.sha256("|".join(str(r.get(k, "")) for k in ("epoch", "station", "constellation", "prn", "tec_method")).encode()).hexdigest(),
+                datetime.now(timezone.utc).isoformat(),
+                r.get('received_at'), r.get('station_latitude'), r.get('station_longitude'),
+                r.get('ipp_latitude'), r.get('ipp_longitude'), r.get('region'),
+                r.get('quality_flag'), r.get('processing_version'),
+                'NTRIP' if 'code_live' in str(r.get('tec_method','')) else r.get('data_source'),
             )
             for r in records
         ]
@@ -296,8 +335,11 @@ class TecDB:
         sql = """
         INSERT INTO vtec_obs
             (time, station, constellation, prn, tecg_tecu, tecp_tecu, stec_tecu, vtec_tecu,
-             elevation_deg, cnr_dbhz, tec_method, bias_method)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             elevation_deg, cnr_dbhz, tec_method, bias_method, observation_id, stored_at,
+             received_at, station_latitude, station_longitude, ipp_latitude, ipp_longitude,
+             region, quality_flag, processing_version, data_source)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (time, observation_id) DO NOTHING
         """
         if self._is_pg:
             try:
@@ -351,7 +393,7 @@ class TecDB:
 
         if last_exc is not None:
             log.warning("insert_vtec gave up after %d attempt(s) (%s)", _SQLITE_INSERT_ATTEMPTS, last_exc)
-        return 0
+        raise RuntimeError("VTEC write failed; retain pending observations for retry") from last_exc
 
     def _read_sql(self, sql: str, params: list | tuple) -> pd.DataFrame:
         """Run a parameterised SELECT without pandas mangling LIKE '%' wildcards.
@@ -475,7 +517,13 @@ class TecDB:
         df = self.query_recent(hours=hours, station=station)
         if df.empty:
             return pd.Series(dtype=float, name="vtec_tecu")
-        df["time"] = pd.to_datetime(df["time"], utc=True)
+        if "tec_method" in df.columns:
+            method = df["tec_method"].astype(str)
+            df = df.loc[~method.str.startswith("dlr_")].copy()
+        if df.empty:
+            return pd.Series(dtype=float, name="vtec_tecu")
+        # Live rows mix ``...:00+00:00`` and fractional-second ISO stamps.
+        df["time"] = pd.to_datetime(df["time"], utc=True, format="ISO8601")
         return (
             df.set_index("time")["vtec_tecu"]
             .resample(resample)
@@ -629,6 +677,7 @@ class TecDB:
                    to_timestamp(
                      floor(extract(epoch FROM time) / %s) * %s
                    ) AT TIME ZONE 'UTC' AS bucket,
+                   MAX(time) AS observed_at,
                    AVG(vtec_tecu) AS vtec_tecu,
                    COUNT(*) AS obs_count
             FROM vtec_obs
@@ -659,7 +708,7 @@ class TecDB:
             df = self._read_sql(sql, params)
         except Exception as exc:
             log.warning("station_vtec_timeseries_binned failed (%s)", exc)
-            return pd.DataFrame(columns=["station", "bucket", "vtec_tecu", "obs_count"])
+            return pd.DataFrame(columns=["station", "bucket", "observed_at", "vtec_tecu", "obs_count"])
 
         if df.empty and code_live_only:
             return self.station_vtec_timeseries_binned(
@@ -686,6 +735,7 @@ class TecDB:
         sql = f"""
         SELECT station,
                (CAST(strftime('%s', time) AS INTEGER) / ?) * ? AS bucket_epoch,
+               MAX(time) AS observed_at,
                AVG(vtec_tecu) AS vtec_tecu,
                COUNT(*) AS obs_count
         FROM vtec_obs
@@ -711,7 +761,7 @@ class TecDB:
                     rows.extend(cur.fetchall())
         except Exception as exc:
             log.warning("sqlite station_vtec_timeseries_binned failed (%s)", exc)
-            return pd.DataFrame(columns=["station", "bucket", "vtec_tecu", "obs_count"])
+            return pd.DataFrame(columns=["station", "bucket", "observed_at", "vtec_tecu", "obs_count"])
 
         if not rows and code_live_only:
             return self.station_vtec_timeseries_binned(
@@ -720,11 +770,11 @@ class TecDB:
                 code_live_only=False,
             )
         if not rows:
-            return pd.DataFrame(columns=["station", "bucket", "vtec_tecu", "obs_count"])
+            return pd.DataFrame(columns=["station", "bucket", "observed_at", "vtec_tecu", "obs_count"])
 
         df = pd.DataFrame(
             rows,
-            columns=["station", "bucket_epoch", "vtec_tecu", "obs_count"],
+            columns=["station", "bucket_epoch", "observed_at", "vtec_tecu", "obs_count"],
         )
         df["bucket"] = pd.to_datetime(df["bucket_epoch"], unit="s", utc=True)
         return df.drop(columns=["bucket_epoch"])
@@ -748,15 +798,17 @@ class TecDB:
     def prune_older_than(self, days: int = 90) -> int:
         """Delete records older than N days. Returns rows deleted."""
         cutoff = (datetime.now(tz=timezone.utc) - timedelta(days=days)).isoformat()
-        sql = "DELETE FROM vtec_obs WHERE time < ?"
+        # Measured live TEC is the permanent climatology archive. Retention
+        # cleanup only applies to other products (forecasts, imports, etc.).
+        sql = "DELETE FROM vtec_obs WHERE time < ? AND COALESCE(tec_method, '') NOT LIKE ?"
         if self._is_pg:
             sql = sql.replace("?", "%s")
             with self._conn.cursor() as cur:
-                cur.execute(sql, (cutoff,))
+                cur.execute(sql, (cutoff, "%code_live%"))
                 deleted = cur.rowcount
             self._conn.commit()
         else:
-            cur = self._conn.execute(sql, (cutoff,))
+            cur = self._conn.execute(sql, (cutoff, "%code_live%"))
             deleted = cur.rowcount
             self._conn.commit()
         return deleted

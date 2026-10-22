@@ -215,6 +215,12 @@ function timelinePointsToSeries(points: { t: string; v: number | null }[]) {
 
 export type CauseEffectVariant = "full" | "drivers" | "local" | "liveMetric" | "overview";
 
+type TimelineSync = {
+  timeDomain: { min: number; max: number } | null;
+  syncHoverMs: number | null;
+  onSyncHoverMs: (ms: number | null) => void;
+};
+
 /**
  * full — National Dashboard: observations + map + drivers 1–4 + Zimbabwe 5–6
  * drivers — Sun→Earth panels 1–4 only
@@ -232,7 +238,7 @@ export default function CauseEffectTimelineStack({
   /** Inserted after GOES X-ray (e.g. F10.7 sun metric on Live Metric). */
   afterSun?: ReactNode;
   /** Inserted after Zimbabwe VTEC (e.g. CORS online timeline on Live Metric). */
-  afterVtec?: ReactNode;
+  afterVtec?: ReactNode | ((sync: TimelineSync) => ReactNode);
   /** First panel number for local VTEC/GNSS when drivers are omitted (default 1). */
   localStartNumber?: number;
 }) {
@@ -833,11 +839,11 @@ export default function CauseEffectTimelineStack({
                   />
                 ) : (
                   <div className="banner banner-info">
-                    {loading
+                    {vtecLoading
                       ? "Loading station VTEC…"
                       : vtecRefreshFailed
                         ? "Station VTEC observations are unavailable. Retrying automatically."
-                        : "No station VTEC points in the selected time range yet."}
+                        : "No VTEC measurements received in this time range. Online station status does not supply TEC data; a configured NTRIP collector is required."}
                   </div>
                 )}
                 {openPanel === "vtec" && (
@@ -847,7 +853,7 @@ export default function CauseEffectTimelineStack({
                 )}
               </Panel>
 
-              {afterVtec}
+              {typeof afterVtec === "function" ? afterVtec({ timeDomain, ...syncProps }) : afterVtec}
 
               <Panel
                 title={`${nGnss} · Scintillation observations and estimated GNSS risk`}

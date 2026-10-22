@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 import threading
 import os
+import time
+from concurrent.futures import Future, ThreadPoolExecutor, TimeoutError as FuturesTimeout
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -32,6 +34,106 @@ from backend.timeline_builder import build_timelines, limit_timelines
 
 router = APIRouter(prefix="/space-weather", tags=["space-weather"])
 log = logging.getLogger(__name__)
+
+
+@router.get('/geomagnetic-indices')
+def geomagnetic_indices(hours: int = 24, start: str | None = None, end: str | None = None, _=Depends(require_api_key)):
+    from zgiis.space_weather.kyoto_asysym import fetch
+    try:
+        return fetch(hours,start,end)
+    except ValueError as exc:
+        raise HTTPException(400,str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(503,'Kyoto observations unavailable; no substitute data were generated') from exc
+
+
+@router.get('/geomagnetic-vtec')
+def geomagnetic_vtec(start: str, end: str, region: str = 'all', station: str = '', _=Depends(require_api_key)):
+    from zgiis.space_weather.kyoto_asysym import utc, iso
+    from zgiis.processing.tec_climatology import read_bins
+    from zgiis.processing.north_south_tec_research import zimbabwe_lat_band
+    from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
+    from backend.routers.live import _db
+    from datetime import timedelta, datetime, timezone
+    try:
+        left,right=utc(start),utc(end)
+        if right<=left or right-left>timedelta(days=7):
+            raise ValueError('Choose up to seven days per request')
+        if region not in ('all','northern','central','southern'):
+            raise ValueError('Unknown region')
+        catalog=[{'code':s.code.lower().rstrip('_'),'region':zimbabwe_lat_band(s.lat)} for s in ZIMBABWE_CORS_STATIONS]
+        allowed=[s['code'] for s in catalog if (region=='all' or region==s['region']) and (not station or s['code']==station)]
+        frame=read_bins(_db(),left,min(right,datetime.now(timezone.utc)),1)
+        frame=frame[frame.station.isin(allowed)]
+        points=[{'time':iso(datetime.fromtimestamp(float(bucket),timezone.utc)), 'vtec':float(g.vtec.mean()), 'stations':int(g.station.nunique()), 'observations':int(g.observations.sum())} for bucket,g in frame.groupby('bucket')]
+        return {'points':points,'catalog':catalog}
+    except ValueError as exc:
+        raise HTTPException(400,str(exc)) from exc
+
+# These handlers use synchronous database/network libraries. Keep them as
+# normal def functions so FastAPI runs them off the ASGI event loop.
+
+# Reuse one database read across simultaneous dashboard requests. A per-request
+# executor context waits for its query even after Future.result has timed out.
+_mean_vtec_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="dashboard-vtec")
+_mean_vtec_lock = threading.Lock()
+_mean_vtec_future: Future | None = None
+
+
+def _read_mean_vtec() -> tuple[float, float | None]:
+    # Keep the new upstream station/snapshot fallbacks inside the bounded
+    # worker, so an unavailable database cannot delay the metric cards.
+    try:
+        from backend.routers.cors_network import _safe_station_live_vtec
+
+        vals = [
+            float(v) for v in _safe_station_live_vtec(0.25, allow_db=True).values()
+            if v is not None and float(v) > 1.0
+        ]
+        if vals:
+            return time.monotonic(), round(sum(vals) / len(vals), 2)
+    except Exception:
+        pass
+    try:
+        from backend.space_weather_logger import get_db as get_sw_db
+
+        latest = get_sw_db().latest_snapshot()
+        raw = latest.get("mean_vtec") if latest is not None and hasattr(latest, "get") else None
+        if raw is not None and float(raw) > 1.0:
+            return time.monotonic(), round(float(raw), 2)
+    except Exception:
+        pass
+    value = None
+    db = None
+    try:
+        from zgiis.db.timescale import TecDB
+
+        db = TecDB()
+        series = db.mean_vtec_timeseries(hours=2.0, resample="15min")
+        if series is not None and not series.empty:
+            value = float(series.iloc[-1])
+    except Exception:
+        pass
+    finally:
+        if db is not None:
+            try:
+                db.close()
+            except Exception:
+                pass
+    return time.monotonic(), value
+
+
+def _bounded_mean_vtec() -> float | None:
+    global _mean_vtec_future
+    with _mean_vtec_lock:
+        pending = _mean_vtec_future
+        if pending is None or (pending.done() and time.monotonic() - pending.result()[0] >= 30):
+            pending = _mean_vtec_pool.submit(_read_mean_vtec)
+            _mean_vtec_future = pending
+    try:
+        return pending.result(timeout=0.35)[1]
+    except FuturesTimeout:
+        return None
 
 
 def _sw() -> dict:
@@ -112,6 +214,18 @@ def _ntrip_stream_counts() -> tuple[int | None, int | None]:
     all-offline (common after Cloudflare 403 from cloud IPs) must not paint
     0/25 over a healthier Neon/NTRIP archive snapshot.
     """
+    # Serverless instances must use the same fresh collector snapshot as the
+    # station map. An idle pipeline or old aggregate is not station evidence.
+    serverless = any(os.getenv(key) for key in ("VERCEL", "VERCEL_ENV", "VERCEL_URL", "AWS_LAMBDA_FUNCTION_NAME"))
+    if serverless:
+        from zgiis.live.spider_site_status import get_cached_spider_site_statuses
+        from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
+        payload = get_cached_spider_site_statuses(refresh=False)
+        rows = payload.get("by_station") or {}
+        codes = {s.code.lower().rstrip("_") for s in ZIMBABWE_CORS_STATIONS}
+        if payload.get("error") or not all(rows.get(code, {}).get("status") in {"online", "offline"} for code in codes):
+            return None, None
+        return sum(rows[code]["status"] == "online" for code in codes), len(codes)
     spider_counts: tuple[int, int] | None = None
     try:
         from zgiis.live.spider_site_status import get_cached_spider_site_statuses, spider_status_enabled
@@ -123,10 +237,12 @@ def _ntrip_stream_counts() -> tuple[int | None, int | None]:
             if by_station:
                 online = sum(1 for row in by_station.values() if row.get("status") == "online")
                 spider_counts = (online, len(by_station))
-                if online > 0:
+                if not payload.get("error"):
                     return spider_counts
     except Exception:
         pass
+
+    archived = _archived_online_total()
 
     # Local page loads must never wait on a hosted database connection. The
     # collector cache is process-local and explicitly non-blocking.
@@ -141,12 +257,19 @@ def _ntrip_stream_counts() -> tuple[int | None, int | None]:
                     online = sum(
                         1 for row in rows if str(row.get("verdict") or "").lower() == "msm_streaming"
                     )
+                    probe_total = len(rows) or 24
+                    if archived is not None:
+                        archived_online, archived_total = archived
+                        # A stale/partial direct probe (e.g. 1/2) must not overwrite a healthy
+                        # collector archive (e.g. 14/25). Prefer the archived count while the probe
+                        # is clearly incomplete or far smaller than the network footprint.
+                        if probe_total < max(4, int(archived_total * 0.6)) and archived_online > 0:
+                            return archived_online, archived_total
                     if online > 0 or spider_counts is None:
-                        return online, len(rows) or 24
+                        return online, probe_total
         except Exception:
             pass
 
-    archived = _archived_online_total()
     if archived is not None:
         online, total = archived
         # Archive wins over a Spider all-offline cache.
@@ -228,16 +351,16 @@ _TIMELINES_CACHE_LOCK = threading.Lock()
 
 def _build_current_payload() -> SpaceWeatherCurrent:
     """Dashboard snapshot — keep this path free of Spider login / Neon stalls."""
-    sw = _sw()
+    sw = dict(_sw())
     try:
         ntrip_online, ntrip_total = _ntrip_stream_counts()
         if ntrip_online is not None and ntrip_total:
-            prev = sw.get("stations_online")
-            # Never overlay a healthier count with a transient 0/25 reading.
-            if ntrip_online > 0 or prev is None or int(prev or 0) <= 0:
-                sw["stations_online"] = ntrip_online
-                sw["stations_total"] = ntrip_total
+            sw["stations_online"] = ntrip_online
+            sw["stations_total"] = ntrip_total
+        else:
+            sw["stations_online"] = None
     except Exception:
+        sw["stations_online"] = None
         log.exception("station count overlay failed on /space-weather/current")
     # Prefer in-memory collector samples; fall back to recent station VTEC so the
     # Zimbabwe Ionosphere card is not stuck on Unavailable when Spider is down.
@@ -258,11 +381,13 @@ def _build_current_payload() -> SpaceWeatherCurrent:
         try:
             from backend.routers.cors_network import _safe_station_live_vtec
 
-            # Page-load path: skip TecDB so /current never waits on SQLite/Neon
-            # station aggregates. Snapshot + Neon mean_vtec cover the gap.
+            # The API process does not hold the NTRIP pipeline, so the card
+            # must read the same code-live station samples as the TEC map.
+            # A logged snapshot is only the fallback below: it was freezing
+            # the card on one old number.
             vals = [
                 float(v)
-                for v in _safe_station_live_vtec(0.25, allow_db=False).values()
+                for v in _safe_station_live_vtec(0.25, allow_db=True).values()
                 if v is not None and float(v) > 1.0
             ]
             if vals:
@@ -297,7 +422,7 @@ def _build_current_payload() -> SpaceWeatherCurrent:
             sw["mean_vtec"] = neon_vtec
     threading.Thread(
         target=log_snapshot,
-        kwargs={"source": "dashboard", "force": False},
+        kwargs={"source": "dashboard", "force": False, "snapshot": sw},
         daemon=True,
         name="sw-log-snapshot",
     ).start()
@@ -435,7 +560,7 @@ def timelines(
 
 
 @router.post("/refresh", status_code=204)
-async def refresh(_=Depends(require_api_key)):
+def refresh(_=Depends(require_api_key)):
     from zgiis.space_weather.ekf_service import compute_ekf_status
     from zgiis.space_weather.fetch_indices import clear_space_weather_cache
 
@@ -451,13 +576,13 @@ async def refresh(_=Depends(require_api_key)):
 
 
 @router.get("/log/status", response_model=SpaceWeatherLogStatus)
-async def logging_status(_=Depends(require_api_key)):
+def logging_status(_=Depends(require_api_key)):
     s = log_status()
     return SpaceWeatherLogStatus(**s)
 
 
 @router.get("/history", response_model=SpaceWeatherHistoryResponse)
-async def history(
+def history(
     hours: float = 24.0,
     resample: str | None = None,
     _=Depends(require_api_key),
@@ -495,7 +620,7 @@ async def history(
 
 
 @router.get("/report", response_model=SpaceWeatherReportResponse)
-async def space_weather_report(
+def space_weather_report(
     period: str = "hourly",
     _=Depends(require_api_key),
 ):
@@ -517,7 +642,7 @@ async def space_weather_report(
 
 
 @router.get("/correlations", response_model=SpaceWeatherCorrelationResponse)
-async def correlations(
+def correlations(
     hours: float = 168.0,
     resample: str = "1h",
     _=Depends(require_api_key),
@@ -558,7 +683,7 @@ def ekf_status(
 
 
 @router.get("/storm-alerts/status", response_model=StormAlertStatus)
-async def storm_alert_status(_=Depends(require_api_key)):
+def storm_alert_status(_=Depends(require_api_key)):
     """Current geomagnetic storm / EKF alarm state and notification channel config."""
     import os
 
@@ -586,7 +711,7 @@ async def storm_alert_status(_=Depends(require_api_key)):
 
 
 @router.get("/ekf/alerts", response_model=list[EkfAlertOut])
-async def ekf_alert_log(hours: float = 24.0, _=Depends(require_api_key)):
+def ekf_alert_log(hours: float = 24.0, _=Depends(require_api_key)):
     from zgiis.db.ekf_alert_db import EkfAlertDB
     rows = EkfAlertDB().list_alerts(hours=hours)
     return [EkfAlertOut(**r) for r in rows]
@@ -631,7 +756,7 @@ def heliospheric_monitor(
 
 
 @router.post("/ekf/alerts/{alert_id}/ack", status_code=204)
-async def ekf_alert_ack(alert_id: str, _=Depends(require_api_key)):
+def ekf_alert_ack(alert_id: str, _=Depends(require_api_key)):
     from zgiis.db.ekf_alert_db import EkfAlertDB
     EkfAlertDB().acknowledge(alert_id)
 

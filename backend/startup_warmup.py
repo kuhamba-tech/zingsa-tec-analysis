@@ -144,6 +144,11 @@ def start_light_cache_warmup() -> None:
         daemon=True,
         name="zgiis-warm-heliospheric-light",
     ).start()
+    threading.Thread(
+        target=_warm_spider_status,
+        daemon=True,
+        name="zgiis-warm-spider-light",
+    ).start()
 
 
 def _warm_vtec_chart_cache() -> None:

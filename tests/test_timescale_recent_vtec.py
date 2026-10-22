@@ -201,6 +201,18 @@ def test_cent_future_skew_spike_does_not_collapse_to_low_bias():
     assert 18.0 <= float(vtec) <= 30.0
 
 
+def test_quiet_connected_station_keeps_its_own_tec():
+    """A visit whose satellites agree near 4 TECU is that station's live value."""
+    now = datetime.now(timezone.utc)
+    rows = []
+    for i in range(12):
+        rows.append({"time": now - timedelta(seconds=40 - i), "station": "zinh", "prn": "G03", "vtec_tecu": 4.1})
+        rows.append({"time": now - timedelta(seconds=40 - i), "station": "zinh", "prn": "G06", "vtec_tecu": 4.2})
+    vtec = _fresh_station_vtec_from_group(pd.DataFrame(rows))
+    assert vtec is not None
+    assert 3.5 <= float(vtec) <= 5.0
+
+
 def test_cent_spike_plus_low_bias_omits_unphysical_value():
     """When only G19~4 and G06~105 remain, omit rather than publish ~4 TECU."""
     now = datetime.now(timezone.utc)

@@ -359,7 +359,7 @@ def start(*, priority_codes: list[str] | None = None) -> None:
         "connection": os.getenv("NTRIP_CONNECTION", "TCP"),
     }
 
-    max_concurrent_raw = os.getenv("NTRIP_LIVE_MAX_CONCURRENT", "").strip()
+    max_concurrent_raw = os.getenv("NTRIP_LIVE_MAX_CONCURRENT", "1").strip()
     try:
         max_concurrent = max(1, int(max_concurrent_raw)) if max_concurrent_raw else None
     except ValueError:

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+import threading
+import time
 from datetime import date
 from functools import lru_cache
 
@@ -39,6 +42,12 @@ from backend.schemas import (
 )
 
 router = APIRouter(prefix="/tec", tags=["tec"])
+
+# Live map polls share one build. A fresh sample is a short SQL read; repeating
+# it for every card on the page was queueing the rest of the API.
+_HEATMAP_CACHE_TTL_S = 15.0
+_heatmap_cache: dict[tuple[float, bool], tuple[float, object]] = {}
+_heatmap_cache_lock = threading.Lock()
 
 # DLR IMPC rewrites this fixed path in place; browsers/CDNs often keep a
 # multi-hour stale copy when the dashboard loads the URL directly.
@@ -497,6 +506,7 @@ async def global_forecast_image(_=Depends(require_api_key)):
 @router.get("/global-vtec-by-station")
 def global_vtec_by_station(
     hours: float = Query(6.0, ge=0.5, le=48),
+    latest_only: bool = Query(False, description="Return the current DLR sample only"),
     _=Depends(require_api_key),
 ):
     """Sample DLR Global TEC at every CORS site and return logged time series.
@@ -504,24 +514,40 @@ def global_vtec_by_station(
     Each call refreshes the latest DLR 1h-forecast grid, bilinear-samples at
     station coordinates, persists those values, then returns the recent log so
     station VTEC charts can overlay Observed vs Global TEC.
+
+    ``latest_only`` skips the observation-table scan and returns the current
+    sample at each station. The method-comparison table uses that path.
     """
     from zgiis.maps.dlr_global_tec import refresh_and_query_global_tec
 
-    return refresh_and_query_global_tec(hours=hours)
+    return refresh_and_query_global_tec(hours=hours, latest_only=latest_only)
 
 
 @router.get("/heatmap", response_model=TecHeatmapResponse)
 async def tec_heatmap(
     response: Response,
-    hours: float = Query(0.05, ge=0.02, le=2.0, description="Lookback hours (live map caps to ~3 minutes)"),
+    hours: float = Query(0.05, ge=0.02, le=2.0, description="Lookback hours (station markers keep one caster rotation)"),
     refresh_ntrip: bool = Query(False, description="Force a fresh live NTRIP VTEC sample when set"),
     _=Depends(require_api_key),
 ):
     from zgiis.maps.heatmap_data import build_tec_heatmap
 
-    # Live map product: ignore multi-hour averages that look like a stale cache.
-    live_hours = min(float(hours), 3.0 / 60.0)
-    payload = build_tec_heatmap(hours=live_hours, refresh_ntrip=refresh_ntrip)
+    # Station markers keep the last caster rotation inside build_tec_heatmap.
+    # A 3-minute cap left only the mount being read now, then copied it everywhere.
+    cache_key = (round(float(hours), 3), bool(refresh_ntrip))
+    if not refresh_ntrip:
+        with _heatmap_cache_lock:
+            hit = _heatmap_cache.get(cache_key)
+            if hit and (time.time() - hit[0]) < _HEATMAP_CACHE_TTL_S:
+                response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+                response.headers["X-ZGIIS-Cache"] = "hit"
+                return hit[1]
+
+    payload = await asyncio.to_thread(
+        build_tec_heatmap,
+        hours=float(hours),
+        refresh_ntrip=refresh_ntrip,
+    )
 
     # Final API guard: never return RINEX/CMN archive VTEC on this live endpoint.
     stations = [
@@ -556,7 +582,7 @@ async def tec_heatmap(
     response.headers["Expires"] = "0"
 
     grid = payload.get("grid")
-    return TecHeatmapResponse(
+    model = TecHeatmapResponse(
         available=payload["available"],
         stations=[TecHeatmapStation(**s) for s in payload["stations"]],
         heat_points=[TecHeatmapPoint(**p) for p in payload["heat_points"]],
@@ -572,6 +598,11 @@ async def tec_heatmap(
         icao_sev_tecu=payload.get("icao_sev_tecu", 175.0),
         diagnostics=TecHeatmapDiagnostics(**payload["diagnostics"]) if payload.get("diagnostics") else None,
     )
+    if not refresh_ntrip:
+        with _heatmap_cache_lock:
+            _heatmap_cache[cache_key] = (time.time(), model)
+    response.headers["X-ZGIIS-Cache"] = "miss"
+    return model
 
 
 @router.get("/prn/explorer", response_model=PrnExplorerResponse)

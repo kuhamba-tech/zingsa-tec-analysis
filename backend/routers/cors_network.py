@@ -23,6 +23,18 @@ from backend.schemas import (
 from backend.station_status_logger import poll_and_log, status as station_log_status
 
 router = APIRouter(prefix="/cors", tags=["cors"])
+
+
+@router.get("/monitor")
+def uptime_monitor_report(hours: float = Query(168, ge=1, le=8760), station: str | None = None, _=Depends(require_api_key)):
+    from zgiis.db.uptime_monitor import UptimeMonitorDB
+    db = UptimeMonitorDB()
+    try:
+        return db.report(hours=hours, station=station)
+    finally:
+        db.close()
+
+
 log = logging.getLogger(__name__)
 
 _STATIONS_CACHE_TTL_SEC = 15.0
@@ -81,12 +93,9 @@ def _safe_station_live_vtec(hours: float = 0.05, *, allow_db: bool = True) -> di
         return out
     try:
         from backend.live_manager import get_db
-        from zgiis.maps.heatmap_data import LIVE_HEATMAP_MAX_LOOKBACK_MINUTES, LIVE_VTEC_RECENT_MINUTES
+        from zgiis.maps.heatmap_data import _connected_station_lookback_minutes
 
-        minutes = max(
-            0.5,
-            min(float(hours) * 60.0, float(LIVE_HEATMAP_MAX_LOOKBACK_MINUTES), float(LIVE_VTEC_RECENT_MINUTES)),
-        )
+        minutes = _connected_station_lookback_minutes(hours)
         df = get_db().recent_station_vtec(minutes=minutes, code_live_only=True)
         if df is not None and not getattr(df, "empty", True):
             for _, row in df.iterrows():
@@ -204,16 +213,13 @@ def _stations_are_spider_authoritative(stations: list) -> bool:
     return spider >= max(1, (len(stations) + 1) // 2)
 
 
-def _stations_are_live_authoritative(stations: list) -> bool:
-    """Spider Site Status or NTRIP/archive rows — safe to show as live online/offline."""
-    if not stations:
-        return False
-    live = sum(
-        1
+def _stations_have_live_status(stations: list) -> bool:
+    """Collector and Spider rows can both use the short response cache."""
+    return any(
+        getattr(s, "status_source", "") in {"spider", "ntrip"}
+        and s.status in {"online", "offline"}
         for s in stations
-        if getattr(s, "status_source", "") in {"spider", "ntrip"}
     )
-    return live >= max(1, (len(stations) + 1) // 2)
 
 
 def _hold_non_spider_as_unknown(stations: list) -> list:
@@ -430,6 +436,7 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
     # Spider Site Status is ground truth for online/offline. Apply the cached
     # overlay first so a slow archive/Supabase read never stalls the map.
     stations = _merge_spider_site_statuses(stations, refresh=refresh_ntrip)
+    spider_stations = stations
     spider_ready = _stations_are_spider_authoritative(stations)
 
     archive_applied = False
@@ -441,8 +448,12 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
     if not pipeline_configured and not spider_ready:
         stations, archive_applied = _merge_archived_live_statuses(stations)
         stations = _hold_non_spider_as_unknown(stations)
-        # Re-apply Spider after archive so catalog/archive greens never win.
-        stations = _merge_spider_site_statuses(stations, refresh=refresh_ntrip)
+        # Re-apply the already-read Spider rows without a second DB read/login.
+        # This preserves individual Spider sites even in a partial snapshot.
+        spider_by_code = {
+            s.code: s for s in spider_stations if getattr(s, "status_source", "") == "spider"
+        }
+        stations = [spider_by_code.get(s.code, s) for s in stations]
         spider_ready = _stations_are_spider_authoritative(stations)
         if archive_applied and _is_serverless_runtime() and refresh_ntrip:
             # Keep Spider status overlay, but still attach recent live VTEC from the
@@ -646,7 +657,7 @@ def _merge_spider_site_statuses(stations: list, *, refresh: bool = False) -> lis
         spider_status_enabled,
     )
 
-    if not spider_status_enabled():
+    if not spider_status_enabled() and (refresh or not _is_serverless_runtime()):
         return _hold_non_spider_as_unknown(stations)
 
     try:
@@ -766,12 +777,12 @@ def _stations(*, refresh_ntrip: bool = False) -> list:
         cached is not None
         and (now - float(_stations_cache["ts"])) < ttl
         and _stations_cache.get("key") == cache_key
-        and _stations_are_live_authoritative(cached)  # type: ignore[arg-type]
+        and _stations_have_live_status(cached)  # type: ignore[arg-type]
     ):
         return cached  # type: ignore[return-value]
     rows = _stations_impl(refresh_ntrip=refresh_ntrip)
-    # Remember Spider or NTRIP/archive snapshots — never catalog/unknown.
-    if _stations_are_live_authoritative(rows):
+    # Never remember a catalog/unknown snapshot — that re-served false 9/25.
+    if _stations_have_live_status(rows):
         _stations_cache["rows"] = rows
         _stations_cache["ts"] = now
         _stations_cache["key"] = cache_key
@@ -1000,9 +1011,16 @@ async def status_analysis(
 ):
     """Network / per-station uptime metrics + bucketed timeline for 1d–1y analysis."""
     from backend.station_status_logger import get_db
+    import asyncio
 
-    payload = get_db().uptime_analysis(
-        hours=hours, station_code=station, bucket_minutes=bucket_minutes
+    # The archive implementation uses pandas and synchronous DB calls. Keep it
+    # off the ASGI event loop so a slow/locked archive cannot stall the map and
+    # other live dashboard endpoints.
+    payload = await asyncio.to_thread(
+        get_db().uptime_analysis,
+        hours=hours,
+        station_code=station,
+        bucket_minutes=bucket_minutes,
     )
     return StationUptimeAnalysis(**payload)
 

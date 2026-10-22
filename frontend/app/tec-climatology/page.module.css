@@ -1,0 +1,13 @@
+.page h1 { font-size: clamp(1.7rem, 3vw, 2.6rem); font-weight: 750; margin-bottom: 12px; }
+.page h2 { font-size: 1.2rem; font-weight: 700; margin-bottom: 12px; }
+.page p { margin: 8px 0 12px; line-height: 1.6; }
+.page :global(.card) { margin-top: 18px; padding: 22px; }
+.page label { display: inline-flex; flex-direction: column; gap: 6px; font-size: .95rem; }
+.page fieldset { padding: 10px; border: 1px solid #23435a; border-radius: 8px; }
+.page fieldset label { flex-direction: row; align-items: center; gap: 6px; }
+.page input, .page select, .page textarea { background: #08121e; color: white; padding: 8px; border: 1px solid #23435a; border-radius: 6px; max-width: 100%; }
+.page select[multiple] { min-width: 240px; min-height: 100px; }
+.page th, .page td { padding: 8px 12px; border-bottom: 1px solid #23435a; text-align: left; }
+.page [role=tablist] { margin-top: 20px; }
+.page [role=tab][aria-selected=true] { background: #128dcc; color: #020617; }
+.page svg { max-width: 100%; }

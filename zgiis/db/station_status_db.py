@@ -328,20 +328,42 @@ class StationStatusDB:
 
     def latest_snapshots(self, hours: float = 1.0) -> dict[str, dict[str, Any]]:
         """Latest archived live status for each station within the freshness window."""
-        df = self.query_snapshots(hours=hours)
-        if df.empty or "station_code" not in df.columns:
-            return {}
-        latest = df.sort_values("time").groupby("station_code").tail(1)
+        # Reduce history in the database: the dashboard needs one row per site,
+        # not every collector poll transferred into a pandas DataFrame.
+        since = (datetime.now(tz=timezone.utc) - timedelta(hours=hours)).isoformat()
+        sql = """
+        SELECT time, station_code, status, api_reachable, source
+        FROM (
+            SELECT time, station_code, status, api_reachable, source,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY RTRIM(LOWER(station_code), '_')
+                       ORDER BY time DESC
+                   ) AS position
+            FROM station_status_snapshots
+            WHERE time >= ?
+        ) AS recent
+        WHERE position = 1
+        """
+
+        def _do():
+            cur = self._conn.cursor()
+            try:
+                cur.execute(sql.replace("?", "%s") if self._is_pg else sql, (since,))
+                return cur.fetchall()
+            finally:
+                cur.close()
+
+        latest = self._with_reconnect(_do)
         out: dict[str, dict[str, Any]] = {}
-        for _, row in latest.iterrows():
-            code = str(row.get("station_code") or "").lower().rstrip("_")
-            status = _normalize_stored_status(str(row.get("status") or ""))
+        for when, station_code, raw_status, reachable, source in latest:
+            code = str(station_code or "").lower().rstrip("_")
+            status = _normalize_stored_status(str(raw_status or ""))
             if code and status in VALID_STATUSES:
                 out[code] = {
-                    "time": str(row.get("time") or ""),
+                    "time": str(when or ""),
                     "status": status,
-                    "api_reachable": bool(row.get("api_reachable", True)),
-                    "source": str(row.get("source") or "station_status_archive"),
+                    "api_reachable": bool(reachable),
+                    "source": str(source or "station_status_archive"),
                 }
         return out
 
@@ -499,10 +521,9 @@ class StationStatusDB:
             event_type = str(row.get("event_type") or "")
             when = str(row.get("time") or "")
 
-            # initial_state offline still opens an outage so Details can show "Went down".
+            # Initial offline observations have no confirmed outage start.
             went_down = (
                 event_type == "site_down"
-                or (event_type == "initial_state" and status == "offline")
                 or (
                     event_type == "status_change"
                     and status == "offline"

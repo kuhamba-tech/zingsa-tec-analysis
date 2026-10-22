@@ -542,16 +542,19 @@ export default function StationVtecTimePlots({
   }, [series]);
 
   const methodCompareChart = useMemo(() => {
-    const rows = Object.values(methodByStation).sort((a, b) =>
-      a.station.localeCompare(b.station),
-    );
-    if (!rows.length) return null;
+    const codes = new Set<string>([
+      ...Object.keys(methodByStation),
+      ...Object.keys(globalByStation),
+    ]);
+    const labels = [...codes].sort((a, b) => a.localeCompare(b));
+    if (!labels.length) return null;
     return {
-      labels: rows.map((r) => r.station),
-      gopi: rows.map((r) => r.gopi_latest),
-      gg: rows.map((r) => r.gg_latest),
+      labels: labels.map((code) => code.toUpperCase()),
+      gopi: labels.map((code) => methodByStation[code]?.gopi_latest ?? null),
+      gg: labels.map((code) => methodByStation[code]?.gg_latest ?? null),
+      global: labels.map((code) => globalByStation[code]?.latest_vtec ?? null),
     };
-  }, [methodByStation]);
+  }, [methodByStation, globalByStation]);
 
   const reporting = useMemo(
     () => series.filter((s) => s.points.length > 0).length,
@@ -662,8 +665,8 @@ export default function StationVtecTimePlots({
         <article className="card station-vtec-plot-card station-vtec-plot-card--wide" aria-label="GOPI vs Gg latest VTEC">
           <div className="station-vtec-plot-head">
             <div>
-              <strong>GOPI vs Gg — latest VTEC by station</strong>
-              <span>Same live samples; Gg = Cesaroni calibration</span>
+              <strong>GOPI, Gg and Global TEC by station</strong>
+              <span>Measured GOPI and Gg against DLR global TEC at the same site</span>
             </div>
           </div>
           <LineChart
@@ -680,6 +683,13 @@ export default function StationVtecTimePlots({
                 label: "Gg latest",
                 data: methodCompareChart.gg,
                 color: GG_COLOR,
+                fill: false,
+                spanGaps: true,
+              },
+              {
+                label: "Global TEC",
+                data: methodCompareChart.global,
+                color: GLOBAL_COLOR,
                 fill: false,
                 spanGaps: true,
               },

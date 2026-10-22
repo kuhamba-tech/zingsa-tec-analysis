@@ -105,10 +105,12 @@ export function getLoadProfile(): LoadProfile {
     pollIntervalMs: slowNetwork ? 180_000 : constrained ? 120_000 : 60_000,
     timelineMaxPoints: slowNetwork ? 32 : constrained ? 48 : 96,
     // Cursor: short delay so shared Chart.js can prefetch, then graphs mount.
-    heavyMountDelayMs: cursorPreview ? 550 : slowNetwork ? 900 : constrained ? 500 : 120,
+    heavyMountDelayMs: cursorPreview ? 550 : slowNetwork ? 700 : constrained ? 280 : 80,
     // Always skip heliospheric/timeline warm on first paint — tabs warm on demand.
     deferSecondaryApis: true,
-    stationsDeferMs: cursorPreview ? 2200 : slowNetwork ? 1800 : constrained ? 900 : 350,
+    // Station status is a live count, so it follows the metric cards closely.
+    // The slower Gg comparison is scheduled separately and must not delay this.
+    stationsDeferMs: cursorPreview ? 900 : slowNetwork ? 600 : constrained ? 220 : 60,
     // Short first window everywhere; users can expand to 24h / 3d.
     defaultRangeHours: 6,
     vtecResampleMinutes: slowNetwork ? 15 : constrained ? 10 : 5,

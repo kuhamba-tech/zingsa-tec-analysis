@@ -7,7 +7,7 @@ import time
 from datetime import datetime, timedelta, timezone
 
 import pandas as pd
-from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 
 from backend.deps import require_api_key
 from backend.schemas import (
@@ -26,6 +26,27 @@ from backend.schemas import (
 )
 
 router = APIRouter(prefix="/live", tags=["live"])
+
+
+@router.get("/tec-climatology")
+async def tec_climatology(
+    start: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    tz: str = Query("CAT", pattern="^(CAT|UTC)$"),
+    minutes: int = Query(60),
+    regions: str = Query("", max_length=100),
+    stations: str = Query("", max_length=200),
+    seasons: str = Query("", max_length=1000),
+    _=Depends(require_api_key),
+):
+    from zgiis.processing.tec_climatology import build
+    try:
+        return await asyncio.to_thread(build, _db(), start, end, tz, minutes,
+            regions.split(",") if regions else None,
+            stations.split(",") if stations else None,
+            json.loads(seasons) if seasons else None)
+    except (ValueError, TypeError, KeyError) as exc:
+        raise HTTPException(400, str(exc)) from exc
 log = logging.getLogger(__name__)
 
 _VTEC_BY_STATION_CACHE: dict[tuple[float, int], tuple[float, list[LiveStationVtecSeries]]] = {}
@@ -294,13 +315,14 @@ def _build_tec_method_comparison(
         try_pytecgg_available,
     )
 
-    gopi_rows = _build_live_vtec(
-        hours=hours,
-        station=station,
-        limit=limit,
-        # Elevation is almost always stored on live rows — skip nav look-ups.
-        enrich_geometry=False,
-    )
+    # Bound samples per receiver: a busy site must not hide the other stations.
+    from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
+    codes = [station] if station else [s.code.lower().rstrip("_") for s in ZIMBABWE_CORS_STATIONS]
+    gopi_rows = []
+    for code in dict.fromkeys(codes):
+        gopi_rows.extend(_build_live_vtec(
+            hours=hours, station=code, limit=limit, enrich_geometry=False,
+        ))
     # Tag as GOPI for comparison UI even when DB method strings vary.
     gopi: list[LiveObservation] = []
     for obs in gopi_rows:
@@ -354,7 +376,11 @@ def _build_tec_method_comparison(
             }
         )
 
-    gg_raw = calibrate_gg_from_observations(gg_input)
+    # Keep receiver/satellite bias arcs independent across stations.
+    gg_raw = []
+    for code in dict.fromkeys(o["station"] for o in gg_input):
+        samples = sorted((o for o in gg_input if o["station"] == code), key=lambda o: o["time"])
+        gg_raw.extend(calibrate_gg_from_observations(samples))
     gg = [
         LiveObservation(
             time=str(r.get("time") or ""),
@@ -524,9 +550,16 @@ def _build_live_vtec_by_station(
         work = df.copy()
         work["station"] = work["station"].astype(str).str.lower().str.rstrip("_")
         work["bucket"] = pd.to_datetime(work["bucket"], utc=True, errors="coerce")
+        if "observed_at" in work.columns:
+            work["observed_at"] = pd.to_datetime(work["observed_at"], utc=True, errors="coerce")
+            # Freshness must use the measurement time. The bin start is up to
+            # one resample interval earlier and was marking fresh stations delayed.
+            work["point_time"] = work["observed_at"].fillna(work["bucket"])
+        else:
+            work["point_time"] = work["bucket"]
         work["vtec_tecu"] = pd.to_numeric(work["vtec_tecu"], errors="coerce")
         work["obs_count"] = pd.to_numeric(work.get("obs_count"), errors="coerce").fillna(0)
-        work = work.dropna(subset=["bucket", "vtec_tecu"])
+        work = work.dropna(subset=["bucket", "point_time", "vtec_tecu"])
         work = work[(work["vtec_tecu"] > 0) & (work["vtec_tecu"] < 200)]
         if work.empty:
             return empty
@@ -548,7 +581,7 @@ def _build_live_vtec_by_station(
                     obs_count=int(obs),
                 )
                 for idx, vtec, obs in zip(
-                    group["bucket"],
+                    group["point_time"],
                     group["vtec_tecu"],
                     group["obs_count"],
                 )

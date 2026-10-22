@@ -10,6 +10,16 @@ import pytest
 from zgiis.maps.heatmap_data import build_tec_heatmap
 
 
+def _station_summary(stations: list[str], values: list[float]) -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "station": stations,
+            "mean_vtec": values,
+            "obs_count": [8] * len(stations),
+        }
+    )
+
+
 @pytest.fixture(autouse=True)
 def _mock_madimbo_didbase():
     with patch(
@@ -133,6 +143,10 @@ def test_build_tec_heatmap_interpolates_with_three_stations():
     ), patch("zgiis.live.ntrip_status_cache.ntrip_probe_enabled", return_value=False):
         mock_db.return_value.station_summary.return_value = pd.DataFrame()
         mock_db.return_value.query_recent.return_value = recent
+        mock_db.return_value.recent_station_vtec.return_value = _station_summary(
+            ["hara", "karo", "bula"],
+            [18.0, 22.0, 20.0],
+        )
         payload = build_tec_heatmap(hours=2)
 
     assert payload["available"] is True
@@ -186,6 +200,10 @@ def test_build_tec_heatmap_drops_neon_spike_stations():
         "zgiis.maps.heatmap_data._live_ntrip_heatmap_rows", return_value=[]
     ), patch("zgiis.live.ntrip_status_cache.ntrip_probe_enabled", return_value=False):
         mock_db.return_value.query_recent.return_value = recent
+        mock_db.return_value.recent_station_vtec.return_value = _station_summary(
+            ["hara", "masv", "muta", "karo", "kwek", "zinh"],
+            [24.0, 16.0, 18.0, 94.0, 119.0, 121.0],
+        )
         payload = build_tec_heatmap(hours=2)
 
     measured = {
@@ -229,6 +247,10 @@ def test_build_tec_heatmap_computes_matamba_temporal_gradient():
     ), patch("zgiis.live.ntrip_status_cache.ntrip_probe_enabled", return_value=False):
         mock_db.return_value.station_summary.return_value = pd.DataFrame()
         mock_db.return_value.query_recent.return_value = recent
+        mock_db.return_value.recent_station_vtec.return_value = _station_summary(
+            ["hara", "karo", "bula"],
+            [30.0, 35.0, 40.0],
+        )
         payload = build_tec_heatmap(hours=2)
 
     gradients = payload["diagnostics"]["gradients"]
@@ -269,6 +291,10 @@ def test_build_tec_heatmap_uses_live_rows_when_remote_db_env_is_set():
     ):
         mock_db.return_value.station_summary.return_value = pd.DataFrame()
         mock_db.return_value.query_recent.return_value = recent
+        mock_db.return_value.recent_station_vtec.return_value = _station_summary(
+            ["hara", "karo", "bula"],
+            [31.0, 33.0, 32.0],
+        )
         payload = build_tec_heatmap(hours=2)
 
     rows_by_code = {row["code"]: row for row in payload["stations"]}

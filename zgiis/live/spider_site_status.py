@@ -23,9 +23,11 @@ _CACHE: dict[str, Any] | None = None
 _CACHE_TS: float = 0.0
 _DISK_LOADED = False
 _FETCH_LOCK = threading.Lock()
+_CERTIFICATE_FAILURE_UNTIL = 0.0
 DEFAULT_TTL_SEC = 60.0
 DEFAULT_TIMEOUT_SEC = 12.0
 SERVERLESS_TIMEOUT_SEC = 20.0
+CERTIFICATE_FAILURE_BACKOFF_SEC = 15 * 60
 # Keep last-good Spider rows across Vercel cold starts (catalog is not live).
 DISK_MAX_AGE_SEC = float(os.getenv("SPIDER_STATUS_DISK_MAX_AGE_SEC", str(30 * 60)))
 # Postgres/SQLite last-good may be served when a live Spider login fails.
@@ -38,7 +40,9 @@ _SPIDER_ONLINE = 3
 
 # Public Spider Business Center (web UI). NTRIP caster may still be an IP:2101 host;
 # do not build /sbc from that IP — Leica SBC moved to the public HTTPS domain.
-_DEFAULT_SPIDER_BASE_URL = "https://www.zingsaservices.ac.zw/sbc"
+# The Let's Encrypt certificate is issued for the apex name only. www. fails
+# hostname verification and leaves CORS Connected with no station count.
+_DEFAULT_SPIDER_BASE_URL = "https://zingsaservices.ac.zw/sbc"
 _LEGACY_CASTER_HOSTS = {
     "41.174.184.62",
     "http://41.174.184.62",
@@ -46,10 +50,18 @@ _LEGACY_CASTER_HOSTS = {
 }
 
 
+def _canonical_spider_base(url: str) -> str:
+    """Use the apex SBC host that matches the TLS certificate."""
+    host = url.lower()
+    if "www.zingsaservices.ac.zw" in host:
+        return _DEFAULT_SPIDER_BASE_URL
+    return url
+
+
 def _spider_base_url() -> str:
     configured = os.getenv("SPIDER_BASE_URL", "").strip().rstrip("/")
     if configured:
-        return configured
+        return _canonical_spider_base(configured)
     host = os.environ.get("NTRIP_HOST", "").strip().strip('"').strip("'").rstrip("/")
     if not host:
         return _DEFAULT_SPIDER_BASE_URL
@@ -63,8 +75,8 @@ def _spider_base_url() -> str:
     # "http" in production.
     base = host if "://" in host else f"http://{host}"
     if base.lower().endswith("/sbc"):
-        return base
-    return f"{base}/sbc"
+        return _canonical_spider_base(base)
+    return _canonical_spider_base(f"{base}/sbc")
 
 
 def _spider_credentials() -> tuple[str, str]:
@@ -304,6 +316,15 @@ def fetch_spider_site_statuses(*, timeout: float | None = None) -> dict[str, Any
             "error": "Spider base URL or credentials are not configured",
         }
 
+    global _CERTIFICATE_FAILURE_UNTIL
+    if time.monotonic() < _CERTIFICATE_FAILURE_UNTIL:
+        return {
+            "fetched_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "by_station": {},
+            "error": "Spider HTTPS certificate validation is temporarily unavailable",
+            "spider_base_url": base,
+        }
+
     session = requests.Session()
     # Datacenter User-Agents are often blocked by the SBC reverse proxy (403).
     session.headers.update(
@@ -375,6 +396,15 @@ def fetch_spider_site_statuses(*, timeout: float | None = None) -> dict[str, Any
             "error": None,
             "spider_base_url": base,
         }
+    except requests.exceptions.SSLError:
+        _CERTIFICATE_FAILURE_UNTIL = time.monotonic() + CERTIFICATE_FAILURE_BACKOFF_SEC
+        log.warning("Spider HTTPS certificate validation failed (%s); backing off", base)
+        return {
+            "fetched_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "by_station": {},
+            "error": f"{base}: HTTPS certificate validation failed",
+            "spider_base_url": base,
+        }
     except Exception as exc:
         log.warning("Spider site status fetch failed (%s): %s", base, exc)
         return {
@@ -396,6 +426,26 @@ def get_cached_spider_site_statuses(
     On a cold start, seed from disk first; only then background-warm if still empty.
     """
     global _CACHE, _CACHE_TS
+
+    # Serverless workers may be frozen as soon as the response is sent. Read
+    # the collector's durable snapshot during the request instead of relying
+    # on daemon threads to seed an empty cache after the response.
+    if not refresh and any(
+        os.getenv(name)
+        for name in ("VERCEL", "VERCEL_ENV", "VERCEL_URL", "AWS_LAMBDA_FUNCTION_NAME")
+    ):
+        if os.getenv("SPIDER_SITE_STATUS_ENABLED", "1").strip().lower() in {"0", "false", "no", "off"}:
+            return {"fetched_at": None, "by_station": {}, "error": "Spider site status is disabled"}
+        from zgiis.live.spider_status_store import load_spider_status_payload
+
+        # Read access to collector snapshots does not require Spider login
+        # credentials. Only snapshots within the normal live TTL are current.
+        payload = load_spider_status_payload(max_age_sec=ttl_sec)
+        return payload or {
+            "fetched_at": None,
+            "by_station": {},
+            "error": "No fresh Spider collector snapshot",
+        }
 
     if not spider_status_enabled():
         return {

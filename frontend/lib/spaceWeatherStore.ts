@@ -30,7 +30,8 @@ function readPersisted(): SpaceWeatherCurrent | null {
   if (typeof window === "undefined") return null;
   try {
     const parsed: unknown = JSON.parse(window.localStorage.getItem(SPACE_WEATHER_CACHE_KEY) ?? "null");
-    return isUsable(parsed) ? parsed : null;
+    // Persisted weather indices can seed the page; station status must be fresh.
+    return isUsable(parsed) ? { ...parsed, stations_online: null } : null;
   } catch {
     return null;
   }
@@ -61,11 +62,15 @@ export function mergeSpaceWeatherPreferDefined(
   const out = { ...prev } as SpaceWeatherCurrent;
   for (const key of Object.keys(next) as (keyof SpaceWeatherCurrent)[]) {
     const value = next[key];
+    if (key === "stations_online") {
+      out.stations_online = value == null ? null : Number(value);
+      continue;
+    }
     if (value === null || value === undefined) continue;
     // A flaky /current overlay of stations_online=0 (or empty VTEC) must not
     // erase a healthier SSR/boot snapshot — that is what painted CORS 0/25.
     if (
-      (key === "stations_online" || key === "mean_vtec") &&
+      key === "mean_vtec" &&
       typeof value === "number" &&
       Number(value) <= 0 &&
       typeof prev[key] === "number" &&

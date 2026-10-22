@@ -36,12 +36,18 @@ def limit_timelines(
     )
 
 
-def _archive_points(column: str, hours: float = 168.0, resample: str = "1h") -> list[TimelinePoint]:
+def _archive_frame(hours: float = 168.0, resample: str = "1h"):
     try:
         from backend.space_weather_logger import get_db
 
-        df = get_db().query_dataframe(hours=hours, resample=resample)
-        if df.empty or column not in df.columns:
+        return get_db().query_dataframe(hours=hours, resample=resample)
+    except Exception:
+        return None
+
+
+def _archive_points(column: str, df) -> list[TimelinePoint]:
+    try:
+        if df is None or df.empty or column not in df.columns:
             return []
         out: list[TimelinePoint] = []
         for _, r in df.iterrows():
@@ -62,6 +68,9 @@ def _archive_points(column: str, hours: float = 168.0, resample: str = "1h") -> 
 
 def build_timelines(sw: dict) -> SpaceWeatherTimelines:
     from zgiis.space_weather.fetch_indices import _parse_kp_value
+
+    # All archive series share the same window: read it once, not once per chart.
+    archive = _archive_frame()
 
     def _pts_keyed(raw: list | None, value_key: str) -> list[TimelinePoint]:
         if not raw:
@@ -135,17 +144,17 @@ def build_timelines(sw: dict) -> SpaceWeatherTimelines:
     )
 
     gnss_live = _pts_keyed(sw.get("gnss_risk_history"), "risk_score")
-    gnss_archive = _archive_points("gnss_risk_score")
+    gnss_archive = _archive_points("gnss_risk_score", archive)
     gnss_risk = merge_timeline("gnss_risk", _prefer_richer(gnss_live, gnss_archive))
 
     stations_live = _pts_keyed(sw.get("stations_online_history"), "online")
-    stations_archive = _archive_points("stations_online")
+    stations_archive = _archive_points("stations_online", archive)
     stations_online = merge_timeline(
         "stations_online",
         _prefer_richer(stations_live, stations_archive),
     )
 
-    mean_vtec = merge_timeline("mean_vtec", _archive_points("mean_vtec"))
+    mean_vtec = merge_timeline("mean_vtec", _archive_points("mean_vtec", archive))
 
     gic_pts: list[TimelinePoint] = []
     try:

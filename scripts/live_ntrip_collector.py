@@ -29,26 +29,71 @@ DEFAULT_STATUS_PUSH_URL = (
     "?__zr=%2Fcors%2Fstatus%2Fsnapshots"
 )
 _COLLECTOR_LOCK = ROOT / "static" / "data" / ".live_ntrip_collector.lock"
+_STATUS_PUSH_RETRY_AFTER = 15 * 60
+_status_push_disabled_until = 0.0
 
 
 def _acquire_collector_lock() -> bool:
-    """Ensure only one collector holds NTRIP slots and SQLite writes."""
-    import fcntl
+    """Ensure only one collector holds NTRIP slots and SQLite writes.
 
+    A stale PID or stale lock file should not block startup forever. On Windows,
+    the file lock is advisory and is not automatically cleared when the previous
+    process dies unexpectedly, so we treat an invalid or dead PID as disposable.
+    """
     _COLLECTOR_LOCK.parent.mkdir(parents=True, exist_ok=True)
     handle = open(_COLLECTOR_LOCK, "a+", encoding="utf-8")
+
     try:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        stale_pid = None
+        try:
+            handle.seek(0)
+            candidate = handle.read().strip()
+            if candidate:
+                try:
+                    stale_pid = int(candidate)
+                except ValueError:
+                    stale_pid = None
+            if stale_pid is not None:
+                try:
+                    from zgiis.live.process_health import pid_alive
+                    if not pid_alive(stale_pid):
+                        stale_pid = None
+                except OSError:
+                    stale_pid = None
+        except Exception:
+            stale_pid = None
+
+        if stale_pid is not None:
+            log.error(
+                "Another live_ntrip_collector holds the lock. "
+                "Stop it before starting a second instance.",
+            )
+            handle.close()
+            return False
+
+        if os.name == "nt":
+            import msvcrt
+
+            # Windows locks a byte range rather than the Unix file descriptor.
+            handle.seek(0, os.SEEK_END)
+            if handle.tell() == 0:
+                handle.write(" ")
+                handle.flush()
+            # Lock beyond the PID text so health checks can read it on Windows.
+            handle.seek(1024)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
-        handle.seek(0)
-        owner = handle.read().strip()
         log.error(
-            "Another live_ntrip_collector is already running (pid %s). "
+            "Another live_ntrip_collector holds the lock. "
             "Stop it before starting a second instance.",
-            owner or "unknown",
         )
         handle.close()
         return False
+
     handle.seek(0)
     handle.truncate()
     handle.write(str(os.getpid()))
@@ -207,6 +252,11 @@ def _status_snapshot_rows(streams: dict[str, dict]) -> list[dict]:
 
 def _push_status_snapshots(streams: dict[str, dict]) -> None:
     """Push station snapshots to the deployed API as a DB-independent fallback."""
+    global _status_push_disabled_until
+    if os.getenv("STATUS_SNAPSHOT_PUSH_ENABLED", "1").strip().lower() in {"0", "false", "no", "off"}:
+        return
+    if time.monotonic() < _status_push_disabled_until:
+        return
     url = _status_push_url()
     if not url:
         return
@@ -214,18 +264,19 @@ def _push_status_snapshots(streams: dict[str, dict]) -> None:
     rows = _status_snapshot_rows(streams)
 
     headers = {"Content-Type": "application/json"}
-    api_key = (os.getenv("STATUS_SNAPSHOT_PUSH_API_KEY") or os.getenv("NEXT_PUBLIC_API_KEY") or "").strip()
+    api_key = (os.getenv("STATUS_SNAPSHOT_PUSH_API_KEY") or os.getenv("API_KEY") or os.getenv("NEXT_PUBLIC_API_KEY") or "").strip()
     if api_key:
         headers["X-API-Key"] = api_key
 
     body = json.dumps({"snapshots": rows}).encode("utf-8")
     req = urllib.request.Request(url, data=body, headers=headers, method="POST")
-    with urllib.request.urlopen(req, timeout=20) as resp:
+    with urllib.request.urlopen(req, timeout=8) as resp:
         if resp.status >= 400:
             raise RuntimeError(f"snapshot push failed: HTTP {resp.status}")
 
 
 def main() -> int:
+    global _status_push_disabled_until
     logging.basicConfig(
         level=os.getenv("LOG_LEVEL", "INFO"),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -280,8 +331,11 @@ def main() -> int:
 
     db = TecDB()
     nav_cache = LiveNavCache()
-    pipeline = LiveVtecPipeline(db=db, nav_cache=nav_cache, db_flush_n=int(os.getenv("ZGIIS_DB_FLUSH_N", "50")))
-    max_concurrent_raw = os.getenv("NTRIP_LIVE_MAX_CONCURRENT", "").strip()
+    from zgiis.live.tec_outbox import TecOutbox
+    outbox = TecOutbox(ROOT / "static" / "data" / "tec_capture_outbox.sqlite")
+    pipeline = LiveVtecPipeline(db=db, nav_cache=nav_cache, db_flush_n=int(os.getenv("ZGIIS_DB_FLUSH_N", "50")), outbox=outbox)
+    pipeline.flush_db()
+    max_concurrent_raw = os.getenv("NTRIP_LIVE_MAX_CONCURRENT", "1").strip()
     try:
         max_concurrent = max(1, int(max_concurrent_raw)) if max_concurrent_raw else None
     except ValueError:
@@ -356,6 +410,7 @@ def main() -> int:
             try:
                 _push_status_snapshots(status)
             except Exception as exc:
+                _status_push_disabled_until = time.monotonic() + _STATUS_PUSH_RETRY_AFTER
                 log.warning("Station status API push failed: %s", exc)
     finally:
         pipeline.flush_db()

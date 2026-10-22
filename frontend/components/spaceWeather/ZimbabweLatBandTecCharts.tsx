@@ -285,7 +285,7 @@ export default function ZimbabweLatBandTecCharts({
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
       <div>
         <div className="metric-label" style={{ marginBottom: 4 }}>
-          Proposed ZINGSA TEC comparison — northern / central / southern Zimbabwe
+          ZINGSA TEC comparison — northern / central / southern Zimbabwe
         </div>
         <p className="sw-supporting-text" style={{ margin: 0 }}>
           Same layout as the illustrative latitudinal graph, now filled with measured Zimbabwe CORS
@@ -304,7 +304,7 @@ export default function ZimbabweLatBandTecCharts({
       </div>
 
       <BandChart
-        title="Proposed ZINGSA TEC comparison — GOPI"
+        title="ZINGSA TEC comparison — GOPI"
         badge="Measured · Method 1 (GOPI / Seemala)"
         series={gopiBands}
         footer="Hourly mean vertical TEC from live Zimbabwe CORS stations, binned by latitude band. Curves use actual observations; gaps appear where no stations in that band reported yet."
@@ -316,7 +316,7 @@ export default function ZimbabweLatBandTecCharts({
       />
 
       <BandChart
-        title="Proposed ZINGSA TEC comparison — Gg"
+        title="ZINGSA TEC comparison — Gg"
         badge={
           ggBands?.mode === "offset"
             ? "Measured offsets · Method 2 (Gg = Cesaroni)"

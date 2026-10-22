@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 import math
+import threading
+import time
 from datetime import datetime, timezone
 from typing import Any
 
@@ -20,6 +22,11 @@ DLR_GLOBAL_TEC_FORECAST_JSON = (
 DLR_TEC_METHOD = "dlr_fc_1h_global"
 DLR_CONSTELLATION = "DLR"
 DLR_PRN = "GIM"
+# The 1-hour forecast changes about once an hour. Reuse a successful sample
+# so the comparison table is not waiting on another DLR download or a full
+# observation-table scan.
+_SNAPSHOT_TTL_S = 900.0
+_SNAPSHOT_CACHE: dict[str, Any] = {"at": 0.0, "snapshot": None}
 
 
 def _parse_epoch(metadata: dict[str, Any]) -> datetime:
@@ -281,13 +288,109 @@ def to_numeric(series):
     return pd.to_numeric(series, errors="coerce")
 
 
-def refresh_and_query_global_tec(*, hours: float = 6.0) -> dict[str, Any]:
+def stored_latest_global_tec() -> dict[str, Any] | None:
+    """Last persisted DLR sample. Avoids a live-table scan and a DLR download."""
+    try:
+        from backend.live_manager import get_db
+
+        db = get_db()
+        placeholder = "%s" if db._is_pg else "?"
+        sql = f"""
+        SELECT station, vtec_tecu, time
+        FROM vtec_obs
+        WHERE tec_method = {placeholder}
+          AND time = (
+            SELECT MAX(time) FROM vtec_obs WHERE tec_method = {placeholder}
+          )
+        """
+        df = db._read_sql(sql, [DLR_TEC_METHOD, DLR_TEC_METHOD])
+    except Exception as exc:
+        log.debug("stored global TEC lookup skipped: %s", exc)
+        return None
+    if df is None or getattr(df, "empty", True):
+        return None
+    stations = []
+    epoch = None
+    for _, row in df.iterrows():
+        try:
+            vtec = float(row["vtec_tecu"])
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(vtec) or vtec <= 0:
+            continue
+        raw_time = row["time"]
+        if epoch is None and raw_time is not None:
+            text = raw_time.isoformat() if hasattr(raw_time, "isoformat") else str(raw_time)
+            epoch = text.replace("+00:00", "Z")
+        stations.append(
+            {
+                "station": str(row["station"]).lower().rstrip("_"),
+                "vtec_tecu": round(vtec, 2),
+            }
+        )
+    if not stations:
+        return None
+    return {
+        "available": True,
+        "epoch": epoch,
+        "stations": stations,
+        "source": "DLR IMPC 1h forecast Global TEC",
+        "message": None,
+    }
+
+
+def cached_global_tec_snapshot(points: list[tuple[str, float, float]]) -> dict[str, Any]:
+    """Latest DLR sample at the CORS sites, without scanning the live TEC table."""
+    now = time.time()
+    cached = _SNAPSHOT_CACHE.get("snapshot")
+    if (
+        isinstance(cached, dict)
+        and cached.get("available")
+        and now - float(_SNAPSHOT_CACHE.get("at") or 0.0) < _SNAPSHOT_TTL_S
+    ):
+        return cached
+    snapshot = sample_global_tec_at_points(points)
+    if snapshot.get("available"):
+        _SNAPSHOT_CACHE["at"] = now
+        _SNAPSHOT_CACHE["snapshot"] = snapshot
+        threading.Thread(
+            target=persist_global_tec_samples,
+            args=(snapshot,),
+            name="zgiis-dlr-global-persist",
+            daemon=True,
+        ).start()
+    return snapshot
+
+
+def refresh_and_query_global_tec(*, hours: float = 6.0, latest_only: bool = False) -> dict[str, Any]:
     """Fetch latest DLR map, sample every CORS site, persist, return series."""
     from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
 
     points = [(s.code, float(s.lat), float(s.lon)) for s in ZIMBABWE_CORS_STATIONS]
-    snapshot = sample_global_tec_at_points(points)
-    inserted = persist_global_tec_samples(snapshot)
+    if latest_only:
+        stored = stored_latest_global_tec()
+        if stored and stored.get("stations"):
+            return {
+                "available": True,
+                "epoch": stored.get("epoch"),
+                "source": stored.get("source") or "DLR IMPC 1h forecast Global TEC",
+                "inserted": 0,
+                "stations": [],
+                "latest": stored.get("stations") or [],
+                "message": None,
+            }
+        snapshot = cached_global_tec_snapshot(points)
+        return {
+            "available": bool(snapshot.get("available")),
+            "epoch": snapshot.get("epoch"),
+            "source": snapshot.get("source") or "DLR IMPC 1h forecast Global TEC",
+            "inserted": 0,
+            "stations": [],
+            "latest": snapshot.get("stations") or [],
+            "message": snapshot.get("message"),
+        }
+    snapshot = cached_global_tec_snapshot(points)
+    inserted = 0
     series = query_global_tec_series(hours=hours)
     return {
         "available": bool(series) or bool(snapshot.get("available")),

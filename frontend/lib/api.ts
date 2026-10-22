@@ -371,6 +371,15 @@ export const getHeliosphericMonitor = (forceRefresh = false, requireNetwork = fa
       }),
   );
 };
+export type UptimeMonitorReport = {
+  status: string; checked_at: string | null; successful_at: string | null;
+  error: string | null; tracked: number;
+  events: { id: string; station_code: string; station_name: string; event_type: string;
+    time: string; started_at: string; ended_at: string | null }[];
+};
+export const getUptimeMonitor = (hours: number, station?: string) =>
+  get<UptimeMonitorReport>("/cors/monitor", { hours, ...(station ? { station } : {}) });
+
 export const getTimelines = (maxPoints = 168) => {
   const capped = Math.max(24, Math.min(2000, Math.round(maxPoints)));
   return dedupeGet(`space-weather/timelines:${capped}`, () =>
@@ -647,7 +656,7 @@ export const getStationUptimeAnalysis = (
     hours,
     station,
     bucket_minutes,
-  });
+  }, ANALYSIS_TIMEOUT_MS);
 
 // ── Processing ────────────────────────────────────────────────────────────────
 function appendProcessingOptions(fd: FormData, opts?: ProcessingOptions) {
@@ -858,7 +867,8 @@ function rejectArchiveHeatmap(payload: TecHeatmapResponse): TecHeatmapResponse {
 }
 
 export const getTecHeatmap = async (hours = 0.05, refreshNtrip = false) => {
-  // Cap client lookback; backend also clamps to ~3 minutes so TEC never looks cached.
+  // The API keeps each connected station's last caster visit (~30 min) and
+  // interpolates only sites with no sample. The hours param is not a 3-minute cap.
   const liveHours = Math.min(Math.max(hours, 0.02), 0.05);
   const payload = await get<TecHeatmapResponse>(
     "/tec/heatmap",
@@ -908,12 +918,14 @@ export async function fetchGlobalTecForecastObjectUrl(): Promise<string> {
   }
 }
 
-/** Sample + log DLR Global TEC at each CORS site; return time series for chart overlay. */
-export const getGlobalVtecByStation = (hours = 6) =>
+/** Sample DLR Global TEC at each CORS site.
+ * latestOnly returns the current map sample and skips the observation-table scan.
+ */
+export const getGlobalVtecByStation = (hours = 6, latestOnly = false) =>
   get<GlobalTecByStationResponse>(
     "/tec/global-vtec-by-station",
-    { hours, _ts: Date.now() },
-    Math.max(FETCH_TIMEOUT_MS, 55_000),
+    { hours, ...(latestOnly ? { latest_only: true } : {}), _ts: Date.now() },
+    latestOnly ? 25_000 : Math.max(FETCH_TIMEOUT_MS, 55_000),
   );
 
 export const getDiurnal = (station?: string) => get<DiurnalPoint[]>("/tec/diurnal", { station });
@@ -991,7 +1003,7 @@ export const getTecMethodComparison = (
       ),
   );
 export const getLiveVtecByStation = (hours = 6, resampleMinutes = 2, timeoutMs?: number) =>
-  get<LiveStationVtecSeries[]>(
+  dedupeGet(`live/vtec-by-station:${hours}:${resampleMinutes}:${timeoutMs ?? "default"}`, () => get<LiveStationVtecSeries[]>(
     "/live/vtec-by-station",
     { hours, resample_minutes: resampleMinutes, _ts: Date.now() },
     // Cold SQL bins can take 20–60s under concurrent map/lab load; keep headroom.
@@ -1003,7 +1015,7 @@ export const getLiveVtecByStation = (hours = 6, resampleMinutes = 2, timeoutMs?:
           : hours >= 6
             ? 45_000
             : Math.max(FETCH_TIMEOUT_MS, 25_000)),
-  );
+  ));
 export const getZimbabweScientificPlots = (hours = 24, resampleMinutes = 15, timeoutMs = 90_000) =>
   getWithRetry<ZimbabweScientificPlotsResponse>(
     "/live/zimbabwe-scientific-plots",
@@ -1021,6 +1033,12 @@ export const getNorthSouthTecResearch = (
     timeoutMs,
   );
 export const getLiveStations = () => get<StationLiveStatus[]>("/live/stations");
+export const getKyotoIndices = (params:Record<string,string|number>) =>
+  dedupeGet(`kyoto:${JSON.stringify(params)}`,()=>get<import("./kyotoIndices").KyotoResponse>("/space-weather/geomagnetic-indices",params,55_000));
+export const getKyotoVtecComparison = (params:Record<string,string|number>) =>
+  get<{points:{time:string;vtec:number;stations:number;observations:number}[];catalog:{code:string;region:string}[]}>("/space-weather/geomagnetic-vtec",params,55_000);
+export const getTecClimatology = (params: Record<string,string|number>) =>
+  getWithRetry<import("./tecClimatology").TecClimatology>("/live/tec-climatology", params, 120_000);
 export const getLivePipelineStatus = () => get<LivePipelineStatus>("/live/pipeline-status");
 export const getLiveVtecHealth = () =>
   get<LiveVtecHealth>("/live/vtec-health", { _ts: Date.now() });

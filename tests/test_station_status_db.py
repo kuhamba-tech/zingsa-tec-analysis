@@ -191,8 +191,8 @@ class StationStatusDBTests(unittest.TestCase):
         self.assertEqual(intervals[0]["started_at"], down_at)
         self.assertIsNone(intervals[0]["ended_at"])
 
-    def test_initial_offline_opens_ongoing_outage(self) -> None:
-        down_at = "2026-08-24T15:30:00+00:00"
+    def test_initial_offline_does_not_create_outage(self) -> None:
+        down_at = pd.Timestamp.now(tz="UTC").isoformat()
         self.db.insert_event(
             {
                 "time": down_at,
@@ -210,9 +210,7 @@ class StationStatusDBTests(unittest.TestCase):
             }
         )
         intervals = self.db.outage_intervals(hours=24, station_code="gokw", limit=10)
-        self.assertEqual(len(intervals), 1)
-        self.assertTrue(intervals[0]["ongoing"])
-        self.assertEqual(intervals[0]["started_at"], down_at)
+        self.assertEqual(intervals, [])
 
     def test_outage_intervals_list_ongoing_sites_before_short_recovered(self) -> None:
         """Zero-uptime sites must not be crowded out by short recovered flaps."""

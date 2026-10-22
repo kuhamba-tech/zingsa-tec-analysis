@@ -9,6 +9,7 @@ import {
   getTecHeatmap,
 } from "@/lib/api";
 import LineChart from "@/components/charts/LineChart";
+import UptimeMonitoringPanel from "./UptimeMonitoringPanel";
 import NetworkUpDownChart from "@/components/charts/NetworkUpDownChart";
 import SiteAvailabilityRibbon from "@/components/charts/SiteAvailabilityRibbon";
 import StationStatusBarChart from "@/components/charts/StationStatusBarChart";
@@ -27,6 +28,7 @@ import type {
 } from "@/lib/types";
 
 export type UptimeRangeKey = "1d" | "1w" | "1m" | "1y";
+type UptimeTab = "overview" | "events" | "details" | "incidents" | "reports";
 
 const RANGES: { key: UptimeRangeKey; label: string; hours: number; yLabel: string }[] = [
   { key: "1d", label: "1 day", hours: 24, yLabel: "% online (1 day)" },
@@ -111,6 +113,7 @@ export default function NetworkUptimePanel({
   const [events, setEvents] = useState<StationStatusEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<UptimeTab>("overview");
 
   useEffect(() => {
     setRangeIdx(uptimeRangeIndex(initialRangeKey));
@@ -280,17 +283,38 @@ export default function NetworkUptimePanel({
     (analysis?.stations.some((r) => r.samples > 0) ?? false);
 
   return (
-    <div className="card card-accent">
+    <div className="card card-accent uptime-workspace">
       <div className="operations-chart-title">
         {title}
         {analysis ? ` · ${formatPeriodLabel(analysis.hours)}` : ""}
       </div>
-      <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "0.85rem" }}>
-        Site up/down events are archived automatically (NTRIP ingest or Spider Site Status).
-        Green = online, red = offline. Use the charts below to assess performance, outages, and
-        network-wide availability over 1 day to 1 year.
+      <p className="uptime-workspace-intro">
+        Live operations, confirmed station events, incident history, and archived availability in one workspace.
       </p>
+      <div className="uptime-tabs" role="tablist" aria-label="Station uptime report sections">
+        {([
+          ["overview", "Overview"],
+          ["events", "Recent Events"],
+          ["details", "Station Details"],
+          ["incidents", "Incidents"],
+          ["reports", "Reports"],
+        ] as const).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            className={`uptime-tab${activeTab === key ? " is-active" : ""}`}
+            role="tab"
+            aria-selected={activeTab === key}
+            onClick={() => setActiveTab(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
 
+      {(activeTab === "overview" || activeTab === "events" || activeTab === "incidents") && (
+        <UptimeMonitoringPanel hours={range.hours} station={station} />
+      )}
       <div
         style={{
           display: "flex",
@@ -353,7 +377,14 @@ export default function NetworkUptimePanel({
         </button>
       </div>
 
-      <div className="home-cors-map-section" style={{ marginBottom: "1rem" }}>
+      {activeTab === "overview" && (
+        <div className="uptime-tab-callout">
+          <strong>Network operations overview</strong>
+          <span>Live CORS map, monitoring health, active incidents, and current network availability.</span>
+        </div>
+      )}
+
+      {(activeTab === "overview" || activeTab === "details") && <div className="home-cors-map-section" style={{ marginBottom: "1rem" }}>
         <CorsMapWithLayers
           stations={mapStations}
           height={480}
@@ -366,7 +397,8 @@ export default function NetworkUptimePanel({
           onStationSelect={handleMapStationSelect}
           layers={BASE_MAP_LAYERS}
         />
-      </div>
+        {activeTab === "details" && <p className="uptime-tab-hint">Select a station marker to inspect live status, stream freshness, VTEC, and archived downtime.</p>}
+      </div>}
 
       {loading && (
         <p style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>Loading uptime archive…</p>
@@ -380,9 +412,9 @@ export default function NetworkUptimePanel({
         </div>
       )}
 
-      {analysis && hasAnyData && (
+      {analysis && hasAnyData && (activeTab === "overview" || activeTab === "reports" || activeTab === "incidents") && (
         <>
-          <div
+          {(activeTab === "overview" || activeTab === "reports") && <div
             style={{
               display: "grid",
               gridTemplateColumns: "repeat(auto-fit, minmax(9.5rem, 1fr))",
@@ -406,9 +438,9 @@ export default function NetworkUptimePanel({
             <MetricCard label="Samples" value={String(analysis.samples)} />
             <MetricCard label="Offline transitions" value={String(analysis.outage_events)} />
             <MetricCard label="Bucket" value={`${analysis.bucket_minutes} min`} />
-          </div>
+          </div>}
 
-          {timelineLabels.length > 0 && (
+          {timelineLabels.length > 0 && (activeTab === "overview" || activeTab === "reports") && (
             <div style={{ marginBottom: "1.25rem" }}>
               <div className="operations-chart-title" style={{ marginBottom: "0.5rem" }}>
                 At-a-glance availability
@@ -420,7 +452,7 @@ export default function NetworkUptimePanel({
             </div>
           )}
 
-          {timelineLabels.length > 0 && (
+          {timelineLabels.length > 0 && activeTab === "reports" && (
             <div style={{ marginBottom: "1.25rem" }}>
               <div className="operations-chart-title" style={{ marginBottom: "0.5rem" }}>
                 {station ? "Site up vs down (samples per bucket)" : "Sites up vs down (count per bucket)"}
@@ -433,7 +465,7 @@ export default function NetworkUptimePanel({
             </div>
           )}
 
-          {timelineLabels.length > 0 && (
+          {timelineLabels.length > 0 && activeTab === "reports" && (
             <div style={{ marginBottom: "1.25rem" }}>
               <div className="operations-chart-title" style={{ marginBottom: "0.5rem" }}>
                 {station ? "Station uptime over time" : "Network uptime over time"}
@@ -458,7 +490,7 @@ export default function NetworkUptimePanel({
             </div>
           )}
 
-          {analysis.stations.length > 0 && (
+          {analysis.stations.length > 0 && activeTab === "reports" && (
             <>
               <div className="operations-chart-title" style={{ marginBottom: "0.5rem" }}>
                 Per-station uptime ({formatPeriodLabel(analysis.hours)})
@@ -474,7 +506,7 @@ export default function NetworkUptimePanel({
             </>
           )}
 
-          {(analysis.outage_intervals?.length ?? 0) > 0 && (
+          {(analysis.outage_intervals?.length ?? 0) > 0 && activeTab === "incidents" && (
             <>
               <div className="operations-chart-title" style={{ marginTop: "0.5rem", marginBottom: "0.5rem" }}>
                 Outage durations ({formatPeriodLabel(analysis.hours)})
@@ -512,7 +544,7 @@ export default function NetworkUptimePanel({
             </>
           )}
 
-          {events.length > 0 && (
+          {events.length > 0 && activeTab === "reports" && (
             <>
               <div className="operations-chart-title" style={{ marginTop: "1.25rem" }}>
                 Recent status events ({formatPeriodLabel(analysis.hours)}

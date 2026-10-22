@@ -18,8 +18,8 @@ def _collector_pid_alive() -> bool:
         if not _COLLECTOR_LOCK.is_file():
             return False
         pid = int(_COLLECTOR_LOCK.read_text(encoding="utf-8").strip())
-        os.kill(pid, 0)
-        return True
+        from zgiis.live.process_health import pid_alive
+        return pid_alive(pid)
     except (OSError, ValueError, TypeError):
         return False
 

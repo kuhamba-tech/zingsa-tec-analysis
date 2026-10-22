@@ -22,6 +22,43 @@ from typing import Callable, Optional
 
 log = logging.getLogger(__name__)
 
+
+class _FairConnectionSlots:
+    """FIFO admission: reconnecting stations cannot overtake waiting stations."""
+
+    def __init__(self, capacity: int):
+        self._available = capacity
+        self._waiting = deque()
+        self._condition = threading.Condition()
+        self._blocked_until = 0.0
+
+    def acquire(self, stop: threading.Event) -> bool:
+        ticket = object()
+        with self._condition:
+            self._waiting.append(ticket)
+            try:
+                while not stop.is_set():
+                    if self._available and self._waiting[0] is ticket and time.monotonic() >= self._blocked_until:
+                        self._waiting.popleft()
+                        self._available -= 1
+                        self._condition.notify_all()
+                        return True
+                    self._condition.wait(0.5)
+                return False
+            finally:
+                if ticket in self._waiting:
+                    self._waiting.remove(ticket)
+                    self._condition.notify_all()
+
+    def release(self) -> None:
+        with self._condition:
+            self._available += 1
+            self._condition.notify_all()
+
+    def defer(self, seconds: float) -> None:
+        with self._condition:
+            self._blocked_until = max(self._blocked_until, time.monotonic() + seconds)
+
 try:
     from pyrtcm import RTCMReader
     _PYRTCM_OK = True
@@ -182,7 +219,7 @@ class StationStream(threading.Thread):
         use_tls: bool = False,
         reconnect_delay: float = 5.0,
         max_reconnect_delay: float = 120.0,
-        connection_slots: Optional[threading.Semaphore] = None,
+        connection_slots: Optional[_FairConnectionSlots] = None,
         start_delay: float = 0.0,
         nav_cache=None,
         max_session_s: Optional[float] = None,
@@ -262,12 +299,9 @@ class StationStream(threading.Thread):
         if self._start_delay > 0:
             self._stop.wait(self._start_delay)
         while not self._stop.is_set():
-            acquired = self._slots is None or self._slots.acquire(timeout=30)
+            acquired = self._slots is None or self._slots.acquire(self._stop)
             if not acquired:
-                # Every slot is busy with another station — back off and retry
-                # rather than piling up alongside the threads already waiting.
-                time.sleep(self._backoff_delay(rejected=False))
-                continue
+                break
             try:
                 sock = self._connect()
                 with self._lock:
@@ -278,6 +312,8 @@ class StationStream(threading.Thread):
                 self._stream(sock)
             except Exception as exc:
                 rejected = "too many concurrent" in str(exc).lower() or "rejected" in str(exc).lower()
+                if rejected and self._slots is not None:
+                    self._slots.defer(60)
                 self._consecutive_failures += 1
                 log.warning("[%s] %s", self.station, exc)
             else:
@@ -300,7 +336,7 @@ class StationStream(threading.Thread):
 
     def _connect(self) -> socket.socket:
         raw = socket.create_connection((self._host, self._port), timeout=10)
-        sock = ssl.wrap_socket(raw) if self._tls else raw
+        sock = ssl.create_default_context().wrap_socket(raw, server_hostname=self._host) if self._tls else raw
         token = base64.b64encode(f"{self._user}:{self._pass}".encode()).decode()
         request = (
             f"GET /{self._mp} HTTP/1.1\r\n"
@@ -312,18 +348,27 @@ class StationStream(threading.Thread):
         sock.sendall(request.encode())
         header = b""
         while b"\r\n\r\n" not in header:
-            chunk = sock.recv(1024)
+            # Leave the first RTCM frame on the socket for RTCMReader.
+            chunk = sock.recv(1)
             if not chunk:
                 raise ConnectionError("Empty response from caster")
             header += chunk
-        if b"200" not in header and b"ICY 200" not in header:
-            raise ConnectionError(f"Caster rejected: {header[:120]}")
+            if len(header) > 16384:
+                sock.close()
+                raise ConnectionError("Caster response headers exceed 16 KiB")
+        status = header.split(b"\r\n", 1)[0].split()
+        if len(status) < 2 or status[1] != b"200":
+            sock.close()
+            raise ConnectionError("Caster rejected the stream request")
         return sock
 
     def _stream(self, sock: socket.socket):
         if not _PYRTCM_OK:
             raise RuntimeError("pyrtcm is required — pip install pyrtcm")
-        sock.settimeout(30)
+        # Some caster feeds publish less frequently than every 30 seconds.
+        # Allow a full minute epoch plus transport delay before rotating away.
+        read_timeout = min(75.0, self._max_session_s) if self._max_session_s else 75.0
+        sock.settimeout(read_timeout)
         session_started = time.monotonic()
         try:
             for _, msg in RTCMReader(sock):
@@ -339,6 +384,9 @@ class StationStream(threading.Thread):
                         self._max_session_s,
                     )
                     break
+                if self._max_session_s is not None:
+                    remaining = self._max_session_s - (time.monotonic() - session_started)
+                    sock.settimeout(max(0.1, min(read_timeout, remaining)))
                 t_recv = datetime.now(tz=timezone.utc)
                 try:
                     msg_type = int(msg.identity)
@@ -350,6 +398,17 @@ class StationStream(threading.Thread):
                         self._nav_cache.update_gps_ephemeris(msg)
                     except Exception:
                         pass
+                    continue
+
+                if msg_type == 1029:
+                    text = (getattr(msg, "DF140", None) or "".join(
+                        str(getattr(msg, f"DF140_{i:02d}", ""))
+                        for i in range(1, int(getattr(msg, "DF139", 0)) + 1)
+                    )).lower()
+                    if any(reason in text for reason in ("too many", "not authorized", "access denied", "invalid password")):
+                        with self._lock:
+                            self._last_connected_at = None
+                        raise ConnectionError("Caster rejected stream: account access or connection limit")
                     continue
 
                 if msg_type not in _ALL_MSM:
@@ -398,7 +457,7 @@ class LiveNtripManager:
         # caster's per-account concurrent-connection limit (see
         # NTRIP_LIVE_MAX_CONCURRENT) — cap how many stations hold an open
         # session simultaneously; the rest queue and rotate in.
-        self._slots = threading.Semaphore(max_concurrent) if max_concurrent else None
+        self._slots = _FairConnectionSlots(max_concurrent) if max_concurrent else None
         if max_session_s is None:
             raw = os.getenv("NTRIP_LIVE_SESSION_S", "600").strip()
             try:

@@ -6,6 +6,7 @@ const isDev = process.env.NODE_ENV === "development";
 // is for offline/`serve out` previews only — it cannot ship App Router proxies.
 const useStaticExport =
   !isDev && process.env.VERCEL !== "1" && process.env.ZGIIS_STATIC_EXPORT === "1";
+const localBackendUrl = (process.env.ZGIIS_BACKEND_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
 
 const nextConfig: NextConfig = {
   // Keep a real Next server in `next dev` (and on Vercel) so we can proxy
@@ -47,7 +48,7 @@ const nextConfig: NextConfig = {
     return [
       {
         source: "/backend/:path*",
-        destination: "http://127.0.0.1:8000/:path*",
+        destination: `${localBackendUrl}/:path*`,
       },
     ];
   },

@@ -10,6 +10,7 @@ station and applies the same equations from Gopi (tec_core.py):
 from __future__ import annotations
 
 import logging
+import threading
 from collections import defaultdict, deque
 from datetime import datetime, timezone
 from typing import Optional
@@ -229,12 +230,15 @@ class LiveVtecPipeline:
         ipp_height_km: float = _IPP_KM,
         elevation_mask_deg: float = _ELEV_MASK,
         db_flush_n: int = 50,
+        outbox=None,
     ):
         self._acc = LiveVtecAccumulator(ipp_height_km, elevation_mask_deg)
         self._db = db
         self._on_vtec = on_vtec
         self._nav_cache = nav_cache
-        self._pending: list[dict] = []
+        self._outbox = outbox
+        self._pending: list[dict] = outbox.replay() if outbox else []
+        self._pending_lock = threading.RLock()
         self._flush_n = db_flush_n
         self._latest: dict[str, dict] = {}
         self._recent: dict[str, deque] = defaultdict(lambda: deque(maxlen=_RECENT_VTEC_MAX))
@@ -355,6 +359,10 @@ class LiveVtecPipeline:
         if vtec is None:
             return
 
+        vtec['received_at'] = datetime.now(timezone.utc).isoformat()
+        vtec['processing_version'] = 'live-code-vtec-1'
+        vtec['quality_flag'] = 'passed_pipeline_filters_uncalibrated'
+
         code = str(vtec.get("station", "")).lower().rstrip("_")
         if code:
             self._latest[code] = vtec
@@ -371,19 +379,22 @@ class LiveVtecPipeline:
                 log.debug("on_vtec callback error: %s", exc)
 
         if self._db is not None:
-            self._pending.append(vtec)
-            if len(self._pending) >= self._flush_n:
-                try:
-                    self._db.insert_vtec(self._pending)
-                    self._pending.clear()
-                except Exception as exc:
-                    log.warning("DB flush error: %s", exc)
+            with self._pending_lock:
+                if self._outbox:
+                    self._outbox.stage(vtec)
+                self._pending.append(vtec)
+                if len(self._pending) >= self._flush_n:
+                    self.flush_db()
 
     def flush_db(self) -> None:
         """Force-flush any remaining records to the database."""
-        if self._db and self._pending:
-            try:
-                self._db.insert_vtec(self._pending)
-                self._pending.clear()
-            except Exception as exc:
-                log.warning("DB flush error: %s", exc)
+        with self._pending_lock:
+            if self._db and self._pending:
+                try:
+                    written = self._db.insert_vtec(self._pending)
+                    if written == len(self._pending):
+                        if self._outbox:
+                            self._outbox.acknowledge(self._pending)
+                        self._pending.clear()
+                except Exception as exc:
+                    log.warning("DB flush error: %s", exc)

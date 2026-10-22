@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
-import { getStations, getTecHeatmap } from "@/lib/api";
+import { getStations } from "@/lib/api";
+import { ensureLiveTecHeatmap, peekTecHeatmap, subscribeTecHeatmap } from "@/lib/tecHeatmapStore";
 import { loadCorsMapWithLayers } from "@/lib/loadCorsMapWithLayers";
 import {
   countLiveStationStatuses,
@@ -30,16 +31,16 @@ function useCorsMapHeight(preferred = 440): number {
   const [height, setHeight] = useState(() => {
     if (typeof window === "undefined") return preferred;
     const w = window.innerWidth;
-    if (w <= 560) return 260;
-    if (w <= 768) return 320;
+    if (w <= 560) return 360;
+    if (w <= 768) return 400;
     return preferred;
   });
 
   useEffect(() => {
     const apply = () => {
       const w = window.innerWidth;
-      if (w <= 560) setHeight(260);
-      else if (w <= 768) setHeight(320);
+      if (w <= 560) setHeight(360);
+      else if (w <= 768) setHeight(400);
       else setHeight(preferred);
     };
     apply();
@@ -58,7 +59,7 @@ export default function SpaceWeatherCorsMap({ height: preferredHeight = 440 }: {
   const height = useCorsMapHeight(preferredHeight);
   const [stations, setStations] = useState<Station[]>(() => peekStations());
   const [stationsLoading, setStationsLoading] = useState(() => peekStations().length === 0);
-  const [heatmap, setHeatmap] = useState<TecHeatmapResponse | null>(null);
+  const [heatmap, setHeatmap] = useState<TecHeatmapResponse | null>(() => peekTecHeatmap());
   const [riskLevel, setRiskLevel] = useState(() => peekSpaceWeather()?.gnss_risk ?? "Low");
 
   useEffect(() => subscribeStations((next) => {
@@ -94,34 +95,18 @@ export default function SpaceWeatherCorsMap({ height: preferredHeight = 440 }: {
         if (!cancelled) setStationsLoading(false);
       });
 
-    // Heatmap is decorative for the Hybrid layer — never block station dots.
-    // On narrow viewports, wait longer so metric paint and scroll stay responsive.
-    const loadHeatmap = () => {
-      void getTecHeatmap(0.05, false)
-        .then((hm) => {
-          if (!cancelled && hm) setHeatmap(hm);
-        })
-        .catch(() => null);
-    };
-    const narrow =
-      typeof window !== "undefined" && window.matchMedia("(max-width: 768px)").matches;
-    const idleTimeout = narrow ? 6000 : 2500;
-    const fallbackDelay = narrow ? 1800 : 400;
-
-    let idleId: number | undefined;
-    let timeoutId: ReturnType<typeof setTimeout> | undefined;
-    if (typeof window !== "undefined" && "requestIdleCallback" in window) {
-      idleId = window.requestIdleCallback(() => loadHeatmap(), { timeout: idleTimeout });
-    } else {
-      timeoutId = globalThis.setTimeout(loadHeatmap, fallbackDelay);
-    }
+    // Live TEC starts with the page (see ensureLiveTecHeatmap) and is shared,
+    // so this map does not wait on an idle callback before painting G / Gg.
+    ensureLiveTecHeatmap();
+    const unsubscribeHeatmap = subscribeTecHeatmap((next) => {
+      if (!cancelled && next) setHeatmap(next);
+    });
+    const cachedHeatmap = peekTecHeatmap();
+    if (cachedHeatmap) setHeatmap(cachedHeatmap);
 
     return () => {
       cancelled = true;
-      if (idleId != null && "cancelIdleCallback" in window) {
-        window.cancelIdleCallback(idleId);
-      }
-      if (timeoutId != null) globalThis.clearTimeout(timeoutId);
+      unsubscribeHeatmap();
     };
   }, []);
 
@@ -149,6 +134,7 @@ export default function SpaceWeatherCorsMap({ height: preferredHeight = 440 }: {
         ntripProbedAt={ntripProbedAt}
         stationsLoading={stationsLoading && stations.length === 0}
         heatmap={displayHeatmap}
+        initialLayer="TEC Heat Map"
       />
     </div>
   );

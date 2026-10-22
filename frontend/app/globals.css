@@ -2212,6 +2212,131 @@ select option {
   gap: 0.45rem;
   align-items: center;
 }
+.uptime-monitor-panel {
+  margin: 1rem 0;
+}
+.uptime-monitor-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.uptime-monitor-heading h3 {
+  margin: 0;
+}
+.uptime-monitor-heading p {
+  margin: 0.45rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  max-width: 60rem;
+}
+.uptime-health-badge,
+.uptime-event-pill,
+.uptime-incident-state {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.25rem 0.6rem;
+  white-space: nowrap;
+}
+.uptime-health-badge {
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.14);
+}
+.uptime-health-badge.is-healthy,
+.uptime-event-pill.is-up,
+.uptime-incident-state.is-resolved {
+  color: #00ff88;
+  background: rgba(0, 255, 136, 0.14);
+}
+.uptime-event-pill.is-down,
+.uptime-incident-state.is-open {
+  color: #ff5555;
+  background: rgba(255, 68, 68, 0.14);
+}
+.uptime-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin: 1rem 0;
+}
+.uptime-kpi {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem;
+  background: rgba(255, 255, 255, 0.025);
+}
+.uptime-kpi span,
+.uptime-kpi small,
+.uptime-events-table small {
+  display: block;
+  color: var(--text-muted);
+}
+.uptime-kpi span {
+  font-size: 0.78rem;
+}
+.uptime-kpi strong {
+  display: block;
+  margin: 0.25rem 0;
+  font-size: 1.45rem;
+}
+.uptime-kpi strong.is-good {
+  color: #00ff88;
+}
+.uptime-kpi strong.is-danger {
+  color: #ff5555;
+}
+.uptime-kpi strong.is-warning {
+  color: #fbbf24;
+}
+.uptime-kpi small,
+.uptime-events-table small {
+  font-size: 0.75rem;
+}
+.uptime-event-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin: 1rem 0 0.65rem;
+}
+.uptime-events-table-wrap {
+  overflow-x: auto;
+}
+.uptime-events-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+.uptime-events-table th,
+.uptime-events-table td {
+  border-bottom: 1px solid var(--border);
+  padding: 0.65rem 0.5rem;
+  vertical-align: middle;
+}
+.uptime-events-table th {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.uptime-events-table td:first-child strong {
+  display: block;
+}
+.uptime-empty-state {
+  color: var(--text-muted);
+  margin-bottom: 0;
+}
+@media (max-width: 700px) {
+  .uptime-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+  .uptime-events-table {
+    min-width: 38rem;
+  }
+}
 a.home-map-layer-btn {
   display: inline-flex;
   align-items: center;
@@ -2693,6 +2818,29 @@ a.home-map-layer-btn {
 @media (max-width: 720px) {
   .dashboard-metric-grid.home-metric-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .home-map-layer-btn {
+    padding: 0.5rem 0.7rem;
+    font-size: 0.75rem;
+    min-height: 40px;
+  }
+  .home-map-toolbar-center {
+    justify-content: flex-start;
+  }
+  .home-live-tec-below {
+    padding: 0.65rem 0.7rem;
+  }
+  .home-live-tec-below-range {
+    font-size: 1.12rem;
+  }
+  .home-live-tec-below-stations {
+    font-size: 0.72rem;
+    line-height: 1.5;
+  }
+  .sw-cors-map-section,
+  .home-cors-map-section {
+    max-width: 100%;
+    overflow-x: hidden;
   }
 }
 
@@ -7786,8 +7934,8 @@ a.home-map-layer-btn {
   }
 
   .cors-map-shell {
-    height: min(260px, 38vh) !important;
-    min-height: 220px;
+    height: min(380px, 48vh) !important;
+    min-height: 280px;
   }
 
   .home-page .sw-deferred-block,

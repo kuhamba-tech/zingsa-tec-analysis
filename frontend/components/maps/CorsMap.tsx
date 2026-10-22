@@ -360,6 +360,7 @@ export default function CorsMap({
           ? formatDualTecLabel(s.code, tecValue, ggValue)
           : s.code.toUpperCase();
       const baseRadius = networkMode ? (isRef ? 8 : 7) : 7;
+      const narrowMap = typeof window !== "undefined" && window.innerWidth <= 768;
       const dualLines = dualTec && tecValue != null && ggValue != null;
       f.setStyle(
         new Style({
@@ -373,15 +374,16 @@ export default function CorsMap({
           }),
           text: new Text({
             text: label,
-            offsetY: dualLines ? -30 : showTecLabels && !networkMode ? -22 : -14,
+            offsetY: dualLines ? (narrowMap ? -22 : -30) : showTecLabels && !networkMode ? -22 : -14,
             fill: new Fill({ color: "#fff" }),
-            stroke: new Stroke({ color: "#000", width: 3 }),
-            font:
-              dualLines
-                ? "bold 10px sans-serif"
-                : showTecLabels && !networkMode
-                  ? "bold 11px sans-serif"
-                  : "bold 10px sans-serif",
+            stroke: new Stroke({ color: "#000", width: narrowMap ? 2 : 3 }),
+            font: dualLines
+              ? narrowMap
+                ? "bold 9px sans-serif"
+                : "bold 10px sans-serif"
+              : showTecLabels && !networkMode
+                ? "bold 11px sans-serif"
+                : "bold 10px sans-serif",
             textAlign: "center",
           }),
         }),

@@ -1,5 +1,7 @@
 import os
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from scripts.live_ntrip_collector import (
@@ -72,6 +74,29 @@ class LiveNtripCollectorTests(unittest.TestCase):
         custom = "https://collector.example/api/status"
         with patch.dict(os.environ, {"STATUS_SNAPSHOT_PUSH_URL": custom}):
             self.assertEqual(_status_push_url(), custom)
+
+    def test_acquire_collector_lock_ignores_stale_pid(self) -> None:
+        import scripts.live_ntrip_collector as collector
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            lock_path = Path(tmpdir) / ".live_ntrip_collector.lock"
+            lock_path.write_text("999999\n", encoding="utf-8")
+            with patch.object(collector, "_COLLECTOR_LOCK", lock_path):
+                with patch.object(collector.os, "kill", side_effect=OSError("stale pid")):
+                    self.assertTrue(collector._acquire_collector_lock())
+                    handle = collector._COLLECTOR_LOCK_HANDLE
+                    collector._COLLECTOR_LOCK_HANDLE = None
+                    handle.close()
+                    self.assertEqual(lock_path.read_text(encoding="utf-8").strip(), str(os.getpid()))
+
+    def test_acquire_collector_lock_detects_live_pid_written_to_file(self) -> None:
+        import scripts.live_ntrip_collector as collector
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            lock_path = Path(tmpdir) / ".live_ntrip_collector.lock"
+            lock_path.write_text(f"{os.getpid()}\n", encoding="utf-8")
+            with patch.object(collector, "_COLLECTOR_LOCK", lock_path):
+                self.assertFalse(collector._acquire_collector_lock())
 
     @patch("zgiis.live.spider_site_status.get_cached_spider_site_statuses")
     def test_snapshot_rows_prefer_spider_status(self, spider_statuses) -> None:

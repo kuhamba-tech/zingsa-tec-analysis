@@ -16,21 +16,54 @@ from zgiis.live.spider_site_status import (
 
 
 class SpiderSiteStatusTests(unittest.TestCase):
+    @patch.dict("os.environ", {"VERCEL_ENV": "production"}, clear=True)
+    def test_serverless_reads_shared_status_without_login_or_background_work(self) -> None:
+        payload = {"by_station": {"hara": {"status": "online"}}}
+        with (
+            patch("zgiis.live.spider_status_store.load_spider_status_payload", return_value=payload) as load,
+            patch.object(spider_module.threading, "Thread") as thread,
+            patch.object(spider_module, "fetch_spider_site_statuses") as fetch,
+        ):
+            result = spider_module.get_cached_spider_site_statuses()
+        self.assertEqual(result, payload)
+        load.assert_called_once_with(max_age_sec=spider_module.DEFAULT_TTL_SEC)
+        thread.assert_not_called()
+        fetch.assert_not_called()
+
+    @patch.dict("os.environ", {"VERCEL": "1"}, clear=True)
+    def test_serverless_does_not_reuse_memory_when_shared_snapshot_expires(self) -> None:
+        stale = {"by_station": {"hara": {"status": "online"}}}
+        with (
+            patch.object(spider_module, "_CACHE", stale),
+            patch.object(spider_module, "_CACHE_TS", time.monotonic()),
+            patch("zgiis.live.spider_status_store.load_spider_status_payload", return_value=None),
+        ):
+            result = spider_module.get_cached_spider_site_statuses()
+        self.assertEqual(result["by_station"], {})
+        self.assertEqual(result["error"], "No fresh Spider collector snapshot")
+
+    @patch.dict("os.environ", {"VERCEL": "1", "SPIDER_SITE_STATUS_ENABLED": "0"}, clear=True)
+    def test_serverless_respects_explicit_spider_disable(self) -> None:
+        with patch("zgiis.live.spider_status_store.load_spider_status_payload") as load:
+            result = spider_module.get_cached_spider_site_statuses()
+        self.assertEqual(result["by_station"], {})
+        load.assert_not_called()
+
     @patch.dict("os.environ", {"NTRIP_HOST": "http://41.174.184.62"}, clear=True)
     def test_spider_base_url_maps_legacy_caster_ip_to_public_sbc(self) -> None:
-        self.assertEqual(_spider_base_url(), "https://www.zingsaservices.ac.zw/sbc")
+        self.assertEqual(_spider_base_url(), "https://zingsaservices.ac.zw/sbc")
 
     @patch.dict("os.environ", {"NTRIP_HOST": "41.174.184.62"}, clear=True)
     def test_spider_base_url_accepts_bare_legacy_host(self) -> None:
-        self.assertEqual(_spider_base_url(), "https://www.zingsaservices.ac.zw/sbc")
+        self.assertEqual(_spider_base_url(), "https://zingsaservices.ac.zw/sbc")
 
     @patch.dict(
         "os.environ",
         {"SPIDER_BASE_URL": "https://www.zingsaservices.ac.zw/sbc", "NTRIP_HOST": "41.174.184.62"},
         clear=True,
     )
-    def test_spider_base_url_prefers_explicit_env(self) -> None:
-        self.assertEqual(_spider_base_url(), "https://www.zingsaservices.ac.zw/sbc")
+    def test_spider_base_url_rewrites_www_to_cert_hostname(self) -> None:
+        self.assertEqual(_spider_base_url(), "https://zingsaservices.ac.zw/sbc")
 
     @patch.dict("os.environ", {"NTRIP_HOST": "https://example.test/sbc/"}, clear=True)
     def test_spider_base_url_does_not_duplicate_sbc_path(self) -> None:

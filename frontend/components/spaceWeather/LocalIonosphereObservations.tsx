@@ -1,5 +1,9 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import SwSectionBanner from "./SwSectionBanner";
-import type { LiveStationVtecSeries } from "@/lib/types";
+import { getLivePipelineStatus } from "@/lib/api";
+import type { LivePipelineStatus, LiveStationVtecSeries } from "@/lib/types";
 import { monitoringFreshness, observationEpoch, observationTime } from "@/lib/monitoringStatus";
 import { formatVtecDisplay, vtecColor } from "@/lib/spaceWeatherMetrics";
 
@@ -22,6 +26,17 @@ export default function LocalIonosphereObservations({ stations, now, refreshFail
   const rangeMin = values.length ? Math.min(...values) : null;
   const rangeMax = values.length ? Math.max(...values) : null;
   const anyLive = fresh.length > 0;
+  const [pipeline, setPipeline] = useState<LivePipelineStatus | null>(null);
+  useEffect(() => {
+    if (loading || anyLive) return;
+    let cancelled = false;
+    const check = () => getLivePipelineStatus()
+      .then(value => { if (!cancelled) setPipeline(value); })
+      .catch(() => { if (!cancelled) setPipeline(null); });
+    void check();
+    const timer = window.setInterval(() => { if (!document.hidden) void check(); }, 30000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [loading, anyLive]);
   const tone = refreshFailed ? "warn" : anyLive ? "ok" : loading ? "warn" : "off";
   const statusLabel = refreshFailed
     ? "Refresh failed"
@@ -29,7 +44,7 @@ export default function LocalIonosphereObservations({ stations, now, refreshFail
       ? "Live Data"
       : loading
         ? "Loading"
-        : "Unavailable";
+        : "No recent TEC readings";
 
   const meanColor = vtecColor(mean);
   // Match CORS Connected metric card — always brand blue when counts are live.
@@ -65,13 +80,13 @@ export default function LocalIonosphereObservations({ stations, now, refreshFail
         <div>
           <span>Mean of fresh station readings</span>
           <strong style={{ color: meanColor }}>
-            {mean === null ? "Unavailable" : formatVtecDisplay(mean)}
+            {mean === null ? loading ? "Loading…" : "No recent measurements" : formatVtecDisplay(mean)}
           </strong>
         </div>
         <div>
           <span>Stations contributing</span>
           <strong style={{ color: stationsColor }}>
-            {loading ? "Loading…" : `${fresh.length} of ${rows.length} returned`}
+            {loading ? "Loading…" : `${fresh.length} of ${rows.length} with fresh TEC`}
           </strong>
         </div>
         <div>
@@ -79,10 +94,19 @@ export default function LocalIonosphereObservations({ stations, now, refreshFail
           <strong style={{ color: rangeColor }}>
             {rangeMin != null && rangeMax != null
               ? `${rangeMin.toFixed(1)}–${rangeMax.toFixed(1)} TECU`
-              : "Unavailable"}
+              : loading ? "Loading…" : "No recent measurements"}
           </strong>
         </div>
       </div>
+      {!loading && !anyLive && <div className="banner banner-info" role="status">
+        <strong>Station connectivity and TEC measurements are separate.</strong>{" "}
+        {pipeline?.runtime_mode === "persistent-process" && !pipeline.ntrip_configured && pipeline.recent_record_count_1h === 0
+          ? "The local TEC pipeline is not running and no recent measurements are stored. Configure the NTRIP caster connection and start the collector."
+          : pipeline && pipeline.active_streams > 0
+            ? `${pipeline.active_streams} streams are connected, but no fresh VTEC is available in this view. Check decoding and observation times.`
+            : "No fresh VTEC measurements reached this view. Check the collector connection, decoding and observation times."}
+        {" "}<a href="/live-pipeline/">Open live pipeline diagnostics →</a>
+      </div>}
       <p className="sw-supporting-text">Only observations within the last 15 minutes contribute. This is a station mean, not a spatially weighted national estimate. VTEC alone does not establish disturbance; local impact remains unverified.</p>
       {refreshFailed && <p role="status">Station observations could not be refreshed. Saved readings are marked and excluded from the current mean.</p>}
       <details className="sw-alert-bulletin">

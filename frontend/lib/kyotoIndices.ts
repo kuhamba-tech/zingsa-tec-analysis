@@ -1,0 +1,6 @@
+export const KYOTO_KEYS=["ASY-D","ASY-H","SYM-D","SYM-H"] as const;
+export type KyotoKey=typeof KYOTO_KEYS[number];
+export type KyotoRow={time:string;version_code:number;product_status:string;quality:string}&Record<KyotoKey,number|null>;
+export type KyotoResponse={source:string;dataset:string;source_url:string;mode:string;start:string;end:string;latest_observation:string|null;last_successful_fetch:string;data_age_seconds:number|null;product_status:string;connection_status:string;publication_warning:string|null;refresh_seconds:number;rows:KyotoRow[];persistence:string;fetch_error:boolean};
+export function minuteGrid(start:string,end:string){const a=Date.parse(start),b=Date.parse(end);return Array.from({length:Math.max(0,Math.ceil((b-a)/60000))},(_,i)=>a+i*60000);}
+export function csvDownload(rows:Record<string,unknown>[],name:string){if(!rows.length)return;const keys=Object.keys(rows[0]);const quote=(v:unknown)=>`"${String(v??"").replaceAll('"','""')}"`;const text=[keys.map(quote).join(","),...rows.map(r=>keys.map(k=>quote(r[k])).join(","))].join("\r\n");const url=URL.createObjectURL(new Blob([text],{type:"text/csv;charset=utf-8"}));const a=document.createElement("a");a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}

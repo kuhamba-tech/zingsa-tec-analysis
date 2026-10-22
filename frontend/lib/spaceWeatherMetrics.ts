@@ -502,22 +502,22 @@ export function buildMetricCards(
   const vtec = sw?.mean_vtec ?? opts?.liveMeanVtec ?? null;
   const g = noaaGScaleFromKp(kp, indicesLoading);
 
-  const liveOnline = liveCounts ? connectedStreamCount(liveCounts) : null;
+  const liveOnline = liveCounts && liveCounts.online + liveCounts.offline > 0 ? connectedStreamCount(liveCounts) : null;
   // Prefer a real online count from NTRIP/Spider rows; never let a zero live
   // tally hide a healthier /current stations_online (and vice versa).
   const stationsOnlineCount =
-    liveOnline != null && liveOnline > 0
+    liveOnline != null
       ? liveOnline
       : online != null && online > 0
         ? online
         : (liveOnline ?? online);
   const stationsTotal =
-    liveOnline != null && liveOnline > 0
+    liveOnline != null
       ? liveCounts!.total
       : online != null && online > 0
         ? (total ?? liveCounts?.total ?? null)
         : (liveCounts?.total ?? total);
-  const preferLiveDisplay = liveOnline != null && liveOnline > 0;
+  const preferLiveDisplay = liveOnline != null;
   const corsDisplay = preferLiveDisplay && liveCounts ? formatCorsConnectedDisplay(liveCounts) : null;
   const stationsLabel =
     corsDisplay?.value ??
@@ -601,7 +601,7 @@ export function buildMetricCards(
     vtec == null
       ? indicesLoading
         ? "Loading live CORS VTEC…"
-        : "Awaiting live CORS VTEC"
+        : "No recent VTEC measurements · check Live Pipeline"
       : `ΔTEC / ROTI: reference baseline under development`;
 
   const activityLabel = sa?.activity_label?.trim() || null;
@@ -729,7 +729,7 @@ export function buildMetricCards(
       key: "zimbabwe_iono",
       icon: "🇿🇼",
       label: "Zimbabwe Ionosphere",
-      value: formatVtecDisplay(vtec, indicesLoading),
+      value: vtec == null && !indicesLoading ? "No recent TEC" : formatVtecDisplay(vtec, indicesLoading),
       note: ionoNote,
       valueColor: vtecColor(vtec),
       source: "ZINGSA CORS live VTEC",

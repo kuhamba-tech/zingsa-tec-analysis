@@ -329,14 +329,17 @@ def _distance_km(lat_a: float, lon_a: float, lat_b: float, lon_b: float) -> floa
 
 
 def _madimbo_metadata() -> dict[str, Any]:
-    try:
-        meta = get_madimbo_metadata()
-    except Exception:
-        meta = {**MADIMBO_IONOSONDE, "source": "fallback", "status": "fallback"}
+    """Local Madimbo record used by map diagnostics.
+
+    ``get_madimbo_metadata`` stays importable so tests can patch DIDBase, but the
+    live map does not call it. That HTTPS lookup was adding about 10 seconds
+    before any station TEC could paint.
+    """
+    _ = get_madimbo_metadata
     return {
         **MADIMBO_IONOSONDE,
-        **meta,
-        "note": meta.get("note") or MADIMBO_IONOSONDE["note"],
+        "source": "local",
+        "status": "fallback",
     }
 
 
@@ -533,18 +536,21 @@ def _rows_from_station_vtec_summary(df, *, source: str = "live") -> list[dict[st
 def _pipeline_station_rows(hours: float = 2.0) -> list[dict[str, Any]]:
     """Station VTEC from the live NTRIP ingest DB (absolute code TEC when available).
 
-    Uses only the last few minutes of code_live MSM decode so the map cannot
-    linger on an older multi-hour average while NTRIP is still streaming.
+    Uses the last caster rotation of code_live MSM decode. Each station's
+    value is still its newest minute, so a connected CORS shows its own TEC
+    and stations with no sample are left for neighbour interpolation.
     """
     if not _live_db_heatmap_enabled():
         return []
     try:
         from backend.live_manager import get_db
 
-        minutes = max(
-            0.5,
-            min(float(hours) * 60.0, float(LIVE_HEATMAP_MAX_LOOKBACK_MINUTES), float(LIVE_VTEC_RECENT_MINUTES)),
-        )
+        # Callers often ask for ~3 minutes. That window only contains the mount
+        # the single caster slot is reading now, and the map then copies that
+        # TECU onto every connected station. Hold each station's own last visit
+        # for one full network rotation; the fresh slice below is still the
+        # newest minute of that visit, not a half-hour average.
+        minutes = _connected_station_lookback_minutes(hours)
         df = get_db().recent_station_vtec(minutes=minutes, code_live_only=True)
     except Exception:
         return []
@@ -636,8 +642,9 @@ def _prn_consensus_station_vtec(group: pd.DataFrame) -> float | None:
     if physical and any(m > 55.0 for m in prn_meds):
         prn_meds = [m for m in prn_meds if m <= 55.0]
 
-    if len(prn_meds) == 1 and 8.0 <= prn_meds[0] <= 45.0:
-        # KWEK-like: one usable PRN after near-zero G14/G19 are rejected.
+    if len(prn_meds) == 1 and 1.0 <= prn_meds[0] <= 45.0:
+        # One usable PRN after near-zero leftovers are rejected. A quiet
+        # single-PRN visit (about 4 TECU) is still that station's live TEC.
         return float(prn_meds[0])
     if len(prn_meds) < 2:
         return None
@@ -724,15 +731,20 @@ def _fresh_station_vtec_from_group(group: pd.DataFrame) -> float | None:
     if prn_vtec is not None and prn_vtec >= 8.0:
         return prn_vtec
 
-    # Fresh slice looked empty/low-biased — recover from the full lookback.
+    # Newest minute can be one low-biased PRN while the same visit still has
+    # peer satellites near the station's real TEC. Prefer that fuller consensus.
     if full is not work:
         full_prn = _prn_consensus_station_vtec(full)
         if full_prn is not None and full_prn >= 8.0:
             return full_prn
+        # The whole visit agrees on a quiet value. Keep it. Replacing a
+        # connected station with a neighbour is what painted one TECU everywhere.
+        if full_prn is not None and 1.0 <= full_prn <= 45.0:
+            return full_prn
 
-    # Never publish a low-biased singleton (~4 TECU) or a spike/low blend
-    # (~50 TECU from G06~105 + G19~4) as live — omit so the surface can fill.
-    if prn_vtec is not None and 8.0 <= prn_vtec <= 45.0:
+    # One short NTRIP stay, and the satellites agree — including a low TECU.
+    # A 4-vs-105 split still returns None above, so that case is not published.
+    if prn_vtec is not None and 1.0 <= prn_vtec <= 45.0:
         return prn_vtec
     robust = _robust_station_vtec(work["vtec_tecu"], prefer_latest_n=40)
     if robust is not None and 8.0 <= robust <= 45.0:
@@ -771,11 +783,20 @@ def _consensus_filter_control_rows(rows: list[dict[str, Any]]) -> list[dict[str,
 
 
 LIVE_VTEC_RECENT_MINUTES = 5.0
-# Hard ceiling for the live map product — short enough to track live decode,
-# long enough that low-biased PRN spikes (TSHO G14) do not erase peer PRNs.
+# Hard ceiling for a caller that wants a short "just now" slice.
+# Station markers use LIVE_CONNECTED_STATION_LOOKBACK_MINUTES instead.
 LIVE_HEATMAP_MAX_LOOKBACK_MINUTES = 5.0
+# One caster slot, about 60 s per mount, 25 CORS. This covers the last visit
+# to every connected station. Each marker still shows that visit's newest minute.
+LIVE_CONNECTED_STATION_LOOKBACK_MINUTES = 30.0
 # Prefer the newest slice inside the lookback so ZINH/etc. track live decode.
 LIVE_VTEC_FRESH_SLICE_SECONDS = 60.0
+
+
+def _connected_station_lookback_minutes(hours: float) -> float:
+    """Minutes of code-live TEC kept so every connected CORS can show its own value."""
+    requested = max(0.5, float(hours) * 60.0)
+    return max(LIVE_CONNECTED_STATION_LOOKBACK_MINUTES, min(requested, 60.0))
 
 
 def station_vtec_by_code_from_frame(
@@ -1362,10 +1383,18 @@ def _heatmap_payload_from_station_rows(
 
 def build_tec_heatmap(*, hours: float = 2.0, refresh_ntrip: bool = False) -> dict[str, Any]:
     """Return interpolated grid + heat points for map overlay (live NTRIP only)."""
-    # Cap lookback so callers asking for hours=6 cannot paint an old average.
+    # Cap the short "just streamed" slice. Station ownership uses a full
+    # caster rotation inside _pipeline_station_rows so connected CORS keep
+    # their own TEC and only sites with no sample are interpolated.
     live_hours = min(float(hours), LIVE_HEATMAP_MAX_LOOKBACK_MINUTES / 60.0)
     pipeline_rows = _pipeline_station_rows(hours=live_hours)
-    recent_rows = _recent_pipeline_rows(hours=min(live_hours, 2.0 / 60.0))
+    # The rotation window already includes the newest samples. A second scan
+    # only runs when that window is empty.
+    recent_rows = (
+        []
+        if pipeline_rows
+        else _recent_pipeline_rows(hours=min(live_hours, 2.0 / 60.0))
+    )
     memory_rows = _live_pipeline_memory_rows()
     # Prefer DB + in-memory NTRIP decode. Skip the cached probe sample whenever
     # we already have fresh pipeline VTEC — that probe can be minutes stale.
@@ -1379,9 +1408,9 @@ def build_tec_heatmap(*, hours: float = 2.0, refresh_ntrip: bool = False) -> dic
         )
     live_rows = _consensus_filter_control_rows(live_rows) if live_rows else []
     measured_live = [row for row in live_rows if int(row.get("obs_count") or 0) > 0]
-    previous_rows = _temporal_reference_pipeline_rows() if live_rows else []
-    if previous_rows:
-        previous_rows = _consensus_filter_control_rows(previous_rows)
+    # Marker labels use the station rows below. The previous-window scan reads
+    # every observation and is not required to paint live TEC.
+    previous_rows: list[dict[str, Any]] = []
     # Fill every CORS marker from cleaned measured controls (same ~16–30 TECU
     # band local NTRIP decode shows). Spiked Neon mounts are dropped first.
     stations = _live_surface_station_rows(live_rows) if live_rows else []
@@ -1414,7 +1443,7 @@ def build_tec_heatmap(*, hours: float = 2.0, refresh_ntrip: bool = False) -> dic
             previous_rows=[],
         )
     # Advertise freshness so the UI can reject stale browser/CDN copies.
-    payload["lookback_minutes"] = LIVE_HEATMAP_MAX_LOOKBACK_MINUTES
+    payload["lookback_minutes"] = LIVE_CONNECTED_STATION_LOOKBACK_MINUTES
     payload["freshness"] = "live_ntrip"
     return payload
 

@@ -26,9 +26,13 @@ export function resolveClientApiBase(): string {
     if (configured) return configured;
     return "http://127.0.0.1:8000";
   }
+
   const { hostname, port, origin, protocol } = window.location;
+  const safeHostname = hostname === "0.0.0.0" ? "127.0.0.1" : hostname;
+  const hasNumericPort = typeof port === "string" && /^\d+$/.test(port);
+  const safeOrigin = hasNumericPort ? `${protocol}//${safeHostname}:${port}` : `${protocol}//${safeHostname}`;
   const local =
-    hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
+    hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]" || hostname === "0.0.0.0";
   const vercelHost = hostname.includes("vercel.app") || hostname.includes("vercel.com");
   // Cursor Cloud Agent port forwards (p-<port>-pod-*.agent.cvm.dev) — use the
   // Next Route Handler proxy so authenticated document sessions keep working
@@ -42,7 +46,13 @@ export function resolveClientApiBase(): string {
     return `${origin}/api/zgiis`;
   }
 
-  // Next dev / common frontend ports — same-origin /backend rewrite.
+  // Some port-forward / preview hosts expose a port like 0.13100. Treat that as invalid,
+  // otherwise URLs become malformed (e.g. http://127.0.0.1:0.13100).
+  if (!hasNumericPort && local) {
+    return `${protocol}//127.0.0.1:8000`;
+  }
+
+  // Next dev / common frontend ports / Cursor port-forward previews — same-origin /backend.
   // Never fall through to /api on unknown tunnel hosts in development: that 404s and
   // leaves Live Metric stuck on Connecting / Updating….
   if (
@@ -52,19 +62,20 @@ export function resolveClientApiBase(): string {
     port === "3100" ||
     port === "43128"
   ) {
-    return `${origin}/backend`;
+    const devOrigin = hasNumericPort ? safeOrigin : `${protocol}//127.0.0.1:3100`;
+    return `${devOrigin}/backend`;
   }
   if (local) {
     // Frontend served from uvicorn static export on :8000
-    if (port === "8000") return origin;
+    if (port === "8000") return safeOrigin;
     return `${protocol}//127.0.0.1:8000`;
   }
   // Non-Vercel remote previews still go through the Next /backend rewrite when present.
   if (!vercelHost) {
-    return `${origin}/backend`;
+    return `${safeOrigin}/backend`;
   }
   // Vercel/static export — backend via /api (+ group routers).
-  return `${origin}/api`;
+  return `${safeOrigin}/api`;
 }
 
 /**

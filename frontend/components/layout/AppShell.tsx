@@ -20,6 +20,7 @@ type NavItem = {
 };
 
 const NAV_GROUPS: { section: string; items: NavItem[] }[] = [
+  {section:"Analysis Modules",items:[{href:"/tec-climatology/",label:"TEC Climatology",icon:"📊"}]},
   {
     section: "Dashboard",
     items: [

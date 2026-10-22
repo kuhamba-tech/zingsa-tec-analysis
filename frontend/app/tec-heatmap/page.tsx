@@ -6,6 +6,7 @@ import { peekStations } from "@/lib/stationsStore";
 import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
 import { heatmapQualityBanner, icaoTecLabel, icaoTecLevel, inferHeatmapQuality } from "@/lib/icaoTecAdvisory";
 import { mergeTecHeatmapWithStations } from "@/lib/tecHeatmapMerge";
+import { idwFillByStation, stationCodeKey } from "@/lib/idwSurface";
 import type { Station, TecHeatmapResponse } from "@/lib/types";
 import type { MapLayer } from "@/components/maps/CorsMapWithLayers";
 import TecHeatMapLegend from "@/components/maps/TecHeatMapLegend";
@@ -18,6 +19,7 @@ const CorsMap = dynamic(() => import("@/components/maps/CorsMap"), { ssr: false 
 
 const LAYERS: MapLayer[] = ["Hybrid", "Satellite", "Street", "TEC Heat Map"];
 const HEATMAP_REFRESH_MS = 30_000;
+const GG_FRESH_MS = 30 * 60_000;
 
 export default function TecHeatmapPage() {
   const [stations, setStations] = useState<Station[]>(() => peekStations());
@@ -26,7 +28,7 @@ export default function TecHeatmapPage() {
   const [status, setStatus] = useState<FeedStatus>(() => (peekStations().length ? "stale" : "pending"));
   const [heatmapStatus, setHeatmapStatus] = useState<FeedStatus>("pending");
   const [lastFetchedAt, setLastFetchedAt] = useState<Date | null>(null);
-  const [ggByStation, setGgByStation] = useState<Record<string, number | null>>({});
+  const [measuredGg, setMeasuredGg] = useState<Record<string, number>>({});
 
   const loadHeatmap = useCallback(async (background = false) => {
     // Do not flip status to pending on interval refresh — that flashes banners/UI.
@@ -68,21 +70,23 @@ export default function TecHeatmapPage() {
       getTecMethodComparison(2, undefined, 300, 60_000)
         .then((res) => {
           if (cancelled) return;
-          const map: Record<string, number | null> = {};
+          const map: Record<string, number> = {};
           for (const row of res.stations ?? []) {
             const code = row.station.toLowerCase().replace(/_+$/, "");
             const val =
-              typeof row.gg_latest === "number" && Number.isFinite(row.gg_latest)
+              typeof row.gg_latest === "number" && Number.isFinite(row.gg_latest) && row.gg_latest > 0
                 ? row.gg_latest
-                : typeof row.gg_mean === "number" && Number.isFinite(row.gg_mean)
-                  ? row.gg_mean
-                  : null;
+                : null;
+            const observationMs = Date.parse(row.gg_time ?? "");
+            if (val == null || !Number.isFinite(observationMs) || Date.now() - observationMs > GG_FRESH_MS) {
+              continue;
+            }
             map[code] = val;
           }
-          setGgByStation(map);
+          setMeasuredGg(map);
         })
         .catch(() => {
-          if (!cancelled) setGgByStation({});
+          if (!cancelled) setMeasuredGg({});
         });
     };
     loadGg();
@@ -98,6 +102,17 @@ export default function TecHeatmapPage() {
     () => mergeTecHeatmapWithStations(heatmap, stations),
     [heatmap, stations],
   );
+  const ggByStation = useMemo(() => {
+    const sites = stations
+      .filter((site) => Number.isFinite(site.lat) && Number.isFinite(site.lon))
+      .map((site) => ({ code: site.code, lat: site.lat, lon: site.lon }));
+    for (const site of displayHeatmap?.stations ?? []) {
+      if (sites.some((row) => stationCodeKey(row.code) === stationCodeKey(site.code))) continue;
+      if (!Number.isFinite(site.lat) || !Number.isFinite(site.lon)) continue;
+      sites.push({ code: site.code, lat: site.lat, lon: site.lon });
+    }
+    return idwFillByStation(sites, measuredGg).values;
+  }, [stations, displayHeatmap, measuredGg]);
   const qualityBanner = heatmapQualityBanner(inferHeatmapQuality(displayHeatmap), displayHeatmap?.message);
   const maxVtec = displayHeatmap?.tec_max ?? null;
   const diagnostics = displayHeatmap?.diagnostics ?? null;
@@ -208,7 +223,11 @@ export default function TecHeatmapPage() {
 
       <TecHeatMapLegend className="tec-heatmap-legend-below" maxVtec={maxVtec} />
 
-      {mapLayer === "TEC Heat Map" && <LiveTecMethodComparePanel />}
+      {mapLayer === "TEC Heat Map" && (
+        <LiveTecMethodComparePanel
+          stations={stations.map((site) => ({ code: site.code, lat: site.lat, lon: site.lon }))}
+        />
+      )}
 
       {mapLayer === "TEC Heat Map" && <StationVtecTimePlots />}
 

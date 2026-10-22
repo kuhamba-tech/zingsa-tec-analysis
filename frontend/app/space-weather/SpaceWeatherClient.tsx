@@ -3,7 +3,7 @@
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent } from "react";
-import { getSpaceWeather, getSolarActivity, getTimelines, refreshSpaceWeather, getStations, getEkfStatus, getHeliosphericMonitor } from "@/lib/api";
+import { getSpaceWeather, getSolarActivity, getTimelines, refreshSpaceWeather, getStations, getEkfStatus, getHeliosphericMonitor, getTecMethodComparison } from "@/lib/api";
 import { peekSpaceWeather, publishSpaceWeather, subscribeSpaceWeather } from "@/lib/spaceWeatherStore";
 import { absorbInlineBootPayload, bootSpaceWeather } from "@/lib/bootSpaceWeather";
 import { bootSolarActivity } from "@/lib/bootSolarActivity";
@@ -14,6 +14,8 @@ import {
   absorbInlineSolarBootPayload,
 } from "@/lib/solarActivityStore";
 import { peekStations, subscribeStations } from "@/lib/stationsStore";
+import { ensureLiveTecHeatmap } from "@/lib/tecHeatmapStore";
+import { loadCorsMapWithLayers } from "@/lib/loadCorsMapWithLayers";
 import ClickableMetricGrid from "@/components/spaceWeather/ClickableMetricGrid";
 import DeferredMount from "@/components/spaceWeather/DeferredMount";
 import SwSectionBanner from "@/components/spaceWeather/SwSectionBanner";
@@ -447,6 +449,26 @@ export default function SpaceWeatherClient({
       /* ignore */
     }
   }, []);
+
+  useEffect(() => {
+    // Measured live TEC is a short request, so it starts with the cards.
+    // OpenLayers and the Gg comparison are heavier and wait until after paint,
+    // a little longer on a phone, so they do not delay the indices.
+    ensureLiveTecHeatmap();
+    const profile = getLoadProfile();
+    const stopMap = afterNextPaint(() => {
+      void loadCorsMapWithLayers();
+    }, profile.constrained ? 650 : 140);
+    const stopGg = profile.constrained
+      ? () => undefined
+      : afterNextPaint(() => {
+          void getTecMethodComparison(2, undefined, 300, 60_000).catch(() => null);
+        }, 450);
+    return () => {
+      stopMap();
+      stopGg();
+    };
+  }, []);
   const [refreshing, setRefreshing] = useState(false);
   // Seed from boot snapshot times (identical on server + first client paint).
   // Never use Date.now() here — that flips LIVE/DELAYED badges and breaks hydration.
@@ -730,10 +752,11 @@ export default function SpaceWeatherClient({
   const streamCount = liveStationCounts
     ? connectedStreamCount(liveStationCounts)
     : sw?.stations_online ?? null;
-  const stationsOnlinePoints = withCurrentFallback(
-    safePoints(tl?.stations_online),
-    currentPoint(streamCount, currentTimestamp),
-  );
+  const currentStationPoints = currentPoint(streamCount, lastFetched ?? currentTimestamp);
+  const stationsOnlinePoints = [
+    ...safePoints(tl?.stations_online).filter((point) => point.t !== currentStationPoints[0]?.t),
+    ...currentStationPoints,
+  ];
 
   const timelineAnalyses = useMemo(() => ({
     f107: analyzeF107Timeline(f107Points),
@@ -1070,8 +1093,8 @@ export default function SpaceWeatherClient({
           <DeferredMount
             className="sw-deferred-block"
             minHeight={320}
-            rootMargin="40px 0px"
-            minDelayMs={loadProfile.heavyMountDelayMs + 800}
+            rootMargin="720px 0px"
+            minDelayMs={loadProfile.heavyMountDelayMs}
             fallback={sectionFallback}
           >
             <CauseEffectTimelineStack variant="overview" />
@@ -1171,7 +1194,7 @@ export default function SpaceWeatherClient({
             <CauseEffectTimelineStack
               variant="local"
               localStartNumber={4}
-              afterVtec={
+              afterVtec={(sync) =>
                 stationsOnlinePoints.length > 0 ? (
                   <TimelineCard
                     graphId="cors-online"
@@ -1186,7 +1209,7 @@ export default function SpaceWeatherClient({
                     ekfPoints={ekf?.series.stations_online?.points}
                     ekfColor="#86efac"
                     emptyMsg="Live CORS telemetry unavailable."
-                    {...liveMetricSync}
+                    {...sync}
                   />
                 ) : (
                   <div className="card">
@@ -1392,12 +1415,13 @@ export default function SpaceWeatherClient({
             className="sw-deferred-block"
             minHeight={280}
             rootMargin="200px 0px"
-            minDelayMs={loadProfile.heavyMountDelayMs}
+            minDelayMs={0}
+            eager
             fallback={sectionFallback}
           >
             <CauseEffectTimelineStack
               variant="local"
-              afterVtec={
+              afterVtec={(sync) =>
                 stationsOnlinePoints.length > 0 ? (
                   <TimelineCard
                     graphId="cors-online-zw"
@@ -1412,7 +1436,7 @@ export default function SpaceWeatherClient({
                     ekfPoints={ekf?.series.stations_online?.points}
                     ekfColor="#86efac"
                     emptyMsg="Live CORS telemetry unavailable."
-                    {...liveMetricSync}
+                    {...sync}
                   />
                 ) : (
                   <div className="card">

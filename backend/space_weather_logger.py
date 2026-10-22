@@ -32,18 +32,29 @@ def get_db():
 
 
 def _attach_mean_vtec(row: dict, hours: float = 1.0) -> None:
-    """Optional network mean VTEC for space-weather / ionosphere correlation."""
-    try:
-        from zgiis.db.timescale import TecDB
+    """Network mean of live CORS code VTEC, the same samples as the TEC map.
 
-        series = TecDB().mean_vtec_timeseries(hours=hours, resample="15min")
-        if not series.empty:
-            row["mean_vtec"] = float(series.iloc[-1])
+    Do not use ``mean_vtec_timeseries`` here. That scan mixes DLR global TEC
+    into the average and was failing on mixed timestamps, so each dashboard
+    poll copied the previous mean (43.3 TECU) forward and the ionosphere
+    card never moved.
+    """
+    del hours
+    try:
+        from backend.routers.cors_network import _safe_station_live_vtec
+
+        vals = [
+            float(v)
+            for v in _safe_station_live_vtec(0.25, allow_db=True).values()
+            if v is not None and float(v) > 1.0
+        ]
+        if vals:
+            row["mean_vtec"] = round(sum(vals) / len(vals), 2)
     except Exception as exc:
         log.debug("mean_vtec attach skipped: %s", exc)
 
 
-def log_snapshot(*, source: str = "scheduler", force: bool = False) -> bool:
+def log_snapshot(*, source: str = "scheduler", force: bool = False, snapshot: dict | None = None) -> bool:
     """
     Fetch current dashboard metrics and insert one row.
     Returns True if a row was written.
@@ -58,7 +69,7 @@ def log_snapshot(*, source: str = "scheduler", force: bool = False) -> bool:
         from zgiis.space_weather.fetch_indices import get_space_weather
         from zgiis.db.space_weather_db import snapshot_from_sw_dict
 
-        sw = get_space_weather(use_third_party=False)
+        sw = snapshot if snapshot is not None else get_space_weather(use_third_party=False)
         if not isinstance(sw, dict):
             return False
         row = snapshot_from_sw_dict(sw, source=source)

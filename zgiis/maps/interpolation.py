@@ -1,8 +1,15 @@
 """TEC interpolation grid over Zimbabwe for heat-map rendering."""
 from __future__ import annotations
 
+import importlib.util
+
 import numpy as np
 from typing import Tuple
+
+# Importing scipy.interpolate takes many seconds on this machine when the
+# package is absent (the failed import walks path hooks). A spec check is
+# immediate, so the live map does not wait on that miss.
+SCIPY_GRID_AVAILABLE = importlib.util.find_spec("scipy") is not None
 
 # Zimbabwe bounding box
 ZW_LAT_MIN, ZW_LAT_MAX = -22.5, -15.5
@@ -45,6 +52,8 @@ def interpolate_tec(
     cells are filled with nearest-neighbour values so the heat-map overlay
     always covers Zimbabwe.
     """
+    if not SCIPY_GRID_AVAILABLE:
+        raise ModuleNotFoundError("scipy is not installed")
     from scipy.interpolate import griddata
 
     if grid_lons is None or grid_lats is None:

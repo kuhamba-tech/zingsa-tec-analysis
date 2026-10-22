@@ -52,6 +52,8 @@ interface ThresholdLine {
 }
 
 interface Props {
+  /** Scientific source series: retain all samples and do not smooth curves. */
+  preserveSamples?: boolean;
   labels: string[];
   datasets: Dataset[];
   yLabel?: string;
@@ -179,6 +181,7 @@ function DatasetToggleLegend({
 }
 
 export default function LineChart({
+  preserveSamples = false,
   labels,
   datasets,
   yLabel = "VTEC (TECU)",
@@ -213,8 +216,8 @@ export default function LineChart({
   const budget = useMemo(() => chartRenderBudget(), []);
   // Cap drawn points so large VTEC / driver timelines stay interactive.
   const drawIdx = useMemo(
-    () => downsampleIndexes(labels.length, budget.maxPoints),
-    [labels.length, budget.maxPoints],
+    () => preserveSamples ? Array.from({length:labels.length},(_,i)=>i) : downsampleIndexes(labels.length, budget.maxPoints),
+    [labels.length, budget.maxPoints, preserveSamples],
   );
   const drawLabels = useMemo(() => drawIdx.map((i) => labels[i]), [drawIdx, labels]);
   const drawXValues = useMemo(
@@ -420,7 +423,7 @@ export default function LineChart({
                     ? 0
                     : budget.pointRadius,
             pointHoverRadius: compact ? 5 : 4,
-            tension: budget.tension,
+            tension: preserveSamples ? 0 : budget.tension,
             spanGaps: ds.spanGaps ?? true,
             yAxisID: ds.yAxisId ?? "y",
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
