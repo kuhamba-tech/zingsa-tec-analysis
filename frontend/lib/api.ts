@@ -27,6 +27,8 @@ import type {
   GuviOn2Response,
   WdcKyotoAnalysisResponse,
   IntermagnetAnalysisResponse,
+  IntermagnetLatestResponse,
+  TrigNetResponse,
   LiveObservation,
   LivePipelineStatus,
   LiveVtecHealth,
@@ -939,6 +941,12 @@ export const getGfzKpAnalysis = (start: string, end: string, station?: string) =
   get<GfzKpAnalysisResponse>("/tec/gfz-kp-analysis", { start, end, station, _ts: Date.now() }, ANALYSIS_TIMEOUT_MS);
 export const getWdcKyotoAnalysis = (start: string, end: string, station?: string) =>
   get<WdcKyotoAnalysisResponse>("/tec/wdc-kyoto-analysis", { start, end, station, _ts: Date.now() }, ANALYSIS_TIMEOUT_MS);
+export const getTrigNet = () =>
+  get<TrigNetResponse>("/tec/trignet", { _ts: Date.now() }, 30_000);
+
+export const getIntermagnetLatest = () =>
+  get<IntermagnetLatestResponse>("/tec/intermagnet-latest", { _ts: Date.now() }, 25_000);
+
 export const getIntermagnetAnalysis = (start: string, end: string, observatory: string, station?: string) =>
   get<IntermagnetAnalysisResponse>(
     "/tec/intermagnet-analysis",

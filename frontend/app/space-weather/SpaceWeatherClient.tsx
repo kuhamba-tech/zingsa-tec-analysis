@@ -26,6 +26,7 @@ import {
   getLoadProfile,
   isDocumentVisible,
   scheduleSecondary,
+  type LoadProfile,
 } from "@/lib/loadBudget";
 import { prefetchLineChart } from "@/lib/loadLineChart";
 import type { ChartAnalysisBlock } from "@/lib/multiSourceChartAnalysis";
@@ -713,7 +714,15 @@ export default function SpaceWeatherClient({
   const freshnessMsg = useFeedFreshness("space-weather", feedStatus);
   // Never claim “figures show N/A” while we already have live/cached values on screen.
   const showUnavailableBanner = Boolean(freshnessMsg) && !sw;
-  const loadProfile = useMemo(() => getLoadProfile(), []);
+  const [loadProfile, setLoadProfile] = useState<LoadProfile>(() => getLoadProfile());
+  useEffect(() => {
+    const apply = () => setLoadProfile(getLoadProfile());
+    apply();
+    if (typeof window.matchMedia !== "function") return;
+    const mq = window.matchMedia("(max-width: 768px)");
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, []);
   // Heavy Zimbabwe labs: phones keep the explicit load button; desktop enables
   // after idle so the first Zimbabwe paint is not blocked by research charts.
   const [mobileHeavyLabs, setMobileHeavyLabs] = useState(false);

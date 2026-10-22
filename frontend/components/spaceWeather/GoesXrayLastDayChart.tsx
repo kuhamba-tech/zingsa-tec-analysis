@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import SwSectionBanner from "@/components/spaceWeather/SwSectionBanner";
 import { getSolarActivity } from "@/lib/api";
+import { xrayScaledFluxColor } from "@/lib/solarEventColors";
 import { loadLineChart } from "@/lib/loadLineChart";
 
 const LineChart = dynamic(() => loadLineChart().then((m) => m.default), {
@@ -120,7 +121,12 @@ export default function GoesXrayLastDayChart() {
         <>
           <LineChart
             labels={chart.labels}
-            datasets={[{ label: "X-Ray Flux (×10⁻⁷ W/m²)", data: chart.data, color: "#f97316" }]}
+            datasets={[{
+              label: "X-Ray Flux (×10⁻⁷ W/m²)",
+              data: chart.data,
+              color: "#eab308",
+              valueColor: xrayScaledFluxColor,
+            }]}
             yLabel="Flux ×10⁻⁷"
             height={150}
             xValues={chart.epochs}

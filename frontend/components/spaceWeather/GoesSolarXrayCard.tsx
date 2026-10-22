@@ -2,7 +2,7 @@
 
 import type { CSSProperties, KeyboardEvent } from "react";
 import dynamic from "next/dynamic";
-import { FLARE_SCALE } from "@/lib/solarEventColors";
+import { FLARE_SCALE, xrayScaledFluxColor } from "@/lib/solarEventColors";
 import type { ChartAnalysisBlock } from "@/lib/multiSourceChartAnalysis";
 
 import { loadLineChart } from "@/lib/loadLineChart";
@@ -114,7 +114,12 @@ export default function GoesSolarXrayCard({
         <>
           <LineChart
             labels={xrayLabels}
-            datasets={[{ label: "0.1–0.8 nm X-Ray Flux (×10⁻⁷ W/m²)", data: xraySlice, color: "#60a5fa" }]}
+            datasets={[{
+              label: "0.1–0.8 nm X-Ray Flux (×10⁻⁷ W/m²)",
+              data: xraySlice,
+              color: "#eab308",
+              valueColor: xrayScaledFluxColor,
+            }]}
             yLabel="Flux ×10⁻⁷ W/m²"
             height={240}
             xValues={xrayEpochs}

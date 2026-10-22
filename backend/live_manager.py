@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import time
 from datetime import datetime, timezone
 from typing import Dict
 
@@ -147,6 +148,28 @@ def _start_ephemeris_thread() -> None:
 
     _ephemeris_thread = threading.Thread(target=_loop, daemon=True, name="zgiis-live-ephemeris")
     _ephemeris_thread.start()
+
+
+def ensure_broadcast_ephemeris(*, wait_s: float = 0.0) -> int:
+    """Make sure this process can compute satellite azimuth from public BRDC.
+
+    Elevation is stored by the collector. Azimuth is not a database column, so
+    skyplot and IPP tracks need the broadcast ephemeris in this API process.
+    Local dev keeps NTRIP ingest in a separate collector, which never fills
+    this cache.
+    """
+    _start_ephemeris_thread()
+    nav = get_nav_cache()
+    count = nav.gps_sv_count()
+    if count > 0 or wait_s <= 0:
+        return count
+    deadline = time.monotonic() + wait_s
+    while time.monotonic() < deadline:
+        count = nav.gps_sv_count()
+        if count > 0:
+            return count
+        time.sleep(0.25)
+    return nav.gps_sv_count()
 
 
 def _stop_ephemeris_thread() -> None:

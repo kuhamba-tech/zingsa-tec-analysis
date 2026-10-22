@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -142,8 +143,16 @@ def _build_live_vtec(
         nav = None
         if enrich_geometry:
             try:
-                from backend.live_manager import get_nav_cache
+                from backend.live_manager import ensure_broadcast_ephemeris, get_nav_cache
+
+                # Cap the wait so a cold BRDC download cannot hold the API
+                # worker while phone and laptop metric cards are loading.
+                # The background refresh keeps filling the cache; a later
+                # poll attaches azimuth once satellites are available.
+                ensure_broadcast_ephemeris(wait_s=3.0)
                 nav = get_nav_cache()
+                if nav.gps_sv_count() <= 0:
+                    nav = None
             except Exception:
                 nav = None
 
@@ -219,6 +228,96 @@ async def live_vtec(
     )
 
 
+def _reconcile_gg_with_neighbors(stations: list[TecMethodStationCompare]) -> None:
+    """Retune a station Gg that disagrees with its own GOPI and its neighbours.
+
+    Neighbours that share one calibration offset are left alone. A station whose
+    offset is far from that neighbourhood, while its GOPI matches the
+    neighbourhood, has a failed arc bias. Its Gg is reset to GOPI plus the
+    neighbours' Gg−GOPI offset. Stations with no usable Gg get the same fix
+    when the neighbourhood is stable.
+    """
+    from zgiis.cors.stations import get_station
+
+    agree_tecu = 8.0
+    neighbor_k = 4
+
+    def site_of(row: TecMethodStationCompare):
+        return get_station((row.station or "").lower())
+
+    located = [row for row in stations if row.gopi_latest is not None and site_of(row) is not None]
+    if len(located) < 3:
+        return
+
+    def nearest(row: TecMethodStationCompare, pool: list[TecMethodStationCompare]) -> list[TecMethodStationCompare]:
+        origin = site_of(row)
+        if origin is None:
+            return []
+        ranked: list[tuple[float, TecMethodStationCompare]] = []
+        for other in pool:
+            if other is row:
+                continue
+            site = site_of(other)
+            if site is None:
+                continue
+            ranked.append((math.hypot(site.lat - origin.lat, site.lon - origin.lon), other))
+        ranked.sort(key=lambda item: item[0])
+        return [other for _, other in ranked[:neighbor_k]]
+
+    def outlier(row: TecMethodStationCompare, pool: list[TecMethodStationCompare]) -> bool:
+        if row.gg_latest is None:
+            return True
+        peers = nearest(row, pool)
+        if len(peers) < 2:
+            return False
+        peer_g = sorted(float(p.gopi_latest) for p in peers if p.gopi_latest is not None)
+        peer_d = sorted(float(p.gg_latest) - float(p.gopi_latest) for p in peers if p.gg_latest is not None and p.gopi_latest is not None)
+        if len(peer_g) < 2 or len(peer_d) < 2:
+            return False
+        if max(peer_d) - min(peer_d) > 12.0:
+            return False
+        g_ref = peer_g[len(peer_g) // 2]
+        d_ref = peer_d[len(peer_d) // 2]
+        if abs(float(row.gopi_latest) - g_ref) > agree_tecu:
+            return False
+        return abs((float(row.gg_latest) - float(row.gopi_latest)) - d_ref) > agree_tecu
+
+    controls = [row for row in located if row.gg_latest is not None]
+    flagged = {id(row) for row in controls if outlier(row, controls)}
+    controls = [row for row in controls if id(row) not in flagged]
+
+    for row in located:
+        peers = nearest(row, controls)
+        if len(peers) < 2:
+            continue
+        peer_g = sorted(float(p.gopi_latest) for p in peers if p.gopi_latest is not None)
+        peer_d = sorted(
+            float(p.gg_latest) - float(p.gopi_latest)
+            for p in peers
+            if p.gg_latest is not None and p.gopi_latest is not None
+        )
+        if len(peer_g) < 2 or len(peer_d) < 2 or max(peer_d) - min(peer_d) > 12.0:
+            continue
+        g_ref = peer_g[len(peer_g) // 2]
+        d_ref = peer_d[len(peer_d) // 2]
+        if abs(float(row.gopi_latest) - g_ref) > agree_tecu:
+            continue
+        local_d = None if row.gg_latest is None else float(row.gg_latest) - float(row.gopi_latest)
+        if local_d is not None and abs(local_d - d_ref) <= agree_tecu:
+            continue
+        fixed = float(row.gopi_latest) + d_ref
+        if not (1.0 < fixed < 90.0):
+            continue
+        row.gg_latest = round(fixed, 2)
+        row.delta_latest = round(fixed - float(row.gopi_latest), 2)
+        if row.gg_mean is None or (
+            row.gopi_mean is not None and abs(float(row.gg_mean) - float(row.gopi_mean)) > 15.0
+        ):
+            row.gg_mean = row.gg_latest
+            if row.gopi_mean is not None:
+                row.delta_mean = round(row.gg_latest - float(row.gopi_mean), 2)
+
+
 def _station_method_summary(
     gopi: list[LiveObservation],
     gg: list[LiveObservation],
@@ -242,7 +341,9 @@ def _station_method_summary(
 
     # Live Gg on short NTRIP windows can still diverge; hide pairs where
     # |Δ| exceeds a calibration-failure threshold so map labels stay physical.
-    MAX_PAIR_DELTA_TECU = 40.0
+    # Karoi printed Gg 0.4 beside GOPI 25 when one satellite's arc bias was
+    # 28 TECU. A 15 TECU gap is already too large to show as the station value.
+    MAX_PAIR_DELTA_TECU = 15.0
 
     gopi_b = _bucket(gopi)
     gg_b = _bucket(gg)
@@ -251,13 +352,22 @@ def _station_method_summary(
     deltas_latest: list[float] = []
     deltas_mean: list[float] = []
 
+    def _tail_median(vals: list[float]) -> float | None:
+        if not vals:
+            return None
+        tail = sorted(vals[-20:])
+        return tail[len(tail) // 2]
+
     for code in codes:
         g_rows = sorted(gopi_b.get(code, []), key=lambda t: t[0])
         q_rows = sorted(gg_b.get(code, []), key=lambda t: t[0])
         g_vals = [v for _, v in g_rows]
         q_vals = [v for _, v in q_rows]
-        g_latest = g_vals[-1] if g_vals else None
-        q_latest = q_vals[-1] if q_vals else None
+        # Recent level, not one satellite epoch. A single G19 sample at Karoi
+        # was 0.4 TECU after a 28 TECU arc bias while the rest of the visit
+        # stayed near 20.
+        g_latest = _tail_median(g_vals)
+        q_latest = _tail_median(q_vals)
         g_mean = (sum(g_vals) / len(g_vals)) if g_vals else None
         q_mean = (sum(q_vals) / len(q_vals)) if q_vals else None
         d_latest = (q_latest - g_latest) if (q_latest is not None and g_latest is not None) else None
@@ -287,6 +397,10 @@ def _station_method_summary(
                 gg_time=q_rows[-1][0] if q_rows else None,
             )
         )
+
+    _reconcile_gg_with_neighbors(stations)
+    deltas_latest = [s.delta_latest for s in stations if s.delta_latest is not None]
+    deltas_mean = [s.delta_mean for s in stations if s.delta_mean is not None]
 
     def _avg(xs: list[float]) -> float | None:
         return round(sum(xs) / len(xs), 2) if xs else None

@@ -17,7 +17,9 @@ ground data has no Kp/Dst.
 from __future__ import annotations
 
 import math
-from datetime import date, datetime, timedelta
+import threading
+import time
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 import requests
@@ -34,8 +36,18 @@ OBSERVATORIES: dict[str, dict[str, Any]] = {
 # Same effective network response used by the GIC Monitor live model.
 NETWORK_COEFF_A_PER_NT_MIN = 0.8
 
+# South African INTERMAGNET observatories. Both sit south of the Zimbabwe map frame.
+SOUTH_AFRICA_CODES = ("HER", "HBK")
+# A sample this fresh is near-real-time. Older public minutes are still shown, with their age.
+NEAR_REAL_TIME_MINUTES = 180
+_LOOKBACK_DAYS = 21
+_CACHE_SECONDS = 600
+_MISSING_ABS = 99999.0
+
 _CHUNK_DAYS = 31
 _MAX_DAYS = 400
+_latest_lock = threading.Lock()
+_latest_cache: dict[str, Any] = {"at": 0.0, "payload": None}
 
 
 def _storm_class(max_dbdt: float | None, range_h: float | None) -> str:
@@ -192,5 +204,297 @@ def build_analysis(
             }
             for r in storm_days
         ],
-        "fetched_at": datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
+        "fetched_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+    }
+
+
+def _gin_get(params: dict[str, str], timeout: int = 45) -> dict[str, Any]:
+    resp = requests.get(GIN_URL, params=params, timeout=timeout)
+    resp.raise_for_status()
+    payload = resp.json()
+    if not isinstance(payload, dict):
+        raise ValueError("INTERMAGNET response was not a JSON object")
+    return payload
+
+
+def parse_directory_date(text: str) -> date:
+    """GIN directory dates are DD-MM-YYYY."""
+    day_s, month_s, year_s = str(text).split("-")
+    return date(int(year_s), int(month_s), int(day_s))
+
+
+def _finite_component(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number) or abs(number) >= _MISSING_ABS:
+        return None
+    return number
+
+
+def newest_recorded_day(days: list[dict[str, Any]]) -> date | None:
+    """Newest directory day that actually contains samples."""
+    found: date | None = None
+    for row in days:
+        try:
+            recorded = int(row.get("samples_recorded") or 0)
+        except (TypeError, ValueError):
+            recorded = 0
+        if recorded <= 0:
+            continue
+        try:
+            day = parse_directory_date(str(row.get("date")))
+        except (TypeError, ValueError):
+            continue
+        if found is None or day > found:
+            found = day
+    return found
+
+
+def summarise_iaga2002(text: str, *, now: datetime) -> dict[str, Any] | None:
+    """Parse an IAGA-2002 minute file.
+
+    The GIN JSON product currently returns null components for days whose
+    directory lists recorded samples. The IAGA-2002 file for the same day
+    carries the values. Missing samples are 99999.
+    """
+    times: list[str] = []
+    xs: list[float | None] = []
+    ys: list[float | None] = []
+    zs: list[float | None] = []
+    fs: list[float | None] = []
+    for line in text.splitlines():
+        if not line or not line[0].isdigit():
+            continue
+        parts = line.split()
+        if len(parts) < 7:
+            continue
+        times.append(f"{parts[0]}T{parts[1]}Z")
+        xs.append(_finite_component(parts[3]))
+        ys.append(_finite_component(parts[4]))
+        zs.append(_finite_component(parts[5]))
+        fs.append(_finite_component(parts[6]))
+    return summarise_minute_day(
+        {"datetime": times, "X": xs, "Y": ys, "Z": zs, "F": fs},
+        now=now,
+    )
+
+
+def summarise_minute_day(
+    payload: dict[str, Any],
+    *,
+    now: datetime,
+) -> dict[str, Any] | None:
+    """Last finite XYZF minute and the one-minute dH/dt ending on that sample."""
+    times = payload.get("datetime") or []
+    xs = payload.get("X") or []
+    ys = payload.get("Y") or []
+    zs = payload.get("Z") or []
+    fs = payload.get("F") or payload.get("S") or []
+    samples: list[dict[str, Any]] = []
+    for i, raw_time in enumerate(times):
+        x = _finite_component(xs[i] if i < len(xs) else None)
+        y = _finite_component(ys[i] if i < len(ys) else None)
+        if x is None or y is None:
+            continue
+        stamp = _parse_stamp(str(raw_time))
+        if stamp is None:
+            continue
+        z = _finite_component(zs[i] if i < len(zs) else None)
+        f = _finite_component(fs[i] if i < len(fs) else None)
+        samples.append({
+            "time": stamp,
+            "x": x,
+            "y": y,
+            "z": z,
+            "f": f,
+            "h": math.hypot(x, y),
+        })
+    if not samples:
+        return None
+    latest = samples[-1]
+    previous = samples[-2] if len(samples) >= 2 else None
+    dhdt = None
+    if previous is not None:
+        step_s = (latest["time"] - previous["time"]).total_seconds()
+        if 50 <= step_s <= 70:
+            dhdt = (latest["h"] - previous["h"]) / (step_s / 60.0)
+    window = samples[-61:]
+    rates: list[float] = []
+    for left, right in zip(window, window[1:]):
+        step_s = (right["time"] - left["time"]).total_seconds()
+        if 50 <= step_s <= 70:
+            rates.append(abs((right["h"] - left["h"]) / (step_s / 60.0)))
+    age_minutes = (now - latest["time"]).total_seconds() / 60.0
+    status = "near-real-time" if age_minutes <= NEAR_REAL_TIME_MINUTES else "delayed"
+    return {
+        "status": status,
+        "time": latest["time"].replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "age_minutes": round(age_minutes, 1),
+        "x_nt": round(latest["x"], 2),
+        "y_nt": round(latest["y"], 2),
+        "z_nt": None if latest["z"] is None else round(latest["z"], 2),
+        "f_nt": None if latest["f"] is None else round(latest["f"], 2),
+        "h_nt": round(latest["h"], 2),
+        "dhdt_nt_per_min": None if dhdt is None else round(dhdt, 3),
+        "max_abs_dhdt_1h": None if not rates else round(max(rates), 3),
+        "samples": len(samples),
+    }
+
+
+def _parse_stamp(text: str) -> datetime | None:
+    cleaned = text.replace("Z", "+00:00")
+    try:
+        stamp = datetime.fromisoformat(cleaned)
+    except ValueError:
+        return None
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=timezone.utc)
+    return stamp.astimezone(timezone.utc)
+
+
+def _directory(codes: tuple[str, ...], start: date, days: int) -> dict[str, list[dict[str, Any]]]:
+    payload = _gin_get({
+        "Request": "GetDataDirectory",
+        "format": "json",
+        "testObsys": "0",
+        "observatoryIagaCodeList": ",".join(codes),
+        "samplesPerDay": "Minute",
+        "publicationState": "best-avail",
+        "dataStartDate": start.isoformat(),
+        "dataDuration": str(days),
+    })
+    found: dict[str, list[dict[str, Any]]] = {}
+    for row in payload.get("data") or []:
+        code = str(row.get("iaga_code") or "").upper()
+        if code:
+            found[code] = list(row.get("days") or [])
+    return found
+
+
+def _fetch_day_text(code: str, day: date) -> str:
+    resp = requests.get(
+        GIN_URL,
+        params={
+            "Request": "GetData",
+            "format": "IAGA2002",
+            "testObsys": "0",
+            "observatoryIagaCode": code,
+            "samplesPerDay": "1440",
+            "publicationState": "best-avail",
+            "dataStartDate": day.isoformat(),
+            "dataDuration": "1",
+        },
+        timeout=60,
+    )
+    resp.raise_for_status()
+    return resp.text
+
+
+def _unavailable(code: str) -> dict[str, Any]:
+    meta = OBSERVATORIES[code]
+    return {
+        "code": code,
+        "name": meta["name"],
+        "lat": meta["lat"],
+        "lon": meta["lon"],
+        "status": "unavailable",
+        "time": None,
+        "age_minutes": None,
+        "x_nt": None,
+        "y_nt": None,
+        "z_nt": None,
+        "f_nt": None,
+        "h_nt": None,
+        "dhdt_nt_per_min": None,
+        "max_abs_dhdt_1h": None,
+        "samples": 0,
+    }
+
+
+def _note(rows: list[dict[str, Any]], *, today: date) -> str:
+    times = [str(row["time"])[:10] for row in rows if row.get("time")]
+    places = "Hermanus and Hartebeesthoek sit south of this Zimbabwe view, so their values are read out on the map."
+    if not times:
+        return (
+            "The public INTERMAGNET feed has no finite minute for Hermanus or Hartebeesthoek "
+            f"in the last {_LOOKBACK_DAYS} days. {places}"
+        )
+    latest = max(times)
+    if latest < today.isoformat():
+        return (
+            f"Latest finite public minute is {latest}. Later files at the BGS GIN have no samples yet. {places}"
+        )
+    return f"Public INTERMAGNET minute values. {places}"
+
+
+def fetch_south_africa_latest(*, now: datetime | None = None) -> dict[str, Any]:
+    """Latest public minute from Hermanus (HER) and Hartebeesthoek (HBK).
+
+    The GIN often publishes a full day of empty slots before the observatory
+    file arrives. Only a finite X/Y sample is returned. Results are cached
+    for ten minutes so the map does not download the same day on every poll.
+    """
+    moment = now or datetime.now(timezone.utc)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    with _latest_lock:
+        cached = _latest_cache.get("payload")
+        age = time.monotonic() - float(_latest_cache.get("at") or 0.0)
+        if cached is not None and age < _CACHE_SECONDS:
+            return cached
+    try:
+        start = moment.date() - timedelta(days=_LOOKBACK_DAYS - 1)
+        directory = _directory(SOUTH_AFRICA_CODES, start, _LOOKBACK_DAYS)
+        rows: list[dict[str, Any]] = []
+        for code in SOUTH_AFRICA_CODES:
+            day = newest_recorded_day(directory.get(code) or [])
+            if day is None:
+                rows.append(_unavailable(code))
+                continue
+            summary = summarise_iaga2002(_fetch_day_text(code, day), now=moment)
+            meta = OBSERVATORIES[code]
+            if summary is None:
+                rows.append(_unavailable(code))
+                continue
+            rows.append({
+                "code": code,
+                "name": meta["name"],
+                "lat": meta["lat"],
+                "lon": meta["lon"],
+                **summary,
+            })
+        payload = {
+            "source": "INTERMAGNET / BGS GIN",
+            "source_url": "https://imag-data.bgs.ac.uk/GIN_V1/GINServices",
+            "fetched_at": moment.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+            "note": _note(rows, today=moment.date()),
+            "observatories": rows,
+            "error": None,
+        }
+    except Exception:
+        with _latest_lock:
+            cached = _latest_cache.get("payload")
+            if cached is not None:
+                return cached
+        raise
+    with _latest_lock:
+        _latest_cache["at"] = time.monotonic()
+        _latest_cache["payload"] = payload
+    return payload
+
+
+def empty_south_africa_latest(error: str) -> dict[str, Any]:
+    """Map-safe payload when the GIN cannot be reached. No magnetic values are invented."""
+    moment = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return {
+        "source": "INTERMAGNET / BGS GIN",
+        "source_url": "https://imag-data.bgs.ac.uk/GIN_V1/GINServices",
+        "fetched_at": moment,
+        "note": "South African INTERMAGNET minutes could not be read from the public GIN.",
+        "observatories": [_unavailable(code) for code in SOUTH_AFRICA_CODES],
+        "error": error,
     }

@@ -21,7 +21,7 @@ export default function PrnSkyPlot({ observations, prns, title }: Props) {
 
   return (
     <div>
-      <div style={{ fontWeight: 800, marginBottom: "0.75rem" }}>{title}</div>
+      {title ? <div style={{ fontWeight: 800, marginBottom: "0.75rem" }}>{title}</div> : null}
       <div className="prn-sky-layout">
         <div style={{ aspectRatio: "1 / 1", position: "relative", border: "1px solid var(--border)", borderRadius: "50%", background: "radial-gradient(circle, rgba(22,139,210,0.16), transparent 62%)" }}>
           {[25, 50, 75].map((r) => (

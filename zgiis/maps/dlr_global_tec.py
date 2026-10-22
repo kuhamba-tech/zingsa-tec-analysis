@@ -6,7 +6,7 @@ import logging
 import math
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import requests
@@ -26,7 +26,9 @@ DLR_PRN = "GIM"
 # so the comparison table is not waiting on another DLR download or a full
 # observation-table scan.
 _SNAPSHOT_TTL_S = 900.0
-_SNAPSHOT_CACHE: dict[str, Any] = {"at": 0.0, "snapshot": None}
+_SNAPSHOT_CACHE: dict[str, Any] = {"at": 0.0, "snapshot": None, "fail_at": 0.0}
+_REFRESH_LOCK = threading.Lock()
+_refresh_running = False
 
 
 def _parse_epoch(metadata: dict[str, Any]) -> datetime:
@@ -179,6 +181,60 @@ def sample_global_tec_at_points(
     }
 
 
+def _global_epoch_already_stored(db: Any, epoch: datetime) -> bool:
+    """True when this DLR hour is already in the observation table."""
+    start = (epoch - timedelta(minutes=10)).isoformat()
+    end = (epoch + timedelta(minutes=10)).isoformat()
+    placeholder = "%s" if getattr(db, "_is_pg", False) else "?"
+    sql = f"""
+    SELECT 1 AS present
+    FROM vtec_obs
+    WHERE tec_method = {placeholder}
+      AND time >= {placeholder}
+      AND time <= {placeholder}
+    LIMIT 1
+    """
+    found = db._read_sql(sql, [DLR_TEC_METHOD, start, end])
+    return found is not None and not getattr(found, "empty", True)
+
+
+def _schedule_global_tec_refresh(points: list[tuple[str, float, float]]) -> None:
+    """Download a new DLR map in the background when the last sample is stale.
+
+    The comparison request itself keeps returning the stored sample so the
+    table does not wait on the forecast file.
+    """
+    global _refresh_running
+    now = time.time()
+    cached = _SNAPSHOT_CACHE.get("snapshot")
+    fresh = (
+        isinstance(cached, dict)
+        and cached.get("available")
+        and now - float(_SNAPSHOT_CACHE.get("at") or 0.0) < _SNAPSHOT_TTL_S
+    )
+    if fresh or now - float(_SNAPSHOT_CACHE.get("fail_at") or 0.0) < 300.0:
+        return
+    with _REFRESH_LOCK:
+        if _refresh_running:
+            return
+        _refresh_running = True
+
+    def _run() -> None:
+        global _refresh_running
+        try:
+            snapshot = cached_global_tec_snapshot(points)
+            if not isinstance(snapshot, dict) or not snapshot.get("available"):
+                _SNAPSHOT_CACHE["fail_at"] = time.time()
+        except Exception as exc:
+            log.debug("background DLR Global TEC refresh skipped: %s", exc)
+            _SNAPSHOT_CACHE["fail_at"] = time.time()
+        finally:
+            with _REFRESH_LOCK:
+                _refresh_running = False
+
+    threading.Thread(target=_run, name="zgiis-dlr-global-refresh", daemon=True).start()
+
+
 def persist_global_tec_samples(snapshot: dict[str, Any]) -> int:
     """Write sampled Global TEC into TecDB as tagged rows for time-series charts."""
     if not snapshot.get("available"):
@@ -191,18 +247,12 @@ def persist_global_tec_samples(snapshot: dict[str, Any]) -> int:
 
     try:
         from backend.live_manager import get_db
-        import pandas as pd
 
         db = get_db()
         # Skip re-insert when this forecast epoch was already logged (DLR updates ~hourly).
-        existing = db.query_recent(hours=3.0, constellation=DLR_CONSTELLATION)
-        if existing is not None and not getattr(existing, "empty", True):
-            if "tec_method" in existing.columns:
-                existing = existing[existing["tec_method"].astype(str) == DLR_TEC_METHOD]
-            if not existing.empty and "time" in existing.columns:
-                times = pd.to_datetime(existing["time"], utc=True, errors="coerce")
-                if ((times - epoch).abs() <= pd.Timedelta(minutes=10)).any():
-                    return 0
+        # A targeted lookup — scanning the live observation table locks SQLite.
+        if _global_epoch_already_stored(db, epoch):
+            return 0
     except Exception as exc:
         log.debug("DLR Global TEC dedup check skipped: %s", exc)
 
@@ -368,6 +418,7 @@ def refresh_and_query_global_tec(*, hours: float = 6.0, latest_only: bool = Fals
 
     points = [(s.code, float(s.lat), float(s.lon)) for s in ZIMBABWE_CORS_STATIONS]
     if latest_only:
+        _schedule_global_tec_refresh(points)
         stored = stored_latest_global_tec()
         if stored and stored.get("stations"):
             return {

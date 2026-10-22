@@ -129,6 +129,14 @@ def start_background_warmup(*, include_live_ingest: bool = True) -> None:
 
 def start_light_cache_warmup() -> None:
     """Warm read-mostly NOAA caches even when full background services are off."""
+    try:
+        from backend.live_manager import ensure_broadcast_ephemeris
+
+        # Skyplot/IPP azimuth needs BRDC in this process. This does not open
+        # an NTRIP socket or a second collector.
+        ensure_broadcast_ephemeris(wait_s=0.0)
+    except Exception:
+        log.exception("Broadcast ephemeris warmup failed to start")
     threading.Thread(
         target=_warm_space_weather,
         daemon=True,
@@ -149,6 +157,13 @@ def start_light_cache_warmup() -> None:
         daemon=True,
         name="zgiis-warm-spider-light",
     ).start()
+    try:
+        from zgiis.cors.trignet import start_trignet_tec
+
+        # Public TrigNet FTP/RINEX only. Does not open the Zimbabwe NTRIP slot.
+        start_trignet_tec()
+    except Exception:
+        log.exception("TrigNet TEC worker failed to start")
 
 
 def _warm_vtec_chart_cache() -> None:

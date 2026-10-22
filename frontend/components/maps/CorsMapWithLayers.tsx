@@ -2,15 +2,16 @@
 import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import CorsMap from "./CorsMap";
+import IntermagnetMapReadout from "./IntermagnetMapReadout";
 import LiveTecMethodComparePanel from "./LiveTecMethodComparePanel";
 import NetworkDistancesPanel from "./NetworkDistancesPanel";
-import TecHeatMapLegend from "./TecHeatMapLegend";
-import { getTecMethodComparison } from "@/lib/api";
+import TecHeatMapLegend, { TecMapColorbar } from "./TecHeatMapLegend";
+import { getTecMethodComparison, getTrigNet } from "@/lib/api";
 import { idwFillByStation, stationCodeKey, type LatLonSite } from "@/lib/idwSurface";
 import { heatmapQualityBanner, icaoTecLabel, icaoTecLevel, inferHeatmapQuality } from "@/lib/icaoTecAdvisory";
 import type { ProposedCorsSite } from "@/lib/corsGeneticOptimizer";
-import type { Station, TecHeatmapResponse } from "@/lib/types";
-import type { LiveStationCounts } from "@/lib/liveStationStatus";
+import type { Station, TecHeatmapResponse, TrigNetResponse } from "@/lib/types";
+import { getLiveStationStatus, type LiveStationCounts } from "@/lib/liveStationStatus";
 
 const StationVtecTimePlots = dynamic(
   () => import("@/components/charts/StationVtecTimePlots"),
@@ -23,6 +24,7 @@ export type MapLayer =
   | "TEC Heat Map"
   | "Zimbabwe ROTI Map"
   | "Global TEC"
+  | "TrigNet"
   | "Network Distances";
 
 interface Props {
@@ -51,6 +53,7 @@ export const HOME_MAP_LAYERS: MapLayer[] = [
   "TEC Heat Map",
   "Zimbabwe ROTI Map",
   "Global TEC",
+  "TrigNet",
   "Network Distances",
 ];
 
@@ -63,6 +66,36 @@ export const BASE_MAP_LAYERS: MapLayer[] = ["Hybrid", "Satellite", "Street"];
 const LAYERS: MapLayer[] = HOME_MAP_LAYERS;
 /** One caster rotation. Own Gg inside this window stays; older gaps are interpolated. */
 const GG_FRESH_MS = 30 * 60_000;
+/** TrigNet TEC must fall in this window around now, the same window as the live feed. */
+const SAME_TIME_MS = 30 * 60_000;
+
+function isSameLiveTime(iso: string | null | undefined): boolean {
+  const ms = Date.parse(iso ?? "");
+  return Number.isFinite(ms) && Math.abs(Date.now() - ms) <= SAME_TIME_MS;
+}
+
+function zimbabweLiveGopi(station: Station, heatmap: TecHeatmapResponse | null): number | null {
+  const key = stationCodeKey(station.code);
+  const heat = heatmap?.stations?.find((row) => stationCodeKey(row.code) === key);
+  if (
+    heat &&
+    typeof heat.vtec === "number" &&
+    Number.isFinite(heat.vtec) &&
+    heat.vtec > 0 &&
+    !/processed_archive/i.test(heat.source ?? "")
+  ) {
+    return heat.vtec;
+  }
+  if (
+    typeof station.current_tec === "number" &&
+    Number.isFinite(station.current_tec) &&
+    station.current_tec > 0 &&
+    getLiveStationStatus(station) === "online"
+  ) {
+    return station.current_tec;
+  }
+  return null;
+}
 
 function riskColor(level: string): string {
   if (level === "High") return "#ff4444";
@@ -92,6 +125,7 @@ export default function CorsMapWithLayers({
   const [layer, setLayer] = useState<MapLayer>(startingLayer);
   const [proposedCorsSites, setProposedCorsSites] = useState<ProposedCorsSite[]>([]);
   const [measuredGg, setMeasuredGg] = useState<Record<string, number>>({});
+  const [trignet, setTrignet] = useState<TrigNetResponse | null>(null);
 
   useEffect(() => {
     if (!availableLayers.includes(layer)) {
@@ -103,11 +137,102 @@ export default function CorsMapWithLayers({
   const scienceMapLayerActive = layer === "Zimbabwe ROTI Map";
   const globalTecLayerActive = layer === "Global TEC";
   const networkDistancesActive = layer === "Network Distances";
+  const trignetActive = layer === "TrigNet";
   const showLayerSwitcher = availableLayers.length > 1;
 
-  // Load Gg / Cesaroni VTEC for dual map labels when TEC Heat Map is active.
   useEffect(() => {
-    if (!tecLayerActive) return;
+    if (!trignetActive) return;
+    let cancelled = false;
+    const load = () => {
+      getTrigNet()
+        .then((payload) => {
+          if (!cancelled) setTrignet(payload);
+        })
+        .catch(() => {
+          if (!cancelled) setTrignet(null);
+        });
+    };
+    load();
+    const timer = window.setInterval(load, 20_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [trignetActive]);
+
+  const trignetStations = useMemo<Station[]>(() => {
+    const trigCodes = new Set((trignet?.stations ?? []).map((row) => row.code.toLowerCase()));
+    const trig = (trignet?.stations ?? []).map((row) => {
+      const sameTime = isSameLiveTime(row.vtec_time) && row.vtec != null;
+      return {
+        code: row.code.toLowerCase(),
+        name: row.name,
+        lat: row.lat,
+        lon: row.lon,
+        status: sameTime ? "online" : "offline",
+        status_source: "catalog" as const,
+        constellations: row.constellations,
+        current_tec: sameTime ? row.vtec : null,
+        height_m: null,
+        mountpoint: row.mountpoint,
+      };
+    });
+    const zimbabwe = stations
+      .filter((station) => {
+        const code = stationCodeKey(station.code);
+        return Boolean(code) && !trigCodes.has(code) && Number.isFinite(station.lat) && Number.isFinite(station.lon);
+      })
+      .map((station) => {
+        const tec = zimbabweLiveGopi(station, heatmap);
+        return {
+          ...station,
+          current_tec: tec,
+          status: tec != null ? station.status : "offline",
+        };
+      });
+    return [...zimbabwe, ...trig];
+  }, [trignet, stations, heatmap]);
+
+  const trignetGg = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const row of trignet?.stations ?? []) {
+      if (!isSameLiveTime(row.vtec_time)) continue;
+      if (typeof row.gg_vtec === "number" && Number.isFinite(row.gg_vtec) && row.gg_vtec > 0) {
+        map[row.code.toLowerCase()] = row.gg_vtec;
+      }
+    }
+    return map;
+  }, [trignet]);
+
+  const trignetHeatmap = useMemo<TecHeatmapResponse | null>(() => {
+    const ready = trignetStations.filter(
+      (row) => typeof row.current_tec === "number" && Number.isFinite(row.current_tec) && row.current_tec > 0,
+    );
+    if (!ready.length) return null;
+    const values = ready.map((row) => row.current_tec as number);
+    return {
+      available: true,
+      stations: [],
+      heat_points: ready.map((row) => ({
+        lon: row.lon,
+        lat: row.lat,
+        vtec: row.current_tec as number,
+        weight: 1,
+        code: row.code,
+      })),
+      grid: null,
+      bounds: [],
+      tec_min: Math.min(...values),
+      tec_max: Math.max(...values),
+      station_count: ready.length,
+      updated_at: trignet?.rinex_day ?? null,
+      message: null,
+    };
+  }, [trignetStations, trignet?.rinex_day]);
+
+  // Load Gg / Cesaroni VTEC for dual map labels on the TEC heat map and TrigNet.
+  useEffect(() => {
+    if (!tecLayerActive && !trignetActive) return;
     let cancelled = false;
     const load = () => {
       getTecMethodComparison(2, undefined, 300, 60_000)
@@ -139,7 +264,7 @@ export default function CorsMapWithLayers({
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [tecLayerActive]);
+  }, [tecLayerActive, trignetActive]);
 
   useEffect(() => {
     if (!networkDistancesActive && proposedCorsSites.length > 0) {
@@ -173,6 +298,49 @@ export default function CorsMapWithLayers({
     [surfaceSites, measuredGg],
   );
   const ggByStation = ggSurface.values;
+
+  const trignetGgCombined = useMemo(() => {
+    const map: Record<string, number> = { ...trignetGg };
+    const trigCodes = new Set((trignet?.stations ?? []).map((row) => row.code.toLowerCase()));
+    for (const station of stations) {
+      const code = stationCodeKey(station.code);
+      if (!code || trigCodes.has(code)) continue;
+      const value = ggByStation[code];
+      if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+        map[code] = value;
+      }
+    }
+    return map;
+  }, [trignetGg, ggByStation, stations, trignet]);
+
+  const trignetLines = useMemo(() => {
+    return trignetStations.map((station) => {
+      const code = station.code.toUpperCase();
+      const gopi =
+        typeof station.current_tec === "number" && Number.isFinite(station.current_tec) && station.current_tec > 0
+          ? station.current_tec
+          : null;
+      const gg = trignetGgCombined[stationCodeKey(station.code)];
+      const ggVal = typeof gg === "number" && Number.isFinite(gg) ? gg : null;
+      if (gopi != null && ggVal != null) return `${code} G ${gopi.toFixed(1)} / Gg ${ggVal.toFixed(1)}`;
+      if (gopi != null) return `${code} G ${gopi.toFixed(1)}`;
+      if (ggVal != null) return `${code} Gg ${ggVal.toFixed(1)}`;
+      return null;
+    }).filter((line): line is string => line != null);
+  }, [trignetStations, trignetGgCombined]);
+
+  const trignetRanges = useMemo(() => {
+    const gopi = trignetStations
+      .map((station) => station.current_tec)
+      .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0);
+    const gg = Object.values(trignetGgCombined).filter(
+      (value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0,
+    );
+    return {
+      gopi: gopi.length ? { min: Math.min(...gopi), max: Math.max(...gopi) } : null,
+      gg: gg.length ? { min: Math.min(...gg), max: Math.max(...gg) } : null,
+    };
+  }, [trignetStations, trignetGgCombined]);
 
   const dualStationLines = useMemo(() => {
     if (!heatmap?.stations?.length) return [];
@@ -238,11 +406,15 @@ export default function CorsMapWithLayers({
             <span>
               {networkDistancesActive
                 ? "CORS Network Distances — Zimbabwe"
-                : "Zimbabwe CORS Network"}
+                : trignetActive
+                  ? "TrigNet + Zimbabwe CORS"
+                  : "Zimbabwe CORS Network"}
             </span>
           </div>
           <div className="home-map-toolbar-summary">
-            {liveCounts.total} stations · {liveLabel} · {riskLevel} GNSS risk
+            {trignetActive
+              ? `${trignet?.station_count ?? "…"} TrigNet · ${stations.length} Zimbabwe · G ${trignetHeatmap?.station_count ?? 0} · Gg ${Object.keys(trignetGgCombined).length}${trignet?.rinex_day ? ` · RINEX ${trignet.rinex_day}` : ""}`
+              : `${liveCounts.total} stations · ${liveLabel} · ${riskLevel} GNSS risk`}
           </div>
         </div>
 
@@ -283,11 +455,11 @@ export default function CorsMapWithLayers({
       >
         <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
         <CorsMap
-          stations={stations}
+          stations={trignetActive ? trignetStations : stations}
           height={height}
           layer={layer}
-          heatmap={heatmap}
-          ggByStation={tecLayerActive ? ggByStation : {}}
+          heatmap={trignetActive ? trignetHeatmap : heatmap}
+          ggByStation={trignetActive ? trignetGgCombined : tecLayerActive ? ggByStation : {}}
           proposedCorsSites={networkDistancesActive ? proposedCorsSites : []}
           highlightCode={highlightCode}
           onStationSelect={onStationSelect}
@@ -319,6 +491,8 @@ export default function CorsMapWithLayers({
           </div>
         )}
 
+        {(tecLayerActive || trignetActive) && <TecMapColorbar />}
+
         {!globalTecLayerActive && !scienceMapLayerActive && !networkDistancesActive && (
           <div
             style={{
@@ -333,6 +507,7 @@ export default function CorsMapWithLayers({
               maxWidth: "calc(100% - 24px)",
             }}
           >
+          <IntermagnetMapReadout />
           <div
             style={{
               display: "inline-flex",
@@ -369,7 +544,7 @@ export default function CorsMapWithLayers({
             ))}
             <div style={{ fontSize: "0.62rem", fontWeight: 400, color: "var(--text-muted)", marginTop: "0.15rem", maxWidth: "210px" }}>
               Live from Spider Site Status (Status=3 online). Green = online, red = offline. Click a marker for Details.
-              {tecLayerActive && (
+              {(tecLayerActive || trignetActive) && (
                 <>
                   {" "}
                   TEC labels: <span style={{ color: "#38bdf8" }}>G</span> = GOPI ·{" "}
@@ -389,6 +564,34 @@ export default function CorsMapWithLayers({
           />
         )}
       </div>
+
+      {trignetActive && (
+        <div className="home-live-tec-below" aria-live="polite">
+          <div className="home-live-tec-below-label">
+            TrigNet + Zimbabwe · G = GOPI · Gg = Cesaroni
+          </div>
+          <div className="home-live-tec-below-range">
+            <span style={{ color: "#38bdf8" }}>
+              G{" "}
+              {trignetRanges.gopi
+                ? `${trignetRanges.gopi.min.toFixed(1)}–${trignetRanges.gopi.max.toFixed(1)}`
+                : "—"}
+            </span>
+            <span style={{ color: "#f59e0b", marginLeft: "0.85rem" }}>
+              Gg{" "}
+              {trignetRanges.gg
+                ? `${trignetRanges.gg.min.toFixed(1)}–${trignetRanges.gg.max.toFixed(1)}`
+                : "—"}
+            </span>
+          </div>
+          <div className="home-live-tec-below-stations">
+            {trignetLines.length > 0 ? trignetLines.join(" · ") : "Reading the TrigNet sourcetable."}
+          </div>
+          <div className="home-live-tec-below-updated">
+            TEC is shown only for the live time. A TrigNet station with no sample in that window is offline.
+          </div>
+        </div>
+      )}
 
       {tecLayerActive && (
         <div className="home-live-tec-below" aria-live="polite">

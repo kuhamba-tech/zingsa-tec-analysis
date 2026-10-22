@@ -20,7 +20,6 @@ type NavItem = {
 };
 
 const NAV_GROUPS: { section: string; items: NavItem[] }[] = [
-  {section:"Analysis Modules",items:[{href:"/tec-climatology/",label:"TEC Climatology",icon:"📊"}]},
   {
     section: "Dashboard",
     items: [
@@ -49,6 +48,7 @@ const NAV_GROUPS: { section: string; items: NavItem[] }[] = [
       { href: "/storm-watch/", label: "Storm Watch", icon: "🌩️" },
     ],
   },
+  {section:"Analysis Modules",items:[{href:"/tec-climatology/",label:"TEC Climatology",icon:"📊"}]},
   {
     section: "AI Intelligence",
     items: [

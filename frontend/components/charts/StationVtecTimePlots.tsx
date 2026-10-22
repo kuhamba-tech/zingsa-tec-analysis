@@ -1,14 +1,16 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { getGlobalVtecByStation, getLiveVtecByStation, getTecMethodComparison } from "@/lib/api";
+import { getGlobalVtecByStation, getLiveVtecByStation, getStations, getTecMethodComparison } from "@/lib/api";
 import type {
   GlobalTecStationSeries,
   LiveObservation,
   LiveStationVtecSeries,
+  Station,
   TecMethodStationCompare,
 } from "@/lib/types";
 import LineChart from "@/components/charts/LineChart";
+import { idwFillByStation, type LatLonSite } from "@/lib/idwSurface";
 
 const HOUR_OPTIONS = [2, 6, 12, 24] as const;
 const REFRESH_MS = 90_000;
@@ -18,6 +20,8 @@ const GG_COLOR = "#eab308";
 const GG_LINE_COLOR = "#f472b6";
 const OBS_COLOR = "#3d8bfd";
 const GLOBAL_COLOR = "#f0a202";
+/** Separate from GOPI blue, Gg pink, and Global amber. */
+const INTERP_COLOR = "#c084fc";
 /** API caps tec-method-comparison at 8h / 600 samples. */
 const GG_COMPARE_HOURS_CAP = 8;
 const GG_COMPARE_LIMIT = 600;
@@ -26,6 +30,17 @@ type GgStationPoint = { time: string; vtec_tecu: number };
 
 function normalizeStationCode(code: string): string {
   return code.toLowerCase().replace(/_+$/, "");
+}
+
+function sitesFromCatalog(rows: Station[] | null | undefined): LatLonSite[] {
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .map((row) => ({
+      code: normalizeStationCode(row.code),
+      lat: row.lat,
+      lon: row.lon,
+    }))
+    .filter((site) => site.code && Number.isFinite(site.lat) && Number.isFinite(site.lon));
 }
 
 function resampleMinutesForHours(hours: number): number {
@@ -176,20 +191,65 @@ function resolveGgPoints(
   return direct;
 }
 
-/** Align observed + global + Gg onto a shared UTC timeline (null where missing). */
+/**
+ * Time series of inverse-distance GOPI for sites that have no own sample at
+ * that minute. Measured values are never copied into this series.
+ */
+function buildInterpolatedByStation(
+  series: LiveStationVtecSeries[],
+  sites: LatLonSite[],
+  hours: number,
+): Record<string, GgStationPoint[]> {
+  if (sites.length < 2) return {};
+  const { windowStartMs, windowEndMs } = resolveChartWindow(hours);
+  const measuredAtTime = new Map<string, Record<string, number>>();
+  for (const row of series) {
+    const code = normalizeStationCode(row.station);
+    for (const point of row.points) {
+      if (!Number.isFinite(point.vtec_tecu) || point.vtec_tecu <= 0) continue;
+      const ms = new Date(point.time).getTime();
+      if (!Number.isFinite(ms) || ms < windowStartMs || ms > windowEndMs) continue;
+      const key = timeKey(point.time);
+      const bucket = measuredAtTime.get(key) ?? {};
+      bucket[code] = point.vtec_tecu;
+      measuredAtTime.set(key, bucket);
+    }
+  }
+
+  const out: Record<string, GgStationPoint[]> = {};
+  const times = [...measuredAtTime.keys()].sort(
+    (a, b) => new Date(a).getTime() - new Date(b).getTime(),
+  );
+  for (const time of times) {
+    const fill = idwFillByStation(sites, measuredAtTime.get(time) ?? {});
+    for (const code of Object.keys(fill.interpolated)) {
+      const value = fill.values[code];
+      if (value == null || !Number.isFinite(value)) continue;
+      const list = out[code] ?? [];
+      list.push({ time, vtec_tecu: value });
+      out[code] = list;
+    }
+  }
+  return out;
+}
+
+/** Align observed + global + Gg + interpolated onto a shared UTC timeline. */
 function mergeSeries(
   observed: LiveStationVtecSeries,
   global: GlobalTecStationSeries | undefined,
   ggPoints: GgStationPoint[] | undefined,
+  interpolated: GgStationPoint[] | undefined,
   hours: number,
 ): {
   labels: string[];
   observed: (number | null)[];
   global: (number | null)[];
   gg: (number | null)[];
+  interpolated: (number | null)[];
   hasObserved: boolean;
   hasGlobal: boolean;
   hasGg: boolean;
+  hasInterpolated: boolean;
   xValues?: number[];
   xMin?: number;
   xMax?: number;
@@ -200,8 +260,9 @@ function mergeSeries(
   const obsMap = new Map(observed.points.map((p) => [timeKey(p.time), p.vtec_tecu]));
   const globMap = new Map((global?.points ?? []).map((p) => [timeKey(p.time), p.vtec_tecu]));
   const ggMap = new Map((ggPoints ?? []).map((p) => [timeKey(p.time), p.vtec_tecu]));
+  const interpMap = new Map((interpolated ?? []).map((p) => [timeKey(p.time), p.vtec_tecu]));
   const { windowStartMs, windowEndMs, spanHours } = resolveChartWindow(hours);
-  const times = Array.from(new Set([...obsMap.keys(), ...globMap.keys(), ...ggMap.keys()]))
+  const times = Array.from(new Set([...obsMap.keys(), ...globMap.keys(), ...ggMap.keys(), ...interpMap.keys()]))
     .filter((t) => {
       const ms = new Date(t).getTime();
       return Number.isFinite(ms) && ms >= windowStartMs && ms <= windowEndMs;
@@ -216,9 +277,11 @@ function mergeSeries(
     observed: times.map((t) => (obsMap.has(t) ? (obsMap.get(t) as number) : null)),
     global: times.map((t) => (globMap.has(t) ? (globMap.get(t) as number) : null)),
     gg: times.map((t) => (ggMap.has(t) ? (ggMap.get(t) as number) : null)),
+    interpolated: times.map((t) => (interpMap.has(t) ? (interpMap.get(t) as number) : null)),
     hasObserved: times.some((t) => obsMap.has(t)),
     hasGlobal: times.some((t) => globMap.has(t)),
     hasGg: times.some((t) => ggMap.has(t)),
+    hasInterpolated: times.some((t) => interpMap.has(t)),
     xValues,
     xMin: useFullWindow ? 0 : undefined,
     xMax: useFullWindow ? spanHours : undefined,
@@ -289,18 +352,23 @@ function StationChartCard({
   series,
   globalSeries,
   ggDirect,
+  interpolatedPoints,
   hours,
   methodRow,
 }: {
   series: LiveStationVtecSeries;
   globalSeries?: GlobalTecStationSeries;
   ggDirect?: GgStationPoint[];
+  interpolatedPoints?: GgStationPoint[];
   hours: number;
   methodRow?: TecMethodStationCompare;
 }) {
   const ggPoints = resolveGgPoints(series, ggDirect, methodRow);
-  const merged = mergeSeries(series, globalSeries, ggPoints, hours);
-  const hasData = merged.hasObserved || merged.hasGlobal || merged.hasGg;
+  const merged = mergeSeries(series, globalSeries, ggPoints, interpolatedPoints, hours);
+  const hasData = merged.hasObserved || merged.hasGlobal || merged.hasGg || merged.hasInterpolated;
+  const latestInterpolated = interpolatedPoints?.length
+    ? interpolatedPoints[interpolatedPoints.length - 1]?.vtec_tecu ?? null
+    : null;
   const latestGlobal = globalSeries?.latest_vtec ?? null;
   const latestGg =
     methodRow?.gg_latest ??
@@ -344,6 +412,19 @@ function StationChartCard({
           },
         ]
       : []),
+    ...(merged.hasInterpolated
+      ? [
+          {
+            label: "Interpolated data",
+            data: merged.interpolated,
+            color: INTERP_COLOR,
+            borderDash: [8, 3, 2, 3],
+            borderWidth: 2.5,
+            fill: false,
+            spanGaps: true,
+          },
+        ]
+      : []),
   ];
 
   return (
@@ -358,6 +439,11 @@ function StationChartCard({
             <>
               <em>{series.latest_vtec.toFixed(1)} TECU</em>
               <small>GOPI</small>
+            </>
+          ) : latestInterpolated != null ? (
+            <>
+              <em style={{ color: INTERP_COLOR }}>{latestInterpolated.toFixed(1)} TECU</em>
+              <small>Interpolated data</small>
             </>
           ) : (
             <small>No live VTEC</small>
@@ -428,6 +514,7 @@ export default function StationVtecTimePlots({
   const [hours, setHours] = useState<(typeof HOUR_OPTIONS)[number]>(6);
   const [series, setSeries] = useState<LiveStationVtecSeries[]>([]);
   const [globalByStation, setGlobalByStation] = useState<Record<string, GlobalTecStationSeries>>({});
+  const [sites, setSites] = useState<LatLonSite[]>([]);
   const [ggByStation, setGgByStation] = useState<Record<string, GgStationPoint[]>>({});
   const [methodByStation, setMethodByStation] = useState<Record<string, TecMethodStationCompare>>({});
   const [globalSource, setGlobalSource] = useState<string | null>(null);
@@ -455,7 +542,7 @@ export default function StationVtecTimePlots({
         }
 
         const cmpHours = Math.min(hours, GG_COMPARE_HOURS_CAP);
-        const [globalPayload, methodPayload] = await Promise.all([
+        const [globalPayload, methodPayload, catalog] = await Promise.all([
           getGlobalVtecByStation(hours).catch(() => null),
           getTecMethodComparison(
             cmpHours,
@@ -463,6 +550,7 @@ export default function StationVtecTimePlots({
             GG_COMPARE_LIMIT,
             timeoutForHours(cmpHours),
           ).catch(() => null),
+          getStations(false).catch(() => null),
         ]);
         if (cancelled) return;
 
@@ -485,10 +573,20 @@ export default function StationVtecTimePlots({
           }
           setGlobalByStation(map);
           setGlobalSource(globalPayload.source);
+          const located = (globalPayload.latest ?? [])
+            .map((row) => ({
+              code: normalizeStationCode(row.station),
+              lat: row.lat,
+              lon: row.lon,
+            }))
+            .filter((site) => Number.isFinite(site.lat) && Number.isFinite(site.lon));
+          if (located.length) setSites(located);
         } else {
           setGlobalByStation({});
           setGlobalSource(null);
         }
+        const catalogSites = sitesFromCatalog(catalog);
+        if (catalogSites.length) setSites(catalogSites);
 
         if (methodPayload?.stations?.length) {
           const map: Record<string, TecMethodStationCompare> = {};
@@ -530,6 +628,10 @@ export default function StationVtecTimePlots({
 
   const loadingSlow = status === "pending" && hours >= 12;
   const networkMean = useMemo(() => buildNetworkMeanSeries(series, hours), [series, hours]);
+  const interpolatedByStation = useMemo(
+    () => buildInterpolatedByStation(series, sites, hours),
+    [series, sites, hours],
+  );
 
   const orderedSeries = useMemo(() => {
     return [...series].sort((a, b) => {
@@ -569,8 +671,9 @@ export default function StationVtecTimePlots({
           <h2 className="home-section-heading">{title}</h2>
           <p className="station-vtec-plots-sub">
             Absolute code TEC from the live NTRIP pipeline (GOPI) — solid blue. Dashed amber is DLR
-            Global TEC at each station. Dotted pink is Method 2 (Gg = Cesaroni) from the live
-            calibration (direct samples when available, otherwise GOPI + measured Δ). Start with 6h
+            Global TEC at each station. Dotted pink is Method 2 (Gg = Cesaroni). Purple dash-dot is
+            interpolated data: inverse-distance GOPI from nearby stations that have a measurement,
+            drawn only where this station has no own sample. Start with 6h
             for a fast load; open 24h (day) for the full UTC day. EKF predicted lines stay off until a
             real per-station EKF series exists.
           </p>
@@ -710,6 +813,7 @@ export default function StationVtecTimePlots({
               series={row}
               globalSeries={globalByStation[code]}
               ggDirect={ggByStation[code]}
+              interpolatedPoints={row.points.length ? undefined : interpolatedByStation[code]}
               methodRow={methodByStation[code]}
               hours={hours}
             />

@@ -4189,6 +4189,51 @@ a.home-map-layer-btn {
   }
 }
 
+.tec-map-colorbar {
+  position: absolute;
+  top: 10px;
+  right: 8px;
+  bottom: 10px;
+  z-index: 11;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 0.28rem;
+  padding: 0.35rem 0.4rem 0.35rem 0.45rem;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.72);
+  color: #ffffff;
+  pointer-events: none;
+}
+.tec-map-colorbar-ticks {
+  position: relative;
+  width: 1.7rem;
+  height: 100%;
+}
+.tec-map-colorbar-ticks span {
+  position: absolute;
+  right: 0;
+  transform: translateY(50%);
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.tec-map-colorbar-bar {
+  width: 12px;
+  border-radius: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.85);
+}
+.tec-map-colorbar-title {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  align-self: center;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
 .tec-heatmap-legend-below {
   position: static;
   width: 100%;
@@ -7171,6 +7216,9 @@ a.home-map-layer-btn {
   gap: 1rem;
   align-items: center;
 }
+.sw-ipp-map {
+  height: 280px;
+}
 .form-label {
   display: flex;
   flex-direction: column;
@@ -7349,6 +7397,10 @@ a.home-map-layer-btn {
 
   .sw-double-grid {
     grid-template-columns: 1fr;
+  }
+
+  .sw-ipp-map {
+    height: 200px;
   }
 
   .tabs {

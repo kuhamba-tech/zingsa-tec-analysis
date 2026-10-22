@@ -786,6 +786,33 @@ class DidbaseIonosondeResponse(BaseModel):
     year_has_data: bool | None = None
 
 
+class IntermagnetLatestObservatory(BaseModel):
+    code: str
+    name: str
+    lat: float
+    lon: float
+    status: str
+    time: str | None = None
+    age_minutes: float | None = None
+    x_nt: float | None = None
+    y_nt: float | None = None
+    z_nt: float | None = None
+    f_nt: float | None = None
+    h_nt: float | None = None
+    dhdt_nt_per_min: float | None = None
+    max_abs_dhdt_1h: float | None = None
+    samples: int = 0
+
+
+class IntermagnetLatestResponse(BaseModel):
+    source: str
+    source_url: str
+    fetched_at: str
+    note: str
+    observatories: list[IntermagnetLatestObservatory] = []
+    error: str | None = None
+
+
 class IntermagnetAnalysisResponse(BaseModel):
     source: str
     observatory: str

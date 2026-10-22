@@ -153,25 +153,29 @@ class LiveNavCache:
             return None
 
         epoch = epoch or datetime.now(tz=timezone.utc)
-        sat = _gps_sat_ecef(nav, _gps_sow(epoch))
-        if sat is None:
-            return None
+        return look_angles_ecef(rx, nav, epoch)
 
-        d = sat - rx
-        x, y, z = float(rx[0]), float(rx[1]), float(rx[2])
-        lon = math.atan2(y, x)
-        p = math.sqrt(x * x + y * y)
-        lat = math.atan2(z, p * (1.0 - _WGS84_E2))
-        for _ in range(5):
-            n = _WGS84_A / math.sqrt(1.0 - _WGS84_E2 * math.sin(lat) ** 2)
-            lat = math.atan2(z + _WGS84_E2 * n * math.sin(lat), p)
-        sl, cl = math.sin(lat), math.cos(lat)
-        so, co = math.sin(lon), math.cos(lon)
-        u = cl * co * d[0] + cl * so * d[1] + sl * d[2]
-        e = -so * d[0] + co * d[1]
-        n_comp = -sl * co * d[0] - sl * so * d[1] + cl * d[2]
-        elev = math.degrees(math.atan2(u, math.sqrt(e * e + n_comp * n_comp)))
-        az = math.degrees(math.atan2(e, n_comp)) % 360.0
-        if not math.isfinite(elev) or not math.isfinite(az):
-            return None
-        return float(elev), float(az)
+
+def look_angles_ecef(rx: np.ndarray, nav: dict, epoch: datetime) -> Optional[tuple[float, float]]:
+    """Elevation and azimuth from a receiver ECEF position and one GPS ephemeris."""
+    sat = _gps_sat_ecef(nav, _gps_sow(epoch))
+    if sat is None:
+        return None
+    d = sat - rx
+    x, y, z = float(rx[0]), float(rx[1]), float(rx[2])
+    lon = math.atan2(y, x)
+    p = math.sqrt(x * x + y * y)
+    lat = math.atan2(z, p * (1.0 - _WGS84_E2))
+    for _ in range(5):
+        n = _WGS84_A / math.sqrt(1.0 - _WGS84_E2 * math.sin(lat) ** 2)
+        lat = math.atan2(z + _WGS84_E2 * n * math.sin(lat), p)
+    sl, cl = math.sin(lat), math.cos(lat)
+    so, co = math.sin(lon), math.cos(lon)
+    u = cl * co * d[0] + cl * so * d[1] + sl * d[2]
+    e = -so * d[0] + co * d[1]
+    n_comp = -sl * co * d[0] - sl * so * d[1] + cl * d[2]
+    elev = math.degrees(math.atan2(u, math.sqrt(e * e + n_comp * n_comp)))
+    az = math.degrees(math.atan2(e, n_comp)) % 360.0
+    if not math.isfinite(elev) or not math.isfinite(az):
+        return None
+    return float(elev), float(az)

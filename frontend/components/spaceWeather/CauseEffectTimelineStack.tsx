@@ -18,6 +18,7 @@ import {
   utcTimeAxisProps,
 } from "@/lib/chartTimeAxis";
 import type { ChartAnalysisBlock } from "@/lib/multiSourceChartAnalysis";
+import { xrayFluxColor } from "@/lib/solarEventColors";
 import type {
   HeliosphericMonitorResponse,
   LiveStationVtecSeries,
@@ -645,7 +646,12 @@ export default function CauseEffectTimelineStack({
                 {xrayPanel ? (
                   <LineChart
                     labels={xrayPanel.labels}
-                    datasets={[{ label: "0.1–0.8 nm", data: xrayPanel.series.flux, color: "#60a5fa", fill: true }]}
+                    datasets={[{
+                      label: "0.1–0.8 nm",
+                      data: xrayPanel.series.flux,
+                      color: "#eab308",
+                      valueColor: xrayFluxColor,
+                    }]}
                     yLabel="X-ray flux (W/m²)"
                     height={180}
                     yLogScale

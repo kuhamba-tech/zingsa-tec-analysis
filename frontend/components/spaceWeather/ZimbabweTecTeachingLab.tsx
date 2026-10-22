@@ -293,7 +293,7 @@ export default function ZimbabweTecTeachingLab() {
       if (!cancelled) setLoading(false);
     }, 8000);
     // Keep the UTC-day chart live
-    const refresh = window.setInterval(load, 120_000);
+    const refresh = window.setInterval(load, getLoadProfile().constrained ? 180_000 : 120_000);
     return () => {
       cancelled = true;
       window.clearTimeout(unlock);
@@ -397,7 +397,7 @@ export default function ZimbabweTecTeachingLab() {
         key: `${o.station}-${o.prn ?? "?"}-${o.time}`,
       });
     }
-    const step = Math.max(1, Math.floor(pts.length / 1200));
+    const step = Math.max(1, Math.ceil(pts.length / (getLoadProfile().constrained ? 280 : 640)));
     return pts.filter((_, i) => i % step === 0);
   }, [obs]);
 
@@ -423,7 +423,7 @@ export default function ZimbabweTecTeachingLab() {
       if (hour == null) continue;
       pts.push({ lon: ipp.lon, lat: ipp.lat, vtec: o.vtec_tecu, hour });
     }
-    const step = Math.max(1, Math.floor(pts.length / 1500));
+    const step = Math.max(1, Math.ceil(pts.length / (getLoadProfile().constrained ? 320 : 700)));
     return pts.filter((_, i) => i % step === 0);
   }, [obs, catalog]);
 
@@ -937,7 +937,7 @@ function IppGroundTracks({
   ) => (
     <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
       <div style={{ fontSize: "0.78rem", color: "#ffffff" }}>{title}</div>
-      <div style={{ position: "relative", height: 260, border: "1px solid var(--border)", borderRadius: 8, background: "#071422", overflow: "hidden" }}>
+      <div className="sw-ipp-map" style={{ position: "relative", border: "1px solid var(--border)", borderRadius: 8, background: "#071422", overflow: "hidden" }}>
         <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">
           <text x="2" y="6" fill="#ffffff" fontSize="3.2">{Math.abs(latMax).toFixed(1)}°S</text>
           <text x="2" y="98" fill="#ffffff" fontSize="3.2">{Math.abs(latMin).toFixed(1)}°S</text>

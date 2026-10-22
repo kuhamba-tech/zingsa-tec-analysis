@@ -318,6 +318,33 @@ export interface SolarActivityFull {
 }
 
 // ── CORS Network ──────────────────────────────────────────────────────────────
+export interface TrigNetStation {
+  code: string;
+  name: string;
+  lat: number;
+  lon: number;
+  mountpoint: string;
+  constellations: string[];
+  format: string;
+  vtec: number | null;
+  gg_vtec: number | null;
+  vtec_time: string | null;
+  samples: number;
+  gg_samples?: number;
+}
+
+export interface TrigNetResponse {
+  source: string;
+  source_url: string;
+  caster: string;
+  rinex_day: string | null;
+  station_count: number;
+  tec_ready: number;
+  gg_ready?: number;
+  note: string;
+  stations: TrigNetStation[];
+}
+
 export interface Station {
   code: string;
   name: string;
@@ -945,6 +972,33 @@ export interface DidbaseIonosondeResponse {
   note: string;
   requested_year: number | null;
   year_has_data: boolean | null;
+}
+
+export interface IntermagnetLatestObservatory {
+  code: string;
+  name: string;
+  lat: number;
+  lon: number;
+  status: string;
+  time: string | null;
+  age_minutes: number | null;
+  x_nt: number | null;
+  y_nt: number | null;
+  z_nt: number | null;
+  f_nt: number | null;
+  h_nt: number | null;
+  dhdt_nt_per_min: number | null;
+  max_abs_dhdt_1h: number | null;
+  samples: number;
+}
+
+export interface IntermagnetLatestResponse {
+  source: string;
+  source_url: string;
+  fetched_at: string;
+  note: string;
+  observatories: IntermagnetLatestObservatory[];
+  error: string | null;
 }
 
 export interface IntermagnetAnalysisResponse {

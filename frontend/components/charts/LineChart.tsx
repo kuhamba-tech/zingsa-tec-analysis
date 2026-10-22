@@ -41,6 +41,8 @@ interface Dataset {
   yAxisId?: "y" | "y2" | "y3";
   /** Set false for PRN arcs where nulls mark real observation gaps. */
   spanGaps?: boolean;
+  /** Stroke each segment with the colour for that sample (e.g. flare class). */
+  valueColor?: (value: number) => string;
 }
 
 interface ThresholdLine {
@@ -403,17 +405,38 @@ export default function LineChart({
         ref={chartRef}
         data={{
           labels: useNumericX ? undefined : drawLabels,
-          datasets: drawDatasets.map((ds, i) => ({
+          datasets: drawDatasets.map((ds, i) => {
+            const fallback = ds.color ?? COLORS[i % COLORS.length];
+            let legendColor = fallback;
+            if (ds.valueColor) {
+              for (let k = ds.data.length - 1; k >= 0; k -= 1) {
+                const sample = ds.data[k];
+                if (typeof sample === "number" && Number.isFinite(sample)) {
+                  legendColor = ds.valueColor(sample);
+                  break;
+                }
+              }
+            }
+            return {
             label: ds.label,
             data: useNumericX
               ? ds.data.map((v, idx) => ({ x: drawXValues![idx], y: v }))
               : ds.data,
             hidden: !(visible[i] ?? true),
-            borderColor: ds.color ?? COLORS[i % COLORS.length],
-            backgroundColor: ds.fill ? `${ds.color ?? COLORS[i % COLORS.length]}22` : "transparent",
+            borderColor: legendColor,
+            backgroundColor: ds.fill ? `${legendColor}22` : "transparent",
             fill: ds.fill ?? false,
             borderWidth: ds.borderWidth ?? 2,
             borderDash: ds.borderDash ?? (ds.dashed ? [6, 4] : undefined),
+            segment: ds.valueColor
+              ? {
+                  borderColor: (ctx: { p1?: { parsed?: { y?: number | null } } }) => {
+                    const y = ctx?.p1?.parsed?.y;
+                    if (typeof y !== "number" || !Number.isFinite(y)) return legendColor;
+                    return ds.valueColor!(y);
+                  },
+                }
+              : undefined,
             pointRadius:
               budget.pointRadius === 0 || drawLabels.length > 80
                 ? 0
@@ -428,7 +451,8 @@ export default function LineChart({
             yAxisID: ds.yAxisId ?? "y",
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             meta: ds.meta as any,
-          })),
+          };
+          }),
         }}
         options={{
           responsive: true,

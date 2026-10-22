@@ -62,13 +62,12 @@ function connectionHints(): { saveData: boolean; slow: boolean } {
 
 function isConstrainedViewport(): boolean {
   if (typeof window === "undefined") return false;
-  const narrow =
+  // Width only. A touchscreen laptop is still a laptop: coarse pointer must
+  // not force the phone payload, poll interval, or deferred-lab button.
+  return (
     typeof window.matchMedia === "function" &&
-    window.matchMedia("(max-width: 768px)").matches;
-  const coarse =
-    typeof window.matchMedia === "function" &&
-    window.matchMedia("(pointer: coarse)").matches;
-  return narrow || coarse;
+    window.matchMedia("(max-width: 768px)").matches
+  );
 }
 
 /** SSR-safe profile — prefer light defaults so first HTML never assumes desktop fibre. */

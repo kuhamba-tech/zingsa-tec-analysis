@@ -29,6 +29,20 @@ export function flareClassColor(flareClass: string | null | undefined): string {
   return FLARE_SCALE.find((f) => f.cls === flareLetter(flareClass))?.color ?? "#ffffff";
 }
 
+/** GOES 0.1–0.8 nm flux in W/m² → A/B/C/M/X colour from the class legend. */
+export function xrayFluxColor(fluxWm2: number): string {
+  if (!Number.isFinite(fluxWm2) || fluxWm2 < 1e-7) return FLARE_SCALE[0].color;
+  if (fluxWm2 >= 1e-4) return FLARE_SCALE[4].color;
+  if (fluxWm2 >= 1e-5) return FLARE_SCALE[3].color;
+  if (fluxWm2 >= 1e-6) return FLARE_SCALE[2].color;
+  return FLARE_SCALE[1].color;
+}
+
+/** Chart values are flux × 10⁷, so 5.6 is a B5.6. */
+export function xrayScaledFluxColor(scaled: number): string {
+  return xrayFluxColor(scaled * 1e-7);
+}
+
 function worstFlareLetter(flares: Record<string, unknown>[]): string {
   let worst = "A";
   for (const flare of flares) {

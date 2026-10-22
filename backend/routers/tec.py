@@ -24,6 +24,7 @@ from backend.schemas import (
     GfzKpAnalysisResponse,
     GuviOn2Response,
     IntermagnetAnalysisResponse,
+    IntermagnetLatestResponse,
     OmniAnalysisResponse,
     StormComparisonDoy,
     WdcKyotoAnalysisResponse,
@@ -268,6 +269,34 @@ async def wdc_kyoto_analysis(
     vtec_by_date = _vtec_by_date(start, end, station)
     payload = build_kyoto_analysis(rows, vtec_by_date)
     return WdcKyotoAnalysisResponse(**payload)
+
+
+@router.get("/trignet")
+async def trignet_cors(_=Depends(require_api_key)):
+    """South African TrigNet CORS from the public sourcetable, with GOPI TEC
+    from the newest 30-second daily RINEX. Does not use the Zimbabwe caster."""
+    from zgiis.cors.trignet import status as trignet_status
+
+    return trignet_status()
+
+
+@router.get("/intermagnet-latest", response_model=IntermagnetLatestResponse)
+async def intermagnet_latest(_=Depends(require_api_key)):
+    """Latest public minute from the South African INTERMAGNET observatories.
+
+    Hermanus (HER) and Hartebeesthoek (HBK). Empty GIN slots are omitted.
+    A delayed file is returned with its real timestamp rather than dropped.
+    """
+    from zgiis.space_weather.intermagnet_client import (
+        empty_south_africa_latest,
+        fetch_south_africa_latest,
+    )
+
+    try:
+        payload = fetch_south_africa_latest()
+    except Exception as exc:
+        payload = empty_south_africa_latest(str(exc))
+    return IntermagnetLatestResponse(**payload)
 
 
 @router.get("/intermagnet-analysis", response_model=IntermagnetAnalysisResponse)

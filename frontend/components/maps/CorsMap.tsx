@@ -38,6 +38,9 @@ const ZIMBABWE_CENTER: [number, number] = [29.5, -19.0];
 const ZIMBABWE_ZOOM = 6.2;
 const GLOBAL_TEC_CENTER: [number, number] = [0, 0];
 const GLOBAL_TEC_ZOOM = 2;
+/** Zimbabwe through South Africa, so both CORS networks sit in one frame. */
+const TRIGNET_CENTER: [number, number] = [26.5, -25.2];
+const TRIGNET_ZOOM = 4.65;
 
 const SATELLITE_URL =
   "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
@@ -59,6 +62,7 @@ function usesHybridOverlays(layer: MapLayer): boolean {
     layer === "Hybrid" ||
     layer === "TEC Heat Map" ||
     layer === "Zimbabwe ROTI Map" ||
+    layer === "TrigNet" ||
     layer === "Network Distances"
   );
 }
@@ -68,7 +72,7 @@ function heatOverlayOpacity(layer: MapLayer): number {
 }
 
 function shouldShowHeatOverlay(layer: MapLayer, heatmap: TecHeatmapResponse | null | undefined): boolean {
-  if (layer !== "TEC Heat Map") return false;
+  if (layer !== "TEC Heat Map" && layer !== "TrigNet") return false;
   if (!heatmap?.available) return false;
   if (heatmap.grid) return true;
   return (heatmap.heat_points?.length ?? 0) >= 1;
@@ -270,6 +274,8 @@ export default function CorsMap({
   const onStationSelectRef = useRef(onStationSelect);
   /** Tracks layer used for the last view animation — ignore heatmap-only updates. */
   const viewLayerRef = useRef<MapLayer | null>(null);
+  /** TrigNet must frame Zimbabwe and South Africa once the map exists. */
+  const trigNetFramedRef = useRef(false);
   const [selected, setSelected] = useState<Station | null>(null);
   const [globalTecSrc, setGlobalTecSrc] = useState<string | null>(null);
   const [globalTecError, setGlobalTecError] = useState<string | null>(null);
@@ -336,21 +342,36 @@ export default function CorsMap({
     if (!helpers) return [];
     const { fromLonLat, Feature, Point, Style, Circle, Fill, Stroke, Text } = helpers;
     const showTecLabels = layerRef.current === "TEC Heat Map";
+    const trigNet = layerRef.current === "TrigNet";
     const networkMode = layerRef.current === "Network Distances";
     const highlight = stationKey(highlightCodeRef.current || "");
     return list.map((s) => {
       const f = new Feature({ geometry: new Point(fromLonLat([s.lon, s.lat])), station: s });
       const tecValue = stationTecValue(s, heatmapRef.current);
       const ggValue = stationGgValue(s, ggByStationRef.current);
+      const trigTec =
+        trigNet && typeof s.current_tec === "number" && Number.isFinite(s.current_tec) && s.current_tec > 0
+          ? s.current_tec
+          : null;
+      const labelG = trigNet ? trigTec : tecValue;
+      const labelGg = trigNet ? ggValue : showTecLabels ? ggValue : null;
       const isRef = networkMode && isReferenceCorsStation(s);
       const isHighlight = Boolean(highlight) && stationKey(s.code) === highlight;
-      const markerColor = networkMode
+      const markerColor = trigNet
+        ? s.status === "offline"
+          ? STATUS_COLOR.offline
+          : s.status === "online"
+            ? STATUS_COLOR.online
+            : "#94a3b8"
+        : networkMode
         ? isRef
           ? "#5ec8ff"
           : "#00ff88"
         : STATUS_COLOR[getLiveStationStatus(s)];
-      const dualTec = showTecLabels && (tecValue != null || ggValue != null);
-      const label = networkMode
+      const dualTec = (showTecLabels || trigNet) && (labelG != null || labelGg != null);
+      const label = trigNet
+        ? formatDualTecLabel(s.code, labelG, labelGg)
+        : networkMode
         ? (() => {
             const base = (s.name || s.code).toUpperCase();
             const rovers = s.connected_rovers;
@@ -361,7 +382,7 @@ export default function CorsMap({
           : s.code.toUpperCase();
       const baseRadius = networkMode ? (isRef ? 8 : 7) : 7;
       const narrowMap = typeof window !== "undefined" && window.innerWidth <= 768;
-      const dualLines = dualTec && tecValue != null && ggValue != null;
+      const dualLines = dualTec && labelG != null && labelGg != null;
       f.setStyle(
         new Style({
           image: new Circle({
@@ -374,7 +395,7 @@ export default function CorsMap({
           }),
           text: new Text({
             text: label,
-            offsetY: dualLines ? (narrowMap ? -22 : -30) : showTecLabels && !networkMode ? -22 : -14,
+            offsetY: dualLines ? (narrowMap ? -22 : -30) : trigTec != null || (showTecLabels && !networkMode) ? -22 : -14,
             fill: new Fill({ color: "#fff" }),
             stroke: new Stroke({ color: "#000", width: narrowMap ? 2 : 3 }),
             font: dualLines
@@ -818,6 +839,18 @@ export default function CorsMap({
         opacity: 0.85,
       });
 
+      const openingCenter =
+        layerRef.current === "Global TEC"
+          ? GLOBAL_TEC_CENTER
+          : layerRef.current === "TrigNet"
+            ? TRIGNET_CENTER
+            : ZIMBABWE_CENTER;
+      const openingZoom =
+        layerRef.current === "Global TEC"
+          ? GLOBAL_TEC_ZOOM
+          : layerRef.current === "TrigNet"
+            ? TRIGNET_ZOOM
+            : ZIMBABWE_ZOOM;
       const vectorSource = new VectorSource();
       vectorSourceRef.current = vectorSource;
       syncStationFeatures(stationsRef.current);
@@ -828,7 +861,7 @@ export default function CorsMap({
       const map = new Map({
         target: container,
         layers,
-        view: new View({ center: fromLonLat(ZIMBABWE_CENTER), zoom: ZIMBABWE_ZOOM }),
+        view: new View({ center: fromLonLat(openingCenter), zoom: openingZoom }),
         overlays: [popup],
         controls: [],
       });
@@ -862,7 +895,12 @@ export default function CorsMap({
         if (f) {
           const s: Station = f.get("station");
           if (!s) return;
-          const tecValue = stationTecValue(s, heatmapRef.current);
+          const trigNetClick = layerRef.current === "TrigNet";
+          const cardTec =
+            typeof s.current_tec === "number" && Number.isFinite(s.current_tec) && s.current_tec > 0
+              ? s.current_tec
+              : null;
+          const tecValue = trigNetClick ? cardTec : stationTecValue(s, heatmapRef.current);
           const ggValue = stationGgValue(s, ggByStationRef.current);
           const heatmapStation = heatmapStationFor(s, heatmapRef.current);
           setSelectedRef.current(s);
@@ -887,8 +925,13 @@ export default function CorsMap({
             tecValue != null && ggValue != null
               ? `<div style="color:#ffffff;font-size:0.72rem;font-weight:700">Δ (Gg−G) ${(ggValue - tecValue).toFixed(1)} TECU</div>`
               : "";
-          const tecSourceLine =
-            heatmapStation
+          const tecSourceLine = trigNetClick
+            ? `<div style="color:#ffffff;font-size:0.68rem">${
+                s.status_source === "catalog"
+                  ? "G = GOPI · Gg = Cesaroni · latest TrigNet RINEX hour"
+                  : "G = GOPI · Gg = Cesaroni · live Zimbabwe NTRIP"
+              }</div>`
+            : heatmapStation
               ? `<div style="color:#ffffff;font-size:0.68rem">${liveVtecSourceLabel(
                   liveVtecSourceFromHeatmap(heatmapStation.source, heatmapStation.obs_count),
                 )}</div>`
@@ -992,20 +1035,16 @@ export default function CorsMap({
       // Heatmap data refreshes must not yank the camera.
       const layerChanged = viewLayerRef.current !== layer;
       const map = olMapRef.current;
-      if (layerChanged && map) {
-        if (layer === "Global TEC") {
-          map.getView().animate({
-            center: fromLonLat(GLOBAL_TEC_CENTER),
-            zoom: GLOBAL_TEC_ZOOM,
-            duration: 280,
-          });
-        } else {
-          map.getView().animate({
-            center: fromLonLat(ZIMBABWE_CENTER),
-            zoom: ZIMBABWE_ZOOM,
-            duration: 280,
-          });
-        }
+      if (layer !== "TrigNet") trigNetFramedRef.current = false;
+      const needsTrigNetFrame = layer === "TrigNet" && Boolean(map) && !trigNetFramedRef.current;
+      if ((layerChanged || needsTrigNetFrame) && map) {
+        const center =
+          layer === "Global TEC" ? GLOBAL_TEC_CENTER : layer === "TrigNet" ? TRIGNET_CENTER : ZIMBABWE_CENTER;
+        const zoom =
+          layer === "Global TEC" ? GLOBAL_TEC_ZOOM : layer === "TrigNet" ? TRIGNET_ZOOM : ZIMBABWE_ZOOM;
+        map.getView().setCenter(fromLonLat(center));
+        map.getView().setZoom(zoom);
+        if (layer === "TrigNet") trigNetFramedRef.current = true;
         viewLayerRef.current = layer;
       }
 
@@ -1022,7 +1061,7 @@ export default function CorsMap({
     return () => {
       cancelled = true;
     };
-  }, [layer, heatmap, ggByStation]);
+  }, [layer, heatmap, ggByStation, mapReady]);
 
   return (
     <div

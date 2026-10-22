@@ -40,9 +40,11 @@ ELEV_MASK_DEG = 30.0
 # Magnetic dip equator offset over Africa (~15°E) — notebook Fig 5.
 AFRICA_MAG_EQ_OFFSET_DEG = 5.0
 # Live NTRIP windows are short: unbounded arc biases can invent 100+ TECU
-# "Gg" spikes that are calibration failures, not ionosphere (e.g. BEIT 126).
+# "Gg" spikes, or erase the sample (Karoi G19 bias 28.6 TECU produced Gg 0.4
+# while GOPI at the same station stayed near 25). Offsets above 15 TECU on a
+# short visit are calibration failures, not a second ionosphere.
 MAX_LIVE_VTEC_TECU = 90.0
-MAX_ARC_BIAS_ABS_TECU = 35.0
+MAX_ARC_BIAS_ABS_TECU = 15.0
 
 GG_REFERENCES = [
     {
@@ -213,6 +215,10 @@ def _solve_window(
     if n_bias:
         biases[:n_bias] = coef[n_poly:]
         biases[-1] = -float(np.sum(biases[:n_bias]))
+    # A short live arc can absorb the whole ionosphere into the bias
+    # (Karoi G19, bias 28.6 TECU → Gg 0.4). Keep each arc inside the cap.
+    cap = MAX_ARC_BIAS_ABS_TECU
+    biases = np.clip(biases, -cap, cap)
     # Map biases back to arc ids via unique_arcs order
     bias_by_arc = {unique_arcs[i]: float(biases[i]) for i in range(n_arcs)}
     return poly, bias_by_arc  # type: ignore[return-value]
@@ -404,7 +410,7 @@ def calibrate_gg_from_observations(
 
 
 def _gg_vtec_plausible(vtec_c: float, mapped_vtec: float, arc_bias: float) -> bool:
-    """Drop underconstrained live Gg solutions that invent extreme TECU."""
+    """Drop underconstrained live Gg solutions that invent or erase TECU."""
     if not (0.0 < vtec_c < MAX_LIVE_VTEC_TECU):
         return False
     if abs(float(arc_bias)) > MAX_ARC_BIAS_ABS_TECU:
