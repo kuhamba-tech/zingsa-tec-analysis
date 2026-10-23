@@ -109,6 +109,40 @@ def _parse_dst_pre_block(text: str, year: int, month: int) -> dict[str, float]:
     return daily_min
 
 
+def _parse_dst_hourly(text: str, year: int, month: int) -> dict[str, float]:
+    """Parse Kyoto monthly Dst HTML into hourly values keyed by UTC hour."""
+    match = re.search(r"<pre[^>]*>(.*?)</pre>", text, re.DOTALL | re.IGNORECASE)
+    if not match:
+        return {}
+    hourly: dict[str, float] = {}
+    for line in match.group(1).splitlines():
+        line = line.strip()
+        if not line or line[0].isalpha():
+            continue
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        try:
+            day = int(parts[0])
+        except ValueError:
+            continue
+        if not 1 <= day <= 31:
+            continue
+        for hour, token in enumerate(parts[1:25]):
+            try:
+                value = float(token)
+            except ValueError:
+                continue
+            if abs(value) >= 9999:
+                continue
+            try:
+                stamp = datetime(year, month, day, hour, tzinfo=None)
+            except ValueError:
+                continue
+            hourly[f"{stamp.strftime('%Y-%m-%dT%H')}:00:00Z"] = round(value, 1)
+    return hourly
+
+
 def _fetch_kyoto_dst_month(year: int, month: int, *, timeout: int = 45) -> dict[str, float]:
     yyyymm = f"{year:04d}{month:02d}"
     for dtype in ("dst_final", "dst_provisional", "dst_realtime"):
@@ -152,6 +186,44 @@ def _series_by_day(payload: dict[str, Any], index: str) -> dict[str, list[float]
         except (TypeError, ValueError):
             continue
     return by_day
+
+
+def fetch_kyoto_dst_hourly(start: date, end: date, *, timeout: int = 45) -> list[dict[str, Any]]:
+    """Hourly WDC Kyoto Dst between start and end, inclusive, oldest first."""
+    if not _REQUESTS_OK:
+        return []
+    if end < start:
+        start, end = end, start
+    hourly: dict[str, float] = {}
+    months = _months_in_range(start, end)
+    with ThreadPoolExecutor(max_workers=min(4, len(months) or 1)) as pool:
+        fetched = pool.map(lambda ym: _fetch_kyoto_dst_month_text(ym[0], ym[1], timeout=timeout), months)
+        for (year, month), text in zip(months, fetched):
+            if not text:
+                continue
+            hourly.update(_parse_dst_hourly(text, year, month))
+    start_key = f"{start.isoformat()}T00:00:00Z"
+    end_key = f"{end.isoformat()}T23:00:00Z"
+    return [
+        {"time": key, "dst": hourly[key]}
+        for key in sorted(hourly)
+        if start_key <= key <= end_key
+    ]
+
+
+def _fetch_kyoto_dst_month_text(year: int, month: int, *, timeout: int = 45) -> str:
+    yyyymm = f"{year:04d}{month:02d}"
+    for dtype in ("dst_final", "dst_provisional", "dst_realtime"):
+        url = f"{KYOTO_BASE}/{dtype}/{yyyymm}/index.html"
+        try:
+            resp = requests.get(url, timeout=timeout, headers=_HEADERS)
+            if resp.status_code != 200:
+                continue
+            if _parse_dst_hourly(resp.text, year, month):
+                return resp.text
+        except Exception:
+            continue
+    return ""
 
 
 def fetch_kyoto_daily(start: date, end: date, *, timeout: int = 60) -> list[dict[str, Any]]:

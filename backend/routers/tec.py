@@ -271,6 +271,17 @@ async def wdc_kyoto_analysis(
     return WdcKyotoAnalysisResponse(**payload)
 
 
+@router.get("/iono-response-figures")
+async def iono_response_figures(
+    days: int = Query(180, ge=14, le=366),
+    _=Depends(require_api_key),
+):
+    """Dst and Kp with the RMSE of Zimbabwe TEC maps over the same dates."""
+    from zgiis.space_weather.iono_response_figures import build_iono_response_figures
+
+    return build_iono_response_figures(days=days)
+
+
 @router.get("/trignet")
 async def trignet_cors(_=Depends(require_api_key)):
     """South African TrigNet CORS from the public sourcetable, with GOPI TEC

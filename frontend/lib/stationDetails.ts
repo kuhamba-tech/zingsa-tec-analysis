@@ -1,4 +1,5 @@
 import type { Station } from "@/lib/types";
+import { isSurveyorGeneral } from "@/lib/liveStationStatus";
 
 export function decimalToDms(decimal: number, isLat: boolean): string {
   const abs = Math.abs(decimal);
@@ -13,6 +14,7 @@ export function decimalToDms(decimal: number, isLat: boolean): string {
 
 export function siteStatusColor(label: string | null | undefined): string {
   const t = (label ?? "").toLowerCase();
+  if (t.includes("surveyor")) return "#c8c8c8";
   if (t.includes("disconnect") || t.includes("not connected") || t.includes("offline")) return "#ef4444";
   if (t.includes("receive data") || t.includes("site up") || t === "connected") return "#00ff88";
   return "#ffffff";
@@ -59,9 +61,11 @@ export function stationConnectivityExplanation(station: Station): string | null 
 }
 
 export function stationDetailRows(s: Station): { label: string; value: string; highlight?: boolean }[] {
+  const surveyor = isSurveyorGeneral(s.code);
   const ntripLabel = ntripVerdictLabel(s.ntrip_verdict);
-  const statusAuthority =
-    s.status_source === "spider"
+  const statusAuthority = surveyor
+    ? "Department of the Surveyor General"
+    : s.status_source === "spider"
       ? "Leica Spider Site Status"
       : s.status_source === "ntrip"
         ? "NTRIP ingest"
@@ -76,7 +80,7 @@ export function stationDetailRows(s: Station): { label: string; value: string; h
     { label: "Marker number", value: s.marker_number ?? s.code.toUpperCase() },
     {
       label: "Site Status",
-      value: s.site_status_label ?? s.status,
+      value: surveyor ? "Surveyor General" : (s.site_status_label ?? s.status),
       highlight: true,
     },
     ...(statusAuthority

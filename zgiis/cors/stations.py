@@ -255,6 +255,19 @@ ZIMBABWE_CORS_STATIONS: List[CorsStation] = [
 ]
 
 
+# Department of the Surveyor General sites on the same map. They stay visible
+# in grey and are left out of the ZINGSA CORS connected count (19 stations).
+SURVEYOR_GENERAL_CODES = frozenset({"bula", "muta", "gwer", "masv", "hacy", "hara"})
+
+
+def is_surveyor_general(code: str) -> bool:
+    return str(code or "").lower().rstrip("_") in SURVEYOR_GENERAL_CODES
+
+
+def zingsa_cors_stations() -> List[CorsStation]:
+    return [station for station in ZIMBABWE_CORS_STATIONS if not is_surveyor_general(station.code)]
+
+
 def get_station(code: str) -> CorsStation | None:
     code = code.lower()
     return next((s for s in ZIMBABWE_CORS_STATIONS if s.code == code), None)

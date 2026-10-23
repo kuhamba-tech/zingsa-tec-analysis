@@ -28,6 +28,7 @@ import type {
   WdcKyotoAnalysisResponse,
   IntermagnetAnalysisResponse,
   IntermagnetLatestResponse,
+  IonoResponseFigures,
   TrigNetResponse,
   LiveObservation,
   LivePipelineStatus,
@@ -937,6 +938,9 @@ export const getOmniAnalysis = (start: string, end: string, station?: string) =>
   get<OmniAnalysisResponse>("/tec/omni-analysis", { start, end, station, _ts: Date.now() }, ANALYSIS_TIMEOUT_MS);
 export const getCelestrakAnalysis = (start: string, end: string, station?: string) =>
   get<CelestrakAnalysisResponse>("/tec/celestrak-analysis", { start, end, station, _ts: Date.now() }, ANALYSIS_TIMEOUT_MS);
+export const getIonoResponseFigures = (days = 180) =>
+  get<IonoResponseFigures>("/tec/iono-response-figures", { days, _ts: Date.now() }, ANALYSIS_TIMEOUT_MS);
+
 export const getGfzKpAnalysis = (start: string, end: string, station?: string) =>
   get<GfzKpAnalysisResponse>("/tec/gfz-kp-analysis", { start, end, station, _ts: Date.now() }, ANALYSIS_TIMEOUT_MS);
 export const getWdcKyotoAnalysis = (start: string, end: string, station?: string) =>

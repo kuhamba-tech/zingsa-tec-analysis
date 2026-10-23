@@ -650,6 +650,47 @@ class TecDB:
                 out[code] = round(mean, 2)
         return out
 
+    def hourly_station_vtec(self, hours: float = 24.0 * 180) -> pd.DataFrame:
+        """Hourly mean of live NTRIP code TEC (GOPI) per Zimbabwe station."""
+        since = (datetime.now(tz=timezone.utc) - timedelta(hours=max(1.0, float(hours)))).isoformat()
+        columns = ["hour", "station", "vtec"]
+        if self._is_pg:
+            sql = """
+            SELECT to_char(time AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24') AS hour,
+                   station,
+                   AVG(vtec_tecu) AS vtec
+            FROM vtec_obs
+            WHERE time >= %s
+              AND vtec_tecu IS NOT NULL
+              AND vtec_tecu > 0.5
+              AND vtec_tecu < 150
+              AND tec_method LIKE '%%code_live%%'
+            GROUP BY hour, station
+            """
+            params: list = [since]
+        else:
+            sql = """
+            SELECT substr(time, 1, 13) AS hour,
+                   station,
+                   AVG(vtec_tecu) AS vtec
+            FROM vtec_obs
+            WHERE time >= ?
+              AND vtec_tecu IS NOT NULL
+              AND vtec_tecu > 0.5
+              AND vtec_tecu < 150
+              AND tec_method LIKE '%code_live%'
+            GROUP BY hour, station
+            """
+            params = [since]
+        try:
+            df = self._read_sql(sql, params)
+        except Exception as exc:
+            log.warning("hourly_station_vtec failed (%s)", exc)
+            return pd.DataFrame(columns=columns)
+        if df.empty:
+            return pd.DataFrame(columns=columns)
+        return df
+
     def station_vtec_timeseries_binned(
         self,
         hours: float = 6.0,

@@ -196,12 +196,16 @@ def _archived_online_total() -> tuple[int, int] | None:
         pass
     try:
         from backend.station_status_logger import get_db as get_status_db
-        from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
+        from zgiis.cors.stations import is_surveyor_general, zingsa_cors_stations
 
         latest = get_status_db().latest_snapshots(hours=1.0)
         if latest:
-            online = sum(1 for row in latest.values() if row.get("status") == "online")
-            return online, len(ZIMBABWE_CORS_STATIONS)
+            online = sum(
+                1
+                for code, row in latest.items()
+                if not is_surveyor_general(str(code)) and row.get("status") == "online"
+            )
+            return online, len(zingsa_cors_stations())
     except Exception:
         pass
     return None
@@ -219,10 +223,10 @@ def _ntrip_stream_counts() -> tuple[int | None, int | None]:
     serverless = any(os.getenv(key) for key in ("VERCEL", "VERCEL_ENV", "VERCEL_URL", "AWS_LAMBDA_FUNCTION_NAME"))
     if serverless:
         from zgiis.live.spider_site_status import get_cached_spider_site_statuses
-        from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
+        from zgiis.cors.stations import zingsa_cors_stations
         payload = get_cached_spider_site_statuses(refresh=False)
         rows = payload.get("by_station") or {}
-        codes = {s.code.lower().rstrip("_") for s in ZIMBABWE_CORS_STATIONS}
+        codes = {s.code.lower().rstrip("_") for s in zingsa_cors_stations()}
         if payload.get("error") or not all(rows.get(code, {}).get("status") in {"online", "offline"} for code in codes):
             return None, None
         return sum(rows[code]["status"] == "online" for code in codes), len(codes)
@@ -235,8 +239,14 @@ def _ntrip_stream_counts() -> tuple[int | None, int | None]:
             payload = get_cached_spider_site_statuses(refresh=False)
             by_station = payload.get("by_station") or {}
             if by_station:
-                online = sum(1 for row in by_station.values() if row.get("status") == "online")
-                spider_counts = (online, len(by_station))
+                from zgiis.cors.stations import zingsa_cors_stations
+                zingsa = {s.code.lower().rstrip("_") for s in zingsa_cors_stations()}
+                online = sum(
+                    1
+                    for code, row in by_station.items()
+                    if str(code).lower().rstrip("_") in zingsa and row.get("status") == "online"
+                )
+                spider_counts = (online, len(zingsa))
                 if not payload.get("error"):
                     return spider_counts
     except Exception:

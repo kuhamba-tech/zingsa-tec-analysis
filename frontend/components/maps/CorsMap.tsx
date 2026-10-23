@@ -31,6 +31,7 @@ const STATUS_COLOR: Record<string, string> = {
   online: "#00ff88",
   offline: "#ff4444",
   unavailable: "#666",
+  surveyor_general: "#c8c8c8",
 };
 
 /** Operational focus for the national CORS map (lon, lat). */
@@ -162,6 +163,7 @@ function isInterpolatedSource(source: string | null | undefined): boolean {
 }
 
 function stationTecValue(station: Station, heatmap: TecHeatmapResponse | null | undefined): number | null {
+  if (getLiveStationStatus(station) === "surveyor_general") return null;
   const heatStation = heatmapStationFor(station, heatmap);
   if (heatStation && /processed_archive/i.test(heatStation.source ?? "")) {
     return null;
@@ -206,7 +208,7 @@ function stationTecValue(station: Station, heatmap: TecHeatmapResponse | null | 
   }
 
   // 3) Fallback: station-card live decode (online sites only).
-  if (liveStatus === "offline" || liveStatus === "unavailable") return null;
+  if (liveStatus === "offline" || liveStatus === "unavailable" || liveStatus === "surveyor_general") return null;
   return cardTec;
 }
 
@@ -214,6 +216,7 @@ function stationGgValue(
   station: Station,
   ggByStation: Record<string, number | null> | null | undefined,
 ): number | null {
+  if (getLiveStationStatus(station) === "surveyor_general") return null;
   if (!ggByStation) return null;
   const raw = ggByStation[stationKey(station.code)];
   if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0) return null;
@@ -357,7 +360,10 @@ export default function CorsMap({
       const labelGg = trigNet ? ggValue : showTecLabels ? ggValue : null;
       const isRef = networkMode && isReferenceCorsStation(s);
       const isHighlight = Boolean(highlight) && stationKey(s.code) === highlight;
-      const markerColor = trigNet
+      const liveStatus = getLiveStationStatus(s);
+      const markerColor = liveStatus === "surveyor_general"
+        ? STATUS_COLOR.surveyor_general
+        : trigNet
         ? s.status === "offline"
           ? STATUS_COLOR.offline
           : s.status === "online"
@@ -367,7 +373,7 @@ export default function CorsMap({
         ? isRef
           ? "#5ec8ff"
           : "#00ff88"
-        : STATUS_COLOR[getLiveStationStatus(s)];
+        : STATUS_COLOR[liveStatus];
       const dualTec = (showTecLabels || trigNet) && (labelG != null || labelGg != null);
       const label = trigNet
         ? formatDualTecLabel(s.code, labelG, labelGg)

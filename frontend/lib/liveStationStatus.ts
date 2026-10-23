@@ -1,7 +1,16 @@
 import type { Station } from "@/lib/types";
 import { stationsAreLiveAuthoritative, stationsAreSpiderAuthoritative } from "@/lib/stationsStore";
 
-export type LiveStationStatus = "online" | "offline" | "unavailable";
+export type LiveStationStatus = "online" | "offline" | "unavailable" | "surveyor_general";
+
+/** Surveyor General sites shown on the map. They are not part of the 19 ZINGSA CORS stations. */
+export const SURVEYOR_GENERAL_CODES = new Set(["bula", "muta", "gwer", "masv", "hacy", "hara"]);
+
+export const ZINGSA_STATION_TOTAL = 19;
+
+export function isSurveyorGeneral(code: string | null | undefined): boolean {
+  return SURVEYOR_GENERAL_CODES.has(String(code ?? "").toLowerCase().replace(/_+$/, ""));
+}
 
 export interface LiveStationCounts {
   online: number;
@@ -18,6 +27,7 @@ export interface LiveStationCounts {
  * cold Vercel response cannot paint a stale 9/25 as Spider truth.
  */
 export function getLiveStationStatus(station: Station): LiveStationStatus {
+  if (isSurveyorGeneral(station.code)) return "surveyor_general";
   if (station.status_source === "spider") {
     return station.status === "online" ? "online" : "offline";
   }
@@ -106,15 +116,22 @@ export function mergeStationsPreferLive(
   });
 }
 
-export function countLiveStationStatuses(stations: Station[], expectedTotal = 25): LiveStationCounts {
+export function countLiveStationStatuses(stations: Station[], expectedTotal = ZINGSA_STATION_TOTAL): LiveStationCounts {
   const counts: LiveStationCounts = {
     online: 0,
     offline: 0,
     unavailable: 0,
-    total: stations.length || expectedTotal,
+    total: 0,
   };
+  let zingsa = 0;
 
-  for (const station of stations) counts[getLiveStationStatus(station)] += 1;
+  for (const station of stations) {
+    const status = getLiveStationStatus(station);
+    if (status === "surveyor_general") continue;
+    counts[status] += 1;
+    zingsa += 1;
+  }
+  counts.total = zingsa || (stations.length === 0 ? expectedTotal : zingsa);
   if (stations.length === 0) counts.unavailable = expectedTotal;
 
   return counts;
@@ -123,7 +140,7 @@ export function countLiveStationStatuses(stations: Station[], expectedTotal = 25
 /** Only return live counts when Spider or NTRIP/archive is the majority source. */
 export function countSpiderLiveStationStatuses(
   stations: Station[],
-  expectedTotal = 24,
+  expectedTotal = ZINGSA_STATION_TOTAL,
 ): LiveStationCounts | null {
   if (!stationsAreLiveAuthoritative(stations) && !stationsAreSpiderAuthoritative(stations)) {
     return null;
@@ -151,9 +168,11 @@ export function formatCorsConnectedShort(counts: LiveStationCounts): string {
 
 /** Shared CORS connected readout — same on home, space weather, dashboard, and live pipeline. */
 export function formatCorsConnectedDisplay(counts: LiveStationCounts): CorsConnectedDisplay {
+  const note = [`Online ${counts.online}`, `Offline ${counts.offline}`];
+  if (counts.unavailable > 0) note.push(`Unavailable ${counts.unavailable}`);
   return {
     value: `${counts.online}/${counts.total}`,
-    note: `Online ${counts.online} · Offline ${counts.offline} · Unavailable ${counts.unavailable}`,
+    note: note.join(" · "),
     connected: connectedStreamCount(counts),
     total: counts.total,
   };

@@ -11,7 +11,7 @@ import { idwFillByStation, stationCodeKey, type LatLonSite } from "@/lib/idwSurf
 import { heatmapQualityBanner, icaoTecLabel, icaoTecLevel, inferHeatmapQuality } from "@/lib/icaoTecAdvisory";
 import type { ProposedCorsSite } from "@/lib/corsGeneticOptimizer";
 import type { Station, TecHeatmapResponse, TrigNetResponse } from "@/lib/types";
-import { getLiveStationStatus, type LiveStationCounts } from "@/lib/liveStationStatus";
+import { getLiveStationStatus, isSurveyorGeneral, type LiveStationCounts } from "@/lib/liveStationStatus";
 
 const StationVtecTimePlots = dynamic(
   () => import("@/components/charts/StationVtecTimePlots"),
@@ -344,7 +344,7 @@ export default function CorsMapWithLayers({
 
   const dualStationLines = useMemo(() => {
     if (!heatmap?.stations?.length) return [];
-    return heatmap.stations.map((s) => {
+    return heatmap.stations.filter((s) => !isSurveyorGeneral(s.code)).map((s) => {
       const code = s.code.toUpperCase();
       const key = s.code.toLowerCase().replace(/_+$/, "");
       const gopi = typeof s.vtec === "number" && Number.isFinite(s.vtec) ? s.vtec : null;
@@ -370,7 +370,7 @@ export default function CorsMapWithLayers({
   const liveLabel = stationsLoading
     ? "NTRIP probe running…"
     : ntripProbedAt || stations.length > 0
-      ? `Online ${liveCounts.online} · Offline ${liveCounts.offline} · Unavailable ${liveCounts.unavailable}`
+      ? `Online ${liveCounts.online} · Offline ${liveCounts.offline}${liveCounts.unavailable > 0 ? ` · Unavailable ${liveCounts.unavailable}` : ""}`
       : "Live stream status";
 
   const sourcetableMismatches = stations.filter((s) => s.sourcetable_mismatch);
@@ -536,6 +536,7 @@ export default function CorsMapWithLayers({
             {[
               { color: "#00ff88", label: "Online" },
               { color: "#ff4444", label: "Offline" },
+              { color: "#c8c8c8", label: "Surveyor general" },
             ].map(({ color, label }) => (
               <div key={label} style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
                 <span className="dot" style={{ background: color }} />
@@ -543,7 +544,7 @@ export default function CorsMapWithLayers({
               </div>
             ))}
             <div style={{ fontSize: "0.62rem", fontWeight: 400, color: "var(--text-muted)", marginTop: "0.15rem", maxWidth: "210px" }}>
-              Live from Spider Site Status (Status=3 online). Green = online, red = offline. Click a marker for Details.
+              Live from Spider Site Status (Status=3 online). Green = online, red = offline, grey = Surveyor General. Click a marker for Details.
               {(tecLayerActive || trignetActive) && (
                 <>
                   {" "}

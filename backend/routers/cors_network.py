@@ -355,7 +355,7 @@ def _archived_status_counts() -> tuple[int, int, int, int] | None:
     """
     try:
         from backend.station_status_logger import get_db as get_status_db
-        from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
+        from zgiis.cors.stations import is_surveyor_general, zingsa_cors_stations
 
         latest = get_status_db().latest_snapshots(hours=_archive_freshness_hours())
     except Exception:
@@ -365,11 +365,17 @@ def _archived_status_counts() -> tuple[int, int, int, int] | None:
     if not latest:
         return None
 
-    total = len(ZIMBABWE_CORS_STATIONS)
-    online = sum(1 for row in latest.values() if row.get("status") == "online")
+    total = len(zingsa_cors_stations())
+    online = sum(
+        1
+        for code, row in latest.items()
+        if not is_surveyor_general(str(code)) and row.get("status") == "online"
+    )
     # Legacy "degraded" snapshots count as offline (no MSM stream).
     offline_known = sum(
-        1 for row in latest.values() if row.get("status") in {"offline", "degraded"}
+        1
+        for code, row in latest.items()
+        if not is_surveyor_general(str(code)) and row.get("status") in {"offline", "degraded"}
     )
     known = online + offline_known
     offline = offline_known + max(0, total - known)

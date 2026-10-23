@@ -850,6 +850,32 @@ export interface CelestrakAnalysisResponse {
   fetched_at: string | null;
 }
 
+export interface IonoResponsePoint {
+  time: string;
+  kp?: number | null;
+  dst?: number | null;
+  rmse?: number | null;
+  smooth?: number | null;
+  stations?: number;
+  ekf: number | null;
+  error: number | null;
+  confidence: number | null;
+}
+
+export interface IonoResponseFigures {
+  start: string;
+  end: string;
+  kp_source: string;
+  dst_source: string;
+  rmse_definition: string;
+  rmse_low: number | null;
+  rmse_high: number | null;
+  kp: IonoResponsePoint[];
+  dst: IonoResponsePoint[];
+  rmse: IonoResponsePoint[];
+  note: string;
+}
+
 export interface GfzKpDailyPoint {
   date: string;
   kp: number | null;

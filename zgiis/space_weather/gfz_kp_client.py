@@ -120,6 +120,7 @@ def parse_gfz_kp_txt(text: str) -> dict[str, dict[str, Any]]:
             "date": day,
             "kp": kp_max,
             "kp_mean": kp_mean,
+            "kp_3h": [round(k, 3) if _valid_kp(k) else None for k in kps],
             "ap": ap_mean,
             "ap_daily": ap_daily,
             "cp": None,  # not in TXT product; JSON fallback may fill
