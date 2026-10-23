@@ -11,6 +11,8 @@ import { idwFillByStation, stationCodeKey, type LatLonSite } from "@/lib/idwSurf
 import { heatmapQualityBanner, icaoTecLabel, icaoTecLevel, inferHeatmapQuality } from "@/lib/icaoTecAdvisory";
 import type { ProposedCorsSite } from "@/lib/corsGeneticOptimizer";
 import type { Station, TecHeatmapResponse, TrigNetResponse } from "@/lib/types";
+import { igrf14Epoch } from "@/lib/geomagneticEquator";
+import { dipLatitudeDeg, eiaRegion, polewardOfSouthernCrestDeg } from "@/lib/igrf14Dip";
 import { getLiveStationStatus, isSurveyorGeneral, type LiveStationCounts } from "@/lib/liveStationStatus";
 
 const StationVtecTimePlots = dynamic(
@@ -22,6 +24,7 @@ export type MapLayer =
   | "Satellite"
   | "Street"
   | "TEC Heat Map"
+  | "Geomagnetic"
   | "Zimbabwe ROTI Map"
   | "Global TEC"
   | "TrigNet"
@@ -51,6 +54,7 @@ export const HOME_MAP_LAYERS: MapLayer[] = [
   "Satellite",
   "Street",
   "TEC Heat Map",
+  "Geomagnetic",
   "Zimbabwe ROTI Map",
   "Global TEC",
   "TrigNet",
@@ -103,6 +107,82 @@ function riskColor(level: string): string {
   return "#00ff88";
 }
 
+function GeomagneticCorsTable({
+  stations,
+  heatmap,
+}: {
+  stations: Station[];
+  heatmap: TecHeatmapResponse | null;
+}) {
+  const epoch = igrf14Epoch();
+  const rows = useMemo(() => {
+    return stations
+      .map((station) => {
+        const dip = dipLatitudeDeg(station.lat, station.lon, epoch);
+        if (dip == null) return null;
+        return {
+          code: station.code.toUpperCase(),
+          name: station.name || station.code.toUpperCase(),
+          surveyor: isSurveyorGeneral(station.code),
+          tec: zimbabweLiveGopi(station, heatmap),
+          dip,
+          region: eiaRegion(dip),
+          poleward: polewardOfSouthernCrestDeg(dip),
+        };
+      })
+      .filter((row): row is NonNullable<typeof row> => row != null)
+      .sort((a, b) => b.dip - a.dip);
+  }, [stations, heatmap, epoch]);
+
+  return (
+    <div className="card" style={{ marginTop: "0.75rem", padding: "0.85rem 1rem" }}>
+      <div className="metric-label" style={{ marginBottom: "0.35rem" }}>
+        CORS and the equatorial ionization anomaly
+      </div>
+      <p style={{ margin: "0 0 0.6rem", fontSize: "0.75rem", color: "var(--text-muted)" }}>
+        The cyan line is the magnetic dip equator around the Earth. Where that field is horizontal,
+        the dayside equatorial electrojet flows along it (geomag.org). Oryema, Jurua, D’ujanga and
+        Ssebiyonga (2015) put the anomaly trough on this equator and the crests near ±15° dip latitude.
+        Coordinates are IGRF-14 dip latitude at epoch {epoch.toFixed(3)} (tan μ = ½ tan I).
+        Stations are ordered from the equator southward. GOPI is the live NTRIP code TEC.
+        Surveyor General sites stay on the map and are left out of the ZINGSA TEC count.
+      </p>
+      <div style={{ overflowX: "auto", maxHeight: 280 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.78rem" }}>
+          <thead>
+            <tr>
+              {["Station", "GOPI (TECU)", "Dip latitude", "Anomaly region", "From southern crest"].map((heading) => (
+                <th key={heading} style={{ textAlign: "left", padding: "0.35rem 0.5rem", position: "sticky", top: 0 }}>
+                  {heading}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.code}>
+                <td style={{ padding: "0.28rem 0.5rem" }}>
+                  {row.code}
+                  <span style={{ color: "var(--text-muted)" }}> · {row.name}</span>
+                  {row.surveyor ? " · Surveyor General" : ""}
+                </td>
+                <td style={{ padding: "0.28rem 0.5rem", color: "#38bdf8", fontWeight: 700 }}>
+                  {row.tec != null ? row.tec.toFixed(1) : "—"}
+                </td>
+                <td style={{ padding: "0.28rem 0.5rem" }}>{row.dip.toFixed(2)}°</td>
+                <td style={{ padding: "0.28rem 0.5rem" }}>{row.region}</td>
+                <td style={{ padding: "0.28rem 0.5rem" }}>
+                  {row.poleward > 0.25 ? `${row.poleward.toFixed(1)}° poleward` : "Equatorward of the crest"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 export default function CorsMapWithLayers({
   stations,
   height = 480,
@@ -134,6 +214,7 @@ export default function CorsMapWithLayers({
   }, [availableLayers, layer]);
 
   const tecLayerActive = layer === "TEC Heat Map";
+  const geomagneticLayerActive = layer === "Geomagnetic";
   const scienceMapLayerActive = layer === "Zimbabwe ROTI Map";
   const globalTecLayerActive = layer === "Global TEC";
   const networkDistancesActive = layer === "Network Distances";
@@ -408,7 +489,9 @@ export default function CorsMapWithLayers({
                 ? "CORS Network Distances — Zimbabwe"
                 : trignetActive
                   ? "TrigNet + Zimbabwe CORS"
-                  : "Zimbabwe CORS Network"}
+                  : geomagneticLayerActive
+                    ? "Equatorial anomaly — magnetic equator and crests"
+                    : "Zimbabwe CORS Network"}
             </span>
           </div>
           <div className="home-map-toolbar-summary">
@@ -496,9 +579,10 @@ export default function CorsMapWithLayers({
         {!globalTecLayerActive && !scienceMapLayerActive && !networkDistancesActive && (
           <div
             style={{
-              position: "absolute",
-              bottom: "12px",
-              left: "12px",
+            position: "absolute",
+            top: geomagneticLayerActive ? "12px" : undefined,
+            bottom: geomagneticLayerActive ? undefined : "12px",
+            left: "12px",
               display: "flex",
               flexDirection: "column",
               gap: "0.55rem",
@@ -543,8 +627,28 @@ export default function CorsMapWithLayers({
                 <span>{label}</span>
               </div>
             ))}
+            {geomagneticLayerActive && (
+              <>
+                {[
+                  { color: "#67e8f9", label: "Magnetic equator" },
+                  { color: "#f59e0b", label: "Southern EIA crest (−15°)" },
+                  { color: "#c4b5fd", label: "Northern EIA crest (+15°)" },
+                ].map(({ color, label }) => (
+                  <div key={label} style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                    <span style={{ width: 18, height: 3, background: color, display: "inline-block" }} />
+                    <span>{label}</span>
+                  </div>
+                ))}
+              </>
+            )}
             <div style={{ fontSize: "0.62rem", fontWeight: 400, color: "var(--text-muted)", marginTop: "0.15rem", maxWidth: "210px" }}>
               Live from Spider Site Status (Status=3 online). Green = online, red = offline, grey = Surveyor General. Click a marker for Details.
+              {geomagneticLayerActive && (
+                <>
+                  {" "}
+                  The cyan magnetic equator runs around the Earth. Amber and violet are the ±15° anomaly crests (IGRF-14 dip latitude). Markers show GOPI TEC.
+                </>
+              )}
               {(tecLayerActive || trignetActive) && (
                 <>
                   {" "}
@@ -565,6 +669,10 @@ export default function CorsMapWithLayers({
           />
         )}
       </div>
+
+      {geomagneticLayerActive && (
+        <GeomagneticCorsTable stations={stations} heatmap={heatmap} />
+      )}
 
       {trignetActive && (
         <div className="home-live-tec-below" aria-live="polite">
