@@ -16,22 +16,8 @@ class TimelineCacheTests(unittest.TestCase):
     def test_merge_timeline_falls_back_when_cache_is_readonly(self) -> None:
         tmpdir = Path(tempfile.mkdtemp())
         db = tmpdir / "cache.sqlite"
-        import sqlite3
-
-        conn = sqlite3.connect(db)
-        conn.execute(
-            """
-            CREATE TABLE space_weather_timeline (
-                metric TEXT NOT NULL,
-                time_tag TEXT NOT NULL,
-                value REAL,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (metric, time_tag)
-            )
-            """
-        )
-        conn.commit()
-        conn.close()
+        with patch.object(tc, "_db_path", return_value=db):
+            tc.upsert_timeline("kp", [TimelinePoint(t="2026-07-06T11:00:00", v=1.0)])
         os.chmod(db, stat.S_IREAD)
 
         live = [

@@ -106,25 +106,9 @@ def _acquire_collector_lock() -> bool:
 def _load_env() -> None:
     from backend.env_bootstrap import load_runtime_env
 
-    prefer_vercel = os.getenv("ZGIIS_LOAD_VERCEL_ENV", "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
-    load_runtime_env(prefer_vercel_db=prefer_vercel)
-    if os.getenv("ZGIIS_FORCE_SQLITE", "").strip().lower() in {"1", "true", "yes", "on"}:
-        for key in (
-            "SUPABASE_DATABASE_URL",
-            "TSDB_DSN",
-            "DATABASE_URL",
-            "DATABASE_URL_UNPOOLED",
-            "POSTGRES_URL",
-            "POSTGRES_URL_NON_POOLING",
-        ):
-            os.environ.pop(key, None)
-    # The production schema is migration-managed. The collector should only
-    # ingest observations, not run DDL each time its supervisor restarts it.
+    load_runtime_env()
+    # Schema is applied by scripts/init_supabase_schema.py. The collector
+    # only ingests observations.
     os.environ["ZGIIS_SKIP_DB_SCHEMA_INIT"] = "1"
 
 
@@ -195,36 +179,6 @@ def _status_snapshot_rows(streams: dict[str, dict]) -> list[dict]:
                 "error": spider_payload.get("error"),
             }
             save_spider_status_payload(body)
-            # Vercel cannot log into the SBC (often HTTP 403 from datacenter IPs).
-            # Mirror Spider into the hosted DB whenever a local fetch succeeds.
-            try:
-                from dotenv import dotenv_values
-
-                vercel = dotenv_values(Path(__file__).resolve().parents[1] / ".env.vercel.production")
-                hosted = (
-                    (vercel.get("POSTGRES_URL") or vercel.get("DATABASE_URL") or vercel.get("TSDB_DSN") or "")
-                    .strip()
-                    .strip('"')
-                    .strip("'")
-                )
-                if hosted and os.getenv("ZGIIS_FORCE_SQLITE", "").strip().lower() in {"1", "true", "yes", "on"}:
-                    prev = {k: os.environ.get(k) for k in ("TSDB_DSN", "DATABASE_URL", "POSTGRES_URL", "ZGIIS_FORCE_SQLITE")}
-                    os.environ["TSDB_DSN"] = hosted
-                    os.environ.pop("ZGIIS_FORCE_SQLITE", None)
-                    import zgiis.live.spider_status_store as store
-
-                    store._conn = None
-                    store._init_attempted = False
-                    save_spider_status_payload(body)
-                    for key, value in prev.items():
-                        if value is None:
-                            os.environ.pop(key, None)
-                        else:
-                            os.environ[key] = value
-                    store._conn = None
-                    store._init_attempted = False
-            except Exception:
-                pass
         except Exception:
             pass
     when = datetime.now(tz=timezone.utc).replace(microsecond=0).isoformat()
@@ -308,7 +262,8 @@ def main() -> int:
         if not value
     ]
     if not db_target:
-        log.info("No hosted Postgres DSN — collector will write SQLite (static/data/vtec_live.db)")
+        log.error("SUPABASE_DATABASE_URL is not configured")
+        missing.append("SUPABASE_DATABASE_URL")
     if missing:
         log.error("Missing required configuration: %s", ", ".join(missing))
         return 2
@@ -365,11 +320,11 @@ def main() -> int:
     )
 
     try:
-        prune_every = max(1, int(os.getenv("ZGIIS_SQLITE_PRUNE_EVERY_HEARTBEATS", "20")))
+        prune_every = max(1, int(os.getenv("ZGIIS_VTEC_PRUNE_EVERY_HEARTBEATS", "20")))
     except ValueError:
         prune_every = 20
     try:
-        prune_days = max(1, int(os.getenv("ZGIIS_SQLITE_PRUNE_DAYS", "7")))
+        prune_days = max(1, int(os.getenv("ZGIIS_VTEC_PRUNE_DAYS", "7")))
     except ValueError:
         prune_days = 7
     heartbeat_n = 0
@@ -379,18 +334,18 @@ def main() -> int:
             time.sleep(30)
             pipeline.flush_db()
             heartbeat_n += 1
-            if db.backend == "sqlite" and heartbeat_n >= prune_every:
+            if heartbeat_n >= prune_every:
                 heartbeat_n = 0
                 try:
                     deleted = db.prune_older_than(days=prune_days)
                     if deleted:
                         log.info(
-                            "SQLite prune removed %d observation(s) older than %d days",
+                            "Prune removed %d observation(s) older than %d days",
                             deleted,
                             prune_days,
                         )
                 except Exception as exc:
-                    log.warning("SQLite prune failed: %s", exc)
+                    log.warning("Observation prune failed: %s", exc)
             status = manager.status()
             fresh = [code for code, row in status.items() if row.get("last_seen")]
             records = sum(

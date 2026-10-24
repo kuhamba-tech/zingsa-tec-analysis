@@ -49,7 +49,7 @@ export function mergeTecHeatmapWithStations(
       return status === "offline" || status === "unavailable";
     };
     // Measured heatmap stations (obs_count > 0) define the trusted band.
-    // Never replace them with Neon current_tec spikes; those caused Vercel to
+    // Never replace them with current_tec spikes; those caused the dashboard to
     // show ~80–120 TECU while local NTRIP decode stayed ~16–30.
     const measured = liveHeatmap.stations.filter((s) => (s.obs_count ?? 0) > 0);
     const measuredVals = measured.map((s) => s.vtec).filter((v) => Number.isFinite(v));

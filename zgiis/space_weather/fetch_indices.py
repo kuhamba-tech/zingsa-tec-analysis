@@ -2,10 +2,9 @@
 from __future__ import annotations
 
 import datetime
-import sqlite3
+import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 from typing import Any, Dict, Optional
 
 from zgiis.api.cors_client import (
@@ -109,26 +108,34 @@ def _ap_from_kp(kp: Optional[float]) -> Optional[int]:
 
 
 def _load_persisted_snapshot() -> Any:
-    """Load the latest genuine local observation for instant cold starts."""
-    db_path = Path(__file__).resolve().parents[2] / "static" / "data" / "space_weather_log.sqlite"
-    if not db_path.exists():
-        return None
+    """Load the latest genuine Supabase observation for instant cold starts."""
+    log = logging.getLogger(__name__)
     try:
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=0.2)
-        conn.row_factory = sqlite3.Row
-        try:
-            row = conn.execute(
-                """SELECT time, kp, kp_condition, dst, f107, plasma_speed, s4,
-                          gnss_risk, stations_online, stations_total, mean_vtec
-                   FROM space_weather_log
-                   WHERE kp IS NOT NULL
-                   ORDER BY time DESC LIMIT 1"""
-            ).fetchone()
-        finally:
-            conn.close()
+        from zgiis.db.config import database_dsn
+
+        dsn = database_dsn()
+        if not dsn:
+            log.error("SUPABASE_DATABASE_URL is not configured")
+            return None
+        from psycopg2.extras import RealDictCursor
+
+        from zgiis.db.config import get_conn
+
+        with get_conn(dsn) as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """SELECT time, kp, kp_condition, dst, f107, plasma_speed, s4,
+                              gnss_risk, stations_online, stations_total, mean_vtec
+                       FROM space_weather_log
+                       WHERE kp IS NOT NULL
+                       ORDER BY time DESC LIMIT 1"""
+                )
+                row = cur.fetchone()
         if row is None:
             return None
         data = dict(row)
+        if data.get("time") is not None:
+            data["time"] = str(data["time"])
         condition, color = _resolve_kp_level(float(data["kp"]))
         return {
             "mode": "cached",
@@ -149,7 +156,8 @@ def _load_persisted_snapshot() -> Any:
             "stations_total": data.get("stations_total"),
             "mean_vtec": data.get("mean_vtec"),
         }
-    except (OSError, sqlite3.Error, TypeError, ValueError):
+    except Exception as exc:
+        log.error("Could not read space_weather_log from Supabase: %s", exc)
         return None
 
 
@@ -176,7 +184,7 @@ def _cached(key: str, fetch_fn) -> Any:
         entry = _CACHE.get(key)
     if entry is None:
         persisted = _load_persisted_snapshot()
-        if _is_available(persisted):
+        if persisted is not None and _is_available(persisted):
             with _CACHE_LOCK:
                 _CACHE[key] = {"ts": 0.0, "data": persisted}
                 if key not in _CACHE_REFRESHING:

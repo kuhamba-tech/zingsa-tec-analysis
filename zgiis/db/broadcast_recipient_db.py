@@ -1,13 +1,23 @@
 """Registered WhatsApp recipients for Navigation News broadcasts."""
 from __future__ import annotations
 
+import logging
 import re
-import sqlite3
-import tempfile
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Literal
+
+from zgiis.db.config import (
+    DatabaseUnavailable,
+    checkout,
+    database_dsn,
+    execute_script,
+    release,
+    schema_init_enabled,
+    transaction,
+)
+
+log = logging.getLogger(__name__)
 
 from zgiis.navigation.delivery_preferences import normalize_accessibility, normalize_language
 
@@ -19,8 +29,6 @@ VALID_AUDIENCES = frozenset({"citizen", "farmer", "surveyor", "driver", "aviatio
 VALID_TYPES = frozenset({"phone", "group"})
 VALID_SCRIPTS = frozenset({"broadcast", "social"})
 
-_SQLITE_PATH = Path(__file__).resolve().parents[2] / "static" / "data" / "broadcast_recipients.sqlite"
-
 _DDL = """
 CREATE TABLE IF NOT EXISTS broadcast_recipients (
     recipient_id   TEXT PRIMARY KEY,
@@ -31,10 +39,10 @@ CREATE TABLE IF NOT EXISTS broadcast_recipients (
     script_kind    TEXT NOT NULL DEFAULT 'broadcast',
     language       TEXT NOT NULL DEFAULT 'en',
     accessibility  TEXT NOT NULL DEFAULT 'standard',
-    active         INTEGER NOT NULL DEFAULT 1,
+    active         BOOLEAN NOT NULL DEFAULT TRUE,
     notes          TEXT,
-    created_at     TEXT NOT NULL,
-    updated_at     TEXT NOT NULL
+    created_at     TIMESTAMPTZ NOT NULL,
+    updated_at     TIMESTAMPTZ NOT NULL
 );
 CREATE INDEX IF NOT EXISTS broadcast_recipients_active_idx ON broadcast_recipients (active);
 
@@ -44,10 +52,10 @@ CREATE TABLE IF NOT EXISTS broadcast_delivery_log (
     display_name   TEXT,
     whatsapp_to    TEXT,
     audience       TEXT,
-    ok             INTEGER NOT NULL,
+    ok             BOOLEAN NOT NULL,
     detail         TEXT,
-    dry_run        INTEGER NOT NULL DEFAULT 0,
-    sent_at        TEXT NOT NULL
+    dry_run        BOOLEAN NOT NULL DEFAULT FALSE,
+    sent_at        TIMESTAMPTZ NOT NULL
 );
 CREATE INDEX IF NOT EXISTS broadcast_delivery_sent_idx ON broadcast_delivery_log (sent_at DESC);
 """
@@ -103,26 +111,34 @@ def _utc_now() -> str:
 
 
 class BroadcastRecipientDB:
-    def __init__(self) -> None:
+    def __init__(self, dsn: str | None = None) -> None:
+        from psycopg2.extras import RealDictCursor
+
+        self._dsn = database_dsn() if dsn is None else dsn
+        if not self._dsn:
+            log.error("SUPABASE_DATABASE_URL is not configured")
+            raise DatabaseUnavailable("SUPABASE_DATABASE_URL is not configured")
+        self._conn = None
+        self._cursor_factory = RealDictCursor
         try:
-            _SQLITE_PATH.parent.mkdir(parents=True, exist_ok=True)
-            self._conn = sqlite3.connect(str(_SQLITE_PATH), check_same_thread=False)
-        except (OSError, sqlite3.OperationalError):
-            fallback = Path(tempfile.gettempdir()) / _SQLITE_PATH.name
-            self._conn = sqlite3.connect(str(fallback), check_same_thread=False)
-        self._conn.row_factory = sqlite3.Row
-        self._conn.executescript(_DDL)
-        self._migrate_columns()
-        self._conn.commit()
+            self._conn = checkout(self._dsn)
+            if schema_init_enabled():
+                with self._conn.cursor() as cur:
+                    execute_script(cur, _DDL)
+                    cur.execute(
+                        "ALTER TABLE broadcast_recipients ADD COLUMN IF NOT EXISTS language TEXT NOT NULL DEFAULT 'en'"
+                    )
+                    cur.execute(
+                        "ALTER TABLE broadcast_recipients ADD COLUMN IF NOT EXISTS accessibility TEXT NOT NULL DEFAULT 'standard'"
+                    )
+        except Exception as exc:
+            log.error("BroadcastRecipientDB Postgres init failed: %s", exc)
+            raise DatabaseUnavailable("Supabase Postgres init failed") from exc
 
-    def _migrate_columns(self) -> None:
-        cols = {row[1] for row in self._conn.execute("PRAGMA table_info(broadcast_recipients)")}
-        if "language" not in cols:
-            self._conn.execute("ALTER TABLE broadcast_recipients ADD COLUMN language TEXT NOT NULL DEFAULT 'en'")
-        if "accessibility" not in cols:
-            self._conn.execute("ALTER TABLE broadcast_recipients ADD COLUMN accessibility TEXT NOT NULL DEFAULT 'standard'")
+    def _cursor(self):
+        return self._conn.cursor(cursor_factory=self._cursor_factory)
 
-    def _row_to_recipient(self, row: sqlite3.Row) -> dict[str, Any]:
+    def _row_to_recipient(self, row) -> dict[str, Any]:
         keys = row.keys()
         return {
             "recipient_id": row["recipient_id"],
@@ -142,16 +158,20 @@ class BroadcastRecipientDB:
     def list_recipients(self, *, active_only: bool = False) -> list[dict[str, Any]]:
         sql = "SELECT * FROM broadcast_recipients"
         if active_only:
-            sql += " WHERE active = 1"
-        sql += " ORDER BY display_name COLLATE NOCASE"
-        rows = self._conn.execute(sql).fetchall()
+            sql += " WHERE active"
+        sql += " ORDER BY lower(display_name)"
+        with self._cursor() as cur:
+            cur.execute(sql)
+            rows = cur.fetchall()
         return [self._row_to_recipient(r) for r in rows]
 
     def get_recipient(self, recipient_id: str) -> dict[str, Any] | None:
-        row = self._conn.execute(
-            "SELECT * FROM broadcast_recipients WHERE recipient_id = ?",
-            (recipient_id,),
-        ).fetchone()
+        with self._cursor() as cur:
+            cur.execute(
+                "SELECT * FROM broadcast_recipients WHERE recipient_id = %s",
+                (recipient_id,),
+            )
+            row = cur.fetchone()
         return self._row_to_recipient(row) if row else None
 
     def create_recipient(
@@ -182,24 +202,27 @@ class BroadcastRecipientDB:
         if len(name) < 2:
             raise ValueError("display_name is required (min 2 characters)")
         to_norm = normalize_recipient_address(whatsapp_to, recipient_type=rtype)
-        if self._conn.execute(
-            "SELECT 1 FROM broadcast_recipients WHERE whatsapp_to = ?",
-            (to_norm,),
-        ).fetchone():
-            raise ValueError(f"WhatsApp recipient {to_norm} is already registered")
-
         now = _utc_now()
         rec_id = str(uuid.uuid4())
-        self._conn.execute(
-            """
-            INSERT INTO broadcast_recipients (
-                recipient_id, recipient_type, whatsapp_to, display_name,
-                audience, script_kind, language, accessibility, active, notes, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (rec_id, rtype, to_norm, name, aud, script, lang, access, int(active), notes, now, now),
-        )
-        self._conn.commit()
+        with transaction(self._conn):
+            with self._cursor() as cur:
+                cur.execute(
+                    "SELECT 1 FROM broadcast_recipients WHERE whatsapp_to = %s",
+                    (to_norm,),
+                )
+                existing = cur.fetchone()
+            if existing:
+                raise ValueError(f"WhatsApp recipient {to_norm} is already registered")
+            with self._cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO broadcast_recipients (
+                        recipient_id, recipient_type, whatsapp_to, display_name,
+                        audience, script_kind, language, accessibility, active, notes, created_at, updated_at
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (rec_id, rtype, to_norm, name, aud, script, lang, access, bool(active), notes, now, now),
+                )
         return self.get_recipient(rec_id)  # type: ignore[return-value]
 
     def update_recipient(self, recipient_id: str, **fields: Any) -> dict[str, Any] | None:
@@ -213,16 +236,11 @@ class BroadcastRecipientDB:
             if rtype not in VALID_TYPES:
                 raise ValueError(f"recipient_type must be one of: {', '.join(sorted(VALID_TYPES))}")
             updates["recipient_type"] = rtype
+        clash_to = None
         if "whatsapp_to" in fields and fields["whatsapp_to"] is not None:
             rtype = updates.get("recipient_type") or existing["recipient_type"]
-            to_norm = normalize_recipient_address(str(fields["whatsapp_to"]), recipient_type=rtype)
-            clash = self._conn.execute(
-                "SELECT recipient_id FROM broadcast_recipients WHERE whatsapp_to = ? AND recipient_id != ?",
-                (to_norm, recipient_id),
-            ).fetchone()
-            if clash:
-                raise ValueError(f"WhatsApp recipient {to_norm} is already registered")
-            updates["whatsapp_to"] = to_norm
+            clash_to = normalize_recipient_address(str(fields["whatsapp_to"]), recipient_type=rtype)
+            updates["whatsapp_to"] = clash_to
         if "display_name" in fields and fields["display_name"] is not None:
             name = str(fields["display_name"]).strip()
             if len(name) < 2:
@@ -243,7 +261,7 @@ class BroadcastRecipientDB:
         if "accessibility" in fields and fields["accessibility"] is not None:
             updates["accessibility"] = normalize_accessibility(str(fields["accessibility"]))
         if "active" in fields and fields["active"] is not None:
-            updates["active"] = int(bool(fields["active"]))
+            updates["active"] = bool(fields["active"])
         if "notes" in fields:
             updates["notes"] = fields["notes"]
 
@@ -251,22 +269,33 @@ class BroadcastRecipientDB:
             return existing
 
         updates["updated_at"] = _utc_now()
-        set_clause = ", ".join(f"{k} = ?" for k in updates)
+        set_clause = ", ".join(f"{k} = %s" for k in updates)
         params = list(updates.values()) + [recipient_id]
-        self._conn.execute(
-            f"UPDATE broadcast_recipients SET {set_clause} WHERE recipient_id = ?",
-            params,
-        )
-        self._conn.commit()
+        with transaction(self._conn):
+            if clash_to is not None:
+                with self._cursor() as cur:
+                    cur.execute(
+                        "SELECT recipient_id FROM broadcast_recipients WHERE whatsapp_to = %s AND recipient_id != %s",
+                        (clash_to, recipient_id),
+                    )
+                    if cur.fetchone():
+                        raise ValueError(f"WhatsApp recipient {clash_to} is already registered")
+            with self._cursor() as cur:
+                cur.execute(
+                    f"UPDATE broadcast_recipients SET {set_clause} WHERE recipient_id = %s",
+                    params,
+                )
         return self.get_recipient(recipient_id)
 
     def delete_recipient(self, recipient_id: str) -> bool:
-        cur = self._conn.execute(
-            "DELETE FROM broadcast_recipients WHERE recipient_id = ?",
-            (recipient_id,),
-        )
+        with self._cursor() as cur:
+            cur.execute(
+                "DELETE FROM broadcast_recipients WHERE recipient_id = %s",
+                (recipient_id,),
+            )
+            deleted = cur.rowcount > 0
         self._conn.commit()
-        return cur.rowcount > 0
+        return deleted
 
     def log_delivery(
         self,
@@ -279,35 +308,38 @@ class BroadcastRecipientDB:
         detail: str,
         dry_run: bool,
     ) -> None:
-        self._conn.execute(
-            """
-            INSERT INTO broadcast_delivery_log (
-                delivery_id, recipient_id, display_name, whatsapp_to,
-                audience, ok, detail, dry_run, sent_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                str(uuid.uuid4()),
-                recipient_id,
-                display_name,
-                whatsapp_to,
-                audience,
-                int(ok),
-                detail[:500] if detail else "",
-                int(dry_run),
-                _utc_now(),
-            ),
-        )
+        with self._cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO broadcast_delivery_log (
+                    delivery_id, recipient_id, display_name, whatsapp_to,
+                    audience, ok, detail, dry_run, sent_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    str(uuid.uuid4()),
+                    recipient_id,
+                    display_name,
+                    whatsapp_to,
+                    audience,
+                    bool(ok),
+                    detail[:500] if detail else "",
+                    bool(dry_run),
+                    _utc_now(),
+                ),
+            )
         self._conn.commit()
 
     def recent_deliveries(self, limit: int = 20) -> list[dict[str, Any]]:
-        rows = self._conn.execute(
-            """
-            SELECT * FROM broadcast_delivery_log
-            ORDER BY sent_at DESC LIMIT ?
-            """,
-            (limit,),
-        ).fetchall()
+        with self._cursor() as cur:
+            cur.execute(
+                """
+                SELECT * FROM broadcast_delivery_log
+                ORDER BY sent_at DESC LIMIT %s
+                """,
+                (limit,),
+            )
+            rows = cur.fetchall()
         return [
             {
                 "delivery_id": r["delivery_id"],
@@ -324,10 +356,23 @@ class BroadcastRecipientDB:
         ]
 
     def last_broadcast_at(self) -> str | None:
-        row = self._conn.execute(
-            "SELECT sent_at FROM broadcast_delivery_log ORDER BY sent_at DESC LIMIT 1",
-        ).fetchone()
-        return row["sent_at"] if row else None
+        with self._cursor() as cur:
+            cur.execute(
+                "SELECT sent_at FROM broadcast_delivery_log ORDER BY sent_at DESC LIMIT 1",
+            )
+            row = cur.fetchone()
+        if not row:
+            return None
+        sent = row["sent_at"]
+        return sent.isoformat() if hasattr(sent, "isoformat") else sent
 
     def close(self) -> None:
-        self._conn.close()
+        conn = getattr(self, "_conn", None)
+        self._conn = None
+        release(conn)
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass

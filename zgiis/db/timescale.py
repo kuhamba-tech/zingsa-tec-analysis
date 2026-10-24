@@ -1,59 +1,30 @@
-"""
-VTEC observation database.
-
-Uses Supabase/PostgreSQL when SUPABASE_DATABASE_URL or DATABASE_URL is set,
-falls back to SQLite for development/offline use.
-
-If TimescaleDB is available the time-series tables are promoted to hypertables.
-"""
+"""VTEC observation database on Supabase Postgres."""
 from __future__ import annotations
 
 import logging
 import hashlib
 import math
 import os
-import sqlite3
-import tempfile
-import threading
-import time
 from datetime import datetime, timezone, timedelta
-from pathlib import Path
 from typing import Optional
 
 import pandas as pd
 
-from zgiis.db.config import database_backend_label, database_dsn
+from zgiis.db.config import (
+    DatabaseUnavailable,
+    checkout,
+    database_backend_label,
+    database_dsn,
+    release,
+    schema_init_enabled,
+    transaction,
+)
 
 log = logging.getLogger(__name__)
 
-_TSDB_DSN = database_dsn()
-_SQLITE_PATH = Path(__file__).resolve().parents[2] / "static" / "data" / "vtec_live.db"
-# Serialize SQLite writers inside a process. Cross-process contention (API +
-# live_ntrip_collector) is handled with WAL + busy_timeout + insert retries.
-_SQLITE_WRITE_LOCK = threading.RLock()
-_SHARED_SQLITE_CONN: sqlite3.Connection | None = None
-_SQLITE_BUSY_TIMEOUT_MS = 8_000
-_SQLITE_CONNECT_TIMEOUT_SEC = 15.0
-_SQLITE_INSERT_ATTEMPTS = 6
-
-
-def _sqlite_busy(exc: BaseException) -> bool:
-    msg = str(exc).lower()
-    return "locked" in msg or "busy" in msg
-
-
-def _configure_sqlite(conn: sqlite3.Connection) -> None:
-    try:
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute(f"PRAGMA busy_timeout={_SQLITE_BUSY_TIMEOUT_MS}")
-        conn.execute("PRAGMA synchronous=NORMAL")
-        conn.execute("PRAGMA temp_store=MEMORY")
-    except sqlite3.Error as exc:
-        log.debug("SQLite PRAGMA setup skipped: %s", exc)
-
 # Set once the first TecDB() in this process has confirmed the Postgres
-# schema (DDL/audit-columns/hypertable/index) exists, so later instances
-# skip re-running it — see _init_pg().
+# schema (DDL, audit columns, indexes) exists, so later instances skip
+# re-running it — see _init_pg().
 _PG_SCHEMA_READY = False
 
 # Postgres schema
@@ -73,79 +44,51 @@ CREATE TABLE IF NOT EXISTS vtec_obs (
     bias_method    TEXT
 );
 """
-_PG_HYPER = """
-SELECT create_hypertable('vtec_obs','time',if_not_exists=>TRUE);
-"""
 _PG_IDX = """
 CREATE INDEX IF NOT EXISTS vtec_obs_station_time ON vtec_obs (station, time DESC);
 CREATE INDEX IF NOT EXISTS vtec_obs_time_idx ON vtec_obs (time DESC);
 """
 
-# ── SQLite schema ─────────────────────────────────────────────────────────────
-_SQLITE_DDL = """
-CREATE TABLE IF NOT EXISTS vtec_obs (
-    time           TEXT    NOT NULL,
-    station        TEXT    NOT NULL,
-    constellation  TEXT    NOT NULL,
-    prn            TEXT    NOT NULL,
-    tecg_tecu      REAL,
-    tecp_tecu      REAL,
-    stec_tecu      REAL,
-    vtec_tecu      REAL,
-    elevation_deg  REAL,
-    cnr_dbhz       REAL,
-    tec_method     TEXT,
-    bias_method    TEXT
-);
-CREATE INDEX IF NOT EXISTS vtec_obs_station_time
-    ON vtec_obs (station, time);
-CREATE INDEX IF NOT EXISTS vtec_obs_time_idx
-    ON vtec_obs (time);
-"""
-
 
 class TecDB:
-    """
-    Unified VTEC database client.
+    """VTEC client for Supabase Postgres.
 
-    Connect with Supabase/PostgreSQL:
-        TecDB(dsn="postgresql://postgres:pass@db.project.supabase.co:5432/postgres")
-    or simply:
-        TecDB()           # uses SUPABASE_DATABASE_URL/DATABASE_URL, or SQLite fallback
+    ``TecDB()`` uses ``database_dsn()``. Pass ``dsn=`` to point at another
+    Supabase database (tests). An empty DSN is an error.
     """
 
     def __init__(self, dsn: str | None = None):
         # Resolve DSN at construction time so env bootstrap in main/collector
         # is visible (module-level default would freeze a pre-bootstrap empty DSN).
         self._dsn = database_dsn() if dsn is None else dsn
-        self._is_pg = bool(self._dsn)
+        self._is_pg = False
         self._conn = None
         self._init()
 
-    # ── Initialisation ────────────────────────────────────────────────────────
-
     def _init(self) -> None:
-        if self._is_pg:
-            self._init_pg()
-        else:
-            self._init_sqlite()
-        label = database_backend_label(self._dsn) if self._is_pg else f"SQLite:{_SQLITE_PATH}"
-        log.info("TecDB ready (%s)", label)
+        if not self._dsn:
+            log.error("SUPABASE_DATABASE_URL is not configured")
+            raise DatabaseUnavailable("SUPABASE_DATABASE_URL is not configured")
+        self._init_pg()
+        log.info("TecDB ready (%s)", database_backend_label(self._dsn))
 
     def _init_pg(self) -> None:
         global _PG_SCHEMA_READY
         try:
-            import psycopg2
-            self._conn = psycopg2.connect(self._dsn)
-            if os.getenv("VERCEL") or os.getenv("ZGIIS_SKIP_DB_SCHEMA_INIT") == "1":
-                # Production schema is provisioned by migrations. Running DDL
-                # through the serverless pooler delays requests and can also
-                # block the external live collector when it loads Vercel's
-                # production environment.
+            import psycopg2  # noqa: F401 — surface a clear error when the driver is missing
+            previous = self._conn
+            self._conn = None
+            if previous is not None:
+                release(previous, close=True)
+            self._conn = checkout(self._dsn)
+            self._is_pg = True
+            if not schema_init_enabled():
+                # scripts/init_supabase_schema.py owns DDL. An ALTER TABLE here
+                # waits forever behind idle-in-transaction readers.
                 _PG_SCHEMA_READY = True
                 return
             if _PG_SCHEMA_READY:
-                # Schema (DDL/audit-columns/hypertable/index) was already
+                # Schema (DDL, audit columns, indexes) was already
                 # ensured once by an earlier TecDB() instance in this
                 # process. Re-running that full sequence on every single
                 # instantiation (this class has no connection pooling —
@@ -157,83 +100,36 @@ class TecDB:
                 cur.execute(_PG_DDL)
             self._conn.commit()
             self._ensure_vtec_obs_audit_columns()
-            try:
-                with self._conn.cursor() as cur:
-                    cur.execute(_PG_HYPER)
-                self._conn.commit()
-            except Exception as exc:
-                self._conn.rollback()
-                log.warning("Postgres hypertable setup skipped: %s", exc)
             with self._conn.cursor() as cur:
                 cur.execute(_PG_IDX)
+                cur.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS vtec_obs_code_live_time_station
+                    ON vtec_obs (time, station)
+                    WHERE tec_method LIKE 'code_live%'
+                      AND vtec_tecu > 0
+                      AND vtec_tecu < 200
+                    """
+                )
             self._conn.commit()
             _PG_SCHEMA_READY = True
         except ImportError:
             log.error("psycopg2 not installed — pip install psycopg2-binary")
-            self._is_pg = False
-            self._init_sqlite()
+            raise DatabaseUnavailable("psycopg2 is not installed") from None
+        except DatabaseUnavailable:
+            raise
         except Exception as exc:
-            log.error("Postgres init failed: %s - falling back to SQLite", exc)
-            self._is_pg = False
-            self._init_sqlite()
+            log.error("Supabase Postgres init failed: %s", exc)
+            raise DatabaseUnavailable("Supabase Postgres init failed") from exc
 
     @property
     def backend(self) -> str:
-        if not self._is_pg:
-            return "sqlite"
-        return "supabase" if "supabase" in self._dsn.lower() else "postgres"
-
-    def _init_sqlite(self) -> None:
-        global _SHARED_SQLITE_CONN
-        with _SQLITE_WRITE_LOCK:
-            if _SHARED_SQLITE_CONN is not None:
-                self._conn = _SHARED_SQLITE_CONN
-                self._ensure_vtec_obs_audit_columns()
-                self._ensure_sqlite_chart_indexes()
-                return
-            try:
-                _SQLITE_PATH.parent.mkdir(parents=True, exist_ok=True)
-                self._conn = sqlite3.connect(
-                    str(_SQLITE_PATH),
-                    check_same_thread=False,
-                    timeout=_SQLITE_CONNECT_TIMEOUT_SEC,
-                )
-            except (OSError, sqlite3.OperationalError):
-                # Read-only filesystem (e.g. Vercel) — fall back to an ephemeral
-                # temp-dir database rather than crashing the request.
-                fallback = Path(tempfile.gettempdir()) / _SQLITE_PATH.name
-                self._conn = sqlite3.connect(
-                    str(fallback),
-                    check_same_thread=False,
-                    timeout=_SQLITE_CONNECT_TIMEOUT_SEC,
-                )
-            _configure_sqlite(self._conn)
-            self._conn.executescript(_SQLITE_DDL)
-            self._conn.commit()
-            self._ensure_vtec_obs_audit_columns()
-            self._ensure_sqlite_chart_indexes()
-            _SHARED_SQLITE_CONN = self._conn
-
-    def _ensure_sqlite_chart_indexes(self) -> None:
-        """Speed up live chart binning over large local SQLite ingest files."""
-        try:
-            self._conn.execute(
-                """
-                CREATE INDEX IF NOT EXISTS vtec_obs_code_live_time_station
-                ON vtec_obs (time, station)
-                WHERE tec_method LIKE 'code_live%'
-                  AND vtec_tecu > 0
-                  AND vtec_tecu < 200
-                """
-            )
-            self._conn.commit()
-        except sqlite3.Error as exc:
-            log.debug("SQLite chart index skipped: %s", exc)
+        return "supabase"
 
     def _ensure_vtec_obs_audit_columns(self) -> None:
         columns = {
-            "tecg_tecu": "DOUBLE PRECISION" if self._is_pg else "REAL",
-            "tecp_tecu": "DOUBLE PRECISION" if self._is_pg else "REAL",
+            "tecg_tecu": "DOUBLE PRECISION",
+            "tecp_tecu": "DOUBLE PRECISION",
             "tec_method": "TEXT",
             "bias_method": "TEXT",
             "observation_id": "TEXT",
@@ -249,34 +145,17 @@ class TecDB:
             "data_source": "TEXT",
         }
         try:
-            if self._is_pg:
-                with self._conn.cursor() as cur:
-                    for name, sql_type in columns.items():
-                        cur.execute(f"ALTER TABLE vtec_obs ADD COLUMN IF NOT EXISTS {name} {sql_type}")
-                self._conn.commit()
-                with self._conn.cursor() as cur:
-                    cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS vtec_obs_identity ON vtec_obs (time, observation_id)")
-                self._conn.commit()
-                return
-
-            existing = {
-                str(row[1])
-                for row in self._conn.execute("PRAGMA table_info(vtec_obs)").fetchall()
-            }
-            for name, sql_type in columns.items():
-                if name not in existing:
-                    self._conn.execute(f"ALTER TABLE vtec_obs ADD COLUMN {name} {sql_type}")
+            with self._conn.cursor() as cur:
+                for name, sql_type in columns.items():
+                    cur.execute(f"ALTER TABLE vtec_obs ADD COLUMN IF NOT EXISTS {name} {sql_type}")
             self._conn.commit()
-            self._conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS vtec_obs_identity ON vtec_obs (time, observation_id)")
+            with self._conn.cursor() as cur:
+                cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS vtec_obs_identity ON vtec_obs (time, observation_id)")
             self._conn.commit()
         except Exception as exc:
             # Without a rollback, a failed statement here leaves the
             # connection's transaction aborted, so every later statement in
-            # _init_pg() (e.g. the hypertable/index setup) fails immediately
-            # with "current transaction is aborted" instead of the real
-            # error, and _init_pg()'s own broad except then treats THAT as
-            # a fresh failure — cascading one transient error into the
-            # entire schema-setup sequence failing.
+            # _init_pg() fails immediately with "current transaction is aborted".
             try:
                 self._conn.rollback()
             except Exception:
@@ -287,7 +166,6 @@ class TecDB:
 
     def insert_vtec(self, records: list[dict]) -> int:
         """Bulk-insert VTEC records. Returns count inserted."""
-        global _SHARED_SQLITE_CONN
         if not records:
             return 0
 
@@ -341,80 +219,27 @@ class TecDB:
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (time, observation_id) DO NOTHING
         """
-        if self._is_pg:
-            try:
-                pg_sql = sql.replace("?", "%s")
+        try:
+            pg_sql = sql.replace("?", "%s")
+            with transaction(self._conn):
                 with self._conn.cursor() as cur:
                     cur.executemany(pg_sql, rows)
-                self._conn.commit()
-                return len(rows)
-            except Exception as exc:
-                log.warning("insert_vtec failed (%s)", exc)
-                try:
-                    self._conn.rollback()
-                except Exception:
-                    pass
-                self._is_pg = False
-                self._init_sqlite()
-                return self.insert_vtec(records)
-
-        last_exc: Exception | None = None
-        for attempt in range(_SQLITE_INSERT_ATTEMPTS):
+            return len(rows)
+        except Exception as exc:
+            log.warning("insert_vtec failed (%s)", exc)
             try:
-                with _SQLITE_WRITE_LOCK:
-                    if self._conn is None or (
-                        _SHARED_SQLITE_CONN is not None and self._conn is not _SHARED_SQLITE_CONN
-                    ):
-                        self._conn = _SHARED_SQLITE_CONN
-                    if self._conn is None:
-                        self._init_sqlite()
-                    self._conn.execute("BEGIN IMMEDIATE")
-                    try:
-                        self._conn.executemany(sql, rows)
-                        self._conn.commit()
-                    except Exception:
-                        self._conn.rollback()
-                        raise
-                return len(rows)
-            except Exception as exc:
-                last_exc = exc
-                try:
-                    if self._conn is not None:
-                        self._conn.rollback()
-                except Exception:
-                    pass
-                if attempt < _SQLITE_INSERT_ATTEMPTS - 1:
-                    # Never close the shared SQLite handle on insert errors —
-                    # other NTRIP/API threads still use it (closing caused segfaults).
-                    time.sleep(0.05 * (2 ** attempt))
-                    continue
-                log.warning("insert_vtec failed (%s)", exc)
-                break
-
-        if last_exc is not None:
-            log.warning("insert_vtec gave up after %d attempt(s) (%s)", _SQLITE_INSERT_ATTEMPTS, last_exc)
-        raise RuntimeError("VTEC write failed; retain pending observations for retry") from last_exc
+                self._conn.rollback()
+            except Exception:
+                pass
+            raise RuntimeError("VTEC write failed; retain pending observations for retry") from exc
 
     def _read_sql(self, sql: str, params: list | tuple) -> pd.DataFrame:
         """Run a parameterised SELECT without pandas mangling LIKE '%' wildcards.
 
-        ``pd.read_sql_query`` treats ``%code_live%`` as a pyformat specifier
-        (``%c``), which raises SQLite ``bad parameter or other API misuse`` and
-        drops live NTRIP VTEC from the map and station cards.
+        ``pd.read_sql`` treats ``%code_live%`` as a pyformat specifier
+        (``%c``) unless the caller already escaped percent signs.
         """
-        if self._is_pg:
-            return pd.read_sql(sql, self._conn, params=list(params))
-        with _SQLITE_WRITE_LOCK:
-            if self._conn is None:
-                self._init_sqlite()
-            elif _SHARED_SQLITE_CONN is not None and self._conn is not _SHARED_SQLITE_CONN:
-                # Prefer the live shared handle after another writer re-bound it.
-                self._conn = _SHARED_SQLITE_CONN
-            cur = self._conn.cursor()
-            cur.execute(sql, tuple(params))
-            cols = [d[0] for d in cur.description] if cur.description else []
-            rows = cur.fetchall()
-            return pd.DataFrame.from_records(rows, columns=cols)
+        return pd.read_sql(sql, self._conn, params=list(params))
 
     # ── Read ──────────────────────────────────────────────────────────────────
 
@@ -732,19 +557,6 @@ class TecDB:
             ORDER BY station, bucket
             """
             params = [float(step * 60), float(step * 60), since]
-        else:
-            method_clause = (
-                " AND tec_method LIKE '%code_live%'" if code_live_only else ""
-            )
-            return self._sqlite_station_vtec_timeseries_binned(
-                since=since,
-                step=step,
-                method_clause=method_clause,
-                code_live_only=code_live_only,
-                hours=hours,
-                resample_minutes=resample_minutes,
-            )
-
         try:
             df = self._read_sql(sql, params)
         except Exception as exc:
@@ -758,67 +570,6 @@ class TecDB:
                 code_live_only=False,
             )
         return df
-
-    def _sqlite_station_vtec_timeseries_binned(
-        self,
-        *,
-        since: str,
-        step: int,
-        method_clause: str,
-        code_live_only: bool,
-        hours: float,
-        resample_minutes: int,
-    ) -> pd.DataFrame:
-        """Per-station SQLite binning — uses (station, time) index on large local DBs."""
-        from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
-
-        bucket_sec = step * 60
-        sql = f"""
-        SELECT station,
-               (CAST(strftime('%s', time) AS INTEGER) / ?) * ? AS bucket_epoch,
-               MAX(time) AS observed_at,
-               AVG(vtec_tecu) AS vtec_tecu,
-               COUNT(*) AS obs_count
-        FROM vtec_obs
-        WHERE station = ?
-          AND time >= ?
-          AND vtec_tecu IS NOT NULL
-          AND vtec_tecu > 0
-          AND vtec_tecu < 200
-          AND (tec_method IS NULL OR tec_method NOT LIKE 'dlr_%')
-          {method_clause}
-        GROUP BY station, bucket_epoch
-        ORDER BY bucket_epoch
-        """
-        rows: list[tuple] = []
-        try:
-            with _SQLITE_WRITE_LOCK:
-                for station in ZIMBABWE_CORS_STATIONS:
-                    code = station.code.lower().rstrip("_")
-                    cur = self._conn.execute(
-                        sql,
-                        (bucket_sec, bucket_sec, code, since),
-                    )
-                    rows.extend(cur.fetchall())
-        except Exception as exc:
-            log.warning("sqlite station_vtec_timeseries_binned failed (%s)", exc)
-            return pd.DataFrame(columns=["station", "bucket", "observed_at", "vtec_tecu", "obs_count"])
-
-        if not rows and code_live_only:
-            return self.station_vtec_timeseries_binned(
-                hours=hours,
-                resample_minutes=resample_minutes,
-                code_live_only=False,
-            )
-        if not rows:
-            return pd.DataFrame(columns=["station", "bucket", "observed_at", "vtec_tecu", "obs_count"])
-
-        df = pd.DataFrame(
-            rows,
-            columns=["station", "bucket_epoch", "observed_at", "vtec_tecu", "obs_count"],
-        )
-        df["bucket"] = pd.to_datetime(df["bucket_epoch"], unit="s", utc=True)
-        return df.drop(columns=["bucket_epoch"])
 
     def record_count(self, *, hours: float | None = None) -> int:
         """Total rows in the database, optionally limited to the last N hours."""
@@ -841,25 +592,130 @@ class TecDB:
         cutoff = (datetime.now(tz=timezone.utc) - timedelta(days=days)).isoformat()
         # Measured live TEC is the permanent climatology archive. Retention
         # cleanup only applies to other products (forecasts, imports, etc.).
-        sql = "DELETE FROM vtec_obs WHERE time < ? AND COALESCE(tec_method, '') NOT LIKE ?"
-        if self._is_pg:
-            sql = sql.replace("?", "%s")
+        sql = "DELETE FROM vtec_obs WHERE time < %s AND COALESCE(tec_method, '') NOT LIKE %s"
+        with transaction(self._conn):
             with self._conn.cursor() as cur:
                 cur.execute(sql, (cutoff, "%code_live%"))
                 deleted = cur.rowcount
-            self._conn.commit()
-        else:
-            cur = self._conn.execute(sql, (cutoff, "%code_live%"))
-            deleted = cur.rowcount
-            self._conn.commit()
         return deleted
 
     def close(self) -> None:
-        global _SHARED_SQLITE_CONN
-        if not self._conn:
-            return
-        # Shared SQLite handle is process-wide — do not close it from one client.
-        if not self._is_pg and self._conn is _SHARED_SQLITE_CONN:
-            return
-        self._conn.close()
+        conn = self._conn
         self._conn = None
+        release(conn)
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
+
+    def newest_live_obs_age_s(self, *, hours: float = 0.25) -> float | None:
+        """Age in seconds of the newest live row, without transferring the rows."""
+        since = (datetime.now(tz=timezone.utc) - timedelta(hours=hours)).isoformat()
+        sql = """
+        SELECT MAX(time)
+        FROM vtec_obs
+        WHERE time >= %s
+          AND position('live' in lower(COALESCE(tec_method, ''))) > 0
+        """
+        try:
+            with self._conn.cursor() as cur:
+                cur.execute(sql, (since,))
+                row = cur.fetchone()
+        except Exception as exc:
+            log.warning("newest_live_obs_age_s failed (%s)", exc)
+            try:
+                self._conn.rollback()
+            except Exception:
+                pass
+            return None
+        if not row or row[0] is None:
+            return None
+        newest = row[0]
+        if isinstance(newest, str):
+            newest = datetime.fromisoformat(newest.replace("Z", "+00:00"))
+        if newest.tzinfo is None:
+            newest = newest.replace(tzinfo=timezone.utc)
+        return max(0.0, (datetime.now(tz=timezone.utc) - newest).total_seconds())
+
+    def live_station_mean_vtec(self, *, seconds: float = 90.0) -> dict[str, float]:
+        """One grouped mean per station for the live station list.
+
+        The station route used to pull every observation in the window and
+        average it in Python. The database does that average in one query.
+        """
+        since = (datetime.now(tz=timezone.utc) - timedelta(seconds=seconds)).isoformat()
+        sql = """
+        SELECT LOWER(RTRIM(station, '_')) AS station,
+               AVG(vtec_tecu) AS mean_vtec
+        FROM vtec_obs
+        WHERE time >= %s
+          AND vtec_tecu IS NOT NULL
+          AND position('live' in lower(COALESCE(tec_method, ''))) > 0
+          AND lower(COALESCE(tec_method, '')) !~ 'dlr|archive|rinex|cmn'
+        GROUP BY 1
+        """
+        try:
+            frame = self._read_sql(sql, [since])
+        except Exception as exc:
+            log.warning("live_station_mean_vtec failed (%s)", exc)
+            try:
+                self._conn.rollback()
+            except Exception:
+                pass
+            return {}
+        if frame is None or frame.empty:
+            return {}
+        out: dict[str, float] = {}
+        for _, row in frame.iterrows():
+            code = str(row["station"] or "").lower().rstrip("_")
+            try:
+                value = float(row["mean_vtec"])
+            except (TypeError, ValueError):
+                continue
+            if code and math.isfinite(value):
+                out[code] = value
+        return out
+
+    def network_mean_vtec(self, *, minutes: float = 5.0) -> float | None:
+        """Mean of per-station medians over a short code-live window.
+
+        One round trip for the dashboard ionosphere card. Empty when the
+        caster has not written in the window, so callers can fall back.
+        """
+        now = datetime.now(tz=timezone.utc)
+        since = (now - timedelta(minutes=max(0.25, float(minutes)))).isoformat()
+        until = (now + timedelta(minutes=2)).isoformat()
+        sql = """
+        SELECT AVG(med) FROM (
+            SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY vtec_tecu) AS med
+            FROM vtec_obs
+            WHERE time >= %s
+              AND time <= %s
+              AND vtec_tecu > 1
+              AND vtec_tecu <= 55
+              AND tec_method LIKE '%%code_live%%'
+            GROUP BY LOWER(RTRIM(station, '_'))
+        ) AS station_medians
+        """
+        try:
+            with self._conn.cursor() as cur:
+                cur.execute(sql, (since, until))
+                row = cur.fetchone()
+        except Exception as exc:
+            log.warning("network_mean_vtec failed (%s)", exc)
+            try:
+                self._conn.rollback()
+            except Exception:
+                pass
+            return None
+        if not row or row[0] is None:
+            return None
+        try:
+            value = float(row[0])
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(value) or value <= 1.0:
+            return None
+        return value

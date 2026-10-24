@@ -68,19 +68,18 @@ Set the hosted database URL in `.env` or your deployment environment:
 SUPABASE_DATABASE_URL=postgresql://postgres:[PASSWORD]@[SUPABASE_HOST]:5432/postgres
 ```
 
-The app also accepts `DATABASE_URL`, `POSTGRES_URL`, and `TSDB_DSN` for backward
-compatibility, but `SUPABASE_DATABASE_URL` takes priority. Supabase connections
-are forced to `sslmode=require` when the URL does not already include an SSL
-mode.
+`SUPABASE_DATABASE_URL` is the only database setting. Long-running processes use
+that session-pooler URL. Vercel functions use `SUPABASE_POOLER_URL`. The
+self-hosted pooler has no TLS, so the app sets `sslmode=disable` unless the URL
+already chooses a mode.
 
-To bootstrap the hosted tables manually:
+To bootstrap the tables:
 
 ```bash
-psql "$SUPABASE_DATABASE_URL" -f zgiis/db/schema.sql
+python scripts/init_supabase_schema.py
 ```
 
-When `SUPABASE_DATABASE_URL` is not set, local development continues to use the
-SQLite files under `static/data`.
+If `SUPABASE_DATABASE_URL` is missing, database routes return HTTP 503.
 
 ### One-click Windows launcher
 

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Apply zgiis/db/schema.sql to the Render Postgres database (pre-deploy)."""
+"""Create ZGIIS tables and indexes on Supabase Postgres. Idempotent."""
 from __future__ import annotations
 
+import logging
 import os
 import re
 import sys
@@ -10,11 +11,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from zgiis.db.config import database_dsn, ensure_sslmode  # noqa: E402
+from backend.env_bootstrap import load_runtime_env  # noqa: E402
+from zgiis.db.config import database_dsn  # noqa: E402
+
+log = logging.getLogger(__name__)
 
 
 def _statements(sql: str) -> list[str]:
-    """Split SQL file into executable statements (skip empty / comment-only)."""
+    """Split a SQL file into executable statements (skip empty / comment-only)."""
     parts = re.split(r";\s*\n", sql)
     out: list[str] = []
     for part in parts:
@@ -27,15 +31,17 @@ def _statements(sql: str) -> list[str]:
 
 
 def main() -> int:
-    dsn = database_dsn() or (os.getenv("DATABASE_URL") or "").strip()
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    load_runtime_env()
+    os.environ["ZGIIS_RUN_DB_SCHEMA_INIT"] = "1"
+    dsn = database_dsn()
     if not dsn:
-        print("render_init_db: no DATABASE_URL/TSDB_DSN — skipping schema apply")
-        return 0
+        log.error("SUPABASE_DATABASE_URL is not configured; schema was not applied")
+        return 1
 
-    dsn = ensure_sslmode(dsn)
     schema = ROOT / "zgiis" / "db" / "schema.sql"
     if not schema.is_file():
-        print(f"render_init_db: missing {schema}", file=sys.stderr)
+        log.error("missing %s", schema)
         return 1
 
     import psycopg2
@@ -43,6 +49,8 @@ def main() -> int:
     sql = schema.read_text(encoding="utf-8")
     conn = psycopg2.connect(dsn)
     conn.autocommit = True
+    with conn.cursor() as cur:
+        cur.execute("SET lock_timeout = '20s'")
     ok = 0
     skipped = 0
     try:
@@ -56,10 +64,10 @@ def main() -> int:
                     if "already exists" in msg or "duplicate" in msg:
                         skipped += 1
                         continue
-                    print(f"render_init_db: statement failed: {exc}", file=sys.stderr)
-                    print(stmt[:200], file=sys.stderr)
+                    log.error("statement failed: %s", exc)
+                    log.error("%s", stmt[:200])
                     return 1
-        print(f"render_init_db: applied={ok} skipped_existing={skipped}")
+        print(f"init_supabase_schema: applied={ok} skipped_existing={skipped}")
     finally:
         conn.close()
     return 0

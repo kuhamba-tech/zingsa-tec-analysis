@@ -1,9 +1,9 @@
-import sqlite3
 import unittest
 import tempfile
 from pathlib import Path
 from datetime import datetime, timezone
 from unittest.mock import patch
+from tests.supabase_isolation import prepare
 from zgiis.db import timescale
 from zgiis.live.stec_vtec import LiveVtecPipeline
 from zgiis.live.tec_outbox import TecOutbox
@@ -12,27 +12,25 @@ from zgiis.processing.tec_climatology import build
 
 class ResearchStorageTests(unittest.TestCase):
     def setUp(self):
-        self.conn=sqlite3.connect(':memory:')
-        self.conn.executescript(timescale._SQLITE_DDL)
-        self.db=timescale.TecDB.__new__(timescale.TecDB)
-        self.db._is_pg=False
-        self.db._conn=self.conn
-        self.db._dsn=''
-        self.db._ensure_vtec_obs_audit_columns()
-        self.shared=patch.object(timescale,'_SHARED_SQLITE_CONN',self.conn)
-        self.shared.start()
+        timescale._PG_SCHEMA_READY = False
+        self.db = timescale.TecDB(dsn=prepare("vtec_obs"))
+        self.conn = self.db._conn
 
     def tearDown(self):
-        self.shared.stop()
-        self.conn.close()
+        self.db.close()
+
+    def _scalar(self, sql):
+        with self.conn.cursor() as cur:
+            cur.execute(sql)
+            return cur.fetchone()[0]
 
     def test_replay_idempotent_and_live_history_retained(self):
         row=dict(epoch=datetime(2020,1,1,tzinfo=timezone.utc),station='lupa',prn='G01',vtec_tecu=20,tec_method='gopi_eq_4_11_code_live')
         self.db.insert_vtec([row])
         self.db.insert_vtec([row])
-        self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM vtec_obs').fetchone()[0],1)
-        self.assertEqual(self.db.prune_older_than(7),0)
-        self.assertIsNotNone(self.conn.execute('SELECT stored_at FROM vtec_obs').fetchone()[0])
+        self.assertEqual(self._scalar('SELECT COUNT(*) FROM vtec_obs'), 1)
+        self.assertEqual(self.db.prune_older_than(7), 0)
+        self.assertIsNotNone(self._scalar('SELECT stored_at FROM vtec_obs'))
 
     def test_failed_write_remains_pending(self):
         pipeline=LiveVtecPipeline(db=self.db)
@@ -68,5 +66,5 @@ class ResearchStorageTests(unittest.TestCase):
             self.db.insert_vtec(pending)
             recovered.acknowledge(pending)
             self.assertEqual(recovered.replay(),[])
-            self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM vtec_obs').fetchone()[0],1)
+            self.assertEqual(self._scalar('SELECT COUNT(*) FROM vtec_obs'), 1)
             recovered.conn.close()

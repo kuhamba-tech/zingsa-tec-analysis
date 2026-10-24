@@ -11,6 +11,11 @@ sys.path.insert(0, str(ROOT))
 
 os.environ.setdefault("ZGIIS_BACKGROUND_SERVICES", "0")
 
+from zgiis.db.config import activate_serverless_database, pooled_database_dsn  # noqa: E402
+
+activate_serverless_database()
+pooled_database_dsn()
+
 from backend.main import app as fastapi_app  # noqa: E402
 
 

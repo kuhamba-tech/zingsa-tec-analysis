@@ -135,5 +135,5 @@ def status() -> dict:
         "interval_sec": float(os.getenv("SW_LOG_INTERVAL_SEC", "60")),
         "record_count": db.record_count(),
         "latest_time": latest.get("time") if latest else None,
-        "db_backend": "timescaledb" if os.getenv("TSDB_DSN") else "sqlite",
+        "db_backend": "supabase",
     }

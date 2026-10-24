@@ -7,7 +7,7 @@ Architecture (Gopi-inspired, adapted for Zimbabwe CORS):
   GRU    : model long-range ionospheric dynamics
   Dense  : predict next 6 h (24 × 15-min steps)
 
-The model auto-improves daily once TimescaleDB accumulates enough data
+The model auto-improves daily once Supabase Postgres accumulates enough data
 (≥30 days).  All weights are saved to static/data/cnn_gru_model.pt.
 """
 from __future__ import annotations

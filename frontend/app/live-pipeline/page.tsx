@@ -205,9 +205,9 @@ export default function LivePipelinePage() {
   const storageBackend =
     pipelineStatus?.db_backend && pipelineStatus.db_backend !== "unknown"
       ? pipelineStatus.db_backend
-      : "sqlite";
+      : "supabase";
   const storageHostKind = pipelineStatus?.db_host_kind ?? storageBackend;
-  const storageEnvKey = pipelineStatus?.db_env_key ?? "local fallback";
+  const storageEnvKey = pipelineStatus?.db_env_key ?? "SUPABASE_DATABASE_URL";
   const storageRecords = pipelineStatus?.record_count ?? 0;
   const storageRecent = pipelineStatus?.recent_record_count_1h ?? 0;
   const storageSub =
@@ -449,7 +449,7 @@ export default function LivePipelinePage() {
           )}
           {fcStatus && fcStatus.torch_ok && !fcStatus.model_exists && !trainStatus?.running && (
             <div className="banner banner-info" style={{ marginBottom: "0.75rem" }}>
-              No trained model yet. Train on archived VTEC in TimescaleDB/SQLite, or use{" "}
+              No trained model yet. Train on archived VTEC in Supabase Postgres, or use{" "}
               <a href="/anomaly-detection/" style={{ color: "inherit" }}>TEC Anomaly → TEC Prediction</a>.
               <div style={{ marginTop: "0.6rem" }}>
                 <button type="button" className="btn btn-primary" onClick={handleTrainModel} disabled={trainStarting}>

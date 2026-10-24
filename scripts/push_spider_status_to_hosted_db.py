@@ -3,11 +3,10 @@
 
 Vercel IPs are often blocked (HTTP 403) by the ZINGSA SBC reverse proxy.
 The persistent collector (or this one-shot) must write the last-good Spider
-payload to Neon/Postgres so serverless map requests can use durable fallback.
+payload to Supabase Postgres so serverless map requests can use a durable fallback.
 """
 from __future__ import annotations
 
-import os
 import sys
 import time
 from pathlib import Path
@@ -19,9 +18,7 @@ from backend.env_bootstrap import load_runtime_env
 
 
 def main() -> int:
-    # Prefer hosted DB for this push even if local VTEC uses SQLite.
-    os.environ.pop("ZGIIS_FORCE_SQLITE", None)
-    load_runtime_env(prefer_vercel_db=True)
+    load_runtime_env()
 
     from zgiis.live.spider_site_status import fetch_spider_site_statuses
     from zgiis.live.spider_status_store import save_spider_status_payload
@@ -41,7 +38,9 @@ def main() -> int:
         }
     )
     online = sum(1 for row in by.values() if row.get("status") == "online")
-    print(f"Saved {len(by)} stations ({online} online) to {os.getenv('TSDB_DSN', '')[:48]}… ok={ok}")
+    from zgiis.db.config import configured_database_env_key
+
+    print(f"Saved {len(by)} stations ({online} online) via {configured_database_env_key()} ok={ok}")
     return 0 if ok else 2
 
 

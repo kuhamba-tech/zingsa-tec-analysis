@@ -5,25 +5,26 @@ Stores the eight dashboard metrics together per sample so Kp, Dst, F10.7,
 solar wind, S4, GNSS risk, and CORS station counts can be queried and
 correlated in one table.
 
-Uses Supabase/PostgreSQL when SUPABASE_DATABASE_URL or DATABASE_URL is set, otherwise SQLite at
-static/data/space_weather_log.sqlite.
+Stored in Supabase Postgres.
 """
 from __future__ import annotations
 
 import logging
-import sqlite3
-import tempfile
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 import pandas as pd
 
-from pathlib import Path
-from zgiis.db.config import database_backend_label, database_dsn
+from zgiis.db.config import (
+    DatabaseUnavailable,
+    checkout,
+    database_backend_label,
+    database_dsn,
+    release,
+    schema_init_enabled,
+)
 
 log = logging.getLogger(__name__)
-
-_SQLITE_PATH = Path(__file__).resolve().parents[2] / "static" / "data" / "space_weather_log.sqlite"
 
 _GNSS_RISK_SCORES = {
     "Low": 0.0,
@@ -62,27 +63,7 @@ CREATE TABLE IF NOT EXISTS space_weather_log (
     source            TEXT
 );
 """
-_PG_HYPER = "SELECT create_hypertable('space_weather_log','time',if_not_exists=>TRUE);"
 _PG_IDX = "CREATE INDEX IF NOT EXISTS sw_log_time_idx ON space_weather_log (time DESC);"
-
-_SQLITE_DDL = """
-CREATE TABLE IF NOT EXISTS space_weather_log (
-    time              TEXT    NOT NULL,
-    kp                REAL,
-    kp_condition      TEXT,
-    dst               REAL,
-    f107              REAL,
-    plasma_speed      REAL,
-    s4                REAL,
-    gnss_risk         TEXT,
-    gnss_risk_score   REAL,
-    stations_online   INTEGER,
-    stations_total    INTEGER,
-    mean_vtec         REAL,
-    source            TEXT
-);
-CREATE INDEX IF NOT EXISTS sw_log_time_idx ON space_weather_log (time);
-"""
 
 
 def gnss_risk_to_score(risk: str | None) -> float | None:
@@ -118,54 +99,26 @@ class SpaceWeatherDB:
     def __init__(self, dsn: str | None = None):
         # Resolve DSN at construction time so Vercel cold starts see env that
         # was loaded after module import.
-        self._dsn = dsn if dsn is not None else database_dsn()
-        self._is_pg = bool(self._dsn)
+        self._dsn = database_dsn() if dsn is None else dsn
+        self._is_pg = False
         self._conn = None
-        self._init()
-
-    def _init(self) -> None:
-        if self._is_pg:
-            self._init_pg()
-        else:
-            self._init_sqlite()
-        log.info(
-            "SpaceWeatherDB ready (%s)",
-            database_backend_label(self._dsn) if self._is_pg else f"SQLite:{_SQLITE_PATH}",
-        )
+        if not self._dsn:
+            log.error("SUPABASE_DATABASE_URL is not configured")
+            raise DatabaseUnavailable("SUPABASE_DATABASE_URL is not configured")
+        self._init_pg()
+        log.info("SpaceWeatherDB ready (%s)", database_backend_label(self._dsn))
 
     def _init_pg(self) -> None:
         try:
-            import psycopg2
-
-            self._conn = psycopg2.connect(self._dsn)
-            with self._conn.cursor() as cur:
-                cur.execute(_PG_DDL)
-            self._conn.commit()
-            try:
+            self._conn = checkout(self._dsn)
+            self._is_pg = True
+            if schema_init_enabled():
                 with self._conn.cursor() as cur:
-                    cur.execute(_PG_HYPER)
-                self._conn.commit()
-            except Exception:
-                self._conn.rollback()
-            with self._conn.cursor() as cur:
-                cur.execute(_PG_IDX)
-            self._conn.commit()
+                    cur.execute(_PG_DDL)
+                    cur.execute(_PG_IDX)
         except Exception as exc:
-            log.error("SpaceWeatherDB Postgres init failed: %s - using SQLite", exc)
-            self._is_pg = False
-            self._init_sqlite()
-
-    def _init_sqlite(self) -> None:
-        try:
-            _SQLITE_PATH.parent.mkdir(parents=True, exist_ok=True)
-            self._conn = sqlite3.connect(str(_SQLITE_PATH), check_same_thread=False)
-        except (OSError, sqlite3.OperationalError):
-            # Read-only filesystem (e.g. Vercel) — fall back to an ephemeral
-            # temp-dir database rather than crashing the request.
-            fallback = Path(tempfile.gettempdir()) / _SQLITE_PATH.name
-            self._conn = sqlite3.connect(str(fallback), check_same_thread=False)
-        self._conn.executescript(_SQLITE_DDL)
-        self._conn.commit()
+            log.error("SpaceWeatherDB Postgres init failed: %s", exc)
+            raise DatabaseUnavailable("Supabase Postgres init failed") from exc
 
     def insert_snapshot(self, row: dict[str, Any]) -> None:
         sql = """
@@ -313,5 +266,12 @@ class SpaceWeatherDB:
         return df.iloc[0].to_dict()
 
     def close(self) -> None:
-        if self._conn:
-            self._conn.close()
+        conn = self._conn
+        self._conn = None
+        release(conn)
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass

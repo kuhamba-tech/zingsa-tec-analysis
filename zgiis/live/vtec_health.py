@@ -25,6 +25,15 @@ def _collector_pid_alive() -> bool:
 
 
 def _newest_obs_age_s(db) -> float | None:
+    reader = getattr(type(db), "newest_live_obs_age_s", None)
+    if reader is not None:
+        try:
+            age = db.newest_live_obs_age_s(hours=0.25)
+            if age is None:
+                return None
+            return max(0.0, float(age))
+        except Exception:
+            return None
     try:
         df = db.query_recent(hours=0.25)
         if df is None or df.empty or "time" not in df.columns:
@@ -92,7 +101,7 @@ def build_live_vtec_health() -> dict[str, Any]:
         global_blockers.append("database_unavailable")
 
     newest_age = _newest_obs_age_s(db) if db else None
-    if db and db_backend == "sqlite" and not collector_running and external_collector:
+    if db and not collector_running and not external_collector:
         global_blockers.append("collector_not_running")
 
     if newest_age is not None and newest_age > _FRESH_OBS_S:
@@ -102,7 +111,16 @@ def build_live_vtec_health() -> dict[str, Any]:
     hm_stations = {str(s.get("code", "")).lower().rstrip("_"): s for s in hm.get("stations") or []}
 
     fresh_vtec: dict[str, float] = {}
-    if db:
+    # The heat map already ran the per-station live query. Reuse those measured
+    # rows instead of scanning the same window a second time.
+    for row in hm.get("stations") or []:
+        if str(row.get("source") or "") != "live" or int(row.get("obs_count") or 0) <= 0:
+            continue
+        code = str(row.get("code") or "").lower().rstrip("_")
+        raw_vtec = row.get("vtec")
+        if code and isinstance(raw_vtec, (int, float)):
+            fresh_vtec[code] = float(raw_vtec)
+    if not fresh_vtec and db:
         try:
             agg = db.recent_station_vtec(
                 minutes=LIVE_VTEC_RECENT_MINUTES,

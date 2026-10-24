@@ -1,26 +1,25 @@
-import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
-from unittest.mock import patch
 from zgiis.db.station_status_db import StationStatusDB
 from zgiis.db.uptime_monitor import UptimeMonitorDB
+from tests.supabase_isolation import prepare
 
 
 class MonitorTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.path = Path(self.temp.name) / 'monitor.sqlite'
-        self.path.touch()
-        self.patch = patch('zgiis.db.station_status_db._SQLITE_PATH', self.path)
-        self.patch.start()
-        self.db = UptimeMonitorDB(StationStatusDB(dsn=''))
+        self.dsn = prepare(
+            "station_status_events",
+            "station_status_snapshots",
+            "uptime_monitor_state",
+            "uptime_incidents",
+            "uptime_monitor_events",
+            "uptime_monitor_health",
+        )
+        self.db = UptimeMonitorDB(StationStatusDB(dsn=self.dsn))
         self.now = datetime.now(timezone.utc)
 
     def tearDown(self):
         self.db.close()
-        self.patch.stop()
-        self.temp.cleanup()
 
     def check(self, status, error=None, owner='worker'):
         self.now += timedelta(seconds=30)
@@ -37,7 +36,7 @@ class MonitorTests(unittest.TestCase):
         self.check('offline')
         self.assertEqual(self.db.execute('SELECT COUNT(*) FROM uptime_incidents').fetchone()[0], 0)
         self.db.close()
-        self.db = UptimeMonitorDB(StationStatusDB(dsn=''))
+        self.db = UptimeMonitorDB(StationStatusDB(dsn=self.dsn))
         self.check('offline')
         self.check('offline')
         self.assertEqual(self.db.execute('SELECT COUNT(*) FROM uptime_incidents').fetchone()[0], 1)

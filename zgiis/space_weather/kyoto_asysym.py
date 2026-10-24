@@ -147,27 +147,20 @@ def fetch(hours=24, start=None, end=None):
 
 
 def persist(payload):
-    """Request-driven archive in the existing weather database, not a worker."""
-    from zgiis.db.config import database_dsn
-    from zgiis.db.space_weather_db import _SQLITE_PATH
-    import os
-    import sqlite3
+    """Request-driven archive in Supabase Postgres, not a worker."""
+    import logging
+    from zgiis.db.config import DatabaseUnavailable, database_dsn
+    log = logging.getLogger(__name__)
     dsn=database_dsn()
-    if dsn:
-        import psycopg2
-        conn=psycopg2.connect(dsn,connect_timeout=5)
-        marker='%s'
-    else:
-        if os.getenv('VERCEL'):
-            raise RuntimeError('Durable weather database is not configured')
-        conn=sqlite3.connect(str(_SQLITE_PATH),timeout=5)
-        marker='?'
-    try:
+    if not dsn:
+        log.error("SUPABASE_DATABASE_URL is not configured")
+        raise DatabaseUnavailable("SUPABASE_DATABASE_URL is not configured")
+    from zgiis.db.config import get_conn, schema_init_enabled, transaction
+    marker='%s'
+    with get_conn(dsn) as conn:
         cur=conn.cursor()
-        if not os.getenv('VERCEL'):
-            cur.execute('CREATE TABLE IF NOT EXISTS kyoto_asysym (time TEXT PRIMARY KEY, asy_d REAL, asy_h REAL, sym_d REAL, sym_h REAL, version_code INTEGER, fetched_at TEXT, source TEXT)')
+        if schema_init_enabled():
+            cur.execute('CREATE TABLE IF NOT EXISTS kyoto_asysym (time TIMESTAMPTZ PRIMARY KEY, asy_d DOUBLE PRECISION, asy_h DOUBLE PRECISION, sym_d DOUBLE PRECISION, sym_h DOUBLE PRECISION, version_code INTEGER, fetched_at TIMESTAMPTZ, source TEXT)')
         sql=f"INSERT INTO kyoto_asysym VALUES ({','.join([marker]*8)}) ON CONFLICT(time) DO UPDATE SET asy_d=excluded.asy_d,asy_h=excluded.asy_h,sym_d=excluded.sym_d,sym_h=excluded.sym_h,version_code=excluded.version_code,fetched_at=excluded.fetched_at"
-        cur.executemany(sql,[(r['time'],r['ASY-D'],r['ASY-H'],r['SYM-D'],r['SYM-H'],r['version_code'],payload['last_successful_fetch'],BASE) for r in payload['rows'] if any(r[k] is not None for k in FIELDS)])
-        conn.commit()
-    finally:
-        conn.close()
+        with transaction(conn):
+            cur.executemany(sql,[(r['time'],r['ASY-D'],r['ASY-H'],r['SYM-D'],r['SYM-H'],r['version_code'],payload['last_successful_fetch'],BASE) for r in payload['rows'] if any(r[k] is not None for k in FIELDS)])

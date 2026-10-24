@@ -62,6 +62,10 @@ class SpaceWeatherParallelFetchTests(unittest.TestCase):
                 side_effect=lambda **_: _delayed(health),
             ),
             patch(
+                "zgiis.space_weather.fetch_indices._fetch_noaa_ap",
+                side_effect=lambda: _delayed(7),
+            ),
+            patch(
                 "zgiis.space_weather.fetch_indices._fetch_noaa_kp_history",
                 side_effect=lambda: _delayed(kp_history),
             ),

@@ -1,5 +1,5 @@
 """
-Owns the live NTRIP -> STEC/VTEC -> TimescaleDB pipeline as a process-wide
+Owns the live NTRIP -> STEC/VTEC -> Supabase Postgres pipeline as a process-wide
 singleton, started/stopped from FastAPI's lifespan.
 
 Config comes from env vars (see backend/.env.example) rather than
@@ -45,7 +45,7 @@ def _external_collector_running() -> bool:
     """True when an operator explicitly reserved ingest for the dedicated collector.
 
     Do not auto-disable API ingest just because ``live_ntrip_collector`` is
-    running — that process often writes Neon for Vercel while local uvicorn
+    running — that process writes Supabase while local uvicorn
     uses SQLite for the dashboard. Dual-writing the *same* SQLite file is
     opted out with ZGIIS_DISABLE_API_INGEST / ZGIIS_EXTERNAL_COLLECTOR.
     """
@@ -213,7 +213,7 @@ def diagnostics_by_station() -> dict[str, dict]:
 
 
 def get_db():
-    """Shared TecDB instance (TimescaleDB if TSDB_DSN is set, else SQLite)."""
+    """Shared TecDB instance on Supabase Postgres."""
     global _db
     if _db is None:
         from zgiis.db.timescale import TecDB
@@ -251,7 +251,7 @@ def status(*, include_record_counts: bool = True) -> dict:
     from zgiis.db.config import configured_database_env_key, database_dsn, database_host_kind
 
     mgr = _ntrip_manager
-    db_backend = "timescaledb" if os.getenv("TSDB_DSN") else "sqlite"
+    db_backend = "supabase"
     dsn = database_dsn()
     recent_records = None
     if include_record_counts:

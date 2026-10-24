@@ -2,7 +2,7 @@
 Daily CNN-GRU training pipeline.
 
 Called once per day (for example via cron or the backend scheduler)
-once the TimescaleDB accumulates ≥30 days of live VTEC observations.
+once Supabase Postgres accumulates ≥30 days of live VTEC observations.
 """
 from __future__ import annotations
 
@@ -45,7 +45,7 @@ def _sliding_windows(
 
 def prepare_dataset(db) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], dict]:
     """
-    Pull the last 60 days from TimescaleDB, resample to 15-min, normalise,
+    Pull the last 60 days from Supabase Postgres, resample to 15-min, normalise,
     split into sliding windows for training.
 
     Returns (X, y, meta) where meta contains normalisation stats.

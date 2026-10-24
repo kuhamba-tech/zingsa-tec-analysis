@@ -1208,9 +1208,9 @@ class LivePipelineStatus(BaseModel):
     ntrip_configured: bool = False
     active_streams: int = 0
     streams: dict[str, Any] = {}
-    db_backend: str = "sqlite"
+    db_backend: str = "supabase"
     db_env_key: str | None = None
-    db_host_kind: str = "sqlite"
+    db_host_kind: str = "supabase"
     record_count: int = 0
     recent_record_count_1h: int = 0
     diagnostics: dict[str, Any] = {}

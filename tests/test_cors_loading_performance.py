@@ -1,32 +1,34 @@
 """Regression checks for bounded station reads and short-lived response caching."""
-import sqlite3
 import unittest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 from backend.routers import cors_network
+from tests.supabase_isolation import prepare
 from zgiis.cors.stations import CorsStation
-from zgiis.db.station_status_db import StationStatusDB, _SQLITE_DDL
+from zgiis.db.station_status_db import StationStatusDB
 
 
 class LatestStationReadsTests(unittest.TestCase):
     def setUp(self):
-        self.db = object.__new__(StationStatusDB)
-        self.db._is_pg = False
-        self.db._dsn = ""
-        self.db._conn = sqlite3.connect(":memory:")
-        self.db._conn.executescript(_SQLITE_DDL)
+        self.db = StationStatusDB(dsn=prepare("station_status_snapshots"))
 
     def tearDown(self):
         self.db.close()
 
     def add(self, code, age_minutes, status):
         when = (datetime.now(timezone.utc) - timedelta(minutes=age_minutes)).isoformat()
-        self.db._conn.execute(
-            "INSERT INTO station_status_snapshots VALUES (?, ?, ?, ?, ?)",
-            (when, code, status, 1, "collector"),
+        self.db.insert_snapshots(
+            [
+                {
+                    "time": when,
+                    "station_code": code,
+                    "status": status,
+                    "api_reachable": True,
+                    "source": "collector",
+                }
+            ]
         )
-        self.db._conn.commit()
 
     def test_returns_newest_status_per_normalized_site_and_excludes_expired(self):
         self.add("HARA", 10, "online")

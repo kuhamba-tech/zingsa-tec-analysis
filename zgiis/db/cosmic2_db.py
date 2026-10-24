@@ -3,31 +3,29 @@ runs. Raw electron-density sample arrays are NOT stored here; the
 downloaded tarballs/extracted NetCDF files stay on disk
 (static/data/cosmic2_cache/), only per-profile summary values are persisted.
 
-Uses Supabase/PostgreSQL when configured, otherwise SQLite at
-static/data/cosmic2.sqlite — same dual-backend pattern as
-zgiis/db/tec_intelligence_db.py (the closest real precedent in this repo).
-
-A real pooled Postgres connection in this environment was found to mangle a
-non-ASCII character in a persisted text column even with client_encoding
-pinned — every text value written by this module must be plain ASCII.
+Stored in Supabase Postgres. Every text value written by this module must
+be plain ASCII.
 """
 from __future__ import annotations
 
 import logging
-import sqlite3
-import tempfile
 from datetime import date
-from pathlib import Path
 from typing import Any, Optional
 
 import pandas as pd
 
-from zgiis.db.config import database_backend_label, database_dsn
+from zgiis.db.config import (
+    DatabaseUnavailable,
+    checkout,
+    database_backend_label,
+    database_dsn,
+    execute_script,
+    release,
+    schema_init_enabled,
+    transaction,
+)
 
 log = logging.getLogger(__name__)
-
-_TSDB_DSN = database_dsn()
-_SQLITE_PATH = Path(__file__).resolve().parents[2] / "static" / "data" / "cosmic2.sqlite"
 
 _PG_DDL = """
 CREATE TABLE IF NOT EXISTS cosmic2_profiles (
@@ -86,63 +84,6 @@ CREATE TABLE IF NOT EXISTS cosmic2_calibration_runs (
 CREATE UNIQUE INDEX IF NOT EXISTS cosmic2_calibration_range_uq ON cosmic2_calibration_runs (start_date, end_date);
 """
 
-_SQLITE_DDL = """
-CREATE TABLE IF NOT EXISTS cosmic2_profiles (
-    profile_id              TEXT NOT NULL,
-    day                     TEXT NOT NULL,
-    occ_time                TEXT,
-    tangent_lat             REAL,
-    tangent_lon             REAL,
-    source_file             TEXT,
-    quality_status          TEXT NOT NULL,
-    quality_reasons         TEXT,
-    valid_sample_count      INTEGER,
-    nmf2_el_m3              REAL,
-    hmf2_km                 REAL,
-    fof2_mhz                REAL,
-    partial_tec_tecu        REAL,
-    tec_integration_min_km  REAL,
-    tec_integration_max_km  REAL,
-    computed_at             TEXT NOT NULL
-);
-CREATE UNIQUE INDEX IF NOT EXISTS cosmic2_profiles_id_uq ON cosmic2_profiles (profile_id);
-CREATE INDEX IF NOT EXISTS cosmic2_profiles_day_idx ON cosmic2_profiles (day);
-CREATE INDEX IF NOT EXISTS cosmic2_profiles_quality_idx ON cosmic2_profiles (quality_status);
-
-CREATE TABLE IF NOT EXISTS cosmic2_matches (
-    profile_id            TEXT NOT NULL,
-    day                   TEXT NOT NULL,
-    station_code          TEXT,
-    station_distance_km   REAL,
-    cors_timestamp        TEXT,
-    cors_vtec_tecu        REAL,
-    time_delta_minutes    REAL,
-    match_valid           INTEGER NOT NULL DEFAULT 0,
-    match_quality         TEXT NOT NULL,
-    match_reason          TEXT NOT NULL,
-    computed_at           TEXT NOT NULL
-);
-CREATE UNIQUE INDEX IF NOT EXISTS cosmic2_matches_profile_uq ON cosmic2_matches (profile_id);
-CREATE INDEX IF NOT EXISTS cosmic2_matches_day_idx ON cosmic2_matches (day);
-
-CREATE TABLE IF NOT EXISTS cosmic2_calibration_runs (
-    start_date      TEXT NOT NULL,
-    end_date        TEXT NOT NULL,
-    slope           REAL,
-    intercept       REAL,
-    r_squared       REAL,
-    pearson_r       REAL,
-    rmse_tecu       REAL,
-    mae_tecu        REAL,
-    mean_bias_tecu  REAL,
-    sample_count    INTEGER NOT NULL DEFAULT 0,
-    status          TEXT NOT NULL,
-    message         TEXT,
-    computed_at     TEXT NOT NULL
-);
-CREATE UNIQUE INDEX IF NOT EXISTS cosmic2_calibration_range_uq ON cosmic2_calibration_runs (start_date, end_date);
-"""
-
 _PROFILE_COLUMNS = [
     "profile_id", "day", "occ_time", "tangent_lat", "tangent_lon", "source_file",
     "quality_status", "quality_reasons", "valid_sample_count", "nmf2_el_m3", "hmf2_km",
@@ -159,55 +100,37 @@ _CALIBRATION_COLUMNS = [
 
 
 class Cosmic2DB:
-    def __init__(self, dsn: str = _TSDB_DSN):
-        self._dsn = dsn
-        self._is_pg = bool(dsn)
+    def __init__(self, dsn: str | None = None):
+        self._dsn = database_dsn() if dsn is None else dsn
+        self._is_pg = False
         self._conn = None
-        self._init()
-
-    def _init(self) -> None:
-        if self._is_pg:
-            self._init_pg()
-        else:
-            self._init_sqlite()
-        label = database_backend_label(self._dsn) if self._is_pg else f"SQLite:{_SQLITE_PATH}"
-        log.info("Cosmic2DB ready (%s)", label)
+        if not self._dsn:
+            log.error("SUPABASE_DATABASE_URL is not configured")
+            raise DatabaseUnavailable("SUPABASE_DATABASE_URL is not configured")
+        self._init_pg()
+        log.info("Cosmic2DB ready (%s)", database_backend_label(self._dsn))
 
     def _init_pg(self) -> None:
         try:
-            import psycopg2
-
-            self._conn = psycopg2.connect(self._dsn)
+            self._conn = checkout(self._dsn)
+            self._is_pg = True
             self._conn.set_client_encoding("UTF8")
-            with self._conn.cursor() as cur:
-                cur.execute(_PG_DDL)
-            self._conn.commit()
+            if schema_init_enabled():
+                with self._conn.cursor() as cur:
+                    execute_script(cur, _PG_DDL)
         except Exception as exc:
-            log.error("Cosmic2DB Postgres init failed: %s - using SQLite", exc)
-            self._is_pg = False
-            self._init_sqlite()
-
-    def _init_sqlite(self) -> None:
-        try:
-            _SQLITE_PATH.parent.mkdir(parents=True, exist_ok=True)
-            self._conn = sqlite3.connect(str(_SQLITE_PATH), check_same_thread=False)
-        except (OSError, sqlite3.OperationalError):
-            fallback = Path(tempfile.gettempdir()) / _SQLITE_PATH.name
-            self._conn = sqlite3.connect(str(fallback), check_same_thread=False)
-        self._conn.executescript(_SQLITE_DDL)
-        self._conn.commit()
+            log.error("Cosmic2DB Postgres init failed: %s", exc)
+            raise DatabaseUnavailable("Supabase Postgres init failed") from exc
 
     @property
     def backend(self) -> str:
-        if not self._is_pg:
-            return "sqlite"
-        return "supabase" if "supabase" in self._dsn.lower() else "postgres"
+        return "supabase"
 
     def _ph(self) -> str:
-        return "%s" if self._is_pg else "?"
+        return "%s"
 
     def _read_sql(self, sql: str, params: list[Any]) -> pd.DataFrame:
-        return pd.read_sql(sql, self._conn, params=params) if self._is_pg else pd.read_sql_query(sql, self._conn, params=params)
+        return pd.read_sql(sql, self._conn, params=params)
 
     # ── Write (idempotent: delete-then-insert within one transaction) ──────
 
@@ -222,13 +145,9 @@ class Cosmic2DB:
         )
         values = [tuple(r.get(c) for c in _PROFILE_COLUMNS) for r in rows]
         cur = self._conn.cursor()
-        try:
+        with transaction(self._conn):
             cur.execute(delete_sql, (start.isoformat(), end.isoformat()))
             cur.executemany(insert_sql, values)
-            self._conn.commit()
-        except Exception:
-            self._conn.rollback()
-            raise
         return len(rows)
 
     def upsert_matches(self, rows: list[dict[str, Any]], start: date, end: date) -> int:
@@ -242,13 +161,9 @@ class Cosmic2DB:
         )
         values = [tuple(r.get(c) for c in _MATCH_COLUMNS) for r in rows]
         cur = self._conn.cursor()
-        try:
+        with transaction(self._conn):
             cur.execute(delete_sql, (start.isoformat(), end.isoformat()))
             cur.executemany(insert_sql, values)
-            self._conn.commit()
-        except Exception:
-            self._conn.rollback()
-            raise
         return len(rows)
 
     def upsert_calibration_run(self, row: dict[str, Any]) -> int:
@@ -260,13 +175,9 @@ class Cosmic2DB:
         )
         values = tuple(row.get(c) for c in _CALIBRATION_COLUMNS)
         cur = self._conn.cursor()
-        try:
+        with transaction(self._conn):
             cur.execute(delete_sql, (row["start_date"], row["end_date"]))
             cur.execute(insert_sql, values)
-            self._conn.commit()
-        except Exception:
-            self._conn.rollback()
-            raise
         return 1
 
     # ── Read ─────────────────────────────────────────────────────────────
@@ -329,5 +240,12 @@ class Cosmic2DB:
         }
 
     def close(self) -> None:
-        if self._conn:
-            self._conn.close()
+        conn = self._conn
+        self._conn = None
+        release(conn)
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass

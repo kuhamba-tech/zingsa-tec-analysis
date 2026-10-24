@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from tests.supabase_isolation import prepare
 from zgiis.db import broadcast_recipient_db as brd
 from zgiis.navigation.broadcast_recipients_file import load_recipients_file, sync_recipients_from_file
 
@@ -14,8 +15,8 @@ from zgiis.navigation.broadcast_recipients_file import load_recipients_file, syn
 class BroadcastRecipientsFileTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmpdir = tempfile.TemporaryDirectory()
-        self._db_path = Path(self._tmpdir.name) / "recipients.sqlite"
-        patcher = patch.object(brd, "_SQLITE_PATH", self._db_path)
+        self.dsn = prepare("broadcast_recipients", "broadcast_delivery_log")
+        patcher = patch.object(brd, "database_dsn", return_value=self.dsn)
         patcher.start()
         self.addCleanup(patcher.stop)
 
@@ -45,7 +46,7 @@ class BroadcastRecipientsFileTests(unittest.TestCase):
         result = sync_recipients_from_file(path=file_path)
         self.assertEqual(result["synced"], 1)
 
-        db = brd.BroadcastRecipientDB()
+        db = brd.BroadcastRecipientDB(dsn=self.dsn)
         listed = db.list_recipients()
         self.assertEqual(len(listed), 1)
         self.assertEqual(listed[0]["whatsapp_to"], "263771234567")

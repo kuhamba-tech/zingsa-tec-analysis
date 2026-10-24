@@ -22,7 +22,7 @@ def test_build_live_vtec_health_shape():
         patch("backend.live_manager.status", return_value={"streams": {}}),
     ):
         db = mock_get_db.return_value
-        db.backend = "sqlite"
+        db.backend = "supabase"
         db.recent_station_vtec.return_value = None
         db.query_recent.return_value = None
 

@@ -8,6 +8,8 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
+from tests.supabase_isolation import prepare
+
 import numpy as np
 import pandas as pd
 
@@ -40,8 +42,12 @@ def _raw(profile_id: str, lat: float, lon: float, *, valid: bool) -> RawProfile:
 class PipelineTests(unittest.TestCase):
     def setUp(self):
         self._tmpdir = tempfile.TemporaryDirectory()
-        tmp_path = Path(self._tmpdir.name) / "test_pipeline.sqlite"
-        self._patcher = patch.object(c2db, "_SQLITE_PATH", tmp_path)
+        self.dsn = prepare(
+            "cosmic2_profiles",
+            "cosmic2_matches",
+            "cosmic2_calibration_runs",
+        )
+        self._patcher = patch.object(c2db, "database_dsn", return_value=self.dsn)
         self._patcher.start()
 
     def tearDown(self):
@@ -88,7 +94,7 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(result["profiles_matched"], 1)
         self.assertEqual(result["cors_stations_used"], 1)
 
-        db = c2db.Cosmic2DB(dsn="")
+        db = c2db.Cosmic2DB(dsn=self.dsn)
         try:
             stored = db.query_profiles(day, day)
             self.assertEqual(len(stored), 2)

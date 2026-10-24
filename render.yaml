@@ -2,20 +2,15 @@
 # Dashboard: https://dashboard.render.com → New → Blueprint → this repo
 #
 # Provisions:
-#   - Postgres (live VTEC + station status)
 #   - FastAPI web service (API + reads live TEC)
 #   - Background worker (always-on NTRIP collector)
 #   - Static site (Next.js export)
+# Postgres is the self-hosted Supabase database. Put its session DSN in the
+# secrets group as SUPABASE_DATABASE_URL.
 #
 # After first deploy, fill sync:false secrets in the
 # zingsa-spaceweather-secrets environment group (NTRIP_* etc.).
 # Starter plan is required for reliable live NTRIP (free web services sleep).
-
-databases:
-  - name: zingsa-spaceweather-db
-    plan: basic-256mb
-    databaseName: zingsa_spaceweather
-    user: zingsa
 
 services:
   # ── FastAPI (live TEC API) ──────────────────────────────────────────────────
@@ -27,7 +22,7 @@ services:
     branch: master
     autoDeployTrigger: commit
     buildCommand: pip install -r requirements-render.txt
-    preDeployCommand: python scripts/render_init_db.py
+    preDeployCommand: python scripts/init_supabase_schema.py
     startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips='*'
     healthCheckPath: /health
     envVars:
@@ -46,17 +41,9 @@ services:
         value: "0"
       - key: CORS_ORIGIN_REGEX
         value: "https://zingsa-spaceweather\\.onrender\\.com|https://.*\\.onrender\\.com"
-      - key: DATABASE_URL
-        fromDatabase:
-          name: zingsa-spaceweather-db
-          property: connectionString
-      - key: TSDB_DSN
-        fromDatabase:
-          name: zingsa-spaceweather-db
-          property: connectionString
       - fromGroup: zingsa-spaceweather-secrets
 
-  # ── Always-on NTRIP → Postgres collector ────────────────────────────────────
+  # ── Always-on NTRIP → Supabase collector ────────────────────────────────────
   - type: worker
     name: zingsa-spaceweather-collector
     runtime: python
@@ -88,14 +75,6 @@ services:
           name: zingsa-spaceweather-api
           type: web
           property: host
-      - key: DATABASE_URL
-        fromDatabase:
-          name: zingsa-spaceweather-db
-          property: connectionString
-      - key: TSDB_DSN
-        fromDatabase:
-          name: zingsa-spaceweather-db
-          property: connectionString
       - fromGroup: zingsa-spaceweather-secrets
 
   # ── Next.js static frontend ─────────────────────────────────────────────────
@@ -128,6 +107,16 @@ services:
 envVarGroups:
   - name: zingsa-spaceweather-secrets
     envVars:
+      - key: SUPABASE_DATABASE_URL
+        sync: false
+      - key: SUPABASE_POOLER_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
       - key: NTRIP_HOST
         sync: false
       - key: NTRIP_PORT

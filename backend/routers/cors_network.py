@@ -446,10 +446,10 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
     spider_ready = _stations_are_spider_authoritative(stations)
 
     archive_applied = False
-    # When Spider SBC is unreachable (Cloudflare 403 from cloud IPs), Neon/SQLite
+    # When Spider SBC is unreachable (Cloudflare 403 from cloud IPs), Supabase Postgres
     # collector snapshots are the only honest online/offline signal. Merge them on
     # normal page loads too — otherwise every card paints unknown / 0/25.
-    # Archive/Supabase reads can stall under SQLite locks; keep them off the path
+    # Archive reads can stall on a busy pooler; keep them off the path
     # when Spider is already authoritative.
     if not pipeline_configured and not spider_ready:
         stations, archive_applied = _merge_archived_live_statuses(stations)

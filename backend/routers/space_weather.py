@@ -184,7 +184,7 @@ def _cached_s4() -> tuple[float | None, float, str, str]:
 
 
 def _archived_online_total() -> tuple[int, int] | None:
-    """Neon/SQLite collector snapshots — honest when Spider SBC is blocked."""
+    """Supabase collector snapshots — honest when Spider SBC is blocked."""
     try:
         from backend.routers.cors_network import _archived_status_counts
 
@@ -216,7 +216,7 @@ def _ntrip_stream_counts() -> tuple[int | None, int | None]:
 
     Prefer live Spider when it reports any online sites. A cached Spider map of
     all-offline (common after Cloudflare 403 from cloud IPs) must not paint
-    0/25 over a healthier Neon/NTRIP archive snapshot.
+    0/25 over a healthier NTRIP archive snapshot.
     """
     # Serverless instances must use the same fresh collector snapshot as the
     # station map. An idle pipeline or old aggregate is not station evidence.
@@ -306,28 +306,23 @@ def _ntrip_stream_counts() -> tuple[int | None, int | None]:
         return None, None
 
 
-def _neon_mean_vtec() -> float | None:
-    """Read last non-null mean_vtec from Neon without the SpaceWeatherDB singleton.
-
-    Vercel serverless can leave SpaceWeatherDB on a SQLite fallback after a
-    brief pooler blip; bypass that for the Zimbabwe Ionosphere card.
-    """
+def _logged_mean_vtec() -> float | None:
+    """Read the last non-null mean_vtec from Supabase Postgres."""
     try:
         import math
 
-        import psycopg2
-
-        from zgiis.db.config import database_dsn
+        from zgiis.db.config import database_dsn, get_conn, transaction
 
         dsn = database_dsn()
         if not dsn:
             return None
-        # Hard cap so a hung pooler cannot stall /space-weather/current.
-        conn = psycopg2.connect(dsn, connect_timeout=1)
-        try:
-            conn.set_session(readonly=True, autocommit=True)
-            with conn.cursor() as cur:
-                cur.execute("SET LOCAL statement_timeout = 1200")
+        # Hard cap so a slow query cannot stall /space-weather/current.
+        # The shared pool already paid for the socket. SET LOCAL only applies
+        # inside a transaction, and that transaction is closed before return.
+        with get_conn(dsn) as conn:
+            with transaction(conn):
+                cur = conn.cursor()
+                cur.execute("SET LOCAL statement_timeout = '1200ms'")
                 cur.execute(
                     """
                     SELECT mean_vtec
@@ -338,8 +333,6 @@ def _neon_mean_vtec() -> float | None:
                     """
                 )
                 row = cur.fetchone()
-        finally:
-            conn.close()
         if not row or row[0] is None:
             return None
         value = float(row[0])
@@ -360,7 +353,7 @@ _TIMELINES_CACHE_LOCK = threading.Lock()
 
 
 def _build_current_payload() -> SpaceWeatherCurrent:
-    """Dashboard snapshot — keep this path free of Spider login / Neon stalls."""
+    """Dashboard snapshot — keep this path free of Spider login stalls."""
     sw = dict(_sw())
     try:
         ntrip_online, ntrip_total = _ntrip_stream_counts()
@@ -389,6 +382,15 @@ def _build_current_payload() -> SpaceWeatherCurrent:
             pass
     if sw.get("mean_vtec") is None and sw.get("vtec_tecu") is None:
         try:
+            from backend.live_manager import get_db
+
+            fast = get_db().network_mean_vtec(minutes=5)
+            if fast is not None and float(fast) > 1.0:
+                sw["mean_vtec"] = round(float(fast), 2)
+        except Exception:
+            pass
+    if sw.get("mean_vtec") is None and sw.get("vtec_tecu") is None:
+        try:
             from backend.routers.cors_network import _safe_station_live_vtec
 
             # The API process does not hold the NTRIP pipeline, so the card
@@ -406,9 +408,9 @@ def _build_current_payload() -> SpaceWeatherCurrent:
             pass
     # Vercel serverless has no in-process NTRIP decode — use last logged snapshot.
     # Prefer a row that actually has VTEC so empty "dashboard" polls do not hide
-    # a healthier local_vtec_to_neon / scheduler snapshot.
+    # a healthier logged / scheduler snapshot.
     if sw.get("mean_vtec") is None and sw.get("vtec_tecu") is None:
-        # Prefer local SQLite snapshot first (instant); Neon only if still empty.
+        # Prefer the logged Supabase snapshot.
         try:
             from backend.space_weather_logger import get_db as get_sw_db
 
@@ -427,9 +429,9 @@ def _build_current_payload() -> SpaceWeatherCurrent:
         except Exception:
             pass
     if sw.get("mean_vtec") is None and sw.get("vtec_tecu") is None:
-        neon_vtec = _neon_mean_vtec()
-        if neon_vtec is not None:
-            sw["mean_vtec"] = neon_vtec
+        logged_vtec = _logged_mean_vtec()
+        if logged_vtec is not None:
+            sw["mean_vtec"] = logged_vtec
     threading.Thread(
         target=log_snapshot,
         kwargs={"source": "dashboard", "force": False, "snapshot": sw},

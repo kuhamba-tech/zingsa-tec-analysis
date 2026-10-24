@@ -229,7 +229,7 @@ def poll_and_log(*, source: str = "scheduler", force: bool = False) -> dict[str,
     if pipeline_status.get("configured") or pipeline_status.get("active_streams"):
         streams = pipeline_status.get("streams") or {}
         # Configured-but-empty (or all-offline cold start) must not wipe a healthier
-        # Neon/archive snapshot to 0/25 — that is what painted CORS Connected empty.
+        # archive snapshot to 0/25 — that is what painted CORS Connected empty.
         derived = _status_from_streams(streams) if streams else {}
         online = sum(1 for status in derived.values() if status == "online")
         if streams and online > 0:
@@ -284,7 +284,7 @@ def status() -> dict:
 
         db_backend = database_backend_label(database_dsn())
     except Exception:
-        db_backend = "sqlite"
+        db_backend = "unconfigured"
     try:
         from backend import live_manager
         pipeline_configured = live_manager.is_configured()

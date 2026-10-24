@@ -5,27 +5,27 @@ Legacy "linked" / "degraded" rows are normalized to online on read/write.
 Logs state transitions and periodic snapshots so uptime, outages, and
 correlation with space-weather metrics can be analysed later.
 
-Uses Supabase/PostgreSQL when SUPABASE_DATABASE_URL or DATABASE_URL is set, else SQLite at
-static/data/station_status.sqlite.
+Stored in Supabase Postgres.
 """
 from __future__ import annotations
 
 import logging
-import os
-import sqlite3
-import tempfile
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Any, Optional
 
 import pandas as pd
 
-from zgiis.db.config import database_backend_label, database_dsn
+from zgiis.db.config import (
+    DatabaseUnavailable,
+    checkout,
+    database_backend_label,
+    database_dsn,
+    release,
+    schema_init_enabled,
+    transaction,
+)
 
 log = logging.getLogger(__name__)
-
-_TSDB_DSN = database_dsn()
-_SQLITE_PATH = Path(__file__).resolve().parents[2] / "static" / "data" / "station_status.sqlite"
 
 VALID_STATUSES = frozenset({"online", "offline", "unknown"})
 _LEGACY_STATUSES = frozenset({"degraded", "linked", "connected"})  # folded into online
@@ -55,9 +55,6 @@ CREATE TABLE IF NOT EXISTS station_status_events (
     source            TEXT
 );
 """
-_PG_EVENTS_HYPER = (
-    "SELECT create_hypertable('station_status_events','time',if_not_exists=>TRUE);"
-)
 _PG_SNAPSHOTS_DDL = """
 CREATE TABLE IF NOT EXISTS station_status_snapshots (
     time              TIMESTAMPTZ      NOT NULL,
@@ -67,9 +64,6 @@ CREATE TABLE IF NOT EXISTS station_status_snapshots (
     source            TEXT
 );
 """
-_PG_SNAPSHOTS_HYPER = (
-    "SELECT create_hypertable('station_status_snapshots','time',if_not_exists=>TRUE);"
-)
 _PG_IDX = """
 CREATE INDEX IF NOT EXISTS st_status_events_time_idx
     ON station_status_events (time DESC);
@@ -81,94 +75,43 @@ CREATE INDEX IF NOT EXISTS st_status_snap_code_time_idx
     ON station_status_snapshots (station_code, time DESC);
 """
 
-_SQLITE_DDL = """
-CREATE TABLE IF NOT EXISTS station_status_events (
-    time              TEXT    NOT NULL,
-    station_code      TEXT,
-    status            TEXT    NOT NULL,
-    previous_status   TEXT,
-    event_type        TEXT    NOT NULL,
-    online_count      INTEGER,
-    degraded_count    INTEGER,
-    offline_count     INTEGER,
-    unknown_count     INTEGER,
-    api_reachable     INTEGER NOT NULL DEFAULT 1,
-    message           TEXT,
-    source            TEXT
-);
-CREATE TABLE IF NOT EXISTS station_status_snapshots (
-    time              TEXT    NOT NULL,
-    station_code      TEXT    NOT NULL,
-    status            TEXT    NOT NULL,
-    api_reachable     INTEGER NOT NULL DEFAULT 1,
-    source            TEXT
-);
-CREATE INDEX IF NOT EXISTS st_status_events_time_idx
-    ON station_status_events (time);
-CREATE INDEX IF NOT EXISTS st_status_events_code_time_idx
-    ON station_status_events (station_code, time);
-CREATE INDEX IF NOT EXISTS st_status_snap_time_idx
-    ON station_status_snapshots (time);
-CREATE INDEX IF NOT EXISTS st_status_snap_code_time_idx
-    ON station_status_snapshots (station_code, time);
-"""
-
 
 class StationStatusDB:
-    def __init__(self, dsn: str = _TSDB_DSN):
-        self._dsn = dsn
-        self._is_pg = bool(dsn)
+    def __init__(self, dsn: str | None = None):
+        self._dsn = database_dsn() if dsn is None else dsn
+        self._is_pg = False
         self._conn = None
-        self._init()
-
-    def _init(self) -> None:
-        if self._is_pg:
-            self._init_pg()
-        else:
-            self._init_sqlite()
-        log.info(
-            "StationStatusDB ready (%s)",
-            database_backend_label(self._dsn) if self._is_pg else f"SQLite:{_SQLITE_PATH}",
-        )
+        if not self._dsn:
+            log.error("SUPABASE_DATABASE_URL is not configured")
+            raise DatabaseUnavailable("SUPABASE_DATABASE_URL is not configured")
+        self._init_pg()
+        log.info("StationStatusDB ready (%s)", database_backend_label(self._dsn))
 
     def _init_pg(self) -> None:
+        previous = self._conn
+        self._conn = None
+        if previous is not None:
+            release(previous, close=True)
+        conn = None
         try:
-            import psycopg2
-
-            self._conn = psycopg2.connect(self._dsn)
-            if os.getenv("VERCEL"):
+            conn = checkout(self._dsn)
+            self._is_pg = True
+            if not schema_init_enabled():
+                self._conn = conn
                 return
-            with self._conn.cursor() as cur:
+            with conn.cursor() as cur:
                 cur.execute(_PG_EVENTS_DDL)
                 cur.execute(_PG_SNAPSHOTS_DDL)
-            self._conn.commit()
-            for stmt in (_PG_EVENTS_HYPER, _PG_SNAPSHOTS_HYPER):
-                try:
-                    with self._conn.cursor() as cur:
-                        cur.execute(stmt)
-                    self._conn.commit()
-                except Exception as exc:
-                    self._conn.rollback()
-                    log.warning("Station status hypertable setup skipped: %s", exc)
-            with self._conn.cursor() as cur:
                 cur.execute(_PG_IDX)
-            self._conn.commit()
+            conn.commit()
+            self._conn = conn
+        except DatabaseUnavailable:
+            raise
         except Exception as exc:
-            log.error("StationStatusDB Postgres init failed: %s - using SQLite", exc)
-            self._is_pg = False
-            self._init_sqlite()
-
-    def _init_sqlite(self) -> None:
-        try:
-            _SQLITE_PATH.parent.mkdir(parents=True, exist_ok=True)
-            self._conn = sqlite3.connect(str(_SQLITE_PATH), check_same_thread=False)
-        except (OSError, sqlite3.OperationalError):
-            # Read-only filesystem (e.g. Vercel) — fall back to an ephemeral
-            # temp-dir database rather than crashing the request.
-            fallback = Path(tempfile.gettempdir()) / _SQLITE_PATH.name
-            self._conn = sqlite3.connect(str(fallback), check_same_thread=False)
-        self._conn.executescript(_SQLITE_DDL)
-        self._conn.commit()
+            if conn is not None:
+                release(conn, close=True)
+            log.error("StationStatusDB Postgres init failed: %s", exc)
+            raise DatabaseUnavailable("Supabase Postgres init failed") from exc
 
     def _with_reconnect(self, fn):
         """Run fn(); on a Postgres connection error, reconnect once and retry.
@@ -239,9 +182,9 @@ class StationStatusDB:
         def _do() -> None:
             if self._is_pg:
                 pg_sql = sql.replace("?", "%s")
-                with self._conn.cursor() as cur:
-                    cur.executemany(pg_sql, params)
-                self._conn.commit()
+                with transaction(self._conn):
+                    with self._conn.cursor() as cur:
+                        cur.executemany(pg_sql, params)
             else:
                 self._conn.executemany(sql, params)
                 self._conn.commit()
@@ -697,5 +640,12 @@ class StationStatusDB:
         return self._with_reconnect(_do)
 
     def close(self) -> None:
-        if self._conn:
-            self._conn.close()
+        conn = self._conn
+        self._conn = None
+        release(conn)
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass

@@ -590,7 +590,7 @@ def build_north_south_tec_research(
             "total_binned_points": total_points,
             "message": historical_message,
             "retention_note": (
-                "Live observations are stored in vtec_obs (Timescale/SQLite) with "
+                "Live observations are stored in vtec_obs (Supabase Postgres) with "
                 "prune_older_than(days=90). Multi-week research requires continuous ingest; "
                 "browser localStorage is not used as the archive."
             ),

@@ -4,18 +4,15 @@ from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 
+from tests.supabase_isolation import prepare
 from zgiis.db import timescale as timescale_mod
 from zgiis.db.timescale import TecDB
 from zgiis.maps.heatmap_data import _fresh_station_vtec_from_group
 
 
-def test_recent_station_vtec_sqlite_like_code_live(tmp_path, monkeypatch):
-    db_path = tmp_path / "vtec_live.db"
-    monkeypatch.setattr(timescale_mod, "_SQLITE_PATH", db_path)
-    monkeypatch.setattr(timescale_mod, "_SHARED_SQLITE_CONN", None)
+def test_recent_station_vtec_code_live(monkeypatch):
     monkeypatch.setattr(timescale_mod, "_PG_SCHEMA_READY", False)
-
-    db = TecDB(dsn="")
+    db = TecDB(dsn=prepare("vtec_obs"))
     now = datetime.now(timezone.utc)
     db.insert_vtec(
         [
@@ -224,13 +221,9 @@ def test_cent_spike_plus_low_bias_omits_unphysical_value():
     assert vtec is None
 
 
-def test_recent_station_vtec_tracks_fresh_slice(tmp_path, monkeypatch):
-    db_path = tmp_path / "vtec_fresh.db"
-    monkeypatch.setattr(timescale_mod, "_SQLITE_PATH", db_path)
-    monkeypatch.setattr(timescale_mod, "_SHARED_SQLITE_CONN", None)
+def test_recent_station_vtec_tracks_fresh_slice(monkeypatch):
     monkeypatch.setattr(timescale_mod, "_PG_SCHEMA_READY", False)
-
-    db = TecDB(dsn="")
+    db = TecDB(dsn=prepare("vtec_obs"))
     now = datetime.now(timezone.utc)
     rows = []
     for i in range(15):

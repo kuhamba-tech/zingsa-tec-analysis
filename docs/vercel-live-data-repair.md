@@ -4,11 +4,11 @@ Verified production responses:
 
 - GET `/api/cors-router/?__zr=%2Fcors%2Fstations`: HTTP 200, all 25 stations unknown, TEC null.
 - POST `/api/cors-router/?__zr=%2Fcors%2Fstatus%2Fsnapshots` with invalid empty object (no observations written): HTTP 503, `API write protection is not configured`.
-- Local collector saves actual NTRIP measurements to local SQLite. Vercel cannot read that file.
+- The collector and Vercel must both use the self-hosted Supabase Postgres database.
 
 ## Required production repair
 
-Configure the same durable PostgreSQL database for the persistent collector and Vercel using `SUPABASE_DATABASE_URL` (or another existing supported database setting). Apply the existing TEC and station-status schema/migrations before switching the collector. Preserve local SQLite history; do not delete or replace it. Confirm both runtimes actually connect to PostgreSQL rather than silently falling back to SQLite.
+Configure `SUPABASE_DATABASE_URL` for the collector and `SUPABASE_POOLER_URL` for Vercel. Apply `python scripts/init_supabase_schema.py` before switching the collector. Both runtimes read and write that database.
 
 The collector already writes station snapshots and VTEC to its database. A shared database is the preferred path; uploading station status alone cannot supply TEC. Vercel must read the shared database while collection continues on the always-on host.
 

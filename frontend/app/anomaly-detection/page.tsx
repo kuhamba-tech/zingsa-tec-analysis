@@ -962,7 +962,7 @@ export default function AnomalyDetectionPage() {
             <div className="card" style={{ marginBottom: "1rem", padding: "1rem" }}>
               <div className="metric-label" style={{ marginBottom: "0.5rem" }}>CNN-GRU Model Training</div>
               <p style={{ fontSize: "0.82rem", color: "var(--text-muted)", margin: "0 0 0.75rem" }}>
-                Trains daily on 30+ days of 15-min mean VTEC from TimescaleDB. Fine-tunes existing weights when available.
+                Trains daily on 30+ days of 15-min mean VTEC from Supabase Postgres. Fine-tunes existing weights when available.
               </p>
               <div style={{ display: "grid", gap: "0.35rem", fontSize: "0.8rem", marginBottom: "0.85rem" }}>
                 <div><strong>Sequence length:</strong> {fcStatus?.seq_len ?? 96} steps (24 h)</div>
@@ -986,7 +986,7 @@ export default function AnomalyDetectionPage() {
                   epoch {trainStatus.epoch}/{trainStatus.total_epochs}
                   {trainStatus.last_loss != null ? ` · loss ${trainStatus.last_loss.toFixed(5)}` : ""}
                   <div style={{ marginTop: "0.35rem", color: "var(--text-muted)" }}>
-                    Loading VTEC windows from TimescaleDB and updating Conv1D + GRU weights — this may take a few minutes.
+                    Loading VTEC windows from Supabase Postgres and updating Conv1D + GRU weights — this may take a few minutes.
                   </div>
                 </div>
               )}

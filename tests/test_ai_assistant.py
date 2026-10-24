@@ -34,7 +34,7 @@ def test_build_context_block_handles_missing_numeric_values():
 def test_build_context_block_includes_ekf_and_live():
     _, lines, structured = build_context_block(
         ekf_summary={"recent_count": 2, "unacknowledged_count": 1, "latest_parameter": "S4", "latest_severity": "Moderate"},
-        live_summary={"ingest_enabled": True, "active_streams": 3, "db_backend": "sqlite"},
+        live_summary={"ingest_enabled": True, "active_streams": 3, "db_backend": "supabase"},
     )
     assert any("EKF alerts" in line for line in lines)
     assert any("Live NTRIP" in line for line in lines)

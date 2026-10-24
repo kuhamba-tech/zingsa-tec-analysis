@@ -185,7 +185,7 @@ def test_build_tec_heatmap_interpolates_with_three_stations():
     assert rows_by_code["cent"]["source"] == "live_surface_estimate"
 
 
-def test_build_tec_heatmap_drops_neon_spike_stations():
+def test_build_tec_heatmap_drops_spike_stations():
     recent = pd.DataFrame(
         {
             "time": pd.to_datetime(["2026-07-15T12:00:00Z"] * 6),
@@ -279,7 +279,7 @@ def test_build_tec_heatmap_uses_live_rows_when_remote_db_env_is_set():
             "observations": [1],
         }
     )
-    with patch.dict("os.environ", {"DATABASE_URL": "postgres://example"}, clear=False), patch(
+    with patch.dict("os.environ", {"SUPABASE_DATABASE_URL": "postgresql://session.example/postgres"}, clear=False), patch(
         "backend.live_manager.get_db"
     ) as mock_db, patch(
         "backend.live_manager.latest_vtec_by_station", return_value={}

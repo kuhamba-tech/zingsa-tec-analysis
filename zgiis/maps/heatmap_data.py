@@ -575,7 +575,7 @@ def _robust_station_vtec(series, *, prefer_latest_n: int | None = None) -> float
     """Median VTEC for one station, with within-station spike clipping.
 
     Code TEC without full DCB can throw large PRN outliers; mean() was
-    pulling Neon station cards to ~100 TECU while peer sites stayed ~20.
+    pulling bad station cards to ~100 TECU while peer sites stayed ~20.
     When ``prefer_latest_n`` is set, use only the newest N samples so the
     map tracks live recalculation instead of a sticky multi-minute median.
     """
@@ -755,7 +755,7 @@ def _fresh_station_vtec_from_group(group: pd.DataFrame) -> float | None:
 def _consensus_filter_control_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Drop spatially inconsistent live control points before IDW / Matamba fill.
 
-    Vercel Neon currently mixes good absolute code TEC (~16–25 TECU) with a few
+    Live ingest currently mixes good absolute code TEC (~16–25 TECU) with a few
     stations stuck near 90–120 TECU. Filling every CORS site from that set made
     production look nothing like the local NTRIP-decoded map.
     """
@@ -804,7 +804,7 @@ def station_vtec_by_code_from_frame(
     *,
     recent_minutes: float | None = LIVE_VTEC_RECENT_MINUTES,
 ) -> dict[str, float]:
-    """Shared Neon/local aggregation used by heat-map + CORS station cards.
+    """Shared Supabase aggregation used by heat-map + CORS station cards.
 
     When ``recent_minutes`` is set, each station uses only samples inside the
     wall-clock window ``[now - N minutes, now + 2 minutes]`` so markers track
@@ -1412,7 +1412,7 @@ def build_tec_heatmap(*, hours: float = 2.0, refresh_ntrip: bool = False) -> dic
     # every observation and is not required to paint live TEC.
     previous_rows: list[dict[str, Any]] = []
     # Fill every CORS marker from cleaned measured controls (same ~16–30 TECU
-    # band local NTRIP decode shows). Spiked Neon mounts are dropped first.
+    # band local NTRIP decode shows). Spiked mounts are dropped first.
     stations = _live_surface_station_rows(live_rows) if live_rows else []
     # Streaming measured values must always win over surface interpolation —
     # otherwise ZINH/etc. can look frozen on a neighbour estimate.

@@ -2,6 +2,7 @@
 from datetime import datetime, timezone
 import uuid
 
+from zgiis.db.config import schema_init_enabled
 from zgiis.db.station_status_db import StationStatusDB
 
 
@@ -12,16 +13,20 @@ class UptimeMonitorDB:
             self.db.close()
             raise RuntimeError('Configured monitoring database unavailable; refusing a separate local archive')
         self.conn = self.db._conn
-        for ddl in (
-            "CREATE TABLE IF NOT EXISTS uptime_monitor_state (station_code TEXT PRIMARY KEY, status TEXT NOT NULL, candidate TEXT, consecutive INTEGER NOT NULL, observed_at TEXT NOT NULL)",
-            "CREATE TABLE IF NOT EXISTS uptime_incidents (id TEXT PRIMARY KEY, station_code TEXT NOT NULL, started_at TEXT NOT NULL, ended_at TEXT)",
-            "CREATE UNIQUE INDEX IF NOT EXISTS uptime_one_open_incident ON uptime_incidents(station_code) WHERE ended_at IS NULL",
-            "CREATE TABLE IF NOT EXISTS uptime_monitor_events (id TEXT PRIMARY KEY, incident_id TEXT NOT NULL, station_code TEXT NOT NULL, event_type TEXT NOT NULL, time TEXT NOT NULL, UNIQUE(incident_id, event_type))",
-            "CREATE TABLE IF NOT EXISTS uptime_monitor_health (id INTEGER PRIMARY KEY, owner TEXT, lease_until REAL NOT NULL, checked_at TEXT, successful_at TEXT, error TEXT)",
-            "INSERT INTO uptime_monitor_health(id, lease_until) VALUES (1, 0) ON CONFLICT(id) DO NOTHING",
-        ):
-            self.execute(ddl)
-        self.conn.commit()
+        if schema_init_enabled():
+            for ddl in (
+                "CREATE TABLE IF NOT EXISTS uptime_monitor_state (station_code TEXT PRIMARY KEY, status TEXT NOT NULL, candidate TEXT, consecutive INTEGER NOT NULL, observed_at TEXT NOT NULL)",
+                "CREATE TABLE IF NOT EXISTS uptime_incidents (id TEXT PRIMARY KEY, station_code TEXT NOT NULL, started_at TEXT NOT NULL, ended_at TEXT)",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uptime_one_open_incident ON uptime_incidents(station_code) WHERE ended_at IS NULL",
+                "CREATE TABLE IF NOT EXISTS uptime_monitor_events (id TEXT PRIMARY KEY, incident_id TEXT NOT NULL, station_code TEXT NOT NULL, event_type TEXT NOT NULL, time TEXT NOT NULL, UNIQUE(incident_id, event_type))",
+                "CREATE TABLE IF NOT EXISTS uptime_monitor_health (id INTEGER PRIMARY KEY, owner TEXT, lease_until REAL NOT NULL, checked_at TEXT, successful_at TEXT, error TEXT)",
+            ):
+                self.execute(ddl)
+        # The lease row is data, not DDL. Truncation and a fresh database both
+        # need it, and autocommit closes the statement immediately.
+        self.execute(
+            "INSERT INTO uptime_monitor_health(id, lease_until) VALUES (1, 0) ON CONFLICT(id) DO NOTHING"
+        )
 
     def execute(self, sql, args=()):
         cur = self.conn.cursor()
@@ -32,6 +37,8 @@ class UptimeMonitorDB:
         """One transaction owns the lease, confirms changes and appends archives."""
         now = now or datetime.now(timezone.utc)
         stamp, epoch = now.isoformat(), now.timestamp()
+        previous = self.conn.autocommit
+        self.conn.autocommit = False
         try:
             if not self.db._is_pg:
                 self.execute('BEGIN IMMEDIATE')
@@ -86,6 +93,8 @@ class UptimeMonitorDB:
         except Exception:
             self.conn.rollback()
             raise
+        finally:
+            self.conn.autocommit = previous
 
     def report(self, *, hours=168, station=None):
         from datetime import timedelta

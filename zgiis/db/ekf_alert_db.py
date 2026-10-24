@@ -1,28 +1,20 @@
 """
 Event log for Extended Kalman Filter deviation alerts.
 
-Uses Supabase/PostgreSQL when SUPABASE_DATABASE_URL or DATABASE_URL is set, otherwise SQLite at
-static/data/ekf_alert_log.sqlite — same dual-backend pattern as
-SpaceWeatherDB.
+Stored in Supabase Postgres.
 """
 from __future__ import annotations
 
 import json
 import logging
-import sqlite3
-import tempfile
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Any, Optional
 
 import pandas as pd
 
-from zgiis.db.config import database_dsn
+from zgiis.db.config import DatabaseUnavailable, checkout, database_dsn, release, schema_init_enabled
 
 log = logging.getLogger(__name__)
-
-_TSDB_DSN = database_dsn()
-_SQLITE_PATH = Path(__file__).resolve().parents[2] / "static" / "data" / "ekf_alert_log.sqlite"
 
 # Don't write a duplicate alert row for the same parameter while the
 # deviation condition is still active — only log a fresh entry once this
@@ -47,24 +39,6 @@ CREATE TABLE IF NOT EXISTS ekf_alert_log (
 """
 _PG_IDX = "CREATE INDEX IF NOT EXISTS ekf_alert_time_idx ON ekf_alert_log (time DESC);"
 
-_SQLITE_DDL = """
-CREATE TABLE IF NOT EXISTS ekf_alert_log (
-    alert_id            TEXT PRIMARY KEY,
-    time                TEXT NOT NULL,
-    parameter           TEXT,
-    parameter_label     TEXT,
-    observed_value      REAL,
-    ekf_predicted_value REAL,
-    prediction_error    REAL,
-    threshold           REAL,
-    severity            TEXT,
-    related_indicators  TEXT,
-    alert_message       TEXT,
-    acknowledged_status INTEGER DEFAULT 0
-);
-CREATE INDEX IF NOT EXISTS ekf_alert_time_idx ON ekf_alert_log (time);
-"""
-
 
 def _row_to_alert(row: dict[str, Any]) -> dict[str, Any]:
     related = row.get("related_indicators")
@@ -72,9 +46,8 @@ def _row_to_alert(row: dict[str, Any]) -> dict[str, Any]:
         related = json.loads(related) if isinstance(related, str) else (related or [])
     except (TypeError, ValueError):
         related = []
-    # On Postgres pandas reads a TIMESTAMPTZ column back as a
-    # pandas.Timestamp, not a str (SQLite's TEXT column already comes back
-    # as a str) — normalize so EkfAlertOut.timestamp: str always validates.
+    # Pandas reads TIMESTAMPTZ back as a Timestamp. Normalize so
+    # EkfAlertOut.timestamp stays a string.
     time_value = row.get("time")
     return {
         "alert_id": row.get("alert_id"),
@@ -93,43 +66,26 @@ def _row_to_alert(row: dict[str, Any]) -> dict[str, Any]:
 
 
 class EkfAlertDB:
-    def __init__(self, dsn: str = _TSDB_DSN):
-        self._dsn = dsn
-        self._is_pg = bool(dsn)
+    def __init__(self, dsn: str | None = None):
+        self._dsn = database_dsn() if dsn is None else dsn
+        self._is_pg = False
         self._conn = None
-        self._init()
-
-    def _init(self) -> None:
-        if self._is_pg:
-            self._init_pg()
-        else:
-            self._init_sqlite()
+        if not self._dsn:
+            log.error("SUPABASE_DATABASE_URL is not configured")
+            raise DatabaseUnavailable("SUPABASE_DATABASE_URL is not configured")
+        self._init_pg()
 
     def _init_pg(self) -> None:
         try:
-            import psycopg2
-
-            self._conn = psycopg2.connect(self._dsn)
-            with self._conn.cursor() as cur:
-                cur.execute(_PG_DDL)
-                cur.execute(_PG_IDX)
-            self._conn.commit()
+            self._conn = checkout(self._dsn)
+            self._is_pg = True
+            if schema_init_enabled():
+                with self._conn.cursor() as cur:
+                    cur.execute(_PG_DDL)
+                    cur.execute(_PG_IDX)
         except Exception as exc:
-            log.error("EkfAlertDB Postgres init failed: %s - using SQLite", exc)
-            self._is_pg = False
-            self._init_sqlite()
-
-    def _init_sqlite(self) -> None:
-        try:
-            _SQLITE_PATH.parent.mkdir(parents=True, exist_ok=True)
-            self._conn = sqlite3.connect(str(_SQLITE_PATH), check_same_thread=False)
-        except (OSError, sqlite3.OperationalError):
-            # Read-only filesystem (e.g. Vercel) — fall back to an ephemeral
-            # temp-dir database rather than crashing the request.
-            fallback = Path(tempfile.gettempdir()) / _SQLITE_PATH.name
-            self._conn = sqlite3.connect(str(fallback), check_same_thread=False)
-        self._conn.executescript(_SQLITE_DDL)
-        self._conn.commit()
+            log.error("EkfAlertDB Postgres init failed: %s", exc)
+            raise DatabaseUnavailable("Supabase Postgres init failed") from exc
 
     def _latest_for_parameter(self, parameter: str, *, since_iso: str) -> Optional[dict[str, Any]]:
         sql = """
@@ -213,5 +169,12 @@ class EkfAlertDB:
         return updated
 
     def close(self) -> None:
-        if self._conn:
-            self._conn.close()
+        conn = self._conn
+        self._conn = None
+        release(conn)
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass

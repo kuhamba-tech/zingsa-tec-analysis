@@ -2,8 +2,8 @@
 -- Run this once in the Supabase SQL editor or with psql:
 --   psql "$SUPABASE_DATABASE_URL" -f zgiis/db/schema.sql
 --
--- The application also creates these tables on startup when a hosted
--- Postgres URL is configured. This file is useful for explicit bootstrapping.
+-- Apply this file with scripts/init_supabase_schema.py. The running app
+-- does not execute DDL.
 
 -- VTEC / STEC observations
 -- One row per epoch, station, and PRN from the live NTRIP stream.
@@ -25,6 +25,23 @@ CREATE TABLE IF NOT EXISTS vtec_obs (
 CREATE INDEX IF NOT EXISTS vtec_obs_station_time ON vtec_obs (station, time DESC);
 CREATE INDEX IF NOT EXISTS vtec_obs_prn_time ON vtec_obs (prn, time DESC);
 CREATE INDEX IF NOT EXISTS vtec_obs_time_idx ON vtec_obs (time DESC);
+ALTER TABLE vtec_obs ADD COLUMN IF NOT EXISTS observation_id TEXT;
+ALTER TABLE vtec_obs ADD COLUMN IF NOT EXISTS stored_at TEXT;
+ALTER TABLE vtec_obs ADD COLUMN IF NOT EXISTS received_at TEXT;
+ALTER TABLE vtec_obs ADD COLUMN IF NOT EXISTS station_latitude DOUBLE PRECISION;
+ALTER TABLE vtec_obs ADD COLUMN IF NOT EXISTS station_longitude DOUBLE PRECISION;
+ALTER TABLE vtec_obs ADD COLUMN IF NOT EXISTS ipp_latitude DOUBLE PRECISION;
+ALTER TABLE vtec_obs ADD COLUMN IF NOT EXISTS ipp_longitude DOUBLE PRECISION;
+ALTER TABLE vtec_obs ADD COLUMN IF NOT EXISTS region TEXT;
+ALTER TABLE vtec_obs ADD COLUMN IF NOT EXISTS quality_flag TEXT;
+ALTER TABLE vtec_obs ADD COLUMN IF NOT EXISTS processing_version TEXT;
+ALTER TABLE vtec_obs ADD COLUMN IF NOT EXISTS data_source TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS vtec_obs_identity ON vtec_obs (time, observation_id);
+CREATE INDEX IF NOT EXISTS vtec_obs_code_live_time_station
+    ON vtec_obs (time, station)
+    WHERE tec_method LIKE 'code_live%'
+      AND vtec_tecu > 0
+      AND vtec_tecu < 200;
 
 -- Standard Postgres materialized view for 15-minute VTEC summaries.
 -- Refresh manually or from a scheduled job if you need this aggregate.
@@ -197,3 +214,100 @@ CREATE TABLE IF NOT EXISTS cosmic2_calibration_runs (
     computed_at     TIMESTAMPTZ NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS cosmic2_calibration_range_uq ON cosmic2_calibration_runs (start_date, end_date);
+
+-- GIC field measurements
+CREATE TABLE IF NOT EXISTS gic_log (
+    time        TIMESTAMPTZ NOT NULL,
+    station_id  TEXT NOT NULL,
+    gic_a       DOUBLE PRECISION NOT NULL,
+    temp_c      DOUBLE PRECISION,
+    source      TEXT,
+    UNIQUE (time, station_id)
+);
+CREATE INDEX IF NOT EXISTS gic_log_station_time_idx ON gic_log (station_id, time DESC);
+
+-- Navigation News recipients
+CREATE TABLE IF NOT EXISTS broadcast_recipients (
+    recipient_id   TEXT PRIMARY KEY,
+    recipient_type TEXT NOT NULL,
+    whatsapp_to    TEXT NOT NULL UNIQUE,
+    display_name   TEXT NOT NULL,
+    audience       TEXT NOT NULL DEFAULT 'citizen',
+    script_kind    TEXT NOT NULL DEFAULT 'broadcast',
+    language       TEXT NOT NULL DEFAULT 'en',
+    accessibility  TEXT NOT NULL DEFAULT 'standard',
+    active         BOOLEAN NOT NULL DEFAULT TRUE,
+    notes          TEXT,
+    created_at     TIMESTAMPTZ NOT NULL,
+    updated_at     TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX IF NOT EXISTS broadcast_recipients_active_idx ON broadcast_recipients (active);
+
+CREATE TABLE IF NOT EXISTS broadcast_delivery_log (
+    delivery_id    TEXT PRIMARY KEY,
+    recipient_id   TEXT,
+    display_name   TEXT,
+    whatsapp_to    TEXT,
+    audience       TEXT,
+    ok             BOOLEAN NOT NULL,
+    detail         TEXT,
+    dry_run        BOOLEAN NOT NULL DEFAULT FALSE,
+    sent_at        TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX IF NOT EXISTS broadcast_delivery_sent_idx ON broadcast_delivery_log (sent_at DESC);
+
+-- Kyoto ASY/SYM archive
+CREATE TABLE IF NOT EXISTS kyoto_asysym (
+    time          TIMESTAMPTZ PRIMARY KEY,
+    asy_d         DOUBLE PRECISION,
+    asy_h         DOUBLE PRECISION,
+    sym_d         DOUBLE PRECISION,
+    sym_h         DOUBLE PRECISION,
+    version_code  INTEGER,
+    fetched_at    TIMESTAMPTZ,
+    source        TEXT
+);
+
+-- Last successful Spider site-status payload
+CREATE TABLE IF NOT EXISTS spider_site_status_cache (
+    id            INTEGER PRIMARY KEY CHECK (id = 1),
+    fetched_at    TEXT,
+    disk_saved_at DOUBLE PRECISION NOT NULL,
+    by_station    JSONB NOT NULL,
+    error         TEXT
+);
+
+-- Confirmed station uptime monitor
+CREATE TABLE IF NOT EXISTS uptime_monitor_state (
+    station_code TEXT PRIMARY KEY,
+    status       TEXT NOT NULL,
+    candidate    TEXT,
+    consecutive  INTEGER NOT NULL,
+    observed_at  TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS uptime_incidents (
+    id           TEXT PRIMARY KEY,
+    station_code TEXT NOT NULL,
+    started_at   TEXT NOT NULL,
+    ended_at     TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uptime_one_open_incident
+    ON uptime_incidents (station_code) WHERE ended_at IS NULL;
+CREATE TABLE IF NOT EXISTS uptime_monitor_events (
+    id           TEXT PRIMARY KEY,
+    incident_id  TEXT NOT NULL,
+    station_code TEXT NOT NULL,
+    event_type   TEXT NOT NULL,
+    time         TEXT NOT NULL,
+    UNIQUE (incident_id, event_type)
+);
+CREATE TABLE IF NOT EXISTS uptime_monitor_health (
+    id            INTEGER PRIMARY KEY,
+    owner         TEXT,
+    lease_until   DOUBLE PRECISION NOT NULL,
+    checked_at    TEXT,
+    successful_at TEXT,
+    error         TEXT
+);
+INSERT INTO uptime_monitor_health (id, lease_until) VALUES (1, 0)
+ON CONFLICT (id) DO NOTHING;

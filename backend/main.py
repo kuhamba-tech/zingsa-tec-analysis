@@ -22,11 +22,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from backend.env_bootstrap import load_runtime_env
+from zgiis.db.config import DatabaseUnavailable
 
-# Local dashboard reads SQLite by default. Hosted Neon is for Vercel/collector
-# production pushes — forcing it here hung local /cors/stations when Neon was unreachable.
-# On Render, Blueprint injects DATABASE_URL/TSDB_DSN; do not prefer .env.vercel.*.
-load_runtime_env(prefer_vercel_db=bool(os.getenv("VERCEL")))
+# Supabase Postgres from backend/.env is the only database.
+load_runtime_env()
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -98,7 +97,7 @@ def _cors_origins() -> list[str]:
         return [origin.strip().rstrip("/") for origin in configured.split(",") if origin.strip()]
     # Vercel is normally same-origin, but local development intentionally uses
     # the production API so localhost and the deployed dashboard render the
-    # same Neon/NTRIP dataset. Only loopback origins are allowed here.
+    # same Supabase/NTRIP dataset. Only loopback origins are allowed here.
     return [
         "http://localhost:3000",
         "http://localhost:3001",
@@ -176,6 +175,15 @@ app.include_router(gic.router)
 
 
 STATIC_EXPORT_DIR = Path(__file__).resolve().parents[1] / "static_export"
+
+
+@app.exception_handler(DatabaseUnavailable)
+async def database_unavailable(_request: Request, exc: DatabaseUnavailable):
+    log.error("Supabase database unavailable: %s", exc)
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "Supabase database is not configured"},
+    )
 
 
 @app.get("/health")

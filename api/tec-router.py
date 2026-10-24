@@ -13,6 +13,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from zgiis.db.config import activate_serverless_database, pooled_database_dsn  # noqa: E402
+
+activate_serverless_database()
+pooled_database_dsn()
+
 from backend.vercel_dispatch import make_group_dispatcher  # noqa: E402
 
 app = make_group_dispatcher()

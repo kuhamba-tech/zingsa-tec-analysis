@@ -1,26 +1,20 @@
 """Tests for Navigation News WhatsApp recipient registry."""
 from __future__ import annotations
 
-import tempfile
 import unittest
-from pathlib import Path
-from unittest.mock import patch
 
+from tests.supabase_isolation import prepare
 from zgiis.db import broadcast_recipient_db as brd
 
 
 class BroadcastRecipientDbTests(unittest.TestCase):
     def setUp(self) -> None:
-        self._tmpdir = tempfile.TemporaryDirectory()
-        self._db_path = Path(self._tmpdir.name) / "recipients.sqlite"
-        patcher = patch.object(brd, "_SQLITE_PATH", self._db_path)
-        patcher.start()
-        self.addCleanup(patcher.stop)
-        self.db = brd.BroadcastRecipientDB()
+        self.db = brd.BroadcastRecipientDB(
+            dsn=prepare("broadcast_recipients", "broadcast_delivery_log")
+        )
 
     def tearDown(self) -> None:
         self.db.close()
-        self._tmpdir.cleanup()
 
     def test_create_and_list_recipient(self) -> None:
         rec = self.db.create_recipient(

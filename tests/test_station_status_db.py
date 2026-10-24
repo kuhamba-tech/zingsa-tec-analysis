@@ -1,29 +1,21 @@
-import tempfile
 import unittest
-from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pandas as pd
 
+from tests.supabase_isolation import prepare
 from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
 from zgiis.db.station_status_db import StationStatusDB
 
 
 class StationStatusDBTests(unittest.TestCase):
     def setUp(self) -> None:
-        self._tmp = tempfile.TemporaryDirectory()
-        self._db_path = Path(self._tmp.name) / "station_status_test.sqlite"
-        import zgiis.db.station_status_db as mod
-
-        self._mod = mod
-        self._saved = mod._SQLITE_PATH
-        mod._SQLITE_PATH = self._db_path
-        self.db = StationStatusDB(dsn="")
+        self.db = StationStatusDB(
+            dsn=prepare("station_status_events", "station_status_snapshots")
+        )
 
     def tearDown(self) -> None:
         self.db.close()
-        self._mod._SQLITE_PATH = self._saved
-        self._tmp.cleanup()
 
     def test_status_change_event_and_snapshot(self) -> None:
         when = "2026-06-16T12:00:00+00:00"

@@ -1,12 +1,10 @@
-"""Tests for COSMIC-2 persistence (SQLite backend)."""
+"""Tests for COSMIC-2 persistence on Supabase Postgres."""
 from __future__ import annotations
 
-import tempfile
 import unittest
 from datetime import date
-from pathlib import Path
-from unittest.mock import patch
 
+from tests.supabase_isolation import prepare
 from zgiis.db import cosmic2_db as c2db
 
 _PROFILE_BASE = {
@@ -27,19 +25,22 @@ _MATCH_BASE = {
 
 class Cosmic2DBTests(unittest.TestCase):
     def setUp(self):
-        self._tmpdir = tempfile.TemporaryDirectory()
-        tmp_path = Path(self._tmpdir.name) / "test_cosmic2.sqlite"
-        self._patcher = patch.object(c2db, "_SQLITE_PATH", tmp_path)
-        self._patcher.start()
+        self.dsn = prepare(
+            "cosmic2_profiles",
+            "cosmic2_matches",
+            "cosmic2_calibration_runs",
+        )
 
-    def tearDown(self):
-        self._patcher.stop()
-        self._tmpdir.cleanup()
-
-    def test_ddl_creates_tables_sqlite(self):
-        db = c2db.Cosmic2DB(dsn="")
-        self.assertEqual(db.backend, "sqlite")
-        cur = db._conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    def test_ddl_creates_tables(self):
+        db = c2db.Cosmic2DB(dsn=self.dsn)
+        self.assertEqual(db.backend, "supabase")
+        cur = db._conn.cursor()
+        cur.execute(
+            """
+            SELECT table_name FROM information_schema.tables
+            WHERE table_schema = current_schema()
+            """
+        )
         tables = {r[0] for r in cur.fetchall()}
         self.assertIn("cosmic2_profiles", tables)
         self.assertIn("cosmic2_matches", tables)
@@ -47,7 +48,7 @@ class Cosmic2DBTests(unittest.TestCase):
         db.close()
 
     def test_upsert_profiles_idempotent(self):
-        db = c2db.Cosmic2DB(dsn="")
+        db = c2db.Cosmic2DB(dsn=self.dsn)
         row = {**_PROFILE_BASE, "profile_id": "p1"}
         n1 = db.upsert_profiles([row], date(2024, 4, 1), date(2024, 4, 1))
         self.assertEqual(n1, 1)
@@ -59,7 +60,7 @@ class Cosmic2DBTests(unittest.TestCase):
         db.close()
 
     def test_query_profiles_filters_by_quality_status(self):
-        db = c2db.Cosmic2DB(dsn="")
+        db = c2db.Cosmic2DB(dsn=self.dsn)
         db.upsert_profiles([
             {**_PROFILE_BASE, "profile_id": "ok1", "quality_status": "ok"},
             {**_PROFILE_BASE, "profile_id": "bad1", "quality_status": "rejected", "quality_reasons": "insufficient_samples"},
@@ -70,7 +71,7 @@ class Cosmic2DBTests(unittest.TestCase):
         db.close()
 
     def test_query_profile_single(self):
-        db = c2db.Cosmic2DB(dsn="")
+        db = c2db.Cosmic2DB(dsn=self.dsn)
         db.upsert_profiles([{**_PROFILE_BASE, "profile_id": "p2"}], date(2024, 4, 1), date(2024, 4, 1))
         found = db.query_profile("p2")
         self.assertIsNotNone(found)
@@ -79,7 +80,7 @@ class Cosmic2DBTests(unittest.TestCase):
         db.close()
 
     def test_upsert_matches_idempotent(self):
-        db = c2db.Cosmic2DB(dsn="")
+        db = c2db.Cosmic2DB(dsn=self.dsn)
         row = {**_MATCH_BASE, "profile_id": "p1"}
         n1 = db.upsert_matches([row], date(2024, 4, 1), date(2024, 4, 1))
         self.assertEqual(n1, 1)
@@ -91,7 +92,7 @@ class Cosmic2DBTests(unittest.TestCase):
         db.close()
 
     def test_upsert_calibration_run_idempotent(self):
-        db = c2db.Cosmic2DB(dsn="")
+        db = c2db.Cosmic2DB(dsn=self.dsn)
         row = {
             "start_date": "2024-04-01", "end_date": "2024-04-05", "slope": 1.2, "intercept": 1.8,
             "r_squared": 0.8, "pearson_r": 0.9, "rmse_tecu": 2.0, "mae_tecu": 1.5, "mean_bias_tecu": 0.1,
@@ -105,7 +106,7 @@ class Cosmic2DBTests(unittest.TestCase):
         db.close()
 
     def test_query_latest_calibration_without_range(self):
-        db = c2db.Cosmic2DB(dsn="")
+        db = c2db.Cosmic2DB(dsn=self.dsn)
         db.upsert_calibration_run({
             "start_date": "2024-04-01", "end_date": "2024-04-05", "slope": 1.0, "intercept": 0.0,
             "r_squared": 0.5, "pearson_r": 0.7, "rmse_tecu": 3.0, "mae_tecu": 2.0, "mean_bias_tecu": 0.0,
@@ -116,7 +117,7 @@ class Cosmic2DBTests(unittest.TestCase):
         db.close()
 
     def test_summary_counts(self):
-        db = c2db.Cosmic2DB(dsn="")
+        db = c2db.Cosmic2DB(dsn=self.dsn)
         db.upsert_profiles([{**_PROFILE_BASE, "profile_id": "p1"}], date(2024, 4, 1), date(2024, 4, 1))
         db.upsert_matches([{**_MATCH_BASE, "profile_id": "p1"}], date(2024, 4, 1), date(2024, 4, 1))
         counts = db.summary_counts()

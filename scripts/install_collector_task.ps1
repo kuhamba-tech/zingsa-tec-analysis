@@ -1,7 +1,7 @@
 # Run this once from an elevated PowerShell (Right-click PowerShell -> "Run as Administrator").
 # Registers a Scheduled Task that keeps scripts/live_ntrip_collector.py running
 # persistently, restarting it automatically if it ever exits/crashes, so the
-# shared Neon DB keeps getting fresh live VTEC even when no dev session is
+# shared Supabase database keeps getting fresh live VTEC even when no dev session is
 # running the FastAPI backend. Without this, the Vercel dashboard falls back
 # to stale processed-archive data whenever nothing else is feeding the DB.
 $ErrorActionPreference = "Stop"
@@ -22,7 +22,7 @@ Register-ScheduledTask -TaskName "ZGIIS-NTRIP-Collector" `
     -Action $action `
     -Trigger $trigger `
     -Settings $settings `
-    -Description "Persistent NTRIP collector feeding the shared Neon DB with live VTEC so the Vercel dashboard always has fresh data (scripts/live_ntrip_collector.py)." `
+    -Description "Persistent NTRIP collector feeding the shared Supabase database with live VTEC so the dashboard always has fresh data (scripts/live_ntrip_collector.py)." `
     -Force
 
 Write-Host "Task registered. Starting it now..."

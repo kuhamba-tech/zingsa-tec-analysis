@@ -832,23 +832,31 @@ async def live_stations(_=Depends(require_api_key)):
         # Operational station state is live only inside the same 90-second
         # freshness window used for NTRIP stream status. Older DB rows are
         # historical data and must not keep a marker/value looking current.
-        df = db.query_recent(hours=90.0 / 3600.0) if db else None
-        if df is not None and not df.empty and "station" in df.columns:
-            # Keep only live NTRIP decode; exclude DLR, RINEX, CMN and archive.
-            if "tec_method" in df.columns:
-                method = df["tec_method"].astype(str)
-                live_mask = method.str.contains("live", case=False, na=False)
-                live_mask &= ~method.str.contains("dlr|archive|rinex|cmn", case=False, na=False)
-                df = df[live_mask]
-            if "time" in df.columns:
-                observed_at = pd.to_datetime(df["time"], utc=True, errors="coerce")
-                cutoff = datetime.now(timezone.utc) - timedelta(seconds=90)
-                df = df[observed_at >= cutoff]
-            if not df.empty:
-                latest = df.sort_values("time").groupby("station").tail(1).set_index("station")
-                latest_by_station = latest.to_dict(orient="index")
-                if "vtec_tecu" in df.columns:
-                    mean_by_station = df.groupby("station")["vtec_tecu"].mean().to_dict()
+        # One grouped query replaces pulling every observation in that window.
+        reader = getattr(type(db), "live_station_mean_vtec", None) if db is not None else None
+        if reader is not None:
+            mean_by_station = {
+                str(code).lower().rstrip("_"): value
+                for code, value in (db.live_station_mean_vtec(seconds=90.0) or {}).items()
+            }
+            latest_by_station = {code: {"vtec_tecu": value} for code, value in mean_by_station.items()}
+        else:
+            df = db.query_recent(hours=90.0 / 3600.0) if db else None
+            if df is not None and not df.empty and "station" in df.columns:
+                if "tec_method" in df.columns:
+                    method = df["tec_method"].astype(str)
+                    live_mask = method.str.contains("live", case=False, na=False)
+                    live_mask &= ~method.str.contains("dlr|archive|rinex|cmn", case=False, na=False)
+                    df = df[live_mask]
+                if "time" in df.columns:
+                    observed_at = pd.to_datetime(df["time"], utc=True, errors="coerce")
+                    cutoff = datetime.now(timezone.utc) - timedelta(seconds=90)
+                    df = df[observed_at >= cutoff]
+                if not df.empty:
+                    latest = df.sort_values("time").groupby("station").tail(1).set_index("station")
+                    latest_by_station = latest.to_dict(orient="index")
+                    if "vtec_tecu" in df.columns:
+                        mean_by_station = df.groupby("station")["vtec_tecu"].mean().to_dict()
     except Exception:
         latest_by_station = {}
         mean_by_station = {}
@@ -909,27 +917,27 @@ async def pipeline_status(_=Depends(require_api_key)):
 
     from backend.live_manager import status as live_status
     # Skip full-table COUNT(*) — under continuous NTRIP ingest that scans
-    # millions of SQLite rows and stalls every dashboard poll.
+    # the observation table and stalls every dashboard poll.
     s = live_status(include_record_counts=False)
     db = _db()
     record_count = 0
     recent_record_count_1h = int(s.get("recent_vtec_records_1h") or 0)
-    db_backend = s.get("db_backend") or "sqlite"
+    db_backend = s.get("db_backend") or "supabase"
     if db_backend == "unknown":
-        db_backend = "sqlite"
+        db_backend = "supabase"
     try:
         if db:
             db_backend = db.backend
     except Exception:
         if db_backend == "unknown":
-            db_backend = "timescaledb" if os.getenv("TSDB_DSN") else "sqlite"
+            db_backend = "supabase"
     return LivePipelineStatus(
         ntrip_configured=s["configured"],
         active_streams=s["active_streams"],
         streams=s["streams"],
         db_backend=db_backend,
         db_env_key=s.get("db_env_key"),
-        db_host_kind=s.get("db_host_kind", "sqlite"),
+        db_host_kind=s.get("db_host_kind", "supabase"),
         record_count=record_count,
         recent_record_count_1h=recent_record_count_1h,
         diagnostics=s.get("diagnostics") or {},

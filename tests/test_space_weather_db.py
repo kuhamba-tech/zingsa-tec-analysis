@@ -1,26 +1,15 @@
-import tempfile
 import unittest
-from pathlib import Path
 
+from tests.supabase_isolation import prepare
 from zgiis.db.space_weather_db import SpaceWeatherDB, gnss_risk_to_score, snapshot_from_sw_dict
 
 
 class SpaceWeatherDBTests(unittest.TestCase):
     def setUp(self) -> None:
-        self._tmp = tempfile.TemporaryDirectory()
-        self._db_path = Path(self._tmp.name) / "sw_test.sqlite"
-        self._orig_path = SpaceWeatherDB.__module__
-        import zgiis.db.space_weather_db as mod
-
-        self._mod = mod
-        self._saved = mod._SQLITE_PATH
-        mod._SQLITE_PATH = self._db_path
-        self.db = SpaceWeatherDB(dsn="")
+        self.db = SpaceWeatherDB(dsn=prepare("space_weather_log"))
 
     def tearDown(self) -> None:
         self.db.close()
-        self._mod._SQLITE_PATH = self._saved
-        self._tmp.cleanup()
 
     def test_insert_and_query_snapshot(self) -> None:
         row = snapshot_from_sw_dict(
