@@ -1,6 +1,8 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import type { Station, TecHeatmapResponse } from "@/lib/types";
+import { igrf14Epoch } from "@/lib/geomagneticEquator";
+import { anomalyPaths, dipLatitudeDeg, eiaRegion, polewardOfSouthernCrestDeg } from "@/lib/igrf14Dip";
 import { getLiveStationStatus } from "@/lib/liveStationStatus";
 import { buildCorsNetworkEdges, isReferenceCorsStation } from "@/lib/corsNetworkDistances";
 import type { ProposedCorsSite } from "@/lib/corsGeneticOptimizer";
@@ -42,6 +44,16 @@ const GLOBAL_TEC_ZOOM = 2;
 /** Zimbabwe through South Africa, so both CORS networks sit in one frame. */
 const TRIGNET_CENTER: [number, number] = [26.5, -25.2];
 const TRIGNET_ZOOM = 4.65;
+/** Whole-Earth dip equator, with Zimbabwe still inside the frame. */
+const GEOMAGNETIC_CENTER: [number, number] = [0, 0];
+const GEOMAGNETIC_ZOOM = 2;
+
+function mapFrame(layer: MapLayer): { center: [number, number]; zoom: number } {
+  if (layer === "Global TEC") return { center: GLOBAL_TEC_CENTER, zoom: GLOBAL_TEC_ZOOM };
+  if (layer === "TrigNet") return { center: TRIGNET_CENTER, zoom: TRIGNET_ZOOM };
+  if (layer === "Geomagnetic") return { center: GEOMAGNETIC_CENTER, zoom: GEOMAGNETIC_ZOOM };
+  return { center: ZIMBABWE_CENTER, zoom: ZIMBABWE_ZOOM };
+}
 
 const SATELLITE_URL =
   "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
@@ -62,6 +74,7 @@ function usesHybridOverlays(layer: MapLayer): boolean {
   return (
     layer === "Hybrid" ||
     layer === "TEC Heat Map" ||
+    layer === "Geomagnetic" ||
     layer === "Zimbabwe ROTI Map" ||
     layer === "TrigNet" ||
     layer === "Network Distances"
@@ -233,6 +246,11 @@ function formatDualTecLabel(code: string, gopi: number | null, gg: number | null
   return id;
 }
 
+function formatGeomagneticLabel(code: string, gopi: number | null): string {
+  const id = code.toUpperCase();
+  return gopi != null ? `${id} G ${gopi.toFixed(1)}` : id;
+}
+
 export default function CorsMap({
   stations,
   height = 420,
@@ -265,7 +283,11 @@ export default function CorsMap({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const proposedLayerRef = useRef<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const geomagneticLayerRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const vectorSourceRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const stationLayerRef = useRef<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const olHelpersRef = useRef<any>(null);
   const stationsRef = useRef(stations);
@@ -344,7 +366,8 @@ export default function CorsMap({
     const helpers = olHelpersRef.current;
     if (!helpers) return [];
     const { fromLonLat, Feature, Point, Style, Circle, Fill, Stroke, Text } = helpers;
-    const showTecLabels = layerRef.current === "TEC Heat Map";
+    const showTecLabels = layerRef.current === "TEC Heat Map" || layerRef.current === "Geomagnetic";
+    const geomagnetic = layerRef.current === "Geomagnetic";
     const trigNet = layerRef.current === "TrigNet";
     const networkMode = layerRef.current === "Network Distances";
     const highlight = stationKey(highlightCodeRef.current || "");
@@ -357,7 +380,7 @@ export default function CorsMap({
           ? s.current_tec
           : null;
       const labelG = trigNet ? trigTec : tecValue;
-      const labelGg = trigNet ? ggValue : showTecLabels ? ggValue : null;
+      const labelGg = geomagnetic ? null : trigNet ? ggValue : showTecLabels ? ggValue : null;
       const isRef = networkMode && isReferenceCorsStation(s);
       const isHighlight = Boolean(highlight) && stationKey(s.code) === highlight;
       const liveStatus = getLiveStationStatus(s);
@@ -375,7 +398,9 @@ export default function CorsMap({
           : "#00ff88"
         : STATUS_COLOR[liveStatus];
       const dualTec = (showTecLabels || trigNet) && (labelG != null || labelGg != null);
-      const label = trigNet
+      const label = geomagnetic
+        ? formatGeomagneticLabel(s.code, tecValue)
+        : trigNet
         ? formatDualTecLabel(s.code, labelG, labelGg)
         : networkMode
         ? (() => {
@@ -401,7 +426,7 @@ export default function CorsMap({
           }),
           text: new Text({
             text: label,
-            offsetY: dualLines ? (narrowMap ? -22 : -30) : trigTec != null || (showTecLabels && !networkMode) ? -22 : -14,
+            offsetY: geomagnetic ? -16 : dualLines ? (narrowMap ? -22 : -30) : trigTec != null || (showTecLabels && !networkMode) ? -22 : -14,
             fill: new Fill({ color: "#fff" }),
             stroke: new Stroke({ color: "#000", width: narrowMap ? 2 : 3 }),
             font: dualLines
@@ -551,6 +576,64 @@ export default function CorsMap({
     const layer = new VectorLayer({ source, zIndex: 5 });
     map.addLayer(layer);
     proposedLayerRef.current = layer;
+  };
+
+  const syncGeomagneticLayer = async () => {
+    const map = olMapRef.current;
+    if (!map) return;
+
+    if (geomagneticLayerRef.current) {
+      map.removeLayer(geomagneticLayerRef.current);
+      geomagneticLayerRef.current = null;
+    }
+    if (layerRef.current !== "Geomagnetic") return;
+
+    const helpers = olHelpersRef.current;
+    if (!helpers) return;
+    const { fromLonLat, Feature, Point, Style, Stroke, Fill, Text, LineString, VectorSource, VectorLayer } =
+      helpers;
+    const epoch = igrf14Epoch();
+    const paths = anomalyPaths(epoch);
+    if (!paths) return;
+
+    const source = new VectorSource();
+    const lines: Array<{ key: "trough" | "southern_crest" | "northern_crest"; color: string; label: string; labelLon: number }> = [
+      { key: "trough", color: "#67e8f9", label: "Magnetic equator", labelLon: -30 },
+      { key: "southern_crest", color: "#f59e0b", label: "Southern EIA crest (−15°)", labelLon: 110 },
+      { key: "northern_crest", color: "#c4b5fd", label: "Northern EIA crest (+15°)", labelLon: 25 },
+    ];
+    for (const item of lines) {
+      const path = paths[item.key];
+      if (path.length < 2) continue;
+      const line = new Feature({
+        geometry: new LineString(path.map(([lon, lat]) => fromLonLat([lon, lat]))),
+      });
+      line.setStyle([
+        new Style({ stroke: new Stroke({ color: "rgba(0,0,0,0.85)", width: 6 }) }),
+        new Style({ stroke: new Stroke({ color: item.color, width: 2.5 }) }),
+      ]);
+      source.addFeature(line);
+      const labelAt = path.find(([lon]) => lon >= item.labelLon) ?? path[0];
+      const label = new Feature({
+        geometry: new Point(fromLonLat(labelAt)),
+      });
+      label.setStyle(
+        new Style({
+          text: new Text({
+            text: item.label,
+            offsetY: -12,
+            fill: new Fill({ color: item.color }),
+            stroke: new Stroke({ color: "#000", width: 3 }),
+            font: "bold 12px sans-serif",
+          }),
+        }),
+      );
+      source.addFeature(label);
+    }
+
+    const vector = new VectorLayer({ source, zIndex: 3 });
+    map.addLayer(vector);
+    geomagneticLayerRef.current = vector;
   };
 
   const buildHeatLayer = async () => {
@@ -845,29 +928,28 @@ export default function CorsMap({
         opacity: 0.85,
       });
 
-      const openingCenter =
-        layerRef.current === "Global TEC"
-          ? GLOBAL_TEC_CENTER
-          : layerRef.current === "TrigNet"
-            ? TRIGNET_CENTER
-            : ZIMBABWE_CENTER;
-      const openingZoom =
-        layerRef.current === "Global TEC"
-          ? GLOBAL_TEC_ZOOM
-          : layerRef.current === "TrigNet"
-            ? TRIGNET_ZOOM
-            : ZIMBABWE_ZOOM;
+      const opening = mapFrame(layerRef.current);
+      const openingCenter = opening.center;
+      const openingZoom = opening.zoom;
       const vectorSource = new VectorSource();
       vectorSourceRef.current = vectorSource;
       syncStationFeatures(stationsRef.current);
 
       const popup = new Overlay({ element: popupEl, positioning: "bottom-center", offset: [0, -14] });
 
-      const layers = [baseTile, labelTile, transportTile, new VectorLayer({ source: vectorSource, zIndex: 4 })];
+      const stationLayer = new VectorLayer({ source: vectorSource, zIndex: 4, declutter: layerRef.current === "Geomagnetic" });
+      stationLayerRef.current = stationLayer;
+      const layers = [baseTile, labelTile, transportTile, stationLayer];
       const map = new Map({
         target: container,
         layers,
-        view: new View({ center: fromLonLat(openingCenter), zoom: openingZoom }),
+        view: new View({
+          center: fromLonLat(openingCenter),
+          zoom: openingZoom,
+          multiWorld: true,
+          showFullExtent: true,
+          minZoom: 0,
+        }),
         overlays: [popup],
         controls: [],
       });
@@ -919,6 +1001,16 @@ export default function CorsMap({
             tecValue != null && icaoTecDistanceLabel(tecValue)
               ? `<div style="color:#ffffff;font-size:0.68rem">${icaoTecDistanceLabel(tecValue)}</div>`
               : "";
+          const dip = dipLatitudeDeg(s.lat, s.lon, igrf14Epoch());
+          const crestOffset = dip != null ? polewardOfSouthernCrestDeg(dip) : null;
+          const mlatLine =
+            dip != null
+              ? `<div style="color:#67e8f9;font-size:0.72rem;font-weight:700">Dip latitude ${dip.toFixed(1)}° · ${eiaRegion(dip)}</div>${
+                  crestOffset != null && crestOffset > 0.25
+                    ? `<div style="color:#f59e0b;font-size:0.68rem">${crestOffset.toFixed(1)}° poleward of the southern crest</div>`
+                    : ""
+                }`
+              : "";
           const tecLine =
             tecValue != null
               ? `<div style="color:#38bdf8;font-weight:800">GOPI ${tecValue.toFixed(1)} TECU</div>`
@@ -949,7 +1041,7 @@ export default function CorsMap({
             typeof s.connected_rovers === "number"
               ? `<div style="margin-top:0.2rem;color:#c4b5fd;font-weight:700">${s.connected_rovers} connected rover${s.connected_rovers === 1 ? "" : "s"}</div>`
               : "";
-          popupEl.innerHTML = `<b>${s.code.toUpperCase()}</b>${tecLine}${ggLine}${deltaLine}${tecSourceLine}${icaoLine}${distLine}${sourcetableLine}${roverLine}<div style="margin-top:0.2rem;color:#ffffff">Click Details →</div>`;
+          popupEl.innerHTML = `<b>${s.code.toUpperCase()}</b>${tecLine}${ggLine}${deltaLine}${mlatLine}${tecSourceLine}${icaoLine}${distLine}${sourcetableLine}${roverLine}<div style="margin-top:0.2rem;color:#ffffff">Click Details →</div>`;
           popup.setPosition(evt.coordinate);
           popupEl.style.display = "block";
         } else {
@@ -968,6 +1060,7 @@ export default function CorsMap({
       await syncScienceLayer();
       await syncNetworkLayer();
       await syncProposedSitesLayer();
+      await syncGeomagneticLayer();
       if (!disposed) setMapReady(true);
 
       map.set("corsResizeCleanup", () => {
@@ -994,7 +1087,9 @@ export default function CorsMap({
       networkLayerRef.current = null;
       networkSourceRef.current = null;
       proposedLayerRef.current = null;
+      geomagneticLayerRef.current = null;
       vectorSourceRef.current = null;
+      stationLayerRef.current = null;
       olHelpersRef.current = null;
       if (popupEl) {
         popupEl.style.display = "none";
@@ -1044,12 +1139,20 @@ export default function CorsMap({
       if (layer !== "TrigNet") trigNetFramedRef.current = false;
       const needsTrigNetFrame = layer === "TrigNet" && Boolean(map) && !trigNetFramedRef.current;
       if ((layerChanged || needsTrigNetFrame) && map) {
-        const center =
-          layer === "Global TEC" ? GLOBAL_TEC_CENTER : layer === "TrigNet" ? TRIGNET_CENTER : ZIMBABWE_CENTER;
-        const zoom =
-          layer === "Global TEC" ? GLOBAL_TEC_ZOOM : layer === "TrigNet" ? TRIGNET_ZOOM : ZIMBABWE_ZOOM;
-        map.getView().setCenter(fromLonLat(center));
-        map.getView().setZoom(zoom);
+        const frame = mapFrame(layer);
+        if (layer === "Geomagnetic") {
+          map.updateSize();
+          const size = map.getSize();
+          const width = size?.[0] || 1;
+          const worldWidth = 20037508.342789244 * 2;
+          const view = map.getView();
+          view.setCenter(fromLonLat([0, 0]));
+          view.setResolution(worldWidth / width);
+        } else {
+          map.getView().setCenter(fromLonLat(frame.center));
+          map.getView().setZoom(frame.zoom);
+        }
+        stationLayerRef.current?.setDeclutter?.(layer === "Geomagnetic");
         if (layer === "TrigNet") trigNetFramedRef.current = true;
         viewLayerRef.current = layer;
       }
@@ -1063,6 +1166,8 @@ export default function CorsMap({
       await syncNetworkLayer();
       if (cancelled) return;
       await syncProposedSitesLayer();
+      if (cancelled) return;
+      await syncGeomagneticLayer();
     })();
     return () => {
       cancelled = true;

@@ -1,6 +1,11 @@
 import unittest
 import pandas as pd
-from zgiis.processing.tec_climatology import summarize, season_key, magnetic_latitude
+from zgiis.processing.tec_climatology import (
+    geomagnetic_equator_latitude,
+    magnetic_latitude,
+    season_key,
+    summarize,
+)
 from zgiis.processing.north_south_tec_research import zimbabwe_lat_band
 
 
@@ -24,6 +29,14 @@ class ClimatologyTests(unittest.TestCase):
     def test_geomagnetic_validity(self):
         self.assertIsNone(magnetic_latitude(-18,30,2020))
         self.assertTrue(-90<magnetic_latitude(-18,30,2026)<90)
+
+    def test_geomagnetic_equator_has_zero_magnetic_latitude(self):
+        self.assertIsNone(geomagnetic_equator_latitude(30, 2020))
+        lat = geomagnetic_equator_latitude(30, 2026.8)
+        self.assertIsNotNone(lat)
+        self.assertGreater(lat, 0)
+        self.assertLess(lat, 8)
+        self.assertAlmostEqual(magnetic_latitude(lat, 30, 2026.8), 0, delta=0.02)
 
     def test_missing_data_stays_empty(self):
         self.assertEqual(summarize(pd.DataFrame(),'hour',lambda _:24,{}),[])

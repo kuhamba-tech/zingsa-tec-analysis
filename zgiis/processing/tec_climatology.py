@@ -30,6 +30,21 @@ def magnetic_latitude(lat, lon, epoch):
     return round(math.degrees(math.asin(dot / math.sqrt(g10*g10 + g11*g11 + h11*h11))), 4)
 
 
+def geomagnetic_equator_latitude(lon, epoch):
+    """Geographic latitude of the IGRF-14 centered-dipole equator (mlat = 0).
+
+    Inverse of magnetic_latitude. Not the dip equator.
+    """
+    if not 2025 <= epoch <= 2030:
+        return None
+    dt = epoch - 2025
+    g10, g11, h11 = -29350 + 12.6 * dt, -1410.3 + 10 * dt, 4545.5 - 21.5 * dt
+    lam = math.radians(lon)
+    tan_phi = -(g11 * math.cos(lam) + h11 * math.sin(lam)) / g10
+    tan_lat = tan_phi / (1 - 6.69437999014e-3)
+    return round(math.degrees(math.atan(tan_lat)), 4)
+
+
 def season_key(month, year, groups=None):
     groups = groups or SEASONS
     for name, months in groups.items():
