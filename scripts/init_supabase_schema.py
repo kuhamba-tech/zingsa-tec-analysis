@@ -67,7 +67,14 @@ def main() -> int:
                     log.error("statement failed: %s", exc)
                     log.error("%s", stmt[:200])
                     return 1
-        print(f"init_supabase_schema: applied={ok} skipped_existing={skipped}")
+            # The backend connects as the table owner, which bypasses RLS. With
+            # RLS on and no policies, the public anon key gets nothing via the
+            # Supabase REST API.
+            cur.execute("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
+            tables = [row[0] for row in cur.fetchall()]
+            for table in tables:
+                cur.execute(f'ALTER TABLE public."{table}" ENABLE ROW LEVEL SECURITY')
+        print(f"init_supabase_schema: applied={ok} skipped_existing={skipped} rls_tables={len(tables)}")
     finally:
         conn.close()
     return 0
