@@ -1,4 +1,5 @@
 import unittest
+from datetime import datetime, timedelta, timezone
 from unittest.mock import Mock, patch
 
 import pandas as pd
@@ -6,6 +7,13 @@ import pandas as pd
 from tests.supabase_isolation import prepare
 from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
 from zgiis.db.station_status_db import StationStatusDB
+
+
+def _hours_ago(hours: float) -> str:
+    """ISO timestamp inside the rolling outage lookback, independent of the calendar date."""
+    return (
+        datetime.now(timezone.utc) - timedelta(hours=hours)
+    ).replace(microsecond=0).isoformat()
 
 
 class StationStatusDBTests(unittest.TestCase):
@@ -160,7 +168,7 @@ class StationStatusDBTests(unittest.TestCase):
         self.assertEqual(filtered[0]["online_pct"], 75.0)
 
     def test_site_down_opens_ongoing_outage_for_details(self) -> None:
-        down_at = "2026-08-24T16:00:00+00:00"
+        down_at = _hours_ago(2)
         self.db.insert_event(
             {
                 "time": down_at,
@@ -180,7 +188,7 @@ class StationStatusDBTests(unittest.TestCase):
         intervals = self.db.outage_intervals(hours=24, station_code="gokw", limit=10)
         self.assertEqual(len(intervals), 1)
         self.assertTrue(intervals[0]["ongoing"])
-        self.assertEqual(intervals[0]["started_at"], down_at)
+        self.assertEqual(pd.Timestamp(intervals[0]["started_at"]), pd.Timestamp(down_at))
         self.assertIsNone(intervals[0]["ended_at"])
 
     def test_initial_offline_does_not_create_outage(self) -> None:
@@ -208,7 +216,7 @@ class StationStatusDBTests(unittest.TestCase):
         """Zero-uptime sites must not be crowded out by short recovered flaps."""
         self.db.insert_event(
             {
-                "time": "2026-08-21T00:38:12+00:00",
+                "time": _hours_ago(72),
                 "station_code": "bula",
                 "status": "offline",
                 "previous_status": "online",
@@ -224,7 +232,7 @@ class StationStatusDBTests(unittest.TestCase):
         )
         self.db.insert_event(
             {
-                "time": "2026-08-24T12:00:00+00:00",
+                "time": _hours_ago(3),
                 "station_code": "zinh",
                 "status": "offline",
                 "previous_status": "online",
@@ -240,7 +248,7 @@ class StationStatusDBTests(unittest.TestCase):
         )
         self.db.insert_event(
             {
-                "time": "2026-08-24T12:10:00+00:00",
+                "time": _hours_ago(2),
                 "station_code": "zinh",
                 "status": "online",
                 "previous_status": "offline",

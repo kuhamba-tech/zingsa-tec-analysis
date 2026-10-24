@@ -33,13 +33,13 @@ class AiRecommendationsTests(unittest.TestCase):
         out = build_ai_recommendations(forecasts, sw, computed_at="2026-07-06T12:00:00Z")
         by_id = {r["id"]: r for r in out["recommendations"]}
 
-        self.assertEqual(by_id["surveyors"]["headline"], "Proceed.")
+        self.assertEqual(by_id["surveyors"]["headline"], "CORS/RTK favourable — proceed.")
         self.assertEqual(
             by_id["surveyors"]["detail"],
             "Expected accuracy 1–2 cm · RTK Good · Window 07:00 – 11:00",
         )
-        self.assertEqual(by_id["farmers"]["headline"], "Good day for precision planting.")
-        self.assertEqual(by_id["power"]["headline"], "No GIC warning.")
+        self.assertEqual(by_id["farmers"]["headline"], "Good day for tractor GPS and planting.")
+        self.assertEqual(by_id["power"]["headline"], "No GIC warning — grid geomagnetic risk low.")
         self.assertEqual(by_id["telecom"]["headline"], "Timing stable.")
 
     def test_moderate_storm_pilot_note(self) -> None:

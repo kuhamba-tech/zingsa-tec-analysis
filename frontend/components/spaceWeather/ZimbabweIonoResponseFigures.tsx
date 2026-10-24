@@ -9,6 +9,8 @@ import {
   LineElement,
   PointElement,
   Tooltip,
+  type ChartDataset,
+  type Point,
 } from "chart.js";
 import { Chart } from "react-chartjs-2";
 import { getIonoResponseFigures } from "@/lib/api";
@@ -149,9 +151,9 @@ export default function ZimbabweIonoResponseFigures() {
     const rows = data.rmse;
     const xMin = Date.parse(`${data.start}T00:00:00Z`);
     const xMax = Date.parse(`${data.end}T23:00:00Z`);
-    const datasets: Array<Record<string, unknown>> = [
+    const datasets: ChartDataset<"scatter", Point[]>[] = [
       {
-        type: "scatter" as const,
+        type: "scatter",
         label: "Observed",
         data: rows.filter((point) => finite(point.rmse)).map((point) => ({ x: epoch(point.time), y: point.rmse as number })),
         backgroundColor: "rgba(226, 232, 240, 0.75)",
@@ -159,18 +161,20 @@ export default function ZimbabweIonoResponseFigures() {
         yAxisID: "y",
       },
       {
-        type: "line" as const,
+        type: "scatter",
         label: "7-day average",
         data: rows.filter((point) => finite(point.smooth)).map((point) => ({ x: epoch(point.time), y: point.smooth as number })),
+        showLine: true,
         borderColor: "#ef4444",
         borderWidth: 2,
         pointRadius: 0,
         yAxisID: "y",
       },
       {
-        type: "line" as const,
+        type: "scatter",
         label: "EKF Predicted",
         data: rows.filter((point) => finite(point.ekf)).map((point) => ({ x: epoch(point.time), y: point.ekf as number })),
+        showLine: true,
         borderColor: "#fde68a",
         borderDash: [6, 4],
         borderWidth: 1.5,
@@ -185,12 +189,13 @@ export default function ZimbabweIonoResponseFigures() {
     for (const [level, label, color] of guides) {
       if (!finite(level)) continue;
       datasets.push({
-        type: "line" as const,
+        type: "scatter",
         label,
         data: [
           { x: xMin, y: level },
           { x: xMax, y: level },
         ],
+        showLine: true,
         borderColor: color,
         borderDash: [7, 4],
         borderWidth: 1.5,

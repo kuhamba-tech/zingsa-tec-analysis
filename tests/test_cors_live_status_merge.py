@@ -32,7 +32,7 @@ def test_all_live_ntrip_states_are_propagated():
     catalog = [station("onln", "online"), station("idle", "online"), station("offl", "online")]
     live = [
         station("onln", "online", "ntrip"),
-        station("idle", "degraded", "ntrip"),  # legacy label → offline
+        station("idle", "degraded", "ntrip"),  # legacy label → online
         station("offl", "offline", "ntrip"),
     ]
 
@@ -40,7 +40,7 @@ def test_all_live_ntrip_states_are_propagated():
 
     assert [(row.status, row.status_source) for row in result] == [
         ("online", "ntrip"),
-        ("offline", "ntrip"),
+        ("online", "ntrip"),
         ("offline", "ntrip"),
     ]
 

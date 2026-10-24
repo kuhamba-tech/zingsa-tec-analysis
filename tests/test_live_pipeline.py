@@ -133,6 +133,7 @@ def test_pipeline_flush_db_on_pending():
 
         def insert_vtec(self, rows):
             self.rows.extend(rows)
+            return len(rows)
 
     db = FakeDB()
     pipeline = LiveVtecPipeline(db=db, db_flush_n=100)

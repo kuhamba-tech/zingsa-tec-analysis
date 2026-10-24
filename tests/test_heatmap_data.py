@@ -164,7 +164,8 @@ def test_build_tec_heatmap_interpolates_with_three_stations():
     assert payload["diagnostics"]["gradients"]["spatial_lon_max_tecu_per_deg"] is not None
     assert payload["diagnostics"]["gradients"]["icao_supporting_diagnostic"] is True
     assert payload["diagnostics"]["ionosonde_comparison"]["code"] == "MU12K"
-    assert payload["diagnostics"]["ionosonde_comparison"]["source"] in {"DIDBase/IonoWeb", "fallback"}
+    # Live maps use the local Madimbo record and do not call DIDBase.
+    assert payload["diagnostics"]["ionosonde_comparison"]["source"] == "local"
     border = payload["diagnostics"]["border_station_comparison"]
     assert len(border) > 0
     assert border[0]["distance_km"] <= border[-1]["distance_km"]
@@ -254,12 +255,13 @@ def test_build_tec_heatmap_computes_matamba_temporal_gradient():
         payload = build_tec_heatmap(hours=2)
 
     gradients = payload["diagnostics"]["gradients"]
-    assert gradients["temporal_available"] is True
+    # The live map skips the previous-window observation scan, so the
+    # consecutive-map temporal gradient is not computed on this path.
+    assert gradients["temporal_available"] is False
     assert gradients["temporal_cadence_minutes"] == 5
     assert gradients["temporal_window_minutes"] == 15
-    assert gradients["temporal_max_tecu_per_hour"] is not None
-    assert gradients["temporal_mean_tecu_per_hour"] is not None
-    assert gradients["temporal_max_tecu_per_hour"] > 0
+    assert gradients["temporal_max_tecu_per_hour"] is None
+    assert gradients["temporal_mean_tecu_per_hour"] is None
 
 
 def test_build_tec_heatmap_uses_live_rows_when_remote_db_env_is_set():

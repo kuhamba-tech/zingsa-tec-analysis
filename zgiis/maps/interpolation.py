@@ -52,12 +52,15 @@ def interpolate_tec(
     cells are filled with nearest-neighbour values so the heat-map overlay
     always covers Zimbabwe.
     """
-    if not SCIPY_GRID_AVAILABLE:
-        raise ModuleNotFoundError("scipy is not installed")
-    from scipy.interpolate import griddata
-
     if grid_lons is None or grid_lats is None:
         grid_lons, grid_lats = build_grid()
+    if not SCIPY_GRID_AVAILABLE:
+        grid_tec = _nearest_grid(station_lons, station_lats, station_tec, grid_lons, grid_lats)
+        if median_filter_size and median_filter_size > 1 and np.isfinite(grid_tec).any():
+            grid_tec = _median_filter(grid_tec, int(median_filter_size))
+        return grid_lons, grid_lats, grid_tec
+    from scipy.interpolate import griddata
+
     points = np.column_stack([station_lons, station_lats])
     primary = "linear" if method == "linear" and len(station_tec) >= 3 else "nearest"
     grid_tec = griddata(points, station_tec, (grid_lons, grid_lats), method=primary, fill_value=float("nan"))
@@ -69,6 +72,35 @@ def interpolate_tec(
 
         grid_tec = median_filter(grid_tec, size=int(median_filter_size), mode="nearest")
     return grid_lons, grid_lats, grid_tec
+
+
+def _nearest_grid(
+    station_lons: np.ndarray,
+    station_lats: np.ndarray,
+    station_tec: np.ndarray,
+    grid_lons: np.ndarray,
+    grid_lats: np.ndarray,
+) -> np.ndarray:
+    """1-degree nearest-neighbour fill used when SciPy is not installed."""
+    if station_tec.size == 0:
+        return np.full(grid_lons.shape, np.nan)
+    flat_lons = grid_lons.ravel()
+    flat_lats = grid_lats.ravel()
+    dlon = flat_lons[:, None] - np.asarray(station_lons, dtype=float)[None, :]
+    dlat = flat_lats[:, None] - np.asarray(station_lats, dtype=float)[None, :]
+    nearest = np.argmin(dlon * dlon + dlat * dlat, axis=1)
+    return np.asarray(station_tec, dtype=float)[nearest].reshape(grid_lons.shape)
+
+
+def _median_filter(values: np.ndarray, size: int) -> np.ndarray:
+    """Edge-padded sliding median, matching SciPy's nearest mode on this grid."""
+    pad = size // 2
+    padded = np.pad(values, pad, mode="edge")
+    out = np.empty_like(values, dtype=float)
+    for i in range(values.shape[0]):
+        for j in range(values.shape[1]):
+            out[i, j] = np.nanmedian(padded[i : i + size, j : j + size])
+    return out
 
 
 def interpolate_tec_matamba(

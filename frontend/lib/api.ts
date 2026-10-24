@@ -927,7 +927,7 @@ export async function fetchGlobalTecForecastObjectUrl(): Promise<string> {
 export const getGlobalVtecByStation = (hours = 6, latestOnly = false) =>
   get<GlobalTecByStationResponse>(
     "/tec/global-vtec-by-station",
-    { hours, ...(latestOnly ? { latest_only: true } : {}), _ts: Date.now() },
+    { hours, ...(latestOnly ? { latest_only: "true" } : {}), _ts: Date.now() },
     latestOnly ? 25_000 : Math.max(FETCH_TIMEOUT_MS, 55_000),
   );
 

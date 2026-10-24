@@ -22,6 +22,8 @@ class StationAvailabilityTests(unittest.TestCase):
 
     def test_unknown_counts_are_unavailable_but_observed_zero_is_preserved(self):
         for counts, expected in [((None, None), None), ((0, 25), 0), ((12, 25), 12)]:
+            routes._CURRENT_CACHE["payload"] = None
+            routes._CURRENT_CACHE["ts"] = 0.0
             with (
                 self.subTest(counts=counts),
                 patch.object(routes, "_sw", return_value={

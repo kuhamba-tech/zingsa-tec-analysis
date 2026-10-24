@@ -23,6 +23,8 @@ static/data/*.db-shm
 static/data/*.sqlite
 static/data/*.sqlite3
 static/data/*.sqlite-journal
+static/data/tec_capture_outbox.sqlite*
+static/data/trignet_tec.json
 static/data/storm_notify_state.json
 static/data/broadcast_recipients.private.json
 static/data/facebook_credentials.private.json

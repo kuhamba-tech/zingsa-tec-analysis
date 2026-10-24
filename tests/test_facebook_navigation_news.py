@@ -43,8 +43,8 @@ class FacebookNavigationNewsTests(unittest.TestCase):
             _brief("citizen", "Quiet day for GPS", social),
         ]
         text = build_facebook_post(briefs, computed_at="2024-06-01T12:00:00+00:00")
-        self.assertIn("ACTIVE (MILD) CONDITIONS", text)
-        self.assertIn("ZINGSA Navigation & Space Weather Update", text)
+        self.assertIn("Mild space weather", text)
+        self.assertIn("ZINGSA Navigation Update", text)
         self.assertIn("#ZINGSA", text)
         self.assertIn("Updated 2024-06-01 12:00:00", text)
 

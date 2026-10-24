@@ -58,14 +58,15 @@ class BroadcastRecipientDbTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             brd.normalize_whatsapp_to("123")
 
-    def test_group_recipient_type_rejected(self) -> None:
-        """WhatsApp Cloud API has no group endpoint — only "phone" is supported."""
-        with self.assertRaises(ValueError):
-            self.db.create_recipient(
-                recipient_type="group",
-                whatsapp_to="263771234569",
-                display_name="Should be rejected",
-            )
+    def test_group_recipient_stores_member_numbers(self) -> None:
+        """Groups have no Cloud API endpoint; member numbers are stored and fanned out."""
+        rec = self.db.create_recipient(
+            recipient_type="group",
+            whatsapp_to="263771234569, 263771234570",
+            display_name="Ops group",
+        )
+        self.assertEqual(rec["recipient_type"], "group")
+        self.assertEqual(rec["whatsapp_to"], "263771234569,263771234570")
 
 
 if __name__ == "__main__":

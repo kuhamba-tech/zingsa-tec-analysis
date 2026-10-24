@@ -70,7 +70,7 @@ class NationalGnssStatusTests(unittest.TestCase):
             {"kp": 4},
             forecasts=forecasts,
         )
-        self.assertIn("MODERATE GEOMAGNETIC STORM", text)
+        self.assertIn("Moderate space weather", text)
         self.assertIn("ZIMBABWE NATIONAL GNSS STATUS", text)
 
 
