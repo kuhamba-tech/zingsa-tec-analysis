@@ -247,8 +247,27 @@ function formatDualTecLabel(code: string, gopi: number | null, gg: number | null
 }
 
 function formatGeomagneticLabel(code: string, gopi: number | null): string {
-  const id = code.toUpperCase();
+  const key = code.toLowerCase().replace(/_+$/, "");
+  // ZINGSA HQ sits in Harare. At world scale it is the station the label should name.
+  const id = key === "zinh" ? "HARARE" : code.toUpperCase();
   return gopi != null ? `${id} G ${gopi.toFixed(1)}` : id;
+}
+
+/** Lower rank is drawn first and keeps its label when the world view overlaps Zimbabwe. */
+function geomagneticLabelRank(station: { code?: string; status?: string; status_source?: string } | undefined): number {
+  if (!station) return 9;
+  const code = String(station.code ?? "").toLowerCase().replace(/_+$/, "");
+  const status = getLiveStationStatus(station as Station);
+  if (code === "zinh") return 0;
+  if (status === "online") return 1;
+  if (status === "offline" || status === "unavailable") return 4;
+  return 2;
+}
+
+function geomagneticRenderOrder(a: { get: (key: string) => unknown }, b: { get: (key: string) => unknown }): number {
+  const left = geomagneticLabelRank(a.get("station") as Station | undefined);
+  const right = geomagneticLabelRank(b.get("station") as Station | undefined);
+  return left - right;
 }
 
 export default function CorsMap({
@@ -398,8 +417,11 @@ export default function CorsMap({
           : "#00ff88"
         : STATUS_COLOR[liveStatus];
       const dualTec = (showTecLabels || trigNet) && (labelG != null || labelGg != null);
+      const harareLabel = stationKey(s.code) === "zinh";
       const label = geomagnetic
-        ? formatGeomagneticLabel(s.code, tecValue)
+        ? !harareLabel && (liveStatus === "offline" || liveStatus === "unavailable")
+          ? ""
+          : formatGeomagneticLabel(s.code, liveStatus === "online" ? tecValue : null)
         : trigNet
         ? formatDualTecLabel(s.code, labelG, labelGg)
         : networkMode
@@ -416,6 +438,7 @@ export default function CorsMap({
       const dualLines = dualTec && labelG != null && labelGg != null;
       f.setStyle(
         new Style({
+          zIndex: geomagnetic ? 100 - geomagneticLabelRank(s) * 10 : undefined,
           image: new Circle({
             radius: isHighlight ? baseRadius + 3 : baseRadius,
             fill: new Fill({ color: markerColor }),
@@ -937,7 +960,12 @@ export default function CorsMap({
 
       const popup = new Overlay({ element: popupEl, positioning: "bottom-center", offset: [0, -14] });
 
-      const stationLayer = new VectorLayer({ source: vectorSource, zIndex: 4, declutter: layerRef.current === "Geomagnetic" });
+      const stationLayer = new VectorLayer({
+        source: vectorSource,
+        zIndex: 4,
+        declutter: layerRef.current === "Geomagnetic",
+        renderOrder: layerRef.current === "Geomagnetic" ? geomagneticRenderOrder : undefined,
+      });
       stationLayerRef.current = stationLayer;
       const layers = [baseTile, labelTile, transportTile, stationLayer];
       const map = new Map({
@@ -1153,6 +1181,7 @@ export default function CorsMap({
           map.getView().setZoom(frame.zoom);
         }
         stationLayerRef.current?.setDeclutter?.(layer === "Geomagnetic");
+        stationLayerRef.current?.setRenderOrder?.(layer === "Geomagnetic" ? geomagneticRenderOrder : undefined);
         if (layer === "TrigNet") trigNetFramedRef.current = true;
         viewLayerRef.current = layer;
       }
