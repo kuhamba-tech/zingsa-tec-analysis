@@ -64,6 +64,13 @@ def log_snapshot(*, source: str = "scheduler", force: bool = False, snapshot: di
     now = time.monotonic()
     if not force and _last_logged_at is not None and (now - _last_logged_at) < _MIN_LOG_GAP_SEC:
         return False
+    if not force and snapshot is None:
+        try:
+            if get_db().logged_within(_MIN_LOG_GAP_SEC):
+                _last_logged_at = now
+                return False
+        except Exception as exc:
+            log.debug("log gap check skipped: %s", exc)
 
     try:
         from zgiis.space_weather.fetch_indices import get_space_weather
@@ -75,19 +82,55 @@ def log_snapshot(*, source: str = "scheduler", force: bool = False, snapshot: di
         row = snapshot_from_sw_dict(sw, source=source)
         if not isinstance(row, dict):
             return False
+        # Stamp the sample with the clock, not the NOAA product time. A product
+        # time that stays still for hours would collapse every insert onto one row.
+        row["time"] = datetime.now(tz=timezone.utc).replace(microsecond=0).isoformat()
         _attach_mean_vtec(row)
         # Vercel dashboard polls often have no TecDB / NTRIP — writing
         # stations_online=0 + mean_vtec=NULL would become latest and make
         # production Zimbabwe Ionosphere flip to Unavailable.
         online = int(row.get("stations_online") or 0)
+        try:
+            from zgiis.cors.stations import zingsa_cors_stations
+
+            station_cap = len(zingsa_cors_stations()) or 19
+        except Exception:
+            station_cap = 19
+        # A count above the ZINGSA network includes Surveyor General sites
+        # or the old 25-site catalog. A count equal to stations_total from the
+        # scheduler is the catalog length (every site had a map sample), not
+        # a measured online total. Dashboard/Spider may still record a real
+        # full network later.
+        total = int(row.get("stations_total") or 0)
+        catalog_fill = (
+            total > 0
+            and online >= total
+            and source in {"scheduler", "refresh", "collector", "startup"}
+        )
+        if online > station_cap or online < 2 or catalog_fill:
+            row["stations_online"] = None
+            online = 0
         if row.get("mean_vtec") is None and online <= 0 and source in {
             "dashboard",
             "api",
         }:
             _last_logged_at = now
             return False
+        if not force:
+            try:
+                if get_db().logged_within(_MIN_LOG_GAP_SEC):
+                    _last_logged_at = now
+                    return False
+            except Exception as exc:
+                log.debug("log gap check skipped: %s", exc)
         get_db().insert_snapshot(row)
         _last_logged_at = now
+        try:
+            from zgiis.space_weather.graph_archive import snapshot_rows, store_rows
+
+            store_rows(snapshot_rows(row))
+        except Exception as exc:
+            log.debug("graph sample archive skipped: %s", exc)
         log.debug("space weather snapshot logged at %s", row.get("time"))
         return True
     except Exception as exc:
@@ -99,6 +142,12 @@ def _loop() -> None:
     interval = max(30.0, float(os.getenv("SW_LOG_INTERVAL_SEC", "60")))
     log.info("Space weather logger started (every %.0fs)", interval)
     log_snapshot(source="startup", force=True)
+    try:
+        from zgiis.space_weather.graph_archive import archive_live_graphs_in_background
+
+        archive_live_graphs_in_background()
+    except Exception as exc:
+        log.debug("startup graph archive skipped: %s", exc)
     while not _stop.wait(interval):
         if log_snapshot(source="scheduler"):
             try:
@@ -108,6 +157,12 @@ def _loop() -> None:
                 compute_ekf_status(get_space_weather(use_third_party=False), dispatch_notifications=True)
             except Exception as exc:
                 log.debug("scheduled EKF notify skipped: %s", exc)
+        try:
+            from zgiis.space_weather.graph_archive import archive_live_graphs_in_background
+
+            archive_live_graphs_in_background()
+        except Exception as exc:
+            log.debug("scheduled graph archive skipped: %s", exc)
 
 
 def start() -> None:

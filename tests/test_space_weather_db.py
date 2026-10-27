@@ -66,6 +66,27 @@ class SpaceWeatherDBTests(unittest.TestCase):
         self.assertEqual(gnss_risk_to_score("High"), 2.0)
         self.assertIsNone(gnss_risk_to_score("Unavailable"))
 
+    def test_timeline_keeps_latest_value_for_one_time(self) -> None:
+        from datetime import datetime, timedelta, timezone
+
+        when = datetime.now(tz=timezone.utc).replace(microsecond=0)
+        metric = "test_graph_archive_xray"
+        self.db.upsert_timeline(
+            [
+                (metric, when, 1.2e-6),
+                (metric, when, 1.5e-6),
+            ]
+        )
+        found = self.db.read_timeline_bins(
+            [metric],
+            since=when - timedelta(hours=1),
+            before=when + timedelta(hours=1),
+            bin_minutes=15,
+        )
+        values = [value for _stamp, value in found.get(metric, [])]
+        self.assertIn(1.5e-6, values)
+        self.assertNotIn(1.2e-6, values)
+
 
 if __name__ == "__main__":
     unittest.main()

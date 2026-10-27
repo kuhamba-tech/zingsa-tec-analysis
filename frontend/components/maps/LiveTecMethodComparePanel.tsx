@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { getGlobalVtecByStation, getTecMethodComparison } from "@/lib/api";
+import { getGlobalVtecByStation, getTecMethodComparison, getTecMethodPeriods } from "@/lib/api";
 import { idwFillByStation, stationCodeKey, type LatLonSite } from "@/lib/idwSurface";
 import type { TecMethodComparisonResponse, TecMethodStationCompare } from "@/lib/types";
 
@@ -49,6 +49,12 @@ function deltaClass(d: number | null | undefined): string {
  * Live station-by-station VTEC: Method 1 GOPI (map) vs Method 2 Gg = Cesaroni.
  * Shown under the TEC Heat Map Live TEC strip.
  */
+function signed(v: number | null | undefined): string {
+  if (v == null || !Number.isFinite(v)) return "—";
+  const text = v.toFixed(1);
+  return v > 0 ? `+${text}` : text;
+}
+
 export default function LiveTecMethodComparePanel({
   className = "",
   stations = [],
@@ -57,6 +63,8 @@ export default function LiveTecMethodComparePanel({
   stations?: LatLonSite[];
 }) {
   const [data, setData] = useState<TecMethodComparisonResponse | null>(null);
+  const [periods, setPeriods] = useState<Awaited<ReturnType<typeof getTecMethodPeriods>> | null>(null);
+  const [periodDay, setPeriodDay] = useState<string | null>(null);
   const [globalByCode, setGlobalByCode] = useState<Record<string, number>>({});
   const [globalEpoch, setGlobalEpoch] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -111,6 +119,25 @@ export default function LiveTecMethodComparePanel({
       window.clearInterval(id);
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadPeriods = () => {
+      getTecMethodPeriods(periodDay)
+        .then((payload) => {
+          if (!cancelled) setPeriods(payload);
+        })
+        .catch(() => {
+          if (!cancelled) setPeriods(null);
+        });
+    };
+    loadPeriods();
+    const id = window.setInterval(loadPeriods, REFRESH_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [periodDay]);
 
   const rows: CompareRow[] = useMemo(() => {
     const byCode = new Map<string, TecMethodStationCompare>();
@@ -325,6 +352,60 @@ export default function LiveTecMethodComparePanel({
             {data.note ??
               "A stable Δ means calibration offset (bias model), not a second ionosphere."}
           </span>
+        </div>
+      )}
+
+      {periods && (
+        <div className="live-tec-method-periods">
+          <div>
+            <div className="live-tec-method-compare-title">Morning, afternoon, and night</div>
+            <p className="live-tec-method-compare-lead">
+              Stored measured hours for {periods.day}, {periods.timezone}. Each number is the
+              median of the station-hours in that part of the day. A positive difference means
+              the first value is higher. Choose a date to compare days.
+            </p>
+          </div>
+          {(periods.logged_days?.length ?? 0) > 0 && (
+            <div className="live-tec-method-period-days">
+              <button
+                type="button"
+                className={periodDay == null ? "is-active" : ""}
+                onClick={() => setPeriodDay(null)}
+              >
+                Today
+              </button>
+              {periods.logged_days.map((day) => (
+                <button
+                  key={day}
+                  type="button"
+                  className={periodDay === day ? "is-active" : ""}
+                  onClick={() => setPeriodDay(day)}
+                >
+                  {day}
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="live-tec-method-period-grid">
+            {periods.periods.map((period) => (
+              <article key={period.id} className="live-tec-method-period-card">
+                <h3>{period.label}</h3>
+                <p>{period.hours_local}</p>
+                {period.station_hours === 0 ? (
+                  <p>No measured hours stored for this part of the day.</p>
+                ) : (
+                  <>
+                    <p>GOPI {fmt(period.gopi)} · Gg {fmt(period.gg)} · Global {fmt(period.global)} TECU</p>
+                    <p>Gg − GOPI <strong className={deltaClass(period.gg_minus_gopi)}>{signed(period.gg_minus_gopi)}</strong></p>
+                    <p>GOPI − Global <strong className={deltaClass(period.gopi_minus_global)}>{signed(period.gopi_minus_global)}</strong></p>
+                    <p>Gg − Global <strong className={deltaClass(period.gg_minus_global)}>{signed(period.gg_minus_global)}</strong></p>
+                    <p>{period.station_hours} station-hours</p>
+                  </>
+                )}
+              </article>
+            ))}
+          </div>
+          {periods.note && <p className="live-tec-method-compare-note">{periods.note}</p>}
         </div>
       )}
 

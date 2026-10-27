@@ -223,6 +223,7 @@ class StationStream(threading.Thread):
         start_delay: float = 0.0,
         nav_cache=None,
         max_session_s: Optional[float] = None,
+        hold_back: Optional[Callable[[], bool]] = None,
     ):
         super().__init__(name=f"ntrip-{station}", daemon=True)
         self.station = station
@@ -245,6 +246,7 @@ class StationStream(threading.Thread):
         # Voluntary session limit so waiting mounts (e.g. TSHO) can rotate into
         # the concurrent slot pool instead of being starved forever.
         self._max_session_s = float(max_session_s) if max_session_s and max_session_s > 0 else None
+        self._hold_back = hold_back
         self._consecutive_failures = 0
 
         self._stop = threading.Event()
@@ -299,6 +301,9 @@ class StationStream(threading.Thread):
         if self._start_delay > 0:
             self._stop.wait(self._start_delay)
         while not self._stop.is_set():
+            if self._hold_back is not None and self._hold_back():
+                self._stop.wait(10)
+                continue
             acquired = self._slots is None or self._slots.acquire(self._stop)
             if not acquired:
                 break
@@ -313,7 +318,10 @@ class StationStream(threading.Thread):
             except Exception as exc:
                 rejected = "too many concurrent" in str(exc).lower() or "rejected" in str(exc).lower()
                 if rejected and self._slots is not None:
-                    self._slots.defer(60)
+                    # A long freeze here parked every connected station. The
+                    # previous socket just closed; a few seconds is enough
+                    # for the caster to release that one account slot.
+                    self._slots.defer(8)
                 self._consecutive_failures += 1
                 log.warning("[%s] %s", self.station, exc)
             else:
@@ -367,9 +375,13 @@ class StationStream(threading.Thread):
             raise RuntimeError("pyrtcm is required — pip install pyrtcm")
         # Some caster feeds publish less frequently than every 30 seconds.
         # Allow a full minute epoch plus transport delay before rotating away.
+        # A mount that accepts the login but sends no observations must not
+        # keep the only caster slot for the whole session.
+        idle_timeout = 12.0
         read_timeout = min(75.0, self._max_session_s) if self._max_session_s else 75.0
-        sock.settimeout(read_timeout)
+        sock.settimeout(idle_timeout)
         session_started = time.monotonic()
+        session_msgs = 0
         try:
             for _, msg in RTCMReader(sock):
                 if self._stop.is_set():
@@ -386,7 +398,9 @@ class StationStream(threading.Thread):
                     break
                 if self._max_session_s is not None:
                     remaining = self._max_session_s - (time.monotonic() - session_started)
-                    sock.settimeout(max(0.1, min(read_timeout, remaining)))
+                    sock.settimeout(max(0.1, min(read_timeout if session_msgs else idle_timeout, remaining)))
+                elif session_msgs:
+                    sock.settimeout(read_timeout)
                 t_recv = datetime.now(tz=timezone.utc)
                 try:
                     msg_type = int(msg.identity)
@@ -425,8 +439,18 @@ class StationStream(threading.Thread):
                     self._last_seen = t_recv
                     self._msg_count += 1
 
+                session_msgs += len(records)
                 for rec in records:
                     self._on_record(rec)
+        except (TimeoutError, socket.timeout):
+            if session_msgs == 0:
+                log.info(
+                    "[%s] Releasing NTRIP slot after %.0fs with no observations",
+                    self.station,
+                    time.monotonic() - session_started,
+                )
+                return
+            raise
         finally:
             try:
                 sock.close()
@@ -466,7 +490,13 @@ class LiveNtripManager:
                 max_session_s = 600.0
         self._max_session_s = max_session_s if max_session_s and max_session_s > 0 else None
 
-    def start(self, mountpoints: dict[str, str], *, stagger_sec: float = 1.5) -> None:
+    def start(
+        self,
+        mountpoints: dict[str, str],
+        *,
+        stagger_sec: float = 1.5,
+        hold_back: Optional[Callable[[str], bool]] = None,
+    ) -> None:
         """
         Start a stream for each station.
         mountpoints: {station_id: mountpoint_name}
@@ -493,6 +523,7 @@ class LiveNtripManager:
                 start_delay=i * stagger_sec,
                 nav_cache=self._nav_cache,
                 max_session_s=self._max_session_s,
+                hold_back=(lambda code=station: hold_back(code)) if hold_back else None,
             )
             self._streams[station] = s
             s.start()

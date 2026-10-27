@@ -101,7 +101,12 @@ def downsample(points: list[dict[str, Any]], *, max_points: int = 288) -> list[d
     return sampled
 
 
-def parse_proton_series(rows: list[Any], *, energies: tuple[str, ...] = PROTON_ENERGIES) -> dict[str, Any]:
+def parse_proton_series(
+    rows: list[Any],
+    *,
+    energies: tuple[str, ...] = PROTON_ENERGIES,
+    max_points: int | None = 288,
+) -> dict[str, Any]:
     """Pivot GOES integral proton rows into per-energy timelines aligned by time."""
     wanted = set(energies)
     by_time: dict[str, dict[str, float]] = defaultdict(dict)
@@ -132,7 +137,9 @@ def parse_proton_series(rows: list[Any], *, energies: tuple[str, ...] = PROTON_E
                 "fluxes": {energy: values.get(energy) for energy in energies},
             }
         )
-    points = downsample(points)
+    points = [row for row in points if row.get("t")]
+    if max_points:
+        points = downsample(points, max_points=max_points)
     series = {
         energy: [p["fluxes"].get(energy) for p in points]
         for energy in energies
@@ -149,7 +156,7 @@ def parse_proton_series(rows: list[Any], *, energies: tuple[str, ...] = PROTON_E
     }
 
 
-def parse_imf_series(rows: list[Any]) -> dict[str, Any]:
+def parse_imf_series(rows: list[Any], *, max_points: int | None = 288) -> dict[str, Any]:
     points: list[dict[str, Any]] = []
     for row in rows:
         if not isinstance(row, dict):
@@ -172,7 +179,8 @@ def parse_imf_series(rows: list[Any]) -> dict[str, Any]:
                 "epoch_ms": int(stamp.timestamp() * 1000),
             }
         )
-    points = downsample(points)
+    if max_points:
+        points = downsample(points, max_points=max_points)
     return {
         "labels": [p["label"] for p in points],
         "times": [p["t"] for p in points],
@@ -184,7 +192,7 @@ def parse_imf_series(rows: list[Any]) -> dict[str, Any]:
     }
 
 
-def parse_solar_wind_speed_series(rows: list[Any]) -> dict[str, Any]:
+def parse_solar_wind_speed_series(rows: list[Any], *, max_points: int | None = 288) -> dict[str, Any]:
     points: list[dict[str, Any]] = []
     for row in rows:
         if not isinstance(row, dict):
@@ -217,7 +225,8 @@ def parse_solar_wind_speed_series(rows: list[Any]) -> dict[str, Any]:
                 "epoch_ms": int(stamp.timestamp() * 1000),
             }
         )
-    points = downsample(points)
+    if max_points:
+        points = downsample(points, max_points=max_points)
     return {
         "labels": [p["label"] for p in points],
         "times": [p["t"] for p in points],
@@ -229,7 +238,7 @@ def parse_solar_wind_speed_series(rows: list[Any]) -> dict[str, Any]:
     }
 
 
-def parse_xray_series(rows: list[Any]) -> dict[str, Any]:
+def parse_xray_series(rows: list[Any], *, max_points: int | None = 360) -> dict[str, Any]:
     """GOES 0.1–0.8 nm long-band flux with ISO times (W/m²)."""
     points: list[dict[str, Any]] = []
     for row in rows:
@@ -249,7 +258,8 @@ def parse_xray_series(rows: list[Any]) -> dict[str, Any]:
                 "epoch_ms": int(stamp.timestamp() * 1000),
             }
         )
-    points = downsample(points, max_points=360)
+    if max_points:
+        points = downsample(points, max_points=max_points)
     return {
         "labels": [p["label"] for p in points],
         "times": [p["t"] for p in points],
@@ -259,7 +269,7 @@ def parse_xray_series(rows: list[Any]) -> dict[str, Any]:
     }
 
 
-def parse_dst_series(rows: list[Any]) -> dict[str, Any]:
+def parse_dst_series(rows: list[Any], *, max_points: int | None = 360) -> dict[str, Any]:
     """Kyoto Dst product — supports dict rows ({time_tag, dst}) or legacy [time, dst] lists."""
     points: list[dict[str, Any]] = []
     if not isinstance(rows, list) or not rows:
@@ -287,7 +297,8 @@ def parse_dst_series(rows: list[Any]) -> dict[str, Any]:
                 "epoch_ms": int(stamp.timestamp() * 1000),
             }
         )
-    points = downsample(points, max_points=360)
+    if max_points:
+        points = downsample(points, max_points=max_points)
     return {
         "labels": [p["label"] for p in points],
         "times": [p["t"] for p in points],
@@ -384,12 +395,15 @@ def _build_payload_from_sources() -> dict[str, Any]:
     kp_raw, kp_err = fetched["kp"]
     dst_raw, dst_err = fetched["dst"]
 
-    protons = parse_proton_series(protons_raw if isinstance(protons_raw, list) else [])
-    xray = parse_xray_series(xray_raw if isinstance(xray_raw, list) else [])
-    imf = parse_imf_series(mag_raw if isinstance(mag_raw, list) else [])
-    wind = parse_solar_wind_speed_series(wind_raw if isinstance(wind_raw, list) else [])
+    protons = parse_proton_series(
+        protons_raw if isinstance(protons_raw, list) else [],
+        max_points=None,
+    )
+    xray = parse_xray_series(xray_raw if isinstance(xray_raw, list) else [], max_points=None)
+    imf = parse_imf_series(mag_raw if isinstance(mag_raw, list) else [], max_points=None)
+    wind = parse_solar_wind_speed_series(wind_raw if isinstance(wind_raw, list) else [], max_points=None)
     kp = parse_kp_forecast_series(kp_raw if isinstance(kp_raw, list) else [])
-    dst = parse_dst_series(dst_raw if isinstance(dst_raw, list) else [])
+    dst = parse_dst_series(dst_raw if isinstance(dst_raw, list) else [], max_points=None)
 
     has_any = bool(
         protons["labels"]
@@ -399,7 +413,7 @@ def _build_payload_from_sources() -> dict[str, Any]:
         or kp["labels"]
         or dst["labels"]
     )
-    return {
+    payload = {
         "mode": "live" if has_any else "unavailable",
         "source": "NOAA SWPC GOES X-ray/protons · RTSW mag/wind · planetary Kp · Kyoto Dst",
         "updated_utc": datetime.datetime.now(datetime.timezone.utc)
@@ -421,6 +435,9 @@ def _build_payload_from_sources() -> dict[str, Any]:
             "dst": dst_err,
         },
     }
+    from zgiis.space_weather.graph_archive import prepare_monitor_payload
+
+    return prepare_monitor_payload(payload)
 
 
 def _payload_has_series(payload: dict[str, Any] | None) -> bool:
@@ -497,3 +514,10 @@ def clear_heliospheric_monitor_cache() -> None:
     with _CACHE_LOCK:
         _CACHE.clear()
         _CACHE_REFRESHING.clear()
+
+
+def archive_current_graphs() -> None:
+    """Fetch the live NOAA graph files, store them, and refresh the chart cache."""
+    payload = _build_payload_from_sources()
+    with _CACHE_LOCK:
+        _CACHE["heliospheric_monitor"] = {"ts": time.time(), "data": payload}

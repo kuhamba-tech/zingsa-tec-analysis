@@ -16,6 +16,7 @@ import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
 import { getLiveVtec, getLiveVtecByStation, getStations, getTecMethodComparison } from "@/lib/api";
 import { getTecMethodCmpParams } from "@/lib/tecMethodCompareParams";
 import { getLoadProfile } from "@/lib/loadBudget";
+import { isSurveyorGeneral } from "@/lib/liveStationStatus";
 import { formatKnmiUtcTick, sharedTimeDomain, utcTimeAxisProps } from "@/lib/chartTimeAxis";
 import type { ChartAnalysisBlock } from "@/lib/multiSourceChartAnalysis";
 import {
@@ -244,16 +245,17 @@ export default function ZimbabweTecTeachingLab() {
       // Keep first paint light: short station bins + capped live samples.
       // Full-day dense pulls used to saturate the API worker and freeze metric cards.
       const profile = getLoadProfile();
+      // Station bins cover the last day. A short lookback was blank whenever the
+      // newest hours were a gap, even though earlier code-live samples were stored.
+      const stationHours = 24;
       const dayHours = profile.constrained
         ? Math.min(8, Math.max(3, Math.ceil(hoursSinceUtcMidnight()) + 0.5))
-        : Math.min(12, Math.max(4, Math.ceil(hoursSinceUtcMidnight() * 2) / 2 + 0.5));
+        : Math.min(12, Math.max(6, Math.ceil(hoursSinceUtcMidnight() * 2) / 2 + 0.5));
       const liveLimit = profile.slowNetwork ? 400 : profile.constrained ? 600 : 800;
-      const liveHours = Math.min(profile.constrained ? 3 : 4, dayHours);
+      const liveHours = Math.min(6, dayHours);
       const resampleMin = profile.constrained ? 20 : 15;
 
-      // Apply each feed as it lands so the slow GOPI/Gg comparison cannot block
-      // graphs 1–5 (diurnal used to stay empty until comparison finished).
-      const stP = getLiveVtecByStation(dayHours, resampleMin, profile.constrained ? 35_000 : 45_000).then((rows) => {
+      const stP = getLiveVtecByStation(stationHours, resampleMin, profile.constrained ? 60_000 : 90_000).then((rows) => {
         if (!cancelled) setStations(Array.isArray(rows) ? rows : []);
         return rows;
       });
@@ -291,7 +293,7 @@ export default function ZimbabweTecTeachingLab() {
     load();
     const unlock = window.setTimeout(() => {
       if (!cancelled) setLoading(false);
-    }, 8000);
+    }, 20000);
     // Keep the UTC-day chart live
     const refresh = window.setInterval(load, getLoadProfile().constrained ? 180_000 : 120_000);
     return () => {
@@ -306,7 +308,7 @@ export default function ZimbabweTecTeachingLab() {
 
   const stationSeries = useMemo(() => {
     return stations
-      .filter((s) => s.points?.length)
+      .filter((s) => s.points?.length && !isSurveyorGeneral(s.station))
       .slice(0, 8)
       .map((s, i) => {
         const epochs: number[] = [];

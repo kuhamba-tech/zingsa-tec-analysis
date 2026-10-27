@@ -313,7 +313,7 @@ function buildNetworkMeanSeries(
   for (const row of series) {
     const usable = row.points.filter((p) => {
       const ms = new Date(p.time).getTime();
-      return Number.isFinite(ms) && ms >= windowStartMs && ms <= windowEndMs && p.vtec_tecu > 0;
+      return Number.isFinite(ms) && ms >= windowStartMs && ms <= windowEndMs && p.vtec_tecu > 0 && p.vtec_tecu <= 50;
     });
     if (!usable.length) continue;
     stationCount += 1;
@@ -382,7 +382,7 @@ function StationChartCard({
             data: merged.observed,
             color: OBS_COLOR,
             fill: true,
-            spanGaps: true,
+            spanGaps: false,
           },
         ]
       : []),
@@ -728,7 +728,7 @@ export default function StationVtecTimePlots({
           <div className="station-vtec-plot-head">
             <div>
               <strong>Network mean VTEC</strong>
-              <span>Average of stations with live GOPI samples</span>
+              <span>Average of stations with live GOPI samples. Elevation below 20° and TEC outside 0–50 TECU are excluded.</span>
             </div>
             <div className="station-vtec-plot-stats">
               <em>

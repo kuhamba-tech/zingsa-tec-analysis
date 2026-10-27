@@ -78,14 +78,30 @@ def _sorted_live(live_points: list[TimelinePoint], limit: int) -> list[TimelineP
 
 
 def merge_timeline(metric: str, live_points: list[TimelinePoint], limit: int = 2000) -> list[TimelinePoint]:
+    cached: list[TimelinePoint] = []
     try:
         upsert_timeline(metric, live_points)
         cached = read_timeline(metric, limit=limit)
-        merged = {point.t: point for point in cached}
-        for point in live_points:
-            if point.t:
-                merged[point.t] = point
-        return list(sorted(merged.values(), key=lambda point: point.t))[-limit:]
     except Exception as exc:
         log.warning("timeline cache unavailable for %s: %s", metric, exc)
+        cached = []
+    durable: list[TimelinePoint] = []
+    try:
+        from zgiis.space_weather.graph_archive import remember_timeline
+
+        durable = [
+            TimelinePoint(t=stamp, v=value)
+            for stamp, value in remember_timeline(metric, [(point.t, point.v) for point in live_points])
+        ]
+    except Exception as exc:
+        log.warning("timeline database unavailable for %s: %s", metric, exc)
+    merged = {point.t: point for point in cached}
+    for point in durable:
+        if point.t:
+            merged[point.t] = point
+    for point in live_points:
+        if point.t:
+            merged[point.t] = point
+    if not merged:
         return _sorted_live(live_points, limit)
+    return list(sorted(merged.values(), key=lambda point: point.t))[-limit:]

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import {
   Chart as ChartJS,
   LinearScale,
@@ -47,6 +47,7 @@ function ribbonDatasets(
       fill: "+1",
       pointRadius: 0,
       tension: 0.25,
+      spanGaps: false,
       order: 2,
     },
     {
@@ -56,6 +57,7 @@ function ribbonDatasets(
       backgroundColor: "transparent",
       fill: false,
       pointRadius: 0,
+      spanGaps: false,
       order: 2,
     },
     {
@@ -122,10 +124,23 @@ const axisOpts = {
   title: "#ffffff",
 };
 
+function dayButtonStyle(active: boolean): React.CSSProperties {
+  return {
+    border: active ? "1px solid #38bdf8" : "1px solid rgba(148,163,184,0.45)",
+    background: active ? "rgba(14,165,233,0.22)" : "transparent",
+    color: "#ffffff",
+    borderRadius: 6,
+    padding: "0.15rem 0.45rem",
+    fontSize: "0.75rem",
+    cursor: "pointer",
+  };
+}
+
 export default function ZimbabweScientificTecPlots() {
   const [data, setData] = useState<ZimbabweScientificPlotsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -133,7 +148,12 @@ export default function ZimbabweScientificTecPlots() {
       setLoading(true);
       const profile = getLoadProfile();
       const hours = profile.constrained ? 18 : 24;
-      getZimbabweScientificPlots(hours, profile.constrained ? 20 : 15, profile.constrained ? 60_000 : 90_000)
+      getZimbabweScientificPlots(
+        hours,
+        profile.constrained ? 20 : 15,
+        profile.constrained ? 60_000 : 90_000,
+        selectedDay,
+      )
         .then((payload) => {
           if (cancelled) return;
           setData(payload);
@@ -153,7 +173,7 @@ export default function ZimbabweScientificTecPlots() {
       cancelled = true;
       window.clearInterval(id);
     };
-  }, []);
+  }, [selectedDay]);
 
   const diurnal = data?.diurnal_latband;
   const seasonal = data?.seasonal;
@@ -305,8 +325,31 @@ export default function ZimbabweScientificTecPlots() {
           Diurnal latitudinal comparison, equinox/solstice seasonal composites, TEC versus
           approximate MODIP along the Zimbabwe north–south CORS transect, and quiet versus
           disturbed geomagnetic conditions. Shaded ribbons are interquartile ranges (25th–75th
-          percentile) from measured samples — not arbitrary error bars.
+          percentile) from measured samples — not arbitrary error bars. Each UT hour is logged
+          so a stored day can be opened on its own.
         </p>
+        {(data?.logged_days?.length ?? 0) > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem", marginTop: "0.55rem" }}>
+            <button
+              type="button"
+              className="sw-supporting-text"
+              onClick={() => setSelectedDay(null)}
+              style={dayButtonStyle(selectedDay == null)}
+            >
+              Latest window
+            </button>
+            {data?.logged_days?.map((day) => (
+              <button
+                key={day}
+                type="button"
+                onClick={() => setSelectedDay(day)}
+                style={dayButtonStyle(selectedDay === day)}
+              >
+                {day}
+              </button>
+            ))}
+          </div>
+        )}
         {loading && (
           <p className="sw-supporting-text" style={{ margin: "0.5rem 0 0" }}>
             Computing scientific plots from live CORS + CMN archive…
@@ -344,7 +387,18 @@ export default function ZimbabweScientificTecPlots() {
                 ...lineOpts("UT [hours]").scales.x,
                 min: 0,
                 max: 23,
-                ticks: { ...lineOpts("UT [hours]").scales.x.ticks, stepSize: 3 },
+                ticks: {
+                  ...lineOpts("UT [hours]").scales.x.ticks,
+                  stepSize: 1,
+                  autoSkip: false,
+                  maxRotation: 0,
+                  callback: (value: number | string) => {
+                    const hour = Number(value);
+                    return Number.isInteger(hour) && hour >= 0 && hour <= 23
+                      ? String(hour).padStart(2, "0")
+                      : "";
+                  },
+                },
               },
             },
           }}
@@ -374,7 +428,18 @@ export default function ZimbabweScientificTecPlots() {
                 ...lineOpts("UT [hours]").scales.x,
                 min: 0,
                 max: 23,
-                ticks: { ...lineOpts("UT [hours]").scales.x.ticks, stepSize: 3 },
+                ticks: {
+                  ...lineOpts("UT [hours]").scales.x.ticks,
+                  stepSize: 1,
+                  autoSkip: false,
+                  maxRotation: 0,
+                  callback: (value: number | string) => {
+                    const hour = Number(value);
+                    return Number.isInteger(hour) && hour >= 0 && hour <= 23
+                      ? String(hour).padStart(2, "0")
+                      : "";
+                  },
+                },
               },
             },
           }}
@@ -465,7 +530,18 @@ export default function ZimbabweScientificTecPlots() {
                 ...lineOpts("UT [hours]").scales.x,
                 min: 0,
                 max: 23,
-                ticks: { ...lineOpts("UT [hours]").scales.x.ticks, stepSize: 3 },
+                ticks: {
+                  ...lineOpts("UT [hours]").scales.x.ticks,
+                  stepSize: 1,
+                  autoSkip: false,
+                  maxRotation: 0,
+                  callback: (value: number | string) => {
+                    const hour = Number(value);
+                    return Number.isInteger(hour) && hour >= 0 && hour <= 23
+                      ? String(hour).padStart(2, "0")
+                      : "";
+                  },
+                },
               },
             },
           }}

@@ -487,8 +487,12 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
     # Never open NTRIP sockets here — that is what made the dashboard feel stuck
     # on a long "login". Archive merge above is a short status-DB read only.
     if not refresh_ntrip:
-        # allow_db when archive filled statuses — ionosphere card needs TECU.
-        vtec_by_station = _safe_station_live_vtec(0.25, allow_db=archive_applied)
+        # Vercel has no in-memory NTRIP process. Read the collector's VTEC
+        # from Supabase even when Spider and status snapshots are unavailable.
+        vtec_by_station = _safe_station_live_vtec(
+            0.25,
+            allow_db=archive_applied or _is_serverless_runtime(),
+        )
         try:
             from backend.live_manager import latest_vtec_by_station
 

@@ -251,7 +251,11 @@ def render_all_live_metric_timelines(st_module, sw: dict) -> None:
         hover_format="%{y:.0f}",
     )
 
-    total_stations = sw.get("stations_total") or 24
+    total_stations = sw.get("stations_total") or 19
+    try:
+        total_stations = min(int(total_stations), 19)
+    except (TypeError, ValueError):
+        total_stations = 19
     render_live_timeline(
         st_module,
         title="Live CORS Stations Online Timeline",

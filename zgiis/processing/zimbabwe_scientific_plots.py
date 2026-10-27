@@ -8,13 +8,13 @@ from __future__ import annotations
 
 import logging
 import math
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
-from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS, get_station
+from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS, get_station, is_surveyor_general
 from zgiis.processing.gg_calibration import approximate_modip_deg
 
 log = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ SEASON_MARKERS: list[dict[str, Any]] = [
     {"id": "dec_solstice", "label": "December solstice", "doy": 356, "window_days": 15},
 ]
 
-DIURNAL_HOURS = [0, 3, 6, 9, 12, 15, 18, 21, 23]
+DIURNAL_HOURS = list(range(24))
 QUIET_KP_MAX = 3.0  # Kp < 3 → quiet; Kp ≥ 3 → disturbed (planetary scale)
 
 
@@ -60,18 +60,26 @@ def _quantile(vals: list[float], q: float) -> float | None:
 
 
 def _hour_bucket(ts: pd.Timestamp) -> int | None:
-    """Snap to nearest DIURNAL_HOURS tick (within ±1.5 h)."""
+    """UT hour 0–23. Each hour keeps its own mean."""
     if pd.isna(ts):
         return None
-    h = float(ts.hour) + float(ts.minute) / 60.0 + float(ts.second) / 3600.0
-    best = None
-    best_d = 99.0
-    for tick in DIURNAL_HOURS:
-        d = abs(h - tick)
-        if d < best_d:
-            best_d = d
-            best = tick
-    return best if best is not None and best_d <= 1.5 else None
+    try:
+        hour = int(ts.hour)
+    except (TypeError, ValueError):
+        return None
+    if hour < 0 or hour > 23:
+        return None
+    return hour
+
+
+def _hour_start(ts: pd.Timestamp) -> pd.Timestamp | None:
+    if pd.isna(ts):
+        return None
+    try:
+        stamp = ts.tz_convert("UTC") if ts.tzinfo else ts.tz_localize("UTC")
+    except Exception:
+        return None
+    return stamp.floor("h")
 
 
 def _series_band(
@@ -132,7 +140,7 @@ def build_diurnal_latband(live_df: pd.DataFrame) -> dict[str, Any]:
 
     for _, row in work.iterrows():
         lat = _station_lat(str(row["station"]))
-        if lat is None:
+        if lat is None or is_surveyor_general(str(row["station"])):
             continue
         band = _band_for_lat(lat)
         tick = _hour_bucket(row["bucket"])
@@ -152,8 +160,9 @@ def build_diurnal_latband(live_df: pd.DataFrame) -> dict[str, Any]:
         "sample_count": sample_count,
         "uncertainty": "IQR (25th–75th percentile) across station×hour observations in each latitude band",
         "note": (
-            "Measured live CORS VTEC (code_live), hourly means per station then pooled by "
-            f"latitude band (N > {NORTH_LAT}°, C > {CENTRAL_LAT}°, else S)."
+            "Measured live CORS VTEC (code_live). Each UT hour is its own median; "
+            f"latitude bands are N > {NORTH_LAT}°, C > {CENTRAL_LAT}°, else S. "
+            "Surveyor General sites are not included."
         ),
     }
 
@@ -414,6 +423,8 @@ def build_quiet_disturbed(
     dist_b: dict[int, list[float]] = {}
     q_n = d_n = 0
     for _, row in work.iterrows():
+        if "station" in work.columns and is_surveyor_general(str(row["station"])):
+            continue
         tick = _hour_bucket(row["bucket"])
         if tick is None:
             continue
@@ -449,11 +460,185 @@ def build_quiet_disturbed(
     }
 
 
+def _merge_archived_kp(kp_points: list[dict] | None) -> list[dict]:
+    """Add stored Kp so a TEC hour can still be classed after the NOAA file rolls on."""
+    merged = list(kp_points or [])
+    try:
+        from zgiis.db.space_weather_db import SpaceWeatherDB
+
+        since = datetime.now(tz=timezone.utc) - timedelta(hours=72)
+        bins = SpaceWeatherDB().read_timeline_bins(["kp_observed"], since=since, bin_minutes=60)
+    except Exception:
+        log.debug("archived Kp unavailable for quiet/disturbed hours", exc_info=True)
+        return merged
+    for stamp, value in bins.get("kp_observed") or []:
+        try:
+            merged.append({"t": stamp.isoformat(), "v": float(value)})
+        except (TypeError, ValueError, AttributeError):
+            continue
+    return merged
+
+
+def hourly_percentile_rows(
+    live_df: pd.DataFrame,
+    kp_points: list[dict] | None,
+) -> list[tuple[str, datetime, float | None, float | None, float | None, int]]:
+    """One stored row per latitude band or Kp regime and absolute UT hour."""
+    if live_df is None or live_df.empty:
+        return []
+    work = live_df.copy()
+    work["bucket"] = pd.to_datetime(work["bucket"], utc=True, errors="coerce")
+    work["vtec_tecu"] = pd.to_numeric(work["vtec_tecu"], errors="coerce")
+    work = work.dropna(subset=["bucket", "vtec_tecu"])
+    work = work[(work["vtec_tecu"] > 0) & (work["vtec_tecu"] < 120)]
+
+    by_band: dict[tuple[str, pd.Timestamp], list[float]] = {}
+    quiet_abs: dict[pd.Timestamp, list[float]] = {}
+    dist_abs: dict[pd.Timestamp, list[float]] = {}
+    kp = _kp_lookup(kp_points or [])
+    for _, row in work.iterrows():
+        station = str(row["station"]).lower().rstrip("_") if "station" in work.columns else ""
+        if station and is_surveyor_general(station):
+            continue
+        start = _hour_start(row["bucket"])
+        if start is None:
+            continue
+        value = float(row["vtec_tecu"])
+        lat = _station_lat(station) if station else None
+        band = _band_for_lat(lat) if lat is not None else None
+        if band:
+            by_band.setdefault((band, start), []).append(value)
+        if not kp:
+            continue
+        kp_v = _nearest_kp(row["bucket"], kp)
+        if kp_v is None:
+            continue
+        if kp_v < QUIET_KP_MAX:
+            quiet_abs.setdefault(start, []).append(value)
+        else:
+            dist_abs.setdefault(start, []).append(value)
+
+    rows: list[tuple[str, datetime, float | None, float | None, float | None, int]] = []
+
+    def _add(series: str, start: pd.Timestamp, vals: list[float]) -> None:
+        band = _series_band([0], {0: vals})
+        rows.append((series, start.to_pydatetime(), band["p50"][0], band["p25"][0], band["p75"][0], len(vals)))
+
+    for (band, start), vals in by_band.items():
+        _add(band, start, vals)
+    for start, vals in quiet_abs.items():
+        _add("quiet", start, vals)
+    for start, vals in dist_abs.items():
+        _add("disturbed", start, vals)
+    return rows
+
+
+def persist_hourly_percentiles(live_df: pd.DataFrame, kp_points: list[dict] | None) -> int:
+    try:
+        from zgiis.db.diurnal_vtec_db import upsert_hours
+
+        return upsert_hours(hourly_percentile_rows(live_df, kp_points))
+    except Exception:
+        log.debug("hourly VTEC log failed", exc_info=True)
+        return 0
+
+
+def _blank_percentile_series() -> dict[str, Any]:
+    return {
+        "p50": [None] * len(DIURNAL_HOURS),
+        "p25": [None] * len(DIURNAL_HOURS),
+        "p75": [None] * len(DIURNAL_HOURS),
+        "n": [0] * len(DIURNAL_HOURS),
+    }
+
+
+def _payload_from_stored_day(day: str) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    from zgiis.db.diurnal_vtec_db import read_day
+
+    stored = read_day(day)
+    if not stored:
+        return None
+    names = ("northern", "central", "southern", "quiet", "disturbed")
+    series_map = {name: _blank_percentile_series() for name in names}
+    for series, stamp, p50, p25, p75, n in stored:
+        block = series_map.get(series)
+        if block is None or p50 is None:
+            continue
+        when = pd.Timestamp(stamp)
+        if when.tzinfo is None:
+            when = when.tz_localize("UTC")
+        hour = int(when.tz_convert("UTC").hour)
+        if hour < 0 or hour > 23:
+            continue
+        block["p50"][hour] = float(p50)
+        block["p25"][hour] = float(p25) if p25 is not None else None
+        block["p75"][hour] = float(p75) if p75 is not None else None
+        block["n"][hour] = int(n or 0)
+
+    def _total(name: str) -> int:
+        return int(sum(series_map[name]["n"]))
+
+    def _with_n(name: str) -> dict[str, Any]:
+        return series_map[name]
+
+    diurnal = {
+        "hours": DIURNAL_HOURS,
+        "northern": _with_n("northern"),
+        "central": _with_n("central"),
+        "southern": _with_n("southern"),
+        "station_counts": {},
+        "sample_count": _total("northern") + _total("central") + _total("southern"),
+        "uncertainty": "IQR stored with each UT hour from live CORS VTEC.",
+        "note": f"Stored hourly medians for {day} UTC. Hours with no row were not observed.",
+    }
+    quiet_n = _total("quiet")
+    disturbed_n = _total("disturbed")
+    quiet = {
+        "hours": DIURNAL_HOURS,
+        "quiet": _with_n("quiet"),
+        "disturbed": _with_n("disturbed"),
+        "quiet_sample_count": quiet_n,
+        "disturbed_sample_count": disturbed_n,
+        "kp_threshold": QUIET_KP_MAX,
+        "available": bool(quiet_n or disturbed_n),
+        "uncertainty": "IQR of live VTEC samples classified by the nearest Kp at the time.",
+        "note": (
+            f"Stored {day} UTC. Quiet: Kp < {QUIET_KP_MAX:g} ({quiet_n} samples). "
+            f"Disturbed: Kp ≥ {QUIET_KP_MAX:g} ({disturbed_n} samples)."
+        ),
+    }
+    return diurnal, quiet
+
+
+def logged_diurnal_days() -> list[str]:
+    try:
+        from zgiis.db.diurnal_vtec_db import list_days
+
+        return list_days()
+    except Exception:
+        log.debug("diurnal day list unavailable", exc_info=True)
+        return []
+
+
+def archive_recent_diurnal_hours(hours: float = 36.0, resample_minutes: int = 15) -> int:
+    """Log each UT hour that has measurements. Safe to call when the page is closed."""
+    try:
+        from zgiis.db.timescale import TecDB
+
+        db = TecDB()
+        live_df = db.station_vtec_timeseries_binned(hours=hours, resample_minutes=resample_minutes)
+    except Exception:
+        log.warning("diurnal archive: live VTEC unavailable", exc_info=True)
+        return 0
+    return persist_hourly_percentiles(live_df, _merge_archived_kp([]))
+
+
 def build_zimbabwe_scientific_plots(
     *,
     hours: float = 24.0,
     resample_minutes: int = 15,
     kp_points: list[dict[str, Any]] | None = None,
+    day: str | None = None,
 ) -> dict[str, Any]:
     """Assemble all four scientific plot payloads from live + archive observations."""
     live_df = pd.DataFrame()
@@ -497,15 +682,28 @@ def build_zimbabwe_scientific_plots(
             log.debug("scientific plots: Kp history unavailable", exc_info=True)
             kp_points = []
 
+    kp_points = _merge_archived_kp(kp_points)
     diurnal = build_diurnal_latband(live_df)
     seasonal = build_seasonal_equinox_solstice()
     transect = build_modip_transect(live_df)
     quiet = build_quiet_disturbed(live_df, kp_points)
+    persist_hourly_percentiles(live_df, kp_points)
+    selected = (day or "").strip()[:10]
+    if selected:
+        try:
+            stored = _payload_from_stored_day(selected)
+        except Exception:
+            log.debug("stored diurnal day unavailable", exc_info=True)
+            stored = None
+        if stored is not None:
+            diurnal, quiet = stored
 
     return {
         "generated_at": datetime.now(tz=timezone.utc).isoformat(),
         "hours": hours,
         "resample_minutes": resample_minutes,
+        "day": selected or None,
+        "logged_days": logged_diurnal_days(),
         "diurnal_latband": diurnal,
         "seasonal": seasonal,
         "modip_transect": transect,

@@ -876,6 +876,28 @@ export interface IonoResponseFigures {
   note: string;
 }
 
+export interface ReceiverBiasPoint {
+  day: string;
+  doy: number;
+  bias_tecu: number;
+  n_epochs: number;
+  bias_method: string;
+  provisional: boolean;
+}
+
+export interface ReceiverBiasStation {
+  station: string;
+  mean_bias_tecu: number;
+  std_bias_tecu: number | null;
+  product_bias_tecu: number | null;
+  points: ReceiverBiasPoint[];
+}
+
+export interface ReceiverBiasResponse {
+  stations: ReceiverBiasStation[];
+  note: string;
+}
+
 export interface GfzKpDailyPoint {
   date: string;
   kp: number | null;
@@ -1278,6 +1300,8 @@ export interface ZimbabweScientificPlotsResponse {
   generated_at: string;
   hours: number;
   resample_minutes: number;
+  day?: string | null;
+  logged_days?: string[];
   diurnal_latband: {
     hours: number[];
     northern: SciPercentileSeries;

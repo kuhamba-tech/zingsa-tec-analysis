@@ -282,6 +282,17 @@ async def iono_response_figures(
     return build_iono_response_figures(days=days)
 
 
+@router.get("/receiver-bias")
+async def receiver_bias(
+    days: int = Query(120, ge=7, le=400),
+    _=Depends(require_api_key),
+):
+    """Logged daily receiver biases for the near-real-time TEC maps."""
+    from zgiis.processing.receiver_bias_log import series_for_chart
+
+    return series_for_chart(days=days)
+
+
 @router.get("/trignet")
 async def trignet_cors(_=Depends(require_api_key)):
     """South African TrigNet CORS from the public sourcetable, with GOPI TEC

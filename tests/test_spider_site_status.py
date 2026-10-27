@@ -26,7 +26,7 @@ class SpiderSiteStatusTests(unittest.TestCase):
         ):
             result = spider_module.get_cached_spider_site_statuses()
         self.assertEqual(result, payload)
-        load.assert_called_once_with(max_age_sec=spider_module.DEFAULT_TTL_SEC)
+        load.assert_called_once_with(max_age_sec=spider_module.DURABLE_MAX_AGE_SEC)
         thread.assert_not_called()
         fetch.assert_not_called()
 

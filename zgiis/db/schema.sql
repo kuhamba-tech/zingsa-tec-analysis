@@ -106,6 +106,55 @@ CREATE TABLE IF NOT EXISTS space_weather_log (
 
 CREATE INDEX IF NOT EXISTS sw_log_time_idx ON space_weather_log (time DESC);
 
+-- Full graph history (X-ray, IMF, solar wind, Kp, Dst, TEC, risk).
+-- One row per metric and observation time so charts can be rebuilt for past days.
+CREATE TABLE IF NOT EXISTS space_weather_timeline (
+    metric            TEXT             NOT NULL,
+    time              TIMESTAMPTZ      NOT NULL,
+    value             DOUBLE PRECISION,
+    PRIMARY KEY (metric, time)
+);
+
+CREATE INDEX IF NOT EXISTS sw_timeline_metric_time_idx
+    ON space_weather_timeline (metric, time DESC);
+
+-- Hourly Zimbabwe VTEC percentiles so one UT day can be compared with another.
+-- series: northern, central, southern, quiet, disturbed.
+CREATE TABLE IF NOT EXISTS diurnal_vtec_hour (
+    series            TEXT             NOT NULL,
+    time              TIMESTAMPTZ      NOT NULL,
+    p50               DOUBLE PRECISION,
+    p25               DOUBLE PRECISION,
+    p75               DOUBLE PRECISION,
+    n                 INTEGER          NOT NULL DEFAULT 0,
+    PRIMARY KEY (series, time)
+);
+
+-- Measured GOPI, Gg, and DLR global VTEC at each CORS station, one UT hour.
+-- Interpolated table cells are not stored.
+CREATE TABLE IF NOT EXISTS tec_method_hour (
+    station           TEXT             NOT NULL,
+    time              TIMESTAMPTZ      NOT NULL,
+    gopi              DOUBLE PRECISION,
+    gg                DOUBLE PRECISION,
+    global_vtec       DOUBLE PRECISION,
+    gopi_n            INTEGER          NOT NULL DEFAULT 0,
+    gg_n              INTEGER          NOT NULL DEFAULT 0,
+    PRIMARY KEY (station, time)
+);
+
+-- Daily receiver bias for each CORS station in the near-real-time TEC maps.
+CREATE TABLE IF NOT EXISTS receiver_bias_day (
+    station      TEXT             NOT NULL,
+    day          DATE             NOT NULL,
+    bias_tecu    DOUBLE PRECISION NOT NULL,
+    n_epochs     INTEGER          NOT NULL,
+    n_samples    INTEGER          NOT NULL,
+    bias_method  TEXT             NOT NULL,
+    updated_at   TIMESTAMPTZ      NOT NULL,
+    PRIMARY KEY (station, day)
+);
+
 -- CORS station status archive
 CREATE TABLE IF NOT EXISTS station_status_events (
     time              TIMESTAMPTZ      NOT NULL,

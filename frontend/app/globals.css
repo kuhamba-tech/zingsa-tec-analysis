@@ -4180,6 +4180,65 @@ a.home-map-layer-btn {
   color: #fbbf24;
 }
 
+.live-tec-method-periods {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.live-tec-method-period-days {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.live-tec-method-period-days button {
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  background: transparent;
+  color: #ffffff;
+  border-radius: 6px;
+  padding: 0.15rem 0.45rem;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.live-tec-method-period-days button.is-active {
+  border-color: #38bdf8;
+  background: rgba(14, 165, 233, 0.22);
+}
+
+.live-tec-method-period-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.live-tec-method-period-card {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.55rem 0.65rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.75rem;
+}
+
+.live-tec-method-period-card h3 {
+  margin: 0;
+  font-size: 0.82rem;
+}
+
+.live-tec-method-period-card p {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+@media (max-width: 800px) {
+  .live-tec-method-period-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 640px) {
   .live-tec-method-compare {
     padding: 0.7rem 0.75rem;

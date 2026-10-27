@@ -56,6 +56,7 @@ _VTEC_BY_STATION_CACHE_TTL_S = 90.0
 # Heavy Gg re-calibration — short TTL so Zimbabwe tab does not stampede the worker.
 _TEC_METHOD_CMP_CACHE: dict[tuple[float, str | None, int], tuple[float, TecMethodComparisonResponse]] = {}
 _TEC_METHOD_CMP_CACHE_TTL_S = 180.0
+_TEC_METHOD_PERIOD_CACHE: dict[str, tuple[float, dict]] = {}
 _TEC_METHOD_CMP_INFLIGHT: dict[tuple[float, str | None, int], asyncio.Future] = {}
 
 _SCI_PLOTS_CACHE: dict[tuple[float, int], tuple[float, dict]] = {}
@@ -324,8 +325,8 @@ def _station_method_summary(
 ) -> tuple[list[TecMethodStationCompare], dict]:
     """Aggregate per-station latest + mean VTEC for GOPI vs Gg comparison."""
 
-    def _bucket(rows: list[LiveObservation]) -> dict[str, list[tuple[str, float]]]:
-        out: dict[str, list[tuple[str, float]]] = {}
+    def _bucket(rows: list[LiveObservation]) -> dict[str, list[tuple[str, str, float]]]:
+        out: dict[str, list[tuple[str, str, float]]] = {}
         for o in rows:
             code = (o.station or "").strip().upper()
             if not code or o.vtec_tecu is None:
@@ -336,8 +337,27 @@ def _station_method_summary(
                 continue
             if not (0.0 < val < 90.0):
                 continue
-            out.setdefault(code, []).append((str(o.time or ""), val))
+            out.setdefault(code, []).append((str(o.time or ""), str(o.prn or ""), val))
         return out
+
+    def _agreed_level(rows: list[tuple[str, str, float]]) -> tuple[float | None, float | None]:
+        """Satellite consensus, so one repeated PRN cannot set the station.
+
+        Victoria Falls at 01:19 UTC had 59 copies of G31 near 65 TECU and one
+        sample each of G08 and G27 near 6 TECU. A sample median printed 64.8.
+        The same consensus the heat-map GOPI label uses withholds that split.
+        """
+        if not rows:
+            return None, None
+        from zgiis.maps.heatmap_data import (
+            _fresh_station_vtec_from_group,
+            _prn_consensus_station_vtec,
+        )
+
+        frame = pd.DataFrame(rows, columns=["time", "prn", "vtec_tecu"])
+        latest = _fresh_station_vtec_from_group(frame)
+        agreed = _prn_consensus_station_vtec(frame)
+        return latest, agreed
 
     # Live Gg on short NTRIP windows can still diverge; hide pairs where
     # |Δ| exceeds a calibration-failure threshold so map labels stay physical.
@@ -352,24 +372,13 @@ def _station_method_summary(
     deltas_latest: list[float] = []
     deltas_mean: list[float] = []
 
-    def _tail_median(vals: list[float]) -> float | None:
-        if not vals:
-            return None
-        tail = sorted(vals[-20:])
-        return tail[len(tail) // 2]
-
     for code in codes:
         g_rows = sorted(gopi_b.get(code, []), key=lambda t: t[0])
         q_rows = sorted(gg_b.get(code, []), key=lambda t: t[0])
-        g_vals = [v for _, v in g_rows]
-        q_vals = [v for _, v in q_rows]
-        # Recent level, not one satellite epoch. A single G19 sample at Karoi
-        # was 0.4 TECU after a 28 TECU arc bias while the rest of the visit
-        # stayed near 20.
-        g_latest = _tail_median(g_vals)
-        q_latest = _tail_median(q_vals)
-        g_mean = (sum(g_vals) / len(g_vals)) if g_vals else None
-        q_mean = (sum(q_vals) / len(q_vals)) if q_vals else None
+        g_vals = [v for _, _, v in g_rows]
+        q_vals = [v for _, _, v in q_rows]
+        g_latest, g_mean = _agreed_level(g_rows)
+        q_latest, q_mean = _agreed_level(q_rows)
         d_latest = (q_latest - g_latest) if (q_latest is not None and g_latest is not None) else None
         d_mean = (q_mean - g_mean) if (q_mean is not None and g_mean is not None) else None
         if d_latest is not None and abs(d_latest) > MAX_PAIR_DELTA_TECU:
@@ -603,10 +612,35 @@ async def tec_method_comparison(
     return await _run()
 
 
+@router.get("/tec-method-periods")
+async def tec_method_periods(
+    day: str | None = Query(None),
+    _=Depends(require_api_key),
+):
+    """Measured GOPI, Gg, and global TEC for morning, afternoon, and night.
+
+    Values come from the hourly log. A part of the day with no stored
+    measurements is left empty.
+    """
+    selected = (day or "").strip()[:10]
+    if selected and (len(selected) != 10 or selected[4] != "-" or selected[7] != "-"):
+        selected = ""
+    cache_key = selected
+    now = time.time()
+    cached = _TEC_METHOD_PERIOD_CACHE.get(cache_key)
+    if cached and (now - cached[0]) < _TEC_METHOD_CMP_CACHE_TTL_S:
+        return cached[1]
+    from zgiis.processing.tec_method_hour_log import period_comparison
+
+    result = await asyncio.to_thread(period_comparison, selected or None)
+    _TEC_METHOD_PERIOD_CACHE[cache_key] = (time.time(), result)
+    return result
+
+
 @router.get("/vtec-by-station", response_model=list[LiveStationVtecSeries])
 async def live_vtec_by_station(
-    hours: float = Query(6.0, ge=0.5, le=48),
-    resample_minutes: int = Query(2, ge=1, le=30),
+    hours: float = Query(6.0, ge=0.5, le=168),
+    resample_minutes: int = Query(2, ge=1, le=60),
     _=Depends(require_api_key),
 ):
     """Binned live NTRIP VTEC vs time for every Zimbabwe CORS station.
@@ -647,8 +681,13 @@ def _build_live_vtec_by_station(
         for code, station in sorted(catalog.items(), key=lambda item: item[0])
     ]
 
-    db = _db()
-    if db is None:
+    # Own connection so the 30-minute readings strip is not stuck behind
+    # the map, heatmap, and chart queries sharing the process-wide socket.
+    from zgiis.db.timescale import TecDB
+
+    try:
+        db = TecDB()
+    except Exception:
         return empty
     try:
         df = db.station_vtec_timeseries_binned(
@@ -674,7 +713,7 @@ def _build_live_vtec_by_station(
         work["vtec_tecu"] = pd.to_numeric(work["vtec_tecu"], errors="coerce")
         work["obs_count"] = pd.to_numeric(work.get("obs_count"), errors="coerce").fillna(0)
         work = work.dropna(subset=["bucket", "point_time", "vtec_tecu"])
-        work = work[(work["vtec_tecu"] > 0) & (work["vtec_tecu"] < 200)]
+        work = work[(work["vtec_tecu"] > 0) & (work["vtec_tecu"] <= 50)]
         if work.empty:
             return empty
 
@@ -682,6 +721,21 @@ def _build_live_vtec_by_station(
             code: LiveStationVtecSeries(station=code, name=station.name, points=[])
             for code, station in catalog.items()
         }
+        gopi_by: dict[str, float] = {}
+        try:
+            gopi = db.recent_station_vtec(
+                minutes=15,
+                code_live_only=True,
+                allow_method_fallback=False,
+            )
+            if gopi is not None and not getattr(gopi, "empty", True):
+                for _, row in gopi.iterrows():
+                    code = str(row["station"]).lower().rstrip("_")
+                    value = float(row["mean_vtec"])
+                    if value > 0:
+                        gopi_by[code] = round(value, 2)
+        except Exception:
+            log.exception("gopi station consensus failed")
 
         for code, group in work.groupby("station"):
             key = str(code).lower().rstrip("_")
@@ -706,20 +760,34 @@ def _build_live_vtec_by_station(
                 station=key,
                 name=series_by_code[key].name,
                 points=points,
-                latest_vtec=values[-1] if values else None,
+                latest_vtec=gopi_by.get(key),
                 mean_vtec=round(sum(values) / len(values), 2) if values else None,
             )
+
+        for code, value in gopi_by.items():
+            current = series_by_code.get(code)
+            if current is not None and current.latest_vtec is None:
+                series_by_code[code] = LiveStationVtecSeries(
+                    station=code,
+                    name=current.name,
+                    points=current.points,
+                    latest_vtec=value,
+                    mean_vtec=current.mean_vtec,
+                )
 
         return [series_by_code[code] for code in sorted(series_by_code)]
     except Exception:
         log.exception("live vtec-by-station build failed")
         return empty
+    finally:
+        db.close()
 
 
 @router.get("/zimbabwe-scientific-plots")
 async def zimbabwe_scientific_plots(
     hours: float = Query(24.0, ge=6.0, le=72.0),
     resample_minutes: int = Query(15, ge=5, le=60),
+    day: str | None = Query(None),
     _=Depends(require_api_key),
 ):
     """Four scientific TEC plots for Zimbabwe with observation-based uncertainty.
@@ -733,7 +801,10 @@ async def zimbabwe_scientific_plots(
     """
     hours = float(min(48.0, max(6.0, hours)))
     resample_minutes = int(min(60, max(5, resample_minutes)))
-    cache_key = (round(hours, 1), resample_minutes)
+    selected_day = (day or "").strip()[:10]
+    if selected_day and len(selected_day) != 10:
+        selected_day = ""
+    cache_key = (round(hours, 1), resample_minutes, selected_day)
     now = time.time()
     cached = _SCI_PLOTS_CACHE.get(cache_key)
     if cached and (now - cached[0]) < _SCI_PLOTS_CACHE_TTL_S:
@@ -743,12 +814,13 @@ async def zimbabwe_scientific_plots(
         _build_scientific_plots,
         hours=hours,
         resample_minutes=resample_minutes,
+        day=selected_day or None,
     )
     _SCI_PLOTS_CACHE[cache_key] = (time.time(), result)
     return result
 
 
-def _build_scientific_plots(*, hours: float, resample_minutes: int) -> dict:
+def _build_scientific_plots(*, hours: float, resample_minutes: int, day: str | None = None) -> dict:
     from zgiis.processing.zimbabwe_scientific_plots import build_zimbabwe_scientific_plots
     from zgiis.space_weather.fetch_indices import _fetch_noaa_kp_history, _parse_kp_value
 
@@ -769,6 +841,7 @@ def _build_scientific_plots(*, hours: float, resample_minutes: int) -> dict:
         hours=hours,
         resample_minutes=resample_minutes,
         kp_points=kp_points,
+        day=day,
     )
 
 
@@ -921,7 +994,15 @@ async def pipeline_status(_=Depends(require_api_key)):
     s = live_status(include_record_counts=False)
     db = _db()
     record_count = 0
+    # The dedicated collector writes Supabase. This API process does not
+    # start NTRIP, so the hour count has to come from the database or the
+    # dashboard reports the pipeline as stopped while rows are still arriving.
     recent_record_count_1h = int(s.get("recent_vtec_records_1h") or 0)
+    try:
+        if db is not None:
+            recent_record_count_1h = int(db.recent_code_live_count(hours=1.0))
+    except Exception as exc:
+        log.warning("pipeline recent TEC count failed: %s", exc)
     db_backend = s.get("db_backend") or "supabase"
     if db_backend == "unknown":
         db_backend = "supabase"

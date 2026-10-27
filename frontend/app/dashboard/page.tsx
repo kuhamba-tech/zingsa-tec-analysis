@@ -27,7 +27,7 @@ import { DashboardHeaderClocks } from "@/components/dashboard/DashboardClocks";
 import type { GicTimelineBundle } from "@/components/dashboard/GicLiveTimelinePanel";
 import StormWarningAlarm from "@/components/dashboard/StormWarningAlarm";
 import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
-import { connectedStreamCount, countSpiderLiveStationStatuses, type LiveStationCounts } from "@/lib/liveStationStatus";
+import { connectedStreamCount, countSpiderLiveStationStatuses, zingsaOnlineCountPoints, ZINGSA_STATION_TOTAL, type LiveStationCounts } from "@/lib/liveStationStatus";
 import { alignEkfToPoints } from "@/lib/ekfAlign";
 import { conditionsForSeries } from "@/lib/spaceWeatherMetrics";
 import type { ChartAnalysisBlock } from "@/lib/multiSourceChartAnalysis";
@@ -143,6 +143,8 @@ function TimelinePanel({
   ekfPoints,
   conditionKind,
   analysis,
+  yMin,
+  yMax,
 }: {
   title: string;
   points: TimelinePoint[];
@@ -153,11 +155,16 @@ function TimelinePanel({
   ekfPoints?: EkfPoint[];
   conditionKind?: ConditionKind;
   analysis?: ChartAnalysisBlock;
+  yMin?: number;
+  yMax?: number;
 }) {
   const hasData = points.length > 0;
   const values = timelineValues(points);
   const ekf = alignEkfToPoints(points, ekfPoints);
   const hasEkf = ekf.data.some((v) => v !== null);
+  const observedOnline = values.some((v) => v != null && v > 0);
+  const ekfFlatZero = ekf.data.every((v) => v == null || v === 0);
+  const showEkf = hasEkf && !(yMax === ZINGSA_STATION_TOTAL && observedOnline && ekfFlatZero);
   const tooltipDetails = conditionKind ? conditionsForSeries(values, conditionKind) : undefined;
 
   return (
@@ -169,11 +176,13 @@ function TimelinePanel({
             labels={timelineLabels(points)}
             datasets={[
               { label: "Observed", data: values, color },
-              ...(hasEkf
-                ? [{ label: "EKF Predicted", data: ekf.data, color: "#ffffff", dashed: true, meta: ekf.meta }]
+              ...(showEkf
+                ? [{ label: "EKF Predicted", data: ekf.data, color: "#ffffff", dashed: true, spanGaps: false, meta: ekf.meta }]
                 : []),
             ]}
             yLabel={yLabel}
+            yMin={yMin}
+            yMax={yMax}
             height={230}
             tooltipDetails={tooltipDetails}
             tooltipDetailLabel={
@@ -356,13 +365,13 @@ export default function DashboardPage() {
   const s4Points = withCurrentFallback(safePoints(tl?.s4), currentPoint(sw?.s4, currentTimestamp));
   const tecPoints = withCurrentFallback(safePoints(tl?.mean_vtec), currentPoint(sw?.mean_vtec, currentTimestamp));
   const gnssPoints = withCurrentFallback(safePoints(tl?.gnss_risk), currentPoint(riskScore(sw?.gnss_risk), currentTimestamp));
-  const stationsOnlinePoints = withCurrentFallback(
+  const stationsOnlinePoints = zingsaOnlineCountPoints(withCurrentFallback(
     safePoints(tl?.stations_online),
     currentPoint(
       liveStationCounts ? connectedStreamCount(liveStationCounts) : sw?.stations_online ?? null,
       currentTimestamp,
     ),
-  );
+  ), liveStationCounts ? connectedStreamCount(liveStationCounts) : sw?.stations_online ?? null);
 
   const kpEkfCombined = alignEkfToPoints(kpPoints, ekf?.series.kp?.points);
   const dstEkfCombined = alignEkfToPoints(dstPoints, ekf?.series.dst?.points);
@@ -552,7 +561,9 @@ export default function DashboardPage() {
           points={stationsOnlinePoints}
           color="#00ff88"
           yLabel="CORS Connected"
-          source={liveSource("Source: /space-weather/timelines live ZINGSA CORS station-count API feed.", stationsOnlinePoints)}
+          yMin={0}
+          yMax={ZINGSA_STATION_TOTAL}
+          source={liveSource("Source: ZINGSA CORS network (19 stations). Surveyor General sites are excluded.", stationsOnlinePoints)}
           empty="Live CORS telemetry is unavailable - no station count timeline."
           ekfPoints={ekf?.series.stations_online?.points}
           analysis={analyzeStationsOnlineTimeline(stationsOnlinePoints)}

@@ -9,6 +9,7 @@ import type { ProposedCorsSite } from "@/lib/corsGeneticOptimizer";
 import { isValidProposedCorsSite } from "@/lib/zimbabweBoundary";
 import { icaoTecColor, icaoTecDistanceLabel, icaoTecLabel } from "@/lib/icaoTecAdvisory";
 import { liveVtecSourceFromHeatmap, liveVtecSourceLabel } from "@/lib/liveVtecLabels";
+import { measuredLiveTec } from "@/lib/measuredLiveTec";
 import { fetchGlobalTecForecastObjectUrl } from "@/lib/api";
 import { vtecToRgba } from "@/lib/tecHeatmapColors";
 import { loadOpenLayers } from "@/lib/loadOpenLayers";
@@ -171,10 +172,6 @@ function heatmapStationFor(station: Station, heatmap: TecHeatmapResponse | null 
   return heatmap?.stations.find((s) => stationKey(s.code) === code) ?? null;
 }
 
-function isInterpolatedSource(source: string | null | undefined): boolean {
-  return /estimate|interpolated|surface/i.test(source ?? "");
-}
-
 function stationTecValue(station: Station, heatmap: TecHeatmapResponse | null | undefined): number | null {
   if (getLiveStationStatus(station) === "surveyor_general") return null;
   const heatStation = heatmapStationFor(station, heatmap);
@@ -189,40 +186,13 @@ function stationTecValue(station: Station, heatmap: TecHeatmapResponse | null | 
       : null;
   const ntripLive =
     station.ntrip_verdict === "msm_streaming" ||
-    station.status_source === "ntrip" ||
-    (cardTec != null && liveStatus === "online");
+    station.status_source === "ntrip";
 
-  // Measured live NTRIP on the station record (independent of heat-map interpolation).
-  if (cardTec != null && ntripLive) {
-    return cardTec;
+  if (cardTec != null && ntripLive && liveStatus !== "offline") {
+    return measuredLiveTec({ vtec: cardTec, source: "live_ntrip", obs_count: 1 });
   }
 
-  // 1) Streaming measured live NTRIP always overrides interpolation.
-  const measuredLive =
-    heatStation &&
-    (heatStation.obs_count ?? 0) > 0 &&
-    !isInterpolatedSource(heatStation.source);
-  if (measuredLive) {
-    const fromHeatmap = heatStation.vtec;
-    if (typeof fromHeatmap === "number" && Number.isFinite(fromHeatmap) && fromHeatmap > 0) {
-      return fromHeatmap;
-    }
-  }
-
-  // 2) Non-streaming sites: show interpolated live-surface VTEC when available.
-  if (
-    heatStation &&
-    isInterpolatedSource(heatStation.source) &&
-    typeof heatStation.vtec === "number" &&
-    Number.isFinite(heatStation.vtec) &&
-    heatStation.vtec > 0
-  ) {
-    return heatStation.vtec;
-  }
-
-  // 3) Fallback: station-card live decode (online sites only).
-  if (liveStatus === "offline" || liveStatus === "unavailable" || liveStatus === "surveyor_general") return null;
-  return cardTec;
+  return measuredLiveTec(heatStation);
 }
 
 function stationGgValue(

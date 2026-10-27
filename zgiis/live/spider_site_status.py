@@ -439,8 +439,11 @@ def get_cached_spider_site_statuses(
         from zgiis.live.spider_status_store import load_spider_status_payload
 
         # Read access to collector snapshots does not require Spider login
-        # credentials. Only snapshots within the normal live TTL are current.
-        payload = load_spider_status_payload(max_age_sec=ttl_sec)
+        # credentials. The local Spider poll is slower than the 60-second
+        # in-process TTL, so Vercel keeps the shared snapshot for the durable
+        # window. Otherwise the map falls back to the single NTRIP slot and
+        # reports Online 1 while the CORS card still shows the Spider count.
+        payload = load_spider_status_payload(max_age_sec=max(ttl_sec, DURABLE_MAX_AGE_SEC))
         return payload or {
             "fetched_at": None,
             "by_station": {},

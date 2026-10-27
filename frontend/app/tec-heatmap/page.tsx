@@ -6,7 +6,6 @@ import { peekStations } from "@/lib/stationsStore";
 import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
 import { heatmapQualityBanner, icaoTecLabel, icaoTecLevel, inferHeatmapQuality } from "@/lib/icaoTecAdvisory";
 import { mergeTecHeatmapWithStations } from "@/lib/tecHeatmapMerge";
-import { idwFillByStation, stationCodeKey } from "@/lib/idwSurface";
 import type { Station, TecHeatmapResponse } from "@/lib/types";
 import type { MapLayer } from "@/components/maps/CorsMapWithLayers";
 import TecHeatMapLegend from "@/components/maps/TecHeatMapLegend";
@@ -102,17 +101,6 @@ export default function TecHeatmapPage() {
     () => mergeTecHeatmapWithStations(heatmap, stations),
     [heatmap, stations],
   );
-  const ggByStation = useMemo(() => {
-    const sites = stations
-      .filter((site) => Number.isFinite(site.lat) && Number.isFinite(site.lon))
-      .map((site) => ({ code: site.code, lat: site.lat, lon: site.lon }));
-    for (const site of displayHeatmap?.stations ?? []) {
-      if (sites.some((row) => stationCodeKey(row.code) === stationCodeKey(site.code))) continue;
-      if (!Number.isFinite(site.lat) || !Number.isFinite(site.lon)) continue;
-      sites.push({ code: site.code, lat: site.lat, lon: site.lon });
-    }
-    return idwFillByStation(sites, measuredGg).values;
-  }, [stations, displayHeatmap, measuredGg]);
   const qualityBanner = heatmapQualityBanner(inferHeatmapQuality(displayHeatmap), displayHeatmap?.message);
   const maxVtec = displayHeatmap?.tec_max ?? null;
   const diagnostics = displayHeatmap?.diagnostics ?? null;
@@ -197,7 +185,7 @@ export default function TecHeatmapPage() {
           height={520}
           layer={mapLayer}
           heatmap={displayHeatmap}
-          ggByStation={mapLayer === "TEC Heat Map" ? ggByStation : {}}
+          ggByStation={mapLayer === "TEC Heat Map" ? measuredGg : {}}
         />
         <div className="tec-map-legend">
           <div className="tec-map-legend-title">Station Status</div>

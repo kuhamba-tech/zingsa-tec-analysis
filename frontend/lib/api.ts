@@ -29,6 +29,7 @@ import type {
   IntermagnetAnalysisResponse,
   IntermagnetLatestResponse,
   IonoResponseFigures,
+  ReceiverBiasResponse,
   TrigNetResponse,
   LiveObservation,
   LivePipelineStatus,
@@ -386,10 +387,13 @@ export const getUptimeMonitor = (hours: number, station?: string) =>
 export const getTimelines = (maxPoints = 168) => {
   const capped = Math.max(24, Math.min(2000, Math.round(maxPoints)));
   return dedupeGet(`space-weather/timelines:${capped}`, () =>
-    getWithRetry<SpaceWeatherTimelines>("/space-weather/timelines", {
-      max_points: capped,
-      _ts: Date.now(),
-    }),
+    getWithRetry<SpaceWeatherTimelines>(
+      "/space-weather/timelines",
+      { max_points: capped, _ts: Date.now() },
+      // The merged log is a database read. 12s expires while VTEC bins are
+      // running and the ionosphere panel then reports a failed timeline feed.
+      60_000,
+    ),
   );
 };
 export const refreshSpaceWeather = () =>
@@ -941,6 +945,9 @@ export const getCelestrakAnalysis = (start: string, end: string, station?: strin
 export const getIonoResponseFigures = (days = 180) =>
   get<IonoResponseFigures>("/tec/iono-response-figures", { days, _ts: Date.now() }, ANALYSIS_TIMEOUT_MS);
 
+export const getReceiverBias = (days = 120) =>
+  get<ReceiverBiasResponse>("/tec/receiver-bias", { days, _ts: Date.now() }, 30_000);
+
 export const getGfzKpAnalysis = (start: string, end: string, station?: string) =>
   get<GfzKpAnalysisResponse>("/tec/gfz-kp-analysis", { start, end, station, _ts: Date.now() }, ANALYSIS_TIMEOUT_MS);
 export const getWdcKyotoAnalysis = (start: string, end: string, station?: string) =>
@@ -1014,6 +1021,32 @@ export const getTecMethodComparison = (
         timeoutMs,
       ),
   );
+export const getTecMethodPeriods = (day?: string | null, timeoutMs = 30_000) =>
+  get<{
+    day: string;
+    timezone: string;
+    logged_days: string[];
+    note?: string;
+    periods: Array<{
+      id: string;
+      label: string;
+      hours_local: string;
+      station_hours: number;
+      gopi: number | null;
+      gg: number | null;
+      global: number | null;
+      gg_minus_gopi: number | null;
+      gopi_minus_global: number | null;
+      gg_minus_global: number | null;
+      method_pairs: number;
+      gopi_global_pairs: number;
+      gg_global_pairs: number;
+    }>;
+  }>(
+    "/live/tec-method-periods",
+    { ...(day ? { day } : {}), _ts: Date.now() },
+    timeoutMs,
+  );
 export const getLiveVtecByStation = (hours = 6, resampleMinutes = 2, timeoutMs?: number) =>
   dedupeGet(`live/vtec-by-station:${hours}:${resampleMinutes}:${timeoutMs ?? "default"}`, () => get<LiveStationVtecSeries[]>(
     "/live/vtec-by-station",
@@ -1028,10 +1061,20 @@ export const getLiveVtecByStation = (hours = 6, resampleMinutes = 2, timeoutMs?:
             ? 45_000
             : Math.max(FETCH_TIMEOUT_MS, 25_000)),
   ));
-export const getZimbabweScientificPlots = (hours = 24, resampleMinutes = 15, timeoutMs = 90_000) =>
+export const getZimbabweScientificPlots = (
+  hours = 24,
+  resampleMinutes = 15,
+  timeoutMs = 90_000,
+  day?: string | null,
+) =>
   getWithRetry<ZimbabweScientificPlotsResponse>(
     "/live/zimbabwe-scientific-plots",
-    { hours, resample_minutes: resampleMinutes, _ts: Date.now() },
+    {
+      hours,
+      resample_minutes: resampleMinutes,
+      ...(day ? { day } : {}),
+      _ts: Date.now(),
+    },
     timeoutMs,
   );
 export const getNorthSouthTecResearch = (

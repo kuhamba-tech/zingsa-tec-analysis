@@ -5,6 +5,7 @@ import logging
 import hashlib
 import math
 import os
+import threading
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
@@ -15,6 +16,7 @@ from zgiis.db.config import (
     checkout,
     database_backend_label,
     database_dsn,
+    reconnect_after_error,
     release,
     schema_init_enabled,
     transaction,
@@ -63,6 +65,9 @@ class TecDB:
         self._dsn = database_dsn() if dsn is None else dsn
         self._is_pg = False
         self._conn = None
+        # One pooled socket. Dashboard reads must take turns or a second
+        # request fails the first and the card reports no measurements.
+        self._io_lock = threading.Lock()
         self._init()
 
     def _init(self) -> None:
@@ -210,36 +215,107 @@ class TecDB:
             for r in records
         ]
 
-        sql = """
-        INSERT INTO vtec_obs
-            (time, station, constellation, prn, tecg_tecu, tecp_tecu, stec_tecu, vtec_tecu,
-             elevation_deg, cnr_dbhz, tec_method, bias_method, observation_id, stored_at,
-             received_at, station_latitude, station_longitude, ipp_latitude, ipp_longitude,
-             region, quality_flag, processing_version, data_source)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT (time, observation_id) DO NOTHING
-        """
-        try:
-            pg_sql = sql.replace("?", "%s")
+        def _write() -> int:
+            from psycopg2.extras import execute_values
+
+            insert_sql = """
+            INSERT INTO vtec_obs
+                (time, station, constellation, prn, tecg_tecu, tecp_tecu, stec_tecu, vtec_tecu,
+                 elevation_deg, cnr_dbhz, tec_method, bias_method, observation_id, stored_at,
+                 received_at, station_latitude, station_longitude, ipp_latitude, ipp_longitude,
+                 region, quality_flag, processing_version, data_source)
+            VALUES %s
+            ON CONFLICT (time, observation_id) DO NOTHING
+            """
             with transaction(self._conn):
                 with self._conn.cursor() as cur:
-                    cur.executemany(pg_sql, rows)
+                    execute_values(cur, insert_sql, rows, page_size=500)
             return len(rows)
-        except Exception as exc:
-            log.warning("insert_vtec failed (%s)", exc)
+
+        for attempt in range(2):
+            if self._conn is None or getattr(self._conn, "closed", 1):
+                self._conn = reconnect_after_error(self._conn) if self._conn is not None else checkout(self._dsn)
             try:
-                self._conn.rollback()
-            except Exception:
-                pass
-            raise RuntimeError("VTEC write failed; retain pending observations for retry") from exc
+                return _write()
+            except Exception as exc:
+                log.warning("insert_vtec failed (%s)", exc)
+                try:
+                    if self._conn is not None:
+                        self._conn.rollback()
+                except Exception:
+                    pass
+                self._conn = reconnect_after_error(self._conn)
+                if attempt == 0 and self._conn is not None:
+                    continue
+                raise RuntimeError("VTEC write failed; retain pending observations for retry") from exc
+        raise RuntimeError("VTEC write failed; retain pending observations for retry")
+
+    def _ensure_conn(self):
+        """Replace a closed pooled connection before the next statement."""
+        if self._conn is None or getattr(self._conn, "closed", 1):
+            self._conn = (
+                reconnect_after_error(self._conn) if self._conn is not None else checkout(self._dsn)
+            )
+        if self._conn is None or getattr(self._conn, "closed", 1):
+            raise DatabaseUnavailable("Supabase Postgres connection is closed")
 
     def _read_sql(self, sql: str, params: list | tuple) -> pd.DataFrame:
         """Run a parameterised SELECT without pandas mangling LIKE '%' wildcards.
 
         ``pd.read_sql`` treats ``%code_live%`` as a pyformat specifier
         (``%c``) unless the caller already escaped percent signs.
+        A dropped Supabase socket is replaced once and the read is retried.
         """
-        return pd.read_sql(sql, self._conn, params=list(params))
+        with self._io_lock:
+            return self._read_sql_locked(sql, params)
+
+    def _read_sql_locked(self, sql: str, params: list | tuple) -> pd.DataFrame:
+        last_exc: Exception | None = None
+        for attempt in range(2):
+            self._ensure_conn()
+            try:
+                return pd.read_sql(sql, self._conn, params=list(params))
+            except Exception as exc:
+                last_exc = exc
+                log.warning("TecDB read failed (%s)", exc)
+                try:
+                    if self._conn is not None:
+                        self._conn.rollback()
+                except Exception:
+                    pass
+                self._conn = reconnect_after_error(self._conn)
+                if attempt == 0 and self._conn is not None:
+                    continue
+                raise
+        if last_exc is not None:
+            raise last_exc
+        raise DatabaseUnavailable("Supabase Postgres connection is closed")
+
+    def _fetchone(self, sql: str, params: tuple | list = ()) -> tuple:
+        with self._io_lock:
+            last_exc: Exception | None = None
+            for attempt in range(2):
+                self._ensure_conn()
+                try:
+                    with self._conn.cursor() as cur:
+                        cur.execute(sql, params)
+                        row = cur.fetchone()
+                    return row if row is not None else (0,)
+                except Exception as exc:
+                    last_exc = exc
+                    log.warning("TecDB query failed (%s)", exc)
+                    try:
+                        if self._conn is not None:
+                            self._conn.rollback()
+                    except Exception:
+                        pass
+                    self._conn = reconnect_after_error(self._conn)
+                    if attempt == 0 and self._conn is not None:
+                        continue
+                    raise
+            if last_exc is not None:
+                raise last_exc
+            raise DatabaseUnavailable("Supabase Postgres connection is closed")
 
     # ── Read ──────────────────────────────────────────────────────────────────
 
@@ -390,6 +466,7 @@ class TecDB:
         *,
         minutes: float = 10.0,
         code_live_only: bool = True,
+        allow_method_fallback: bool = True,
     ) -> pd.DataFrame:
         """Latest live NTRIP VTEC per station from a short lookback.
 
@@ -436,8 +513,12 @@ class TecDB:
             log.warning("recent_station_vtec failed (%s)", exc)
             return pd.DataFrame(columns=["station", "mean_vtec", "obs_count"])
 
-        if raw.empty and code_live_only:
-            return self.recent_station_vtec(minutes=minutes, code_live_only=False)
+        if raw.empty and code_live_only and allow_method_fallback:
+            return self.recent_station_vtec(
+                minutes=minutes,
+                code_live_only=False,
+                allow_method_fallback=False,
+            )
         if raw.empty:
             return pd.DataFrame(columns=["station", "mean_vtec", "obs_count"])
 
@@ -532,6 +613,7 @@ class TecDB:
         """
         since = (datetime.now(tz=timezone.utc) - timedelta(hours=hours)).isoformat()
         step = max(1, int(resample_minutes))
+        # Matamba and Danskin keep elevation of at least 20° and TEC from 0 to 50.
         # Absolute code TEC from the live NTRIP pipeline (not DLR/archive).
         # Postgres uses %s params — escape LIKE wildcards as %%.
         if self._is_pg:
@@ -550,7 +632,8 @@ class TecDB:
             WHERE time >= %s
               AND vtec_tecu IS NOT NULL
               AND vtec_tecu > 0
-              AND vtec_tecu < 200
+              AND vtec_tecu <= 50
+              AND elevation_deg >= 20
               AND (tec_method IS NULL OR tec_method NOT LIKE 'dlr_%%')
               {method_clause}
             GROUP BY station, bucket
@@ -574,16 +657,31 @@ class TecDB:
     def record_count(self, *, hours: float | None = None) -> int:
         """Total rows in the database, optionally limited to the last N hours."""
         if hours is None:
-            cur = self._conn.cursor()
-            cur.execute("SELECT COUNT(*) FROM vtec_obs")
-            return int(cur.fetchone()[0])
+            row = self._fetchone("SELECT COUNT(*) FROM vtec_obs")
+            return int(row[0])
         since = (datetime.now(tz=timezone.utc) - timedelta(hours=hours)).isoformat()
-        sql = "SELECT COUNT(*) FROM vtec_obs WHERE time >= ?"
-        if self._is_pg:
-            sql = sql.replace("?", "%s")
-        cur = self._conn.cursor()
-        cur.execute(sql, (since,))
-        return int(cur.fetchone()[0])
+        sql = "SELECT COUNT(*) FROM vtec_obs WHERE time >= %s" if self._is_pg else "SELECT COUNT(*) FROM vtec_obs WHERE time >= ?"
+        row = self._fetchone(sql, (since,))
+        return int(row[0])
+
+    def recent_code_live_count(self, hours: float = 1.0) -> int:
+        """Live NTRIP code-TEC rows stored in the last N hours.
+
+        This is the count the dashboard uses to tell a quiet hour from a
+        dead reader. It stays on the time index instead of scanning the archive.
+        """
+        since = (datetime.now(tz=timezone.utc) - timedelta(hours=hours)).isoformat()
+        row = self._fetchone(
+            """
+            SELECT COUNT(*) FROM vtec_obs
+            WHERE time >= %s
+              AND tec_method LIKE %s
+              AND vtec_tecu > 0
+              AND vtec_tecu < 200
+            """,
+            (since, "%code_live%"),
+        )
+        return int(row[0])
 
     # ── Housekeeping ──────────────────────────────────────────────────────────
 

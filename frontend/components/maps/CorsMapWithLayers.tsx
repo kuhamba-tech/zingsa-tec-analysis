@@ -8,6 +8,7 @@ import NetworkDistancesPanel from "./NetworkDistancesPanel";
 import TecHeatMapLegend, { TecMapColorbar } from "./TecHeatMapLegend";
 import { getTecMethodComparison, getTrigNet } from "@/lib/api";
 import { idwFillByStation, stationCodeKey, type LatLonSite } from "@/lib/idwSurface";
+import { measuredLiveTec } from "@/lib/measuredLiveTec";
 import { heatmapQualityBanner, icaoTecLabel, icaoTecLevel, inferHeatmapQuality } from "@/lib/icaoTecAdvisory";
 import type { ProposedCorsSite } from "@/lib/corsGeneticOptimizer";
 import type { Station, TecHeatmapResponse, TrigNetResponse } from "@/lib/types";
@@ -81,22 +82,16 @@ function isSameLiveTime(iso: string | null | undefined): boolean {
 function zimbabweLiveGopi(station: Station, heatmap: TecHeatmapResponse | null): number | null {
   const key = stationCodeKey(station.code);
   const heat = heatmap?.stations?.find((row) => stationCodeKey(row.code) === key);
-  if (
-    heat &&
-    typeof heat.vtec === "number" &&
-    Number.isFinite(heat.vtec) &&
-    heat.vtec > 0 &&
-    !/processed_archive/i.test(heat.source ?? "")
-  ) {
-    return heat.vtec;
-  }
+  const measuredHeat = measuredLiveTec(heat);
+  if (measuredHeat != null) return measuredHeat;
   if (
     typeof station.current_tec === "number" &&
     Number.isFinite(station.current_tec) &&
     station.current_tec > 0 &&
-    getLiveStationStatus(station) === "online"
+    (station.ntrip_verdict === "msm_streaming" || station.status_source === "ntrip") &&
+    getLiveStationStatus(station) !== "offline"
   ) {
-    return station.current_tec;
+    return measuredLiveTec({ vtec: station.current_tec, source: "live_ntrip", obs_count: 1 });
   }
   return null;
 }
@@ -374,11 +369,7 @@ export default function CorsMapWithLayers({
     return [...byCode.values()];
   }, [stations, heatmap]);
 
-  const ggSurface = useMemo(
-    () => idwFillByStation(surfaceSites, measuredGg),
-    [surfaceSites, measuredGg],
-  );
-  const ggByStation = ggSurface.values;
+  const ggByStation = measuredGg;
 
   const trignetGgCombined = useMemo(() => {
     const map: Record<string, number> = { ...trignetGg };
@@ -578,6 +569,7 @@ export default function CorsMapWithLayers({
 
         {!globalTecLayerActive && !scienceMapLayerActive && !networkDistancesActive && (
           <div
+            className="map-float-panels"
             style={{
             position: "absolute",
             top: geomagneticLayerActive ? "12px" : undefined,
@@ -641,7 +633,7 @@ export default function CorsMapWithLayers({
                 ))}
               </>
             )}
-            <div style={{ fontSize: "0.62rem", fontWeight: 400, color: "var(--text-muted)", marginTop: "0.15rem", maxWidth: "210px" }}>
+            <div className="map-status-note" style={{ fontSize: "0.62rem", fontWeight: 400, color: "var(--text-muted)", marginTop: "0.15rem", maxWidth: "210px" }}>
               Live from Spider Site Status (Status=3 online). Green = online, red = offline, grey = Surveyor General. Click a marker for Details.
               {geomagneticLayerActive && (
                 <>

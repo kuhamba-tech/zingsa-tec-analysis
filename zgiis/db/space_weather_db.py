@@ -26,6 +26,18 @@ from zgiis.db.config import (
 
 log = logging.getLogger(__name__)
 
+
+def _zingsa_station_cap() -> int:
+    """ZINGSA CORS count. Surveyor General sites are outside this cap."""
+    try:
+        from zgiis.cors.stations import zingsa_cors_stations
+
+        count = len(zingsa_cors_stations())
+    except Exception:
+        count = 19
+    return count if count > 0 else 19
+
+
 _GNSS_RISK_SCORES = {
     "Low": 0.0,
     "Moderate": 1.0,
@@ -64,6 +76,18 @@ CREATE TABLE IF NOT EXISTS space_weather_log (
 );
 """
 _PG_IDX = "CREATE INDEX IF NOT EXISTS sw_log_time_idx ON space_weather_log (time DESC);"
+_TIMELINE_DDL = """
+CREATE TABLE IF NOT EXISTS space_weather_timeline (
+    metric TEXT NOT NULL,
+    time   TIMESTAMPTZ NOT NULL,
+    value  DOUBLE PRECISION,
+    PRIMARY KEY (metric, time)
+);
+"""
+_TIMELINE_IDX = """
+CREATE INDEX IF NOT EXISTS sw_timeline_metric_time_idx
+    ON space_weather_timeline (metric, time DESC);
+"""
 
 
 def gnss_risk_to_score(risk: str | None) -> float | None:
@@ -106,7 +130,25 @@ class SpaceWeatherDB:
             log.error("SUPABASE_DATABASE_URL is not configured")
             raise DatabaseUnavailable("SUPABASE_DATABASE_URL is not configured")
         self._init_pg()
+        self._timeline_ready = False
         log.info("SpaceWeatherDB ready (%s)", database_backend_label(self._dsn))
+
+    def _ensure(self) -> None:
+        if self._conn is None or getattr(self._conn, "closed", 1):
+            self._conn = checkout(self._dsn)
+
+    def _retry(self, fn):
+        """Run one database operation, and once more after a dropped connection."""
+        self._ensure()
+        try:
+            return fn()
+        except Exception:
+            from zgiis.db.config import reconnect_after_error
+
+            self._conn = reconnect_after_error(self._conn)
+            if self._conn is None:
+                self._conn = checkout(self._dsn)
+            return fn()
 
     def _init_pg(self) -> None:
         try:
@@ -143,14 +185,172 @@ class SpaceWeatherDB:
             row.get("mean_vtec"),
             row.get("source", "api"),
         )
-        if self._is_pg:
-            sql = sql.replace("?", "%s")
+        def write() -> None:
+            if self._is_pg:
+                statement = sql.replace("?", "%s")
+                with self._conn.cursor() as cur:
+                    cur.execute(statement, params)
+                self._conn.commit()
+            else:
+                self._conn.execute(sql, params)
+                self._conn.commit()
+
+        self._retry(write)
+
+    def latest_logged_at(self) -> datetime | None:
+        """Wall time of the newest snapshot, if the table has one."""
+        def read():
             with self._conn.cursor() as cur:
-                cur.execute(sql, params)
+                cur.execute("SELECT time FROM space_weather_log ORDER BY time DESC LIMIT 1")
+                row = cur.fetchone()
+            return row[0] if row else None
+
+        try:
+            value = self._retry(read)
+        except Exception as exc:
+            log.warning("latest space-weather log time failed: %s", exc)
+            return None
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        text = str(value).replace("Z", "+00:00")
+        try:
+            parsed = datetime.fromisoformat(text)
+        except ValueError:
+            return None
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+    def logged_within(self, seconds: float) -> bool:
+        """True when a snapshot was stored less than ``seconds`` ago."""
+        latest = self.latest_logged_at()
+        if latest is None:
+            return False
+        age = (datetime.now(tz=timezone.utc) - latest).total_seconds()
+        return 0 <= age < seconds
+
+    def ensure_timeline_table(self) -> None:
+        if self._timeline_ready:
+            return
+
+        def create() -> None:
+            with self._conn.cursor() as cur:
+                cur.execute(_TIMELINE_DDL)
+                cur.execute(_TIMELINE_IDX)
+
+        self._retry(create)
+        self._timeline_ready = True
+
+    def upsert_timeline(self, rows: list[tuple[str, datetime | str, float]]) -> int:
+        """Insert graph samples. The same metric and time keeps the newest value."""
+        deduped: dict[tuple[str, str], tuple[str, str, float]] = {}
+        for metric, when, value in rows:
+            if metric is None or when is None or value is None:
+                continue
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                continue
+            stamp = when.isoformat() if isinstance(when, datetime) else str(when)
+            if not stamp:
+                continue
+            deduped[(str(metric), stamp)] = (str(metric), stamp, number)
+        payload = list(deduped.values())
+        if not payload:
+            return 0
+        self.ensure_timeline_table()
+
+        def write() -> int:
+            from psycopg2.extras import execute_values
+
+            sql = """
+            INSERT INTO space_weather_timeline (metric, time, value)
+            VALUES %s
+            ON CONFLICT (metric, time) DO UPDATE SET value = EXCLUDED.value
+            """
+            with self._conn.cursor() as cur:
+                execute_values(cur, sql, payload, page_size=500)
             self._conn.commit()
-        else:
-            self._conn.execute(sql, params)
+            return len(payload)
+
+        return int(self._retry(write))
+
+    def read_timeline_bins(
+        self,
+        metrics: list[str],
+        *,
+        since: datetime,
+        before: datetime | None = None,
+        bin_minutes: int = 15,
+    ) -> dict[str, list[tuple[datetime, float]]]:
+        """Average stored graph samples into bins so a multi-day chart stays small."""
+        names = [str(metric) for metric in metrics if metric]
+        if not names:
+            return {}
+        self.ensure_timeline_table()
+        minutes = max(1, int(bin_minutes))
+
+        def read():
+            sql = """
+            SELECT metric,
+                   date_bin(%s, time, TIMESTAMPTZ '2000-01-01') AS bucket,
+                   CASE
+                     WHEN metric = 'stations_online' THEN
+                       percentile_cont(0.5) WITHIN GROUP (ORDER BY value)
+                         FILTER (
+                           WHERE value >= 2
+                             AND value <= %s
+                             AND value = trunc(value)
+                         )
+                     ELSE avg(value)
+                   END AS value
+            FROM space_weather_timeline
+            WHERE metric = ANY(%s)
+              AND time >= %s
+              AND (%s IS NULL OR time < %s)
+            GROUP BY metric, bucket
+            ORDER BY metric, bucket
+            """
+            with self._conn.cursor() as cur:
+                cur.execute(
+                    sql,
+                    (
+                        timedelta(minutes=minutes),
+                        float(_zingsa_station_cap()),
+                        names,
+                        since,
+                        before,
+                        before,
+                    ),
+                )
+                return cur.fetchall()
+
+        try:
+            fetched = self._retry(read)
+        except Exception as exc:
+            log.warning("timeline read failed: %s", exc)
+            return {}
+        grouped: dict[str, list[tuple[datetime, float]]] = {}
+        for metric, bucket, value in fetched:
+            if bucket is None or value is None:
+                continue
+            stamp = bucket if getattr(bucket, "tzinfo", None) else bucket.replace(tzinfo=timezone.utc)
+            grouped.setdefault(str(metric), []).append((stamp, float(value)))
+        return grouped
+
+    def prune_timeline(self, *, days: int = 90) -> int:
+        """Drop graph samples older than the retention window."""
+        self.ensure_timeline_table()
+        cutoff = datetime.now(tz=timezone.utc) - timedelta(days=max(1, int(days)))
+
+        def delete() -> int:
+            with self._conn.cursor() as cur:
+                cur.execute("DELETE FROM space_weather_timeline WHERE time < %s", (cutoff,))
+                removed = int(cur.rowcount or 0)
             self._conn.commit()
+            return removed
+
+        return int(self._retry(delete))
 
     def query_dataframe(
         self,
@@ -180,7 +380,21 @@ class SpaceWeatherDB:
 
         if resample:
             numeric = [c for c in _NUMERIC_COLUMNS if c in df.columns]
-            df = df[numeric].resample(resample).mean(numeric_only=True)
+            averaged = df[numeric].resample(resample).mean(numeric_only=True)
+            # A station count is not a rate. Averaging a real 14 with a catalog
+            # size (19 or 25) draws a peak near 18 that never happened.
+            if "stations_online" in averaged.columns:
+                cap = _zingsa_station_cap()
+                online = df["stations_online"]
+                total = df["stations_total"] if "stations_total" in df.columns else None
+                plausible = online.where((online >= 2) & (online <= cap))
+                # 19/19 and 25/25 are the catalog length, not stations that
+                # came online. Averaging those with a real 14 draws a peak
+                # near 18.
+                if total is not None:
+                    plausible = plausible.where(online < total.fillna(cap + 1))
+                averaged["stations_online"] = plausible.resample(resample).median()
+            df = averaged
 
         return df.reset_index()
 

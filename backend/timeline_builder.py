@@ -2,17 +2,33 @@
 from __future__ import annotations
 
 import datetime as dt
+import math
 
 from backend.schemas import SpaceWeatherTimelines, TimelinePoint
 from backend.timeline_cache import merge_timeline
 
 
-def limit_timeline_points(
-    points: list[TimelinePoint],
-    max_points: int = 336,
-) -> list[TimelinePoint]:
-    """Downsample a series evenly while always retaining its newest point."""
-    if max_points <= 0 or len(points) <= max_points:
+def _point_utc(point: TimelinePoint) -> dt.datetime | None:
+    raw = str(point.t or "").strip()
+    if not raw:
+        return None
+    if raw.endswith("Z"):
+        raw = raw[:-1] + "+00:00"
+    elif "+" not in raw[10:]:
+        raw = raw + "+00:00"
+    try:
+        when = dt.datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=dt.timezone.utc)
+    return when.astimezone(dt.timezone.utc)
+
+
+def _even_sample(points: list[TimelinePoint], max_points: int) -> list[TimelinePoint]:
+    if max_points <= 0 or not points:
+        return []
+    if len(points) <= max_points:
         return points
     if max_points == 1:
         return [points[-1]]
@@ -22,6 +38,37 @@ def limit_timeline_points(
         for position in range(max_points)
     }
     return [points[index] for index in sorted(indices)]
+
+
+def limit_timeline_points(
+    points: list[TimelinePoint],
+    max_points: int = 336,
+) -> list[TimelinePoint]:
+    """Downsample older history. Keep one logged sample for every recent UTC hour.
+
+    A 96-point cap across several days was dropping 01:00–03:00 and the
+    scintillation chart then showed time only at the start of the window.
+    """
+    if max_points <= 0 or len(points) <= max_points:
+        return points
+    if max_points == 1:
+        return [points[-1]]
+    recent_start = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=48)
+    hourly: dict[str, TimelinePoint] = {}
+    older: list[TimelinePoint] = []
+    for point in points:
+        when = _point_utc(point)
+        if when is not None and when >= recent_start:
+            hourly[when.strftime("%Y-%m-%dT%H")] = point
+        else:
+            older.append(point)
+    recent = [hourly[key] for key in sorted(hourly)]
+    if not recent:
+        return _even_sample(points, max_points)
+    budget = max_points - len(recent)
+    if budget <= 0:
+        return recent
+    return _even_sample(older, budget) + recent
 
 
 def limit_timelines(
@@ -45,6 +92,43 @@ def _archive_frame(hours: float = 168.0, resample: str = "1h"):
         return None
 
 
+def _zingsa_online_cap() -> int:
+    """ZINGSA CORS network size. Surveyor General sites are not in this count."""
+    try:
+        from zgiis.cors.stations import zingsa_cors_stations
+
+        count = len(zingsa_cors_stations())
+    except Exception:
+        count = 19
+    return count if count > 0 else 19
+
+
+def _within_zingsa_network(points: list[TimelinePoint]) -> list[TimelinePoint]:
+    """Keep measured ZINGSA online counts.
+
+    Counts above 19 include Surveyor General sites. Fractional values are
+    averages of a real count with the catalog size (the false peak near 18).
+    A stored 0 or 1 is an empty counter during restart.
+    """
+    cap = _zingsa_online_cap()
+    kept: list[TimelinePoint] = []
+    for point in points:
+        if point.v is None:
+            continue
+        try:
+            value = float(point.v)
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(value) or value < 2 or value > cap:
+            continue
+        nearest = round(value)
+        half = math.floor(value) + 0.5
+        if abs(value - nearest) > 0.001 and abs(value - half) > 0.001:
+            continue
+        kept.append(point)
+    return kept
+
+
 def _archive_points(column: str, df) -> list[TimelinePoint]:
     try:
         if df is None or df.empty or column not in df.columns:
@@ -58,6 +142,8 @@ def _archive_points(column: str, df) -> list[TimelinePoint]:
             try:
                 fv = float(v)
             except (TypeError, ValueError):
+                continue
+            if not math.isfinite(fv):
                 continue
             ts = t.isoformat() if hasattr(t, "isoformat") else str(t)
             out.append(TimelinePoint(t=ts, v=round(fv, 4)))
@@ -147,11 +233,15 @@ def build_timelines(sw: dict) -> SpaceWeatherTimelines:
     gnss_archive = _archive_points("gnss_risk_score", archive)
     gnss_risk = merge_timeline("gnss_risk", _prefer_richer(gnss_live, gnss_archive))
 
-    stations_live = _pts_keyed(sw.get("stations_online_history"), "online")
-    stations_archive = _archive_points("stations_online", archive)
-    stations_online = merge_timeline(
-        "stations_online",
-        _prefer_richer(stations_live, stations_archive),
+    stations_live = _within_zingsa_network(
+        _pts_keyed(sw.get("stations_online_history"), "online")
+    )
+    stations_archive = _within_zingsa_network(_archive_points("stations_online", archive))
+    stations_online = _within_zingsa_network(
+        merge_timeline(
+            "stations_online",
+            _prefer_richer(stations_live, stations_archive),
+        )
     )
 
     mean_vtec = merge_timeline("mean_vtec", _archive_points("mean_vtec", archive))

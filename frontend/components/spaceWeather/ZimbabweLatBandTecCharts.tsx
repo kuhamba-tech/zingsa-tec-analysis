@@ -17,7 +17,6 @@ import { getLoadProfile } from "@/lib/loadBudget";
 import { getTecMethodCmpParams } from "@/lib/tecMethodCompareParams";
 import type { LiveStationVtecSeries, Station, TecMethodComparisonResponse } from "@/lib/types";
 import {
-  LAT_BAND_DIURNAL_HOURS,
   ZIMBABWE_LAT_BANDS,
   latBandDiurnalFromStationSeries,
   latBandDiurnalGgFromGopiPlusDelta,
@@ -86,12 +85,13 @@ function chartOptions(title: string) {
         title: { display: true, text: "UT [hours]", color: "#ffffff", font: { size: 12 } },
         ticks: {
           color: "#ffffff",
-          stepSize: 3,
+          stepSize: 1,
+          autoSkip: false,
+          maxRotation: 0,
           callback: (v: string | number) => {
             const n = Number(v);
-            return LAT_BAND_DIURNAL_HOURS.includes(n as (typeof LAT_BAND_DIURNAL_HOURS)[number])
-              ? String(n).padStart(2, "0")
-              : "";
+            if (!Number.isInteger(n) || n < 0 || n > 23) return "";
+            return String(n).padStart(2, "0");
           },
         },
         grid: { color: "rgba(148, 163, 184, 0.28)", borderDash: [4, 4] },
@@ -307,7 +307,7 @@ export default function ZimbabweLatBandTecCharts({
         title="ZINGSA TEC comparison — GOPI"
         badge="Measured · Method 1 (GOPI / Seemala)"
         series={gopiBands}
-        footer="Hourly mean vertical TEC from live Zimbabwe CORS stations, binned by latitude band. Curves use actual observations; gaps appear where no stations in that band reported yet."
+        footer="Mean vertical TEC for every UT hour from live Zimbabwe CORS stations, binned by latitude band. A missing hour is an hour with no observations in that band."
         empty={
           loading
             ? "Waiting for live station VTEC…"

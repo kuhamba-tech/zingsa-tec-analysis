@@ -50,7 +50,7 @@ PARAM_CONFIGS: dict[str, EkfConfig] = {
     "solar_wind": EkfConfig(bounds=(200.0, 1500.0), q_pos=10.0, q_vel=2.0, r=900.0, scale=400.0),
     "s4": EkfConfig(bounds=(0.0, 1.0), q_pos=0.01, q_vel=0.005, r=0.01, scale=0.5),
     "gnss_risk": EkfConfig(bounds=(0.0, 3.0), q_pos=0.05, q_vel=0.01, r=0.3, scale=3.0),
-    "stations_online": EkfConfig(bounds=(0.0, 30.0), q_pos=0.5, q_vel=0.1, r=2.0, scale=24.0),
+    "stations_online": EkfConfig(bounds=(0.0, 19.0), q_pos=0.5, q_vel=0.1, r=2.0, scale=19.0),
     "mean_vtec": EkfConfig(bounds=(0.0, 200.0), q_pos=0.5, q_vel=0.1, r=4.0, scale=40.0),
     "tec_map_rmse": EkfConfig(bounds=(0.0, 50.0), q_pos=0.15, q_vel=0.04, r=1.0, scale=5.0),
     # Transformer-neutral GIC (A). Signed, physically unbounded in practice;

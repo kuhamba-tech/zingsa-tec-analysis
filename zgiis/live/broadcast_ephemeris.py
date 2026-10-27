@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import gzip
 import logging
+import re
 import tempfile
 import threading
 import time
@@ -101,9 +102,161 @@ def _download_brdc(day: datetime, *, timeout: int = 60) -> Optional[Path]:
     return None
 
 
-def _load_gps_nav_df(path: Path):
-    import georinex as gr
+_FLOAT_RE = re.compile(
+    r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[dDeE][-+]?\d+)?"
+)
+_RINEX3_GPS_EPOCH_RE = re.compile(
+    r"^G(\d{2})\s+(\d{4})\s+(\d{1,2})\s+(\d{1,2})\s+(\d{1,2})\s+(\d{1,2})\s+(\d{1,2})"
+)
+_RINEX2_GPS_EPOCH_RE = re.compile(
+    r"^\s*(\d{1,2})\s+(\d{2})\s+(\d{1,2})\s+(\d{1,2})\s+(\d{1,2})\s+(\d{1,2})\s+(\d{1,2}(?:\.\d*)?)"
+)
 
+
+def _rinex_floats(line: str) -> list[float]:
+    out: list[float] = []
+    for token in _FLOAT_RE.findall(line):
+        try:
+            out.append(float(token.replace("D", "E").replace("d", "e")))
+        except ValueError:
+            continue
+    return out
+
+
+def _gps_nav_from_block(sv: str, epoch: datetime, clock: list[float], data: list[list[float]]) -> Optional[dict]:
+    """Map one GPS broadcast block onto the nav columns LiveNavCache expects."""
+    if len(data) < 5:
+        return None
+    # RINEX GPS nav: 4 values per data line, same order in RINEX 2 and 3.
+    # 0 IODE Crs DeltaN M0 / 1 Cuc e Cus sqrtA / 2 Toe Cic Omega0 Cis
+    # 3 i0 Crc omega OmegaDot / 4 IDOT ...
+    slots = {
+        "Crs": (0, 1),
+        "DeltaN": (0, 2),
+        "M0": (0, 3),
+        "Cuc": (1, 0),
+        "Eccentricity": (1, 1),
+        "Cus": (1, 2),
+        "sqrtA": (1, 3),
+        "Toe": (2, 0),
+        "Cic": (2, 1),
+        "Omega0": (2, 2),
+        "Cis": (2, 3),
+        "Io": (3, 0),
+        "Crc": (3, 1),
+        "omega": (3, 2),
+        "OmegaDot": (3, 3),
+        "IDOT": (4, 0),
+    }
+    row: dict = {"sv": sv, "time": epoch.replace(tzinfo=None)}
+    for name, (line_i, col_i) in slots.items():
+        line = data[line_i]
+        if col_i >= len(line):
+            return None
+        row[name] = line[col_i]
+    if row["sqrtA"] <= 0:
+        return None
+    if clock:
+        row["SVclockBias"] = clock[0]
+    return row
+
+
+def _parse_rinex_gps_nav(text: str) -> list[dict]:
+    """Read GPS broadcast ephemeris from a RINEX 2, 3, or 4 navigation file."""
+    lines = text.splitlines()
+    version = 3
+    body = 0
+    for i, line in enumerate(lines):
+        if "RINEX VERSION" in line:
+            try:
+                version = int(float(line[:9].strip() or "3"))
+            except ValueError:
+                version = 3
+        if "END OF HEADER" in line:
+            body = i + 1
+            break
+
+    rows: list[dict] = []
+    i = body
+    while i < len(lines):
+        line = lines[i]
+        if line.startswith(">"):
+            i += 1
+            continue
+        sv = None
+        epoch = None
+        clock: list[float] = []
+        match3 = _RINEX3_GPS_EPOCH_RE.match(line)
+        match2 = _RINEX2_GPS_EPOCH_RE.match(line) if version < 3 else None
+        if match3:
+            sv = f"G{int(match3.group(1)):02d}"
+            epoch = datetime(
+                int(match3.group(2)),
+                int(match3.group(3)),
+                int(match3.group(4)),
+                int(match3.group(5)),
+                int(match3.group(6)),
+                int(float(match3.group(7))),
+                tzinfo=timezone.utc,
+            )
+            clock = _rinex_floats(line[match3.end():])
+        elif match2:
+            year = int(match2.group(2))
+            year += 2000 if year < 80 else 1900
+            sv = f"G{int(match2.group(1)):02d}"
+            epoch = datetime(
+                year,
+                int(match2.group(3)),
+                int(match2.group(4)),
+                int(match2.group(5)),
+                int(match2.group(6)),
+                int(float(match2.group(7))),
+                tzinfo=timezone.utc,
+            )
+            clock = _rinex_floats(line[match2.end():])
+        else:
+            i += 1
+            continue
+
+        i += 1
+        data: list[list[float]] = []
+        while i < len(lines) and len(data) < 7:
+            nxt = lines[i]
+            if nxt.startswith(">"):
+                break
+            if _RINEX3_GPS_EPOCH_RE.match(nxt) or (
+                version < 3 and _RINEX2_GPS_EPOCH_RE.match(nxt)
+            ):
+                break
+            if nxt[:1].isalpha() and not nxt.startswith(" "):
+                break
+            data.append(_rinex_floats(nxt))
+            i += 1
+        if sv and epoch is not None:
+            row = _gps_nav_from_block(sv, epoch, clock, data)
+            if row is not None:
+                rows.append(row)
+    return rows
+
+
+def _load_gps_nav_df(path: Path):
+    """Parse GPS nav without georinex. Vercel functions do not install that module."""
+    import pandas as pd
+
+    try:
+        text = path.read_text(encoding="ascii", errors="replace")
+        rows = _parse_rinex_gps_nav(text)
+    except OSError as exc:
+        log.warning("Could not read broadcast ephemeris %s: %s", path, exc)
+        rows = []
+    if rows:
+        return pd.DataFrame(rows)
+
+    try:
+        import georinex as gr
+    except ImportError as exc:
+        log.warning("georinex is not installed and the built-in parser found no GPS nav: %s", exc)
+        return None
     try:
         nav_ds = gr.load(str(path), use="G")
         if isinstance(nav_ds, dict):

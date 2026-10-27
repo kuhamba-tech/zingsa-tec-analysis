@@ -57,16 +57,21 @@ def _background_services_enabled() -> bool:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Graph history must keep logging while the API is up. This does not start
+    # NTRIP. The collector is the only process allowed to hold the caster slot.
+    # Vercel functions exit immediately, so they archive when a chart is opened.
+    if not os.getenv("VERCEL"):
+        space_weather_logger.start()
     if not _background_services_enabled():
         log.info("Background services disabled. Set ZGIIS_BACKGROUND_SERVICES=1 to start NTRIP/logging schedulers.")
         # Still warm NOAA read caches so the first dashboard paints quickly.
         start_light_cache_warmup()
         yield
+        space_weather_logger.stop()
         return
 
     # Warm caches and start NTRIP ingest in background threads — never block HTTP startup.
     start_background_warmup(include_live_ingest=True)
-    space_weather_logger.start()
     station_status_logger.start()
     navigation_broadcast_scheduler.start()
     threading.Thread(

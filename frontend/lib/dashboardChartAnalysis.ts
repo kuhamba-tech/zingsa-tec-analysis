@@ -306,7 +306,7 @@ export function analyzeStationsOnlineTimeline(points: TimelinePoint[]): ChartAna
   const min = troughPoint(points);
   const latest = latestPoint(points);
   const bullets: string[] = [
-    "Count of Zimbabwe CORS stations reporting live data — network availability for TEC and scintillation products.",
+    "Count of ZINGSA CORS stations online, out of 19. Surveyor General sites are not included.",
   ];
   if (min && latest) {
     bullets.push(

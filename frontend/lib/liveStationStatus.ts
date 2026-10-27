@@ -12,6 +12,40 @@ export function isSurveyorGeneral(code: string | null | undefined): boolean {
   return SURVEYOR_GENERAL_CODES.has(String(code ?? "").toLowerCase().replace(/_+$/, ""));
 }
 
+function isMeasuredStationCount(value: number): boolean {
+  const nearest = Math.round(value);
+  const half = Math.floor(value) + 0.5;
+  return Math.abs(value - nearest) < 0.001 || Math.abs(value - half) < 0.001;
+}
+
+/** Online-count samples for the 19 ZINGSA stations.
+
+Counts above 19 include Surveyor General sites. A stored 19 while Spider
+reports fewer sites is the catalog length, not stations that came online.
+Fractional values such as 16.8 or 18.7 are averages of a real count with
+that catalog size. A stored 0 or 1 is an empty counter during restart.
+*/
+export function zingsaOnlineCountPoints<T extends { v: number | null }>(
+  points: T[],
+  liveCount?: number | null,
+): T[] {
+  const live = liveCount != null && Number.isFinite(liveCount) ? liveCount : null;
+  return points.filter((point) => {
+    if (point.v == null || !Number.isFinite(point.v)) return false;
+    if (point.v < 0 || point.v > ZINGSA_STATION_TOTAL) return false;
+    if (!isMeasuredStationCount(point.v)) return false;
+    if (
+      point.v === ZINGSA_STATION_TOTAL &&
+      live != null &&
+      live < ZINGSA_STATION_TOTAL
+    ) {
+      return false;
+    }
+    if (point.v < 2 && live != null && live >= 2) return false;
+    return true;
+  });
+}
+
 export interface LiveStationCounts {
   online: number;
   offline: number;

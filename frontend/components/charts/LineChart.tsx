@@ -40,7 +40,9 @@ interface Dataset {
   /** Chart.js y-axis id — use "y2"/"y3" for secondary/tertiary scales. */
   yAxisId?: "y" | "y2" | "y3";
   /** Set false for PRN arcs where nulls mark real observation gaps. */
-  spanGaps?: boolean;
+  spanGaps?: boolean | number;
+  /** Straight segments for counts. A curve between sparse samples invents a peak. */
+  tension?: number;
   /** Stroke each segment with the colour for that sample (e.g. flare class). */
   valueColor?: (value: number) => string;
 }
@@ -446,7 +448,7 @@ export default function LineChart({
                     ? 0
                     : budget.pointRadius,
             pointHoverRadius: compact ? 5 : 4,
-            tension: preserveSamples ? 0 : budget.tension,
+            tension: ds.tension ?? (preserveSamples ? 0 : budget.tension),
             spanGaps: ds.spanGaps ?? true,
             yAxisID: ds.yAxisId ?? "y",
             // eslint-disable-next-line @typescript-eslint/no-explicit-any

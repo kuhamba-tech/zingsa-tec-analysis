@@ -159,7 +159,7 @@ def _sw() -> dict:
             "gnss_risk": "Unknown",
             "gnss_risk_color": "#94a3b8",
             "stations_online": None,
-            "stations_total": 25,
+            "stations_total": 19,
             "updated_utc": None,
         }
     s4, delta_tec, ionosphere_status, ionosphere_note = _cached_s4()
@@ -432,6 +432,27 @@ def _build_current_payload() -> SpaceWeatherCurrent:
         logged_vtec = _logged_mean_vtec()
         if logged_vtec is not None:
             sw["mean_vtec"] = logged_vtec
+    # A saved snapshot already filled mean_vtec above. The card on this page
+    # must show the stations streaming now, not that older number.
+    try:
+        from zgiis.cors.stations import is_surveyor_general
+        from zgiis.db.timescale import TecDB
+
+        live_db = TecDB()
+        try:
+            by_station = live_db.live_station_mean_vtec(seconds=15 * 60)
+        finally:
+            live_db.close()
+        vals = [
+            float(value)
+            for code, value in by_station.items()
+            if not is_surveyor_general(code) and value is not None and float(value) > 1.0
+        ]
+        if vals:
+            sw["mean_vtec"] = round(sum(vals) / len(vals), 2)
+            sw["vtec_tecu"] = sw["mean_vtec"]
+    except Exception:
+        log.exception("live station TEC mean failed")
     threading.Thread(
         target=log_snapshot,
         kwargs={"source": "dashboard", "force": False, "snapshot": sw},

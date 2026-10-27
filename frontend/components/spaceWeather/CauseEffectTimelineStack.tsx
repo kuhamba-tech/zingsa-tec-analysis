@@ -204,6 +204,31 @@ function clipSeriesToDomain<T extends Record<string, (number | null)[] | string[
   };
 }
 
+/** One logged sample per UTC hour, on the same hour ticks as the VTEC chart. */
+function hourlyLoggedSeries(
+  points: { t: string; v: number | null }[],
+  domain: { min: number; max: number } | null,
+): { epochs: number[]; values: (number | null)[] } | null {
+  if (!domain) return null;
+  const byHour = new Map<number, number>();
+  for (const point of points) {
+    const ms = parseTimelineEpoch(point.t);
+    if (ms == null || point.v == null || !Number.isFinite(point.v)) continue;
+    const hour = Math.floor(ms / ONE_H_MS) * ONE_H_MS;
+    if (hour < domain.min - ONE_H_MS || hour > domain.max) continue;
+    byHour.set(hour, point.v);
+  }
+  const start = Math.ceil(domain.min / ONE_H_MS) * ONE_H_MS;
+  const epochs: number[] = [];
+  const values: (number | null)[] = [];
+  for (let hour = start; hour <= domain.max; hour += ONE_H_MS) {
+    epochs.push(hour);
+    values.push(byHour.has(hour) ? (byHour.get(hour) as number) : null);
+  }
+  if (!epochs.length || values.every((value) => value == null)) return null;
+  return { epochs, values };
+}
+
 function timelinePointsToSeries(points: { t: string; v: number | null }[]) {
   if (!points.length) return null;
   const labels = points.map((p) => p.t);
@@ -265,13 +290,20 @@ export default function CauseEffectTimelineStack({
   const [syncHoverMs, setSyncHoverMs] = useState<number | null>(null);
   const [geoTab, setGeoTab] = useState<GeoTab>("kp");
   const loadProfile = useMemo(() => getLoadProfile(), []);
-  const [rangeHours, setRangeHours] = useState<6 | 24 | 72>(loadProfile.defaultRangeHours);
-  // Overview only needs a light station snapshot for the readings strip — keep it cheap.
-  const vtecHours = showChrome && !showLocal
-    ? Math.min(rangeHours, 6)
-    : Math.min(rangeHours, loadProfile.vtecHoursCap);
+  const [rangeHours, setRangeHours] = useState<6 | 24 | 72 | 168>(loadProfile.defaultRangeHours);
+  // Chart history. The readings strip uses a separate 30-minute request so
+  // "stations contributing" paints before this longer bin returns.
+  const vtecHours = showChrome && !showLocal ? Math.min(rangeHours, 6) : rangeHours;
   const vtecResample =
-    showChrome && !showLocal ? 10 : loadProfile.vtecResampleMinutes;
+    showChrome && !showLocal
+      ? 10
+      : rangeHours >= 72
+        ? 30
+        : rangeHours >= 24
+          ? Math.max(loadProfile.vtecResampleMinutes, 10)
+          : loadProfile.vtecResampleMinutes;
+  const readingsHours = 0.5;
+  const readingsResample = 2;
   const [now, setNow] = useState(0);
   const [vtecRefreshFailed, setVtecRefreshFailed] = useState(false);
   const [openPanel, setOpenPanel] = useState<string | null>(null);
@@ -323,21 +355,53 @@ export default function CauseEffectTimelineStack({
       }
       if (fetchVtec) {
         feedCount += 1;
-        if (!cancelled && showChrome && !showLocal) setVtecLoading(true);
+        if (!cancelled) setVtecLoading(true);
         tasks.push(
-          getLiveVtecByStation(vtecHours, vtecResample)
+          getLiveVtecByStation(readingsHours, readingsResample, 45_000)
             .then((v) => {
-              if (cancelled) return;
+              if (cancelled) return false;
               setVtec(Array.isArray(v) ? v : []);
               setVtecRefreshFailed(false);
               markPainted();
+              return true;
             })
             .catch(() => {
               failures += 1;
-              if (!cancelled) setVtecRefreshFailed(true);
+              return false;
             })
             .finally(() => {
               if (!cancelled) setVtecLoading(false);
+            })
+            .then((painted) => {
+              // One database connection serves this process. The chart window
+              // waits until the readings query has finished. A failed chart
+              // request must not wipe readings that already arrived.
+              if (cancelled || !showLocal || vtecHours <= readingsHours) {
+                if (!cancelled && !painted) setVtecRefreshFailed(true);
+                return;
+              }
+              const chartTimeout = vtecHours >= 6 ? 90_000 : 45_000;
+              const chartHasPoints = (v: LiveStationVtecSeries[] | undefined) =>
+                Array.isArray(v) && v.some((station) => station.points?.length);
+              const loadChartWindow = () =>
+                getLiveVtecByStation(vtecHours, vtecResample, chartTimeout).then((v) => {
+                  if (chartHasPoints(v)) return v;
+                  return getLiveVtecByStation(vtecHours, vtecResample, chartTimeout);
+                });
+              return loadChartWindow()
+                .catch(() => loadChartWindow())
+                .then((v) => {
+                  if (cancelled) return;
+                  if (chartHasPoints(v)) {
+                    setVtec(v);
+                    setVtecRefreshFailed(false);
+                    return;
+                  }
+                  if (!painted) setVtecRefreshFailed(true);
+                })
+                .catch(() => {
+                  if (!cancelled && !painted) setVtecRefreshFailed(true);
+                });
             })
             .then(() => undefined),
         );
@@ -499,6 +563,26 @@ export default function CauseEffectTimelineStack({
     () => clipOrFallback(gnssPanel, timeDomain),
     [gnssPanel, timeDomain],
   );
+  // Same UTC hour ticks as Zimbabwe VTEC. Each hour keeps the logged sample
+  // from that hour; an hour with no log stays empty.
+  const gnssHourly = useMemo(() => {
+    if (!timeDomain) return null;
+    const s4 = hourlyLoggedSeries(timelines?.s4 ?? [], timeDomain);
+    const risk = hourlyLoggedSeries(timelines?.gnss_risk ?? [], timeDomain);
+    const epochs = s4?.epochs ?? risk?.epochs;
+    if (!epochs?.length) return null;
+    const at = (series: { epochs: number[]; values: (number | null)[] } | null) => {
+      if (!series) return epochs.map(() => null);
+      const byEpoch = new Map(series.epochs.map((ms, index) => [ms, series.values[index]]));
+      return epochs.map((ms) => byEpoch.get(ms) ?? null);
+    };
+    return {
+      epochs,
+      labels: epochs.map((ms) => new Date(ms).toISOString()),
+      s4: at(s4),
+      risk: at(risk),
+    };
+  }, [timelines, timeDomain]);
 
   const timeAxis = useMemo(
     () => utcTimeAxisProps(timeDomain, { rangeHours }),
@@ -565,10 +649,10 @@ export default function CauseEffectTimelineStack({
     variant === "drivers"
       ? "Measurement flow: GOES X-ray → solar wind → IMF → geomagnetic activity. Shared UTC window and synchronized crosshair across panels 1–4."
       : variant === "local"
-        ? "Zimbabwe CORS VTEC, station online counts, and scintillation / GNSS risk only — shared UTC window with synchronized crosshair. Up to five station traces; VTEC history up to 48 hours. Planetary Kp colour bands are on the Kp Scale tab."
+        ? "Zimbabwe CORS VTEC, station online counts, and scintillation / GNSS risk only — shared UTC window with synchronized crosshair. Up to five station traces; VTEC history up to 7 days. Planetary Kp colour bands are on the Kp Scale tab."
         : variant === "liveMetric"
           ? "Measurement flow: GOES X-ray → F10.7 → Heliospheric Monitor → Zimbabwe VTEC → CORS online → scintillation / GNSS risk."
-          : "Shared UTC window and synchronized crosshair. Compare observations and propagation delays; alignment alone does not establish cause and effect. Up to five station traces are shown; coverage above includes all returned stations. Local VTEC history is available for up to 48 hours.";
+          : "Shared UTC window and synchronized crosshair. Compare observations and propagation delays; alignment alone does not establish cause and effect. Up to five station traces are shown; coverage above includes all returned stations. Local VTEC history is available for up to 7 days.";
 
   const hasDriverData = Boolean(helio || timelines);
   const hasLocalData = Boolean(timelines || vtec.length > 0);
@@ -609,7 +693,7 @@ export default function CauseEffectTimelineStack({
         tone={error ? "warn" : loading ? "warn" : "ok"}
         meta={
           <div className="sw-range-controls" role="group" aria-label="Shared chart time range">
-            {([6, 24, 72] as const).map((hours) => (
+            {([6, 24, 72, 168] as const).map((hours) => (
               <button
                 type="button"
                 key={hours}
@@ -619,7 +703,7 @@ export default function CauseEffectTimelineStack({
                   setSyncHoverMs(null);
                 }}
               >
-                {hours === 72 ? "3 days" : `${hours} hours`}
+                {hours === 168 ? "7 days" : hours === 72 ? "3 days" : `${hours} hours`}
               </button>
             ))}
           </div>
@@ -868,7 +952,35 @@ export default function CauseEffectTimelineStack({
                 open={openPanel === "gnss"}
                 onToggle={() => setOpenPanel((p) => (p === "gnss" ? null : "gnss"))}
               >
-                {gnssPanelClipped ? (
+                {gnssHourly ? (
+                  <LineChart
+                    labels={gnssHourly.labels}
+                    yLabel="S4"
+                    height={180}
+                    toggleableLegend
+                    secondaryYLabel="Estimated risk"
+                    xValues={gnssHourly.epochs}
+                    epochMs={gnssHourly.epochs}
+                    {...timeAxis}
+                    {...syncProps}
+                    datasets={[
+                      {
+                        label: "S4",
+                        data: gnssHourly.s4,
+                        color: "#f97316",
+                        yAxisId: "y",
+                        spanGaps: false,
+                      },
+                      {
+                        label: "Estimated GNSS risk (provisional)",
+                        data: gnssHourly.risk,
+                        color: "#a78bfa",
+                        yAxisId: "y2",
+                        spanGaps: false,
+                      },
+                    ]}
+                  />
+                ) : gnssPanelClipped ? (
                   <LineChart
                     labels={gnssPanelClipped.labels}
                     yLabel="S4"
@@ -885,12 +997,14 @@ export default function CauseEffectTimelineStack({
                         data: gnssPanelClipped.series.s4,
                         color: "#f97316",
                         yAxisId: "y",
+                        spanGaps: false,
                       },
                       {
                         label: "Estimated GNSS risk (provisional)",
                         data: gnssPanelClipped.series.risk,
                         color: "#a78bfa",
                         yAxisId: "y2",
+                        spanGaps: false,
                       },
                     ]}
                   />

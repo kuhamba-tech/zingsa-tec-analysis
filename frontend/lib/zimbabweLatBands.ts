@@ -4,6 +4,7 @@
  */
 
 import type { LiveObservation, LiveStationVtecSeries, Station } from "@/lib/types";
+import { isSurveyorGeneral } from "@/lib/liveStationStatus";
 import { hourOfDayUtc } from "@/lib/tecTeachingMath";
 
 export type ZimbabweLatBandId = "northern" | "central" | "southern";
@@ -18,8 +19,8 @@ export const ZIMBABWE_LAT_BANDS: {
   { id: "southern", label: "Southern Zimbabwe", color: "#ea580c" },
 ];
 
-/** Hours shown on the illustrative ZINGSA latitudinal TEC graph. */
-export const LAT_BAND_DIURNAL_HOURS = [0, 3, 6, 9, 12, 15, 18, 21, 23] as const;
+/** One mean per UT hour, 00 through 23. */
+export const LAT_BAND_DIURNAL_HOURS = Array.from({ length: 24 }, (_, hour) => hour);
 
 /** Static catalog latitudes (CORS_FILES / stations.py) — used when live catalog is empty. */
 export const ZIMBABWE_STATION_LATS: Record<string, number> = {
@@ -101,18 +102,12 @@ function emptySeries(): LatBandDiurnalSeries {
   };
 }
 
-function snapToDiurnalHour(hourUt: number): number | null {
-  let best: number | null = null;
-  let bestDist = Infinity;
-  for (const h of LAT_BAND_DIURNAL_HOURS) {
-    const d = Math.abs(hourUt - h);
-    if (d < bestDist) {
-      bestDist = d;
-      best = h;
-    }
-  }
-  // Accept points within ±1.5 h of a labelled tick (covers 15–60 min bins).
-  return best != null && bestDist <= 1.5 ? best : null;
+/** Keep the observation in its own UT hour. Do not fold it onto a 3-hour tick. */
+function diurnalHourBin(hourUt: number): number | null {
+  if (!Number.isFinite(hourUt)) return null;
+  const hour = Math.floor(hourUt);
+  if (hour < 0 || hour > 23) return null;
+  return hour;
 }
 
 function finalizeBuckets(
@@ -164,6 +159,7 @@ export function latBandDiurnalFromStationSeries(
 
   for (const s of series) {
     const code = normalizeStationCode(s.station);
+    if (isSurveyorGeneral(code)) continue;
     const lat = lats.get(code);
     if (lat == null || !Number.isFinite(lat)) continue;
     const band = zimbabweLatBand(lat);
@@ -174,7 +170,7 @@ export function latBandDiurnalFromStationSeries(
       if (p.vtec_tecu <= 0 || p.vtec_tecu > 100) continue;
       const h = hourOfDayUtc(p.time);
       if (h == null) continue;
-      const tick = snapToDiurnalHour(h);
+      const tick = diurnalHourBin(h);
       if (tick == null) continue;
       const arr = hourMap.get(tick) ?? [];
       arr.push(p.vtec_tecu);
@@ -201,13 +197,14 @@ export function latBandDiurnalFromObservations(
     if (o.vtec_tecu == null || !Number.isFinite(o.vtec_tecu)) continue;
     if (o.vtec_tecu <= 0 || o.vtec_tecu > 100) continue;
     const code = normalizeStationCode(o.station);
+    if (isSurveyorGeneral(code)) continue;
     const lat = lats.get(code);
     if (lat == null || !Number.isFinite(lat)) continue;
     const band = zimbabweLatBand(lat);
     stationsSeen.get(band)!.add(code);
     const h = hourOfDayUtc(o.time);
     if (h == null) continue;
-    const tick = snapToDiurnalHour(h);
+    const tick = diurnalHourBin(h);
     if (tick == null) continue;
     const hourMap = buckets.get(band)!;
     const arr = hourMap.get(tick) ?? [];

@@ -48,7 +48,7 @@ import {
 } from "@/lib/chartTimeAxis";
 import { alignEkfToPoints } from "@/lib/ekfAlign";
 import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
-import { connectedStreamCount, countSpiderLiveStationStatuses, type LiveStationCounts } from "@/lib/liveStationStatus";
+import { connectedStreamCount, countSpiderLiveStationStatuses, zingsaOnlineCountPoints, ZINGSA_STATION_TOTAL, type LiveStationCounts } from "@/lib/liveStationStatus";
 import type { EkfPoint, EkfStatus, SpaceWeatherCurrent, SolarActivityFull, SpaceWeatherTimelines, TimelinePoint } from "@/lib/types";
 import { DashboardHeaderClocks } from "@/components/dashboard/DashboardClocks";
 import SpaceWeatherTitleIcon from "@/components/spaceWeather/SpaceWeatherTitleIcon";
@@ -252,7 +252,7 @@ function getGnssImpact(kp: number | null, s4: number | null, flare: string) {
 
 function TimelineCard({
   graphId, title, pts, color, yLabel, threshold, source, analysis, expanded, onToggle, emptyMsg, ekfPoints, ekfColor,
-  syncHoverMs = null, onSyncHoverMs, timeDomain,
+  syncHoverMs = null, onSyncHoverMs, timeDomain, yMin, yMax,
 }: {
   graphId: string; title: string; pts: TimelinePoint[]; color: string; yLabel: string;
   threshold?: { value: number; label: string; color?: string; fillAbove?: boolean }; source: string;
@@ -262,6 +262,8 @@ function TimelineCard({
   syncHoverMs?: number | null;
   onSyncHoverMs?: (ms: number | null) => void;
   timeDomain?: { min: number; max: number } | null;
+  yMin?: number;
+  yMax?: number;
 }) {
   const chronoAll = chronologicalPoints(pts);
   const chrono = timeDomain
@@ -278,6 +280,11 @@ function TimelineCard({
     ekfPoints,
   );
   const hasEkf = ekf.data.some((v) => v !== null);
+  // A dashed line sitting on 0 while stations are online is not a computed
+  // forecast (the filter was fit to the old 25-site catalog). Omit it.
+  const observedOnline = data.some((v) => v != null && v > 0);
+  const ekfFlatZero = ekf.data.every((v) => v == null || v === 0);
+  const showEkf = hasEkf && !(graphId.startsWith("cors-online") && observedOnline && ekfFlatZero);
   const domain =
     (chrono.length > 0 ? timeDomain : null) ??
     sharedTimeDomain([epochs]) ??
@@ -319,13 +326,14 @@ function TimelineCard({
           <LineChart
             labels={labels}
             datasets={[
-              { label: "Observed", data, color },
-              ...(hasEkf
+              { label: "Observed", data, color, ...(graphId.startsWith("cors-online") ? { spanGaps: false as const, tension: 0 } : {}) },
+              ...(showEkf
                 ? [{
                     label: "EKF Predicted",
                     data: ekf.data,
                     color: ekfColor ?? "#ffffff",
                     dashed: true,
+                    spanGaps: false,
                     meta: ekf.meta,
                   }]
                 : []),
@@ -343,10 +351,12 @@ function TimelineCard({
             xLabel="UTC"
             syncHoverMs={syncHoverMs}
             onSyncHoverMs={onSyncHoverMs}
+            yMin={yMin}
+            yMax={yMax}
             {...speedScale}
           />
           <div style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>
-            {source} · {plot.length} points{hasEkf ? " · EKF overlay" : ""} · synced UTC axis.
+            {source} · {plot.length} points{showEkf ? " · EKF overlay" : ""} · synced UTC axis.
           </div>
           {expanded && <ChartAnalysisBox block={analysis} title="Scientific interpretation" />}
         </>
@@ -766,10 +776,10 @@ export default function SpaceWeatherClient({
     ? connectedStreamCount(liveStationCounts)
     : sw?.stations_online ?? null;
   const currentStationPoints = currentPoint(streamCount, lastFetched ?? currentTimestamp);
-  const stationsOnlinePoints = [
+  const stationsOnlinePoints = zingsaOnlineCountPoints([
     ...safePoints(tl?.stations_online).filter((point) => point.t !== currentStationPoints[0]?.t),
     ...currentStationPoints,
-  ];
+  ], streamCount);
 
   const timelineAnalyses = useMemo(() => ({
     f107: analyzeF107Timeline(f107Points),
@@ -1215,7 +1225,9 @@ export default function SpaceWeatherClient({
                     pts={stationsOnlinePoints}
                     color="#00ff88"
                     yLabel="Stations online"
-                    source="ZINGSA CORS station-health — current live count"
+                    yMin={0}
+                    yMax={ZINGSA_STATION_TOTAL}
+                    source="ZINGSA CORS network — 19 stations, Surveyor General sites excluded"
                     analysis={timelineAnalyses.stations}
                     expanded={selectedGraph === "cors-online"}
                     onToggle={toggleGraph}
@@ -1443,7 +1455,9 @@ export default function SpaceWeatherClient({
                     pts={stationsOnlinePoints}
                     color="#00ff88"
                     yLabel="Stations online"
-                    source="ZINGSA CORS station-health — current live count"
+                    yMin={0}
+                    yMax={ZINGSA_STATION_TOTAL}
+                    source="ZINGSA CORS network — 19 stations, Surveyor General sites excluded"
                     analysis={timelineAnalyses.stations}
                     expanded={selectedGraph === "cors-online-zw"}
                     onToggle={toggleGraph}

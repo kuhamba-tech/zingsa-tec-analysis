@@ -11,6 +11,7 @@ import logging
 import os
 import signal
 import sys
+import threading
 import time
 import json
 import urllib.request
@@ -24,6 +25,33 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 log = logging.getLogger("zgiis.collector")
+_graph_log_lock = threading.Lock()
+
+
+def _kick_graph_logging() -> None:
+    """Store chart series and dashboard samples without blocking the NTRIP loop."""
+    if not _graph_log_lock.acquire(blocking=False):
+        return
+
+    def run() -> None:
+        try:
+            from backend.space_weather_logger import log_snapshot
+
+            log_snapshot(source="collector")
+        except Exception as exc:
+            log.warning("Space weather log failed: %s", exc)
+        try:
+            from zgiis.space_weather.graph_archive import archive_live_graphs_in_background
+
+            archive_live_graphs_in_background()
+        except Exception as exc:
+            log.warning("Graph archive failed: %s", exc)
+        finally:
+            _graph_log_lock.release()
+
+    threading.Thread(target=run, name="collector-graph-log", daemon=True).start()
+
+
 DEFAULT_STATUS_PUSH_URL = (
     "https://zingsa-gnss-tec.vercel.app/api/cors-router/"
     "?__zr=%2Fcors%2Fstatus%2Fsnapshots"
@@ -288,14 +316,26 @@ def main() -> int:
     nav_cache = LiveNavCache()
     from zgiis.live.tec_outbox import TecOutbox
     outbox = TecOutbox(ROOT / "static" / "data" / "tec_capture_outbox.sqlite")
-    pipeline = LiveVtecPipeline(db=db, nav_cache=nav_cache, db_flush_n=int(os.getenv("ZGIIS_DB_FLUSH_N", "50")), outbox=outbox)
-    pipeline.flush_db()
+    pipeline = LiveVtecPipeline(db=db, nav_cache=nav_cache, db_flush_n=int(os.getenv("ZGIIS_DB_FLUSH_N", "5")), outbox=outbox)
     max_concurrent_raw = os.getenv("NTRIP_LIVE_MAX_CONCURRENT", "1").strip()
     try:
         max_concurrent = max(1, int(max_concurrent_raw)) if max_concurrent_raw else None
     except ValueError:
         max_concurrent = None
 
+    from zgiis.live.connected_rotation import ConnectedStationGate
+
+    connected = ConnectedStationGate()
+
+    def _refresh_connected_stations(*, refresh: bool) -> None:
+        try:
+            from zgiis.live.spider_site_status import get_cached_spider_site_statuses
+
+            connected.update_from_spider(get_cached_spider_site_statuses(refresh=refresh))
+        except Exception as exc:
+            log.warning("Connected-station list unavailable: %s", exc)
+
+    _refresh_connected_stations(refresh=True)
     manager = LiveNtripManager(
         {
             "host": host,
@@ -308,7 +348,7 @@ def main() -> int:
         nav_cache=nav_cache,
         max_concurrent=max_concurrent,
     )
-    manager.start(mountpoints)
+    manager.start(mountpoints, hold_back=connected.waiting)
     start_refresh_thread(
         nav_cache,
         interval_s=max(300.0, float(os.getenv("ZGIIS_EPHEMERIS_REFRESH_S", "3600"))),
@@ -318,6 +358,8 @@ def main() -> int:
         len(mountpoints),
         db.backend,
     )
+    pipeline.flush_db()
+    _kick_graph_logging()
 
     try:
         prune_every = max(1, int(os.getenv("ZGIIS_VTEC_PRUNE_EVERY_HEARTBEATS", "20")))
@@ -328,11 +370,46 @@ def main() -> int:
     except ValueError:
         prune_days = 7
     heartbeat_n = 0
+    last_tec_recovery = 0.0
+
+    def _recover_live_tec_if_stale() -> None:
+        """A quiet caster or a dead database connection used to leave hours with no TEC."""
+        nonlocal last_tec_recovery
+        try:
+            age = db.newest_live_obs_age_s(hours=6.0)
+        except Exception as exc:
+            log.warning("Live TEC age check failed: %s", exc)
+            age = None
+        if age is not None and age <= 180:
+            return
+        now_m = time.monotonic()
+        if now_m - last_tec_recovery < 300:
+            return
+        last_tec_recovery = now_m
+        log.warning(
+            "Live TEC is not reaching the database (age_s=%s). Refreshing ephemeris and flushing.",
+            "none" if age is None else int(age),
+        )
+        try:
+            pipeline.flush_db()
+        except Exception as exc:
+            log.warning("Live TEC flush during recovery failed: %s", exc)
+        try:
+            from zgiis.live.broadcast_ephemeris import fetch_gps_nav
+
+            nav = fetch_gps_nav()
+            if nav:
+                updated = nav_cache.bulk_update_gps(nav)
+                log.info("Ephemeris recovery updated %d GPS satellite(s)", updated)
+        except Exception as exc:
+            log.warning("Ephemeris recovery failed: %s", exc)
 
     try:
         while not stop:
             time.sleep(30)
+            _refresh_connected_stations(refresh=False)
             pipeline.flush_db()
+            _recover_live_tec_if_stale()
             heartbeat_n += 1
             if heartbeat_n >= prune_every:
                 heartbeat_n = 0
@@ -358,6 +435,10 @@ def main() -> int:
                 ",".join(fresh) if fresh else "none",
                 records,
             )
+            try:
+                _kick_graph_logging()
+            except Exception as exc:
+                log.warning("Graph logging failed to start: %s", exc)
             try:
                 station_status_logger.log_streams(status, source="collector")
             except Exception as exc:

@@ -654,24 +654,48 @@ def _live_ntrip_health() -> Dict[str, Any]:
 
         if not live_status().get("configured"):
             df = get_db().query_recent(hours=0.25)
-            if not df.empty and "station" in df.columns:
-                recent = {str(code).lower() for code in df["station"].dropna().unique()}
+            # A DLR global-map sample is written for every catalog site. Counting
+            # those rows marks the whole network online, including receivers that
+            # have been down for months. Only a receiver code-TEC sample counts.
+            if (
+                not df.empty
+                and "station" in df.columns
+                and "tec_method" in df.columns
+            ):
+                method = df["tec_method"].astype(str)
+                measured = df.loc[method.str.contains("code_live", case=False, na=False)]
+                recent = {
+                    str(code).lower().rstrip("_")
+                    for code in measured["station"].dropna().unique()
+                }
                 if recent:
                     from dataclasses import replace
 
                     stations = [
-                        replace(s, status="online" if s.code.lower() in recent else s.status)
+                        replace(
+                            s,
+                            status="online" if s.code.lower().rstrip("_") in recent else s.status,
+                        )
                         for s in stations
                     ]
     except Exception:
         pass
 
+    from zgiis.cors.stations import is_surveyor_general, zingsa_cors_stations
+
     counts = {"online": 0, "offline": 0, "unknown": 0}
     rows = []
     for s in stations:
+        # Surveyor General receivers stay on the map. They are not part of the 19.
+        if is_surveyor_general(s.code):
+            continue
         status = "online" if s.status == "online" else ("unknown" if s.status == "unknown" else "offline")
         counts[status] += 1
         rows.append({"station_id": s.code, "status": status.upper()})
+    # Keep the denominator at the ZINGSA network even when a few sites have no row yet.
+    if rows and counts["online"] + counts["offline"] + counts["unknown"] < len(zingsa_cors_stations()):
+        missing = len(zingsa_cors_stations()) - len(rows)
+        counts["unknown"] += missing
 
     return {
         "health_summary": {
@@ -868,6 +892,23 @@ def get_space_weather(
             if s4 is not None
             else []
         )
+        zingsa_total = 19
+        try:
+            from zgiis.cors.stations import zingsa_cors_stations
+
+            zingsa_total = len(zingsa_cors_stations()) or 19
+        except Exception:
+            zingsa_total = 19
+        # A count above 19 includes Surveyor General sites. Do not paint that
+        # catalog size across the timeline as if those receivers were online.
+        if stations_online is not None:
+            try:
+                if float(stations_online) > zingsa_total:
+                    stations_online = None
+            except (TypeError, ValueError):
+                stations_online = None
+        if stations_total is None or int(stations_total) > zingsa_total or int(stations_total) <= 0:
+            stations_total = zingsa_total
         stations_online_history = _build_snapshot_history(
             kp_history,
             float(stations_online) if stations_online is not None else None,

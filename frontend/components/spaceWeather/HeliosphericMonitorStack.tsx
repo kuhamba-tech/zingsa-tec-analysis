@@ -34,6 +34,15 @@ const LineChart = dynamic(
 const ChartAnalysisBox = dynamic(() => import("@/components/dashboard/ChartAnalysisBox"), {
   ssr: false,
 });
+const TecMapRmseChart = dynamic(() => import("./TecMapRmseChart"), {
+  ssr: false,
+  loading: () => (
+    <div className="banner banner-info" role="status">
+      Calculating TEC map RMSE…
+    </div>
+  ),
+});
+const ReceiverBiasCharts = dynamic(() => import("./ReceiverBiasCharts"), { ssr: false });
 const HeliosphericKpBars = dynamic(() => import("./HeliosphericKpBars"), {
   ssr: false,
   loading: () => (
@@ -373,7 +382,7 @@ export default function HeliosphericMonitorStack() {
 
           <PanelShell
             title="GFZ / NOAA planetary Kp · observed & forecast"
-            subtitle="NOAA planetary K-index forecast · observed (green) · estimated (amber) · predicted (cyan) · time axis UTC"
+            subtitle="NOAA planetary K-index forecast · observed (green) · estimated (amber) · predicted (cyan) · Kyoto Dst (white line, right axis) · time axis UTC"
             panelId="kp"
             selected={selected === "kp"}
             onToggle={toggle}
@@ -387,6 +396,10 @@ export default function HeliosphericMonitorStack() {
                 observed={data.kp.observed}
                 estimated={data.kp.estimated}
                 predicted={data.kp.predicted}
+                dst={data.dst?.dst}
+                dstLabels={data.dst?.labels}
+                dstTimes={data.dst?.times}
+                dstEpochMs={data.dst?.epoch_ms}
               />
             ) : (
               <div className="banner banner-info">
@@ -411,6 +424,9 @@ export default function HeliosphericMonitorStack() {
               KNMI Space Weather
             </a>
           </div>
+
+          <TecMapRmseChart />
+          <ReceiverBiasCharts />
         </>
       )}
     </div>
