@@ -17,6 +17,13 @@ function isChunkLoadError(err: unknown): boolean {
   return name === "ChunkLoadError" || /Loading chunk|ChunkLoadError/i.test(message);
 }
 
+function isClipboardFocusError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const name = "name" in err ? String((err as { name?: string }).name) : "";
+  const message = "message" in err ? String((err as { message?: string }).message) : "";
+  return /Document is not focused|writeText.*Clipboard|NotAllowedError|clipboard/i.test(`${name} ${message}`);
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     window.setTimeout(resolve, ms);
@@ -57,6 +64,10 @@ export function loadCauseEffectTimelineStack(): Promise<CauseEffectMod> {
         return mod;
       } catch (err) {
         lastError = err;
+        if (isClipboardFocusError(err)) {
+          // Ignore browser clipboard focus restrictions. They are not a chunk failure.
+          return null as unknown as CauseEffectMod;
+        }
         cached = null;
         await sleep(300 * (attempt + 1));
         if (attempt < 2) {

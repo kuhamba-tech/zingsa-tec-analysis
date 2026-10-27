@@ -22,12 +22,55 @@ ChartJS.defaults.animation = false;
 
 const QUIET_COLOR = "#0ea5e9";
 const DIST_COLOR = "#dc2626";
-const SEASON_COLORS: Record<string, string> = {
-  mar_equinox: "#2563eb",
-  jun_solstice: "#ca8a04",
-  sep_equinox: "#16a34a",
-  dec_solstice: "#7c3aed",
-};
+const SEASON_PANELS = [
+  { id: "mar_equinox", title: "March-Equinox" },
+  { id: "jun_solstice", title: "June-Solstice" },
+  { id: "sep_equinox", title: "September-Equinox" },
+  { id: "dec_solstice", title: "December-Solstice" },
+] as const;
+
+const GPS_TEC_COLOR = "#5b7cfa";
+
+type PlotsPart = "climatology" | "research" | "all";
+
+let plotCache: { key: string; data: ZimbabweScientificPlotsResponse; at: number } | null = null;
+let plotInflight: { key: string; promise: Promise<ZimbabweScientificPlotsResponse> } | null = null;
+
+function loadScientificPlots(
+  hours: number,
+  resampleMinutes: number,
+  timeoutMs: number,
+  day: string | null,
+) {
+  const key = `${hours}|${resampleMinutes}|${day ?? ""}`;
+  if (plotCache && plotCache.key === key && Date.now() - plotCache.at < 120_000) {
+    return Promise.resolve(plotCache.data);
+  }
+  if (plotInflight?.key === key) return plotInflight.promise;
+  const promise = getZimbabweScientificPlots(hours, resampleMinutes, timeoutMs, day)
+    .then((data) => {
+      plotCache = { key, data, at: Date.now() };
+      return data;
+    })
+    .finally(() => {
+      if (plotInflight?.key === key) plotInflight = null;
+    });
+  plotInflight = { key, promise };
+  return promise;
+}
+
+function sharedSeasonYMax(
+  seasons: ZimbabweScientificPlotsResponse["seasonal"]["seasons"] | undefined,
+): number {
+  let max = 0;
+  for (const season of seasons ?? []) {
+    for (const value of season.p50) {
+      if (value != null && Number.isFinite(value) && value > max) max = value;
+    }
+  }
+  if (max <= 0) return 40;
+  return Math.max(20, Math.ceil(max / 10) * 10);
+}
 
 function ribbonDatasets(
   hours: number[],
@@ -124,6 +167,63 @@ const axisOpts = {
   title: "#ffffff",
 };
 
+function seasonPanelOptions(yMax: number) {
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: false as const,
+    color: "#ffffff",
+    plugins: {
+      legend: {
+        display: true,
+        position: "top" as const,
+        align: "start" as const,
+        labels: {
+          color: "#ffffff",
+          boxWidth: 28,
+          boxHeight: 2,
+          font: { size: 11 },
+        },
+      },
+      tooltip: {
+        callbacks: {
+          label: (ctx: { parsed: { y: number | null } }) => {
+            const y = ctx.parsed.y;
+            if (y == null || !Number.isFinite(y)) return "GPS-TEC: —";
+            return `GPS-TEC: ${y.toFixed(1)} TECU`;
+          },
+        },
+      },
+    },
+    scales: {
+      x: {
+        type: "linear" as const,
+        min: 0,
+        max: 23,
+        title: { display: true, text: "Hour (UT)", color: "#ffffff" },
+        ticks: {
+          color: "#ffffff",
+          stepSize: 2,
+          autoSkip: false,
+          maxRotation: 0,
+          callback: (value: number | string) => {
+            const hour = Number(value);
+            return Number.isInteger(hour) && hour % 2 === 0 && hour <= 22 ? String(hour) : "";
+          },
+        },
+        grid: { color: "rgba(148,163,184,0.35)" },
+      },
+      y: {
+        min: 0,
+        max: yMax,
+        title: { display: true, text: "VTEC (TECU)", color: "#ffffff" },
+        ticks: { color: "#ffffff", stepSize: yMax > 40 ? 10 : 5 },
+        grid: { color: "rgba(148,163,184,0.35)" },
+      },
+    },
+  };
+}
+
 function dayButtonStyle(active: boolean): React.CSSProperties {
   return {
     border: active ? "1px solid #38bdf8" : "1px solid rgba(148,163,184,0.45)",
@@ -136,7 +236,9 @@ function dayButtonStyle(active: boolean): React.CSSProperties {
   };
 }
 
-export default function ZimbabweScientificTecPlots() {
+export default function ZimbabweScientificTecPlots({ part = "all" }: { part?: PlotsPart }) {
+  const showClimatology = part !== "research";
+  const showResearch = part !== "climatology";
   const [data, setData] = useState<ZimbabweScientificPlotsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -148,12 +250,31 @@ export default function ZimbabweScientificTecPlots() {
       setLoading(true);
       const profile = getLoadProfile();
       const hours = profile.constrained ? 18 : 24;
-      getZimbabweScientificPlots(
-        hours,
-        profile.constrained ? 20 : 15,
-        profile.constrained ? 60_000 : 90_000,
-        selectedDay,
-      )
+      const resample = profile.constrained ? 20 : 15;
+      if (showClimatology && !showResearch) {
+        getZimbabweScientificPlots(hours, resample, 20_000, null, true)
+          .then((payload) => {
+            if (cancelled || !payload?.seasonal) return;
+            setData(payload);
+            setError(null);
+            loadScientificPlots(hours, resample, profile.constrained ? 60_000 : 90_000, selectedDay)
+              .then((full) => {
+                if (!cancelled && full?.diurnal_latband) setData(full);
+              })
+              .catch(() => {
+                /* Seasonal panels stay on the archive curves. */
+              });
+          })
+          .catch((err: unknown) => {
+            if (cancelled) return;
+            setError(err instanceof Error ? err.message : "Seasonal TEC archive unavailable");
+          })
+          .finally(() => {
+            if (!cancelled) setLoading(false);
+          });
+        return;
+      }
+      loadScientificPlots(hours, resample, profile.constrained ? 60_000 : 90_000, selectedDay)
         .then((payload) => {
           if (cancelled) return;
           setData(payload);
@@ -173,7 +294,7 @@ export default function ZimbabweScientificTecPlots() {
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [selectedDay]);
+  }, [selectedDay, showClimatology, showResearch]);
 
   const diurnal = data?.diurnal_latband;
   const seasonal = data?.seasonal;
@@ -187,18 +308,11 @@ export default function ZimbabweScientificTecPlots() {
     );
   }, [diurnal]);
 
-  const seasonalDatasets = useMemo(() => {
-    if (!seasonal?.seasons) return [];
-    return seasonal.seasons
-      .filter((s) => s.available)
-      .flatMap((s) =>
-        ribbonDatasets(
-          s.hours,
-          { p50: s.p50, p25: s.p25, p75: s.p75, n: s.n },
-          SEASON_COLORS[s.id] ?? "#64748b",
-          s.label,
-        ),
-      );
+  const seasonYMax = useMemo(() => sharedSeasonYMax(seasonal?.seasons), [seasonal]);
+  const seasonById = useMemo(() => {
+    const map = new Map<string, NonNullable<typeof seasonal>["seasons"][number]>();
+    for (const season of seasonal?.seasons ?? []) map.set(season.id, season);
+    return map;
   }, [seasonal]);
 
   const transectScatter = useMemo(() => {
@@ -319,16 +433,16 @@ export default function ZimbabweScientificTecPlots() {
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
       <div className="card">
         <div className="metric-label" style={{ marginBottom: 4 }}>
-          Scientific TEC analysis — four observation-based plots
+          {showClimatology
+            ? "Diurnal and seasonal TEC"
+            : "TEC versus latitude and geomagnetic activity"}
         </div>
         <p className="sw-supporting-text" style={{ margin: 0 }}>
-          Diurnal latitudinal comparison, equinox/solstice seasonal composites, TEC versus
-          approximate MODIP along the Zimbabwe north–south CORS transect, and quiet versus
-          disturbed geomagnetic conditions. Shaded ribbons are interquartile ranges (25th–75th
-          percentile) from measured samples — not arbitrary error bars. Each UT hour is logged
-          so a stored day can be opened on its own.
+          {showClimatology
+            ? "Northern, central, and southern Zimbabwe diurnal VTEC, then the four equinox and solstice diurnal panels. GPS-TEC is the measured median. RBF and IRI-2020 are not drawn because those model series are not in the archive."
+            : "Station-mean VTEC along the Zimbabwe north–south transect, and quiet versus disturbed diurnal composites. Shaded ribbons are interquartile ranges from measured samples."}
         </p>
-        {(data?.logged_days?.length ?? 0) > 0 && (
+        {showClimatology && (data?.logged_days?.length ?? 0) > 0 && (
           <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem", marginTop: "0.55rem" }}>
             <button
               type="button"
@@ -355,8 +469,10 @@ export default function ZimbabweScientificTecPlots() {
             Computing scientific plots from live CORS + CMN archive…
           </p>
         )}
-        {error && <div className="banner banner-warn" style={{ marginTop: "0.55rem" }}>{error}</div>}
-        {data?.integrity?.seasonal_archive_limited && (
+        {error && !seasonal?.available && (
+          <div className="banner banner-warn" style={{ marginTop: "0.55rem" }}>{error}</div>
+        )}
+        {showClimatology && data?.integrity?.seasonal_archive_limited && (
           <div className="banner banner-info" style={{ marginTop: "0.55rem" }}>
             Seasonal archive currently covers Apr–Jun 2024 CMN hours (four stations). September
             equinox and December solstice windows are unavailable until more months are archived.
@@ -364,7 +480,7 @@ export default function ZimbabweScientificTecPlots() {
         )}
       </div>
 
-      <PlotCard
+      {showClimatology && <PlotCard
         title="1 · Diurnal TEC — northern / central / southern Zimbabwe"
         subtitle="Median VTEC by UT hour with IQR bands from live CORS stations in each latitude band."
         uncertainty={diurnal?.uncertainty}
@@ -403,49 +519,77 @@ export default function ZimbabweScientificTecPlots() {
             },
           }}
         />
-      </PlotCard>
+      </PlotCard>}
 
-      <PlotCard
-        title="2 · Seasonal TEC — equinox & solstice windows"
-        subtitle="Diurnal composites within ±15 days of March equinox, June solstice, September equinox, and December solstice (CMN archive)."
-        uncertainty={seasonal?.uncertainty}
-        note={seasonal?.note}
-        empty={
-          !seasonal?.available
-            ? loading
-              ? "Loading CMN seasonal archive…"
-              : "No equinox/solstice archive windows available yet."
-            : null
-        }
-      >
-        <Line
-          data={{ datasets: seasonalDatasets }}
-          options={{
-            ...lineOpts("UT [hours]"),
-            scales: {
-              ...lineOpts("UT [hours]").scales,
-              x: {
-                ...lineOpts("UT [hours]").scales.x,
-                min: 0,
-                max: 23,
-                ticks: {
-                  ...lineOpts("UT [hours]").scales.x.ticks,
-                  stepSize: 1,
-                  autoSkip: false,
-                  maxRotation: 0,
-                  callback: (value: number | string) => {
-                    const hour = Number(value);
-                    return Number.isInteger(hour) && hour >= 0 && hour <= 23
-                      ? String(hour).padStart(2, "0")
-                      : "";
-                  },
-                },
-              },
-            },
+      {showClimatology && (
+      <section className="card" style={{ display: "flex", flexDirection: "column", gap: "0.55rem" }}>
+        <div>
+          <div className="metric-label" style={{ marginBottom: 4 }}>2 · Seasonal diurnal TEC — equinox and solstice</div>
+          <p className="sw-supporting-text" style={{ margin: 0 }}>
+            Median GPS-TEC by hour within ±15 days of each equinox and solstice, from the CMN hourly archive.
+          </p>
+        </div>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+            gap: "0.75rem",
           }}
-        />
-      </PlotCard>
-      {seasonal?.seasons?.length ? (
+        >
+          {SEASON_PANELS.map((panel) => {
+            const season = seasonById.get(panel.id);
+            const hasCurve = !!season?.available && season.p50.some((value) => value != null && Number.isFinite(value));
+            return (
+              <div
+                key={panel.id}
+                style={{
+                  background: "#0a1929",
+                  borderRadius: 8,
+                  border: "1px solid rgba(148,163,184,0.28)",
+                  padding: "0.35rem 0.3rem 0.15rem",
+                }}
+              >
+                <div style={{ textAlign: "center", color: "#ffffff", fontSize: "0.95rem" }}>{panel.title}</div>
+                <div style={{ height: 260 }}>
+                  {hasCurve && season ? (
+                    <Line
+                      data={{
+                        datasets: [
+                          {
+                            label: "GPS-TEC",
+                            data: season.hours.map((hour, index) => ({ x: hour, y: season.p50[index] })),
+                            borderColor: GPS_TEC_COLOR,
+                            backgroundColor: GPS_TEC_COLOR,
+                            borderWidth: 1.7,
+                            pointRadius: 0,
+                            tension: 0.35,
+                            spanGaps: false,
+                          },
+                        ],
+                      }}
+                      options={seasonPanelOptions(seasonYMax)}
+                    />
+                  ) : (
+                    <div className="banner banner-info" style={{ margin: "4.5rem 0.6rem 0" }}>
+                      {season?.note || (loading ? "Loading this season window…" : "No measured GPS-TEC in this window.")}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        {seasonal?.uncertainty && (
+          <p className="sw-supporting-text" style={{ margin: 0, fontSize: "0.75rem" }}>
+            Uncertainty: {seasonal.uncertainty}
+          </p>
+        )}
+        {seasonal?.note && (
+          <p className="sw-supporting-text" style={{ margin: 0, fontSize: "0.75rem" }}>{seasonal.note}</p>
+        )}
+      </section>
+      )}
+      {showClimatology && seasonal?.seasons?.length ? (
         <div className="sw-supporting-text" style={{ marginTop: "-0.35rem", fontSize: "0.75rem" }}>
           {seasonal.seasons.map((s) => (
             <div key={s.id}>
@@ -458,7 +602,7 @@ export default function ZimbabweScientificTecPlots() {
         </div>
       ) : null}
 
-      <PlotCard
+      {showResearch && <PlotCard
         title="3 · TEC versus geomagnetic latitude (N–S transect)"
         subtitle="Station-mean live VTEC vs approximate MODIP (geographic lat − 5° Africa offset). Whiskers show per-station IQR."
         uncertainty={transect?.uncertainty}
@@ -497,8 +641,8 @@ export default function ZimbabweScientificTecPlots() {
             }}
           />
         ) : null}
-      </PlotCard>
-      {transect?.modip_model && (
+      </PlotCard>}
+      {showResearch && transect?.modip_model && (
         <p className="sw-supporting-text" style={{ marginTop: "-0.35rem", fontSize: "0.75rem" }}>
           {transect.modip_model.description}
           {transect.regression
@@ -507,7 +651,7 @@ export default function ZimbabweScientificTecPlots() {
         </p>
       )}
 
-      <PlotCard
+      {showResearch && <PlotCard
         title="4 · TEC variability — geomagnetically quiet vs disturbed"
         subtitle={`Composite diurnal VTEC when nearest NOAA Kp is quiet (Kp < ${qd?.kp_threshold ?? 3}) versus disturbed (Kp ≥ ${qd?.kp_threshold ?? 3}).`}
         uncertainty={qd?.uncertainty}
@@ -546,7 +690,7 @@ export default function ZimbabweScientificTecPlots() {
             },
           }}
         />
-      </PlotCard>
+      </PlotCard>}
     </div>
   );
 }

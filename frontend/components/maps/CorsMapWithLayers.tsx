@@ -5,7 +5,7 @@ import CorsMap from "./CorsMap";
 import IntermagnetMapReadout from "./IntermagnetMapReadout";
 import LiveTecMethodComparePanel from "./LiveTecMethodComparePanel";
 import NetworkDistancesPanel from "./NetworkDistancesPanel";
-import TecHeatMapLegend, { TecMapColorbar } from "./TecHeatMapLegend";
+import { TecMapColorbar } from "./TecHeatMapLegend";
 import { getTecMethodComparison, getTrigNet } from "@/lib/api";
 import { idwFillByStation, stationCodeKey, type LatLonSite } from "@/lib/idwSurface";
 import { measuredLiveTec } from "@/lib/measuredLiveTec";
@@ -735,10 +735,6 @@ export default function CorsMapWithLayers({
       )}
 
       {tecLayerActive && <LiveTecMethodComparePanel stations={surfaceSites} />}
-
-      {tecLayerActive && (
-        <TecHeatMapLegend className="tec-heatmap-legend-below" maxVtec={maxVtec} />
-      )}
 
       {tecLayerActive && <StationVtecTimePlots className="home-station-vtec-plots" />}
     </div>

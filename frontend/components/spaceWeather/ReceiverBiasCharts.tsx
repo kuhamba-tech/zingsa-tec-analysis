@@ -12,7 +12,9 @@ import {
 } from "chart.js";
 import { Chart } from "react-chartjs-2";
 import { getReceiverBias } from "@/lib/api";
+import { biasHistogramExplanation, biasSeriesExplanation } from "@/lib/matambaChartExplanation";
 import type { ReceiverBiasStation } from "@/lib/types";
+import MatambaChartPanel from "./MatambaChartPanel";
 
 ChartJS.register(LinearScale, PointElement, LineElement, BarElement, Tooltip, Legend);
 ChartJS.defaults.color = "#ffffff";
@@ -100,9 +102,10 @@ function StationPanel({ station }: { station: ReceiverBiasStation }) {
   const yMax = Math.max(...yValues) + yPad;
 
   return (
-    <div style={{ background: "#071422", borderRadius: 8, padding: "0.35rem 0.4rem 0.2rem" }}>
-      <div style={{ fontSize: "0.72rem", fontWeight: 700, marginBottom: "0.15rem" }}>{titleFor(station)}</div>
-      <div style={{ height: 150, position: "relative" }}>
+    <MatambaChartPanel label={`${station.station.toUpperCase()} receiver bias`} analysis={biasSeriesExplanation(station)}>
+    <div className="matamba-bias-card">
+      <div className="matamba-bias-title">{titleFor(station)}</div>
+      <div className="matamba-chart matamba-chart--bias">
         <Chart
           type="line"
           data={{ datasets }}
@@ -147,6 +150,7 @@ function StationPanel({ station }: { station: ReceiverBiasStation }) {
         />
       </div>
     </div>
+    </MatambaChartPanel>
   );
 }
 
@@ -190,13 +194,14 @@ function HistogramPanel({ station }: { station: ReceiverBiasStation }) {
   const yMax = Math.max(1, ...bins.map((bin) => bin.y), ...curve.map((point) => point.y)) * 1.12;
 
   return (
-    <div style={{ background: "#071422", borderRadius: 8, padding: "0.35rem 0.4rem 0.2rem" }}>
-      <div style={{ fontSize: "0.72rem", fontWeight: 700, marginBottom: "0.15rem" }}>
+    <MatambaChartPanel label={`${station.station.toUpperCase()} receiver-bias histogram`} analysis={biasHistogramExplanation(station)}>
+    <div className="matamba-bias-card">
+      <div className="matamba-bias-title">
         {station.station.toUpperCase()}
         {sigma != null ? `  μ ${mean.toFixed(2)}  σ ${sigma.toFixed(2)}` : ""}
         {`  n ${values.length}`}
       </div>
-      <div style={{ height: 150, position: "relative" }}>
+      <div className="matamba-chart matamba-chart--bias">
         <Chart
           type="bar"
           data={{
@@ -266,6 +271,7 @@ function HistogramPanel({ station }: { station: ReceiverBiasStation }) {
         />
       </div>
     </div>
+    </MatambaChartPanel>
   );
 }
 
@@ -308,16 +314,9 @@ export default function ReceiverBiasCharts() {
   }, []);
 
   return (
-    <section
-      style={{
-        background: "#0a1929",
-        border: "1px solid var(--border)",
-        borderRadius: 10,
-        padding: "0.85rem 0.9rem 0.7rem",
-      }}
-    >
-      <div style={{ fontWeight: 700, marginBottom: "0.12rem" }}>Receiver bias by station</div>
-      <div style={{ fontSize: "0.7rem", color: "#ffffff", marginBottom: "0.55rem" }}>
+    <section className="matamba-figures">
+      <div className="matamba-figures-title">Receiver bias by station</div>
+      <div className="matamba-figures-note">
         Daily receiver bias for the near-real-time TEC maps. The search follows the Matamba and
         Gopi method: satellite differential code bias removed, then the receiver bias that minimises
         the standard deviation of vertical TEC above 30° elevation. Blue is that daily value. Red
@@ -325,6 +324,7 @@ export default function ReceiverBiasCharts() {
         is the bias held for the map product. The title is the mean and standard deviation. A day is
         logged only when several multi-satellite epochs identify the minimum, and the current UTC day
         is replaced as new code TEC arrives. Surveyor General sites are not included.
+        Click a graph for the Matamba and Danskin explanation.
       </div>
       {!stations.length && !error && (
         <div className="banner banner-info" role="status">
@@ -333,7 +333,7 @@ export default function ReceiverBiasCharts() {
       )}
       {error && !stations.length && <div className="banner banner-warn">{error}</div>}
       {stations.length > 0 && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "0.55rem" }}>
+        <div className="matamba-bias-grid">
           {stations.map((station) => (
             <StationPanel key={station.station} station={station} />
           ))}
@@ -348,7 +348,7 @@ export default function ReceiverBiasCharts() {
             standard deviation. The current UTC day stays in the histogram and is replaced as new code
             TEC arrives. A station with only one logged day has no curve yet.
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.55rem" }}>
+          <div className="matamba-bias-grid">
             {stations.map((station) => (
               <HistogramPanel key={station.station} station={station} />
             ))}
@@ -361,7 +361,7 @@ export default function ReceiverBiasCharts() {
             fit to every logged day for that station. The row updates as new days are stored. A station
             with only one logged day does not yet have an amplitude or a standard deviation.
           </div>
-          <div style={{ overflowX: "auto" }}>
+          <div className="matamba-scroll">
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.78rem" }}>
               <thead>
                 <tr>

@@ -511,7 +511,7 @@ class TecDB:
             raw = self._read_sql(sql, params)
         except Exception as exc:
             log.warning("recent_station_vtec failed (%s)", exc)
-            return pd.DataFrame(columns=["station", "mean_vtec", "obs_count"])
+            return pd.DataFrame(columns=["station", "mean_vtec", "obs_count", "observed_at"])
 
         if raw.empty and code_live_only and allow_method_fallback:
             return self.recent_station_vtec(
@@ -520,7 +520,7 @@ class TecDB:
                 allow_method_fallback=False,
             )
         if raw.empty:
-            return pd.DataFrame(columns=["station", "mean_vtec", "obs_count"])
+            return pd.DataFrame(columns=["station", "mean_vtec", "obs_count", "observed_at"])
 
         from zgiis.maps.heatmap_data import _fresh_station_vtec_from_group
 
@@ -531,14 +531,20 @@ class TecDB:
             vtec = _fresh_station_vtec_from_group(group)
             if vtec is None:
                 continue
+            observed_at = None
+            if "time" in group.columns:
+                times = pd.to_datetime(group["time"], utc=True, errors="coerce").dropna()
+                if not times.empty:
+                    observed_at = times.max().isoformat().replace("+00:00", "Z")
             rows.append(
                 {
                     "station": str(code),
                     "mean_vtec": float(vtec),
                     "obs_count": int(len(group)),
+                    "observed_at": observed_at,
                 }
             )
-        return pd.DataFrame(rows, columns=["station", "mean_vtec", "obs_count"])
+        return pd.DataFrame(rows, columns=["station", "mean_vtec", "obs_count", "observed_at"])
 
     def station_mean_vtec(self, hours: float = 2.0) -> dict[str, float]:
         """Fast station → mean VTEC map for CORS markers / heat-map overlays."""

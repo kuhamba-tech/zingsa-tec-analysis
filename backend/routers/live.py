@@ -5,6 +5,7 @@ import json
 import logging
 import math
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
 import pandas as pd
@@ -52,6 +53,12 @@ log = logging.getLogger(__name__)
 
 _VTEC_BY_STATION_CACHE: dict[tuple[float, int], tuple[float, list[LiveStationVtecSeries]]] = {}
 _VTEC_BY_STATION_CACHE_TTL_S = 90.0
+_VTEC_LATEST_CACHE: tuple[float, list[LiveStationVtecSeries]] | None = None
+_VTEC_LATEST_CACHE_TTL_S = 20.0
+# Chart queries fill the default thread pool. This card must still run.
+_FRESH_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="zgiis-fresh")
+# Station GOPI history must not wait behind a stuck session-pool checkout.
+_CHART_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="zgiis-vtec-chart")
 
 # Heavy Gg re-calibration — short TTL so Zimbabwe tab does not stampede the worker.
 _TEC_METHOD_CMP_CACHE: dict[tuple[float, str | None, int], tuple[float, TecMethodComparisonResponse]] = {}
@@ -61,6 +68,7 @@ _TEC_METHOD_CMP_INFLIGHT: dict[tuple[float, str | None, int], asyncio.Future] = 
 
 _SCI_PLOTS_CACHE: dict[tuple[float, int], tuple[float, dict]] = {}
 _SCI_PLOTS_CACHE_TTL_S = 120.0
+_SEASONAL_ARCHIVE_CACHE: tuple[float, dict] | None = None
 
 _NS_RESEARCH_CACHE: dict[tuple[float, int], tuple[float, dict]] = {}
 _NS_RESEARCH_CACHE_TTL_S = 90.0
@@ -641,6 +649,7 @@ async def tec_method_periods(
 async def live_vtec_by_station(
     hours: float = Query(6.0, ge=0.5, le=168),
     resample_minutes: int = Query(2, ge=1, le=60),
+    latest_only: bool = Query(False),
     _=Depends(require_api_key),
 ):
     """Binned live NTRIP VTEC vs time for every Zimbabwe CORS station.
@@ -649,20 +658,92 @@ async def live_vtec_by_station(
     station VTEC against the map snapshot. Prefers absolute code TEC
     (``code_live`` from the NTRIP pipeline). Aggregation stays in SQL so
     continuous ingest cannot stall the chart endpoint.
+
+    ``latest_only`` skips the history bins and returns the 15-minute Gopi
+    satellite consensus. The ionosphere card uses that path so a slow chart
+    query cannot blank the current station mean.
     """
+    if latest_only:
+        global _VTEC_LATEST_CACHE
+        now = time.time()
+        if _VTEC_LATEST_CACHE and (now - _VTEC_LATEST_CACHE[0]) < _VTEC_LATEST_CACHE_TTL_S:
+            return _VTEC_LATEST_CACHE[1]
+        result = await asyncio.get_running_loop().run_in_executor(
+            _FRESH_EXECUTOR,
+            _build_live_vtec_latest,
+        )
+        _VTEC_LATEST_CACHE = (now, result)
+        return result
+
     cache_key = (float(hours), int(resample_minutes))
     now = time.time()
     cached = _VTEC_BY_STATION_CACHE.get(cache_key)
     if cached and (now - cached[0]) < _VTEC_BY_STATION_CACHE_TTL_S:
         return cached[1]
 
-    result = await asyncio.to_thread(
-        _build_live_vtec_by_station,
-        hours=hours,
-        resample_minutes=resample_minutes,
+    result = await asyncio.get_running_loop().run_in_executor(
+        _CHART_EXECUTOR,
+        lambda h=hours, step=resample_minutes: _build_live_vtec_by_station(
+            hours=h,
+            resample_minutes=step,
+        ),
     )
-    _VTEC_BY_STATION_CACHE[cache_key] = (now, result)
+    # A failed read used to cache an empty series and the blue GOPI line
+    # stayed where the last successful response ended.
+    if any(row.points for row in result) or cache_key not in _VTEC_BY_STATION_CACHE:
+        _VTEC_BY_STATION_CACHE[cache_key] = (time.time(), result)
+        return result
+    previous = _VTEC_BY_STATION_CACHE.get(cache_key)
+    if previous is not None and (time.time() - previous[0]) < 600:
+        return previous[1]
+    _VTEC_BY_STATION_CACHE[cache_key] = (time.time(), result)
     return result
+
+
+def _build_live_vtec_latest() -> list[LiveStationVtecSeries]:
+    """One current code-TEC value per station for the ionosphere and CORS cards.
+
+    Reads the same pooled station list as CORS Connected. A separate session
+    connection was refused once the database client limit was full, and both
+    cards then stayed on Unavailable.
+    """
+    from datetime import datetime, timezone
+
+    from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
+
+    from backend.routers.cors_network import _fresh_code_live_connections
+
+    observed = datetime.now(tz=timezone.utc).isoformat().replace("+00:00", "Z")
+    fresh = _fresh_code_live_connections()
+    series: list[LiveStationVtecSeries] = []
+    for station in sorted(ZIMBABWE_CORS_STATIONS, key=lambda item: item.code):
+        code = station.code.lower().rstrip("_")
+        value = fresh.get(code)
+        points: list[LiveStationVtecPoint] = []
+        latest: float | None = None
+        if value is not None and value > 0:
+            latest = round(float(value), 2)
+            points = [LiveStationVtecPoint(time=observed, vtec_tecu=latest, obs_count=1)]
+        series.append(
+            LiveStationVtecSeries(
+                station=code,
+                name=station.name,
+                points=points,
+                latest_vtec=latest,
+                mean_vtec=latest,
+            )
+        )
+    return series
+
+
+def _utc_iso(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    else:
+        value = value.astimezone(timezone.utc)
+    return value.isoformat().replace("+00:00", "Z")
 
 
 def _build_live_vtec_by_station(
@@ -670,7 +751,16 @@ def _build_live_vtec_by_station(
     hours: float,
     resample_minutes: int,
 ) -> list[LiveStationVtecSeries]:
+    """Binned GOPI history for the station charts.
+
+    Uses the transaction pooler with a short statement timeout. The session
+    pool is capped and a checkout there was hanging, so the charts kept the
+    last series (GOPI stopped near 07:55 UTC while later measurements existed).
+    """
+    import psycopg2
+
     from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
+    from zgiis.db.config import pooled_database_dsn
 
     catalog = {
         s.code.lower().rstrip("_"): s
@@ -680,107 +770,116 @@ def _build_live_vtec_by_station(
         LiveStationVtecSeries(station=code, name=station.name, points=[])
         for code, station in sorted(catalog.items(), key=lambda item: item[0])
     ]
-
-    # Own connection so the 30-minute readings strip is not stuck behind
-    # the map, heatmap, and chart queries sharing the process-wide socket.
-    from zgiis.db.timescale import TecDB
-
-    try:
-        db = TecDB()
-    except Exception:
+    dsn = pooled_database_dsn()
+    if not dsn:
         return empty
+
+    since = (datetime.now(tz=timezone.utc) - timedelta(hours=hours)).isoformat()
+    step = max(1, int(resample_minutes))
+    timeout_ms = int(min(20000, 6000 + float(hours) * 500))
+    conn = None
     try:
-        df = db.station_vtec_timeseries_binned(
-            hours=hours,
-            resample_minutes=resample_minutes,
-            code_live_only=True,
-        )
-        if df is None or getattr(df, "empty", True):
-            return empty
-        if "station" not in df.columns or "bucket" not in df.columns or "vtec_tecu" not in df.columns:
-            return empty
-
-        work = df.copy()
-        work["station"] = work["station"].astype(str).str.lower().str.rstrip("_")
-        work["bucket"] = pd.to_datetime(work["bucket"], utc=True, errors="coerce")
-        if "observed_at" in work.columns:
-            work["observed_at"] = pd.to_datetime(work["observed_at"], utc=True, errors="coerce")
-            # Freshness must use the measurement time. The bin start is up to
-            # one resample interval earlier and was marking fresh stations delayed.
-            work["point_time"] = work["observed_at"].fillna(work["bucket"])
-        else:
-            work["point_time"] = work["bucket"]
-        work["vtec_tecu"] = pd.to_numeric(work["vtec_tecu"], errors="coerce")
-        work["obs_count"] = pd.to_numeric(work.get("obs_count"), errors="coerce").fillna(0)
-        work = work.dropna(subset=["bucket", "point_time", "vtec_tecu"])
-        work = work[(work["vtec_tecu"] > 0) & (work["vtec_tecu"] <= 50)]
-        if work.empty:
-            return empty
-
-        series_by_code: dict[str, LiveStationVtecSeries] = {
-            code: LiveStationVtecSeries(station=code, name=station.name, points=[])
-            for code, station in catalog.items()
-        }
-        gopi_by: dict[str, float] = {}
-        try:
-            gopi = db.recent_station_vtec(
-                minutes=15,
-                code_live_only=True,
-                allow_method_fallback=False,
+        conn = psycopg2.connect(dsn, connect_timeout=5)
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            cur.execute(f"SET statement_timeout = '{timeout_ms}'")
+            cur.execute(
+                """
+                SELECT LOWER(RTRIM(station, '_')) AS station,
+                       to_timestamp(
+                         floor(extract(epoch FROM time) / %s) * %s
+                       ) AT TIME ZONE 'UTC' AS bucket,
+                       MAX(time) AS observed_at,
+                       AVG(vtec_tecu) AS vtec_tecu,
+                       COUNT(*) AS obs_count
+                FROM vtec_obs
+                WHERE time >= %s
+                  AND vtec_tecu IS NOT NULL
+                  AND vtec_tecu > 0
+                  AND vtec_tecu <= 50
+                  AND elevation_deg >= 20
+                  AND tec_method LIKE %s
+                  AND tec_method NOT LIKE 'dlr_%%'
+                GROUP BY 1, 2
+                ORDER BY 1, 2
+                """,
+                (float(step * 60), float(step * 60), since, "%code_live%"),
             )
-            if gopi is not None and not getattr(gopi, "empty", True):
-                for _, row in gopi.iterrows():
-                    code = str(row["station"]).lower().rstrip("_")
-                    value = float(row["mean_vtec"])
-                    if value > 0:
-                        gopi_by[code] = round(value, 2)
-        except Exception:
-            log.exception("gopi station consensus failed")
+            bin_rows = cur.fetchall()
+            latest_since = (datetime.now(tz=timezone.utc) - timedelta(minutes=15)).isoformat()
+            cur.execute(
+                """
+                SELECT LOWER(RTRIM(station, '_')) AS station,
+                       AVG(vtec_tecu) AS mean_vtec
+                FROM vtec_obs
+                WHERE time >= %s
+                  AND vtec_tecu > 0
+                  AND vtec_tecu <= 50
+                  AND tec_method LIKE %s
+                GROUP BY 1
+                """,
+                (latest_since, "%code_live%"),
+            )
+            latest_rows = cur.fetchall()
+    except Exception as exc:
+        message = str(exc).splitlines()[0]
+        if "://" in message or "@" in message:
+            message = type(exc).__name__
+        log.warning("live vtec-by-station read failed: %s", message[:240])
+        return []
+    finally:
+        if conn is not None:
+            conn.close()
 
-        for code, group in work.groupby("station"):
-            key = str(code).lower().rstrip("_")
-            if key not in series_by_code:
-                continue
-            group = group.sort_values("bucket")
-            points = [
-                LiveStationVtecPoint(
-                    time=idx.isoformat().replace("+00:00", "Z"),
-                    vtec_tecu=round(float(vtec), 2),
-                    obs_count=int(obs),
-                )
-                for idx, vtec, obs in zip(
-                    group["point_time"],
-                    group["vtec_tecu"],
-                    group["obs_count"],
-                )
-                if float(vtec) > 0
-            ]
-            values = [p.vtec_tecu for p in points]
-            series_by_code[key] = LiveStationVtecSeries(
-                station=key,
-                name=series_by_code[key].name,
+    gopi_by: dict[str, float] = {}
+    for code, mean in latest_rows:
+        key = str(code or "").lower().rstrip("_")
+        try:
+            value = float(mean)
+        except (TypeError, ValueError):
+            continue
+        if key and value > 0:
+            gopi_by[key] = round(value, 2)
+
+    points_by: dict[str, list[LiveStationVtecPoint]] = {code: [] for code in catalog}
+    for station, bucket, observed_at, vtec, obs_count in bin_rows:
+        key = str(station or "").lower().rstrip("_")
+        if key not in points_by:
+            continue
+        try:
+            value = float(vtec)
+        except (TypeError, ValueError):
+            continue
+        if not (value > 0 and value <= 50):
+            continue
+        when = observed_at if isinstance(observed_at, datetime) else bucket
+        if not isinstance(when, datetime):
+            continue
+        stamp = _utc_iso(when)
+        if not stamp:
+            continue
+        try:
+            count = int(obs_count or 0)
+        except (TypeError, ValueError):
+            count = 0
+        points_by[key].append(
+            LiveStationVtecPoint(time=stamp, vtec_tecu=round(value, 2), obs_count=count)
+        )
+
+    series: list[LiveStationVtecSeries] = []
+    for code, station in sorted(catalog.items(), key=lambda item: item[0]):
+        points = points_by.get(code) or []
+        values = [point.vtec_tecu for point in points]
+        series.append(
+            LiveStationVtecSeries(
+                station=code,
+                name=station.name,
                 points=points,
-                latest_vtec=gopi_by.get(key),
+                latest_vtec=gopi_by.get(code),
                 mean_vtec=round(sum(values) / len(values), 2) if values else None,
             )
-
-        for code, value in gopi_by.items():
-            current = series_by_code.get(code)
-            if current is not None and current.latest_vtec is None:
-                series_by_code[code] = LiveStationVtecSeries(
-                    station=code,
-                    name=current.name,
-                    points=current.points,
-                    latest_vtec=value,
-                    mean_vtec=current.mean_vtec,
-                )
-
-        return [series_by_code[code] for code in sorted(series_by_code)]
-    except Exception:
-        log.exception("live vtec-by-station build failed")
-        return empty
-    finally:
-        db.close()
+        )
+    return series if any(row.points for row in series) else empty
 
 
 @router.get("/zimbabwe-scientific-plots")
@@ -788,6 +887,7 @@ async def zimbabwe_scientific_plots(
     hours: float = Query(24.0, ge=6.0, le=72.0),
     resample_minutes: int = Query(15, ge=5, le=60),
     day: str | None = Query(None),
+    archive_only: bool = Query(False),
     _=Depends(require_api_key),
 ):
     """Four scientific TEC plots for Zimbabwe with observation-based uncertainty.
@@ -804,6 +904,16 @@ async def zimbabwe_scientific_plots(
     selected_day = (day or "").strip()[:10]
     if selected_day and len(selected_day) != 10:
         selected_day = ""
+    if archive_only:
+        global _SEASONAL_ARCHIVE_CACHE
+        now = time.time()
+        cached_archive = _SEASONAL_ARCHIVE_CACHE
+        if cached_archive and (now - cached_archive[0]) < _SCI_PLOTS_CACHE_TTL_S:
+            return cached_archive[1]
+        archive_result = await asyncio.to_thread(_seasonal_archive_payload)
+        _SEASONAL_ARCHIVE_CACHE = (time.time(), archive_result)
+        return archive_result
+
     cache_key = (round(hours, 1), resample_minutes, selected_day)
     now = time.time()
     cached = _SCI_PLOTS_CACHE.get(cache_key)
@@ -818,6 +928,54 @@ async def zimbabwe_scientific_plots(
     )
     _SCI_PLOTS_CACHE[cache_key] = (time.time(), result)
     return result
+
+
+def _empty_percentile(hours: int = 24) -> dict:
+    return {"p50": [None] * hours, "p25": [None] * hours, "p75": [None] * hours, "n": [0] * hours}
+
+
+def _seasonal_archive_payload() -> dict:
+    """Equinox/solstice diurnal curves from the packaged CMN file. No database."""
+    from zgiis.processing.zimbabwe_scientific_plots import build_seasonal_equinox_solstice
+
+    seasonal = build_seasonal_equinox_solstice()
+    hours = list(range(24))
+    band = _empty_percentile()
+    return {
+        "generated_at": datetime.now(tz=timezone.utc).isoformat(),
+        "hours": 24,
+        "resample_minutes": 60,
+        "day": None,
+        "logged_days": [],
+        "diurnal_latband": {
+            "hours": hours,
+            "northern": band,
+            "central": _empty_percentile(),
+            "southern": _empty_percentile(),
+            "station_counts": {"northern": 0, "central": 0, "southern": 0},
+            "sample_count": 0,
+            "note": "Live latitude bands are loaded separately from measured CORS bins.",
+        },
+        "seasonal": seasonal,
+        "modip_transect": {"points": [], "regression": None},
+        "quiet_disturbed": {
+            "hours": hours,
+            "quiet": _empty_percentile(),
+            "disturbed": _empty_percentile(),
+            "quiet_sample_count": 0,
+            "disturbed_sample_count": 0,
+            "kp_threshold": 3.0,
+            "available": False,
+        },
+        "integrity": {
+            "no_synthetic_tec": True,
+            "uncertainty": "Seasonal curves are hourly medians from the CMN archive.",
+            "seasonal_archive_limited": not all(
+                bool(season.get("available")) for season in seasonal.get("seasons") or []
+            ),
+            "modip_approximate": True,
+        },
+    }
 
 
 def _build_scientific_plots(*, hours: float, resample_minutes: int, day: str | None = None) -> dict:

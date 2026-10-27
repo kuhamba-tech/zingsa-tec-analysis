@@ -2,18 +2,100 @@
 
 import { useEffect, useState } from "react";
 import SwSectionBanner from "./SwSectionBanner";
-import { getLivePipelineStatus } from "@/lib/api";
-import type { LivePipelineStatus, LiveStationVtecSeries } from "@/lib/types";
+import { getLivePipelineStatus, getLiveStationReadings, getTecHeatmap } from "@/lib/api";
+import type { LivePipelineStatus, LiveStationVtecSeries, TecHeatmapResponse } from "@/lib/types";
+import { measuredLiveTec } from "@/lib/measuredLiveTec";
 import { isSurveyorGeneral, ZINGSA_STATION_TOTAL } from "@/lib/liveStationStatus";
 import { monitoringFreshness, observationEpoch, observationTime } from "@/lib/monitoringStatus";
 import { formatVtecDisplay, vtecColor } from "@/lib/spaceWeatherMetrics";
 
-export default function LocalIonosphereObservations({ stations, now, refreshFailed, loading }: {
-  stations: LiveStationVtecSeries[];
-  now: number;
-  refreshFailed: boolean;
-  loading: boolean;
-}) {
+function seriesFromHeatmap(heatmap: TecHeatmapResponse | null): LiveStationVtecSeries[] {
+  const observedAt = new Date().toISOString();
+  return (heatmap?.stations ?? [])
+    .filter((station) => !isSurveyorGeneral(station.code) && measuredLiveTec(station) != null)
+    .map((station) => ({
+      station: station.code.toLowerCase().replace(/_+$/, ""),
+      name: station.name,
+      points: [{ time: observedAt, vtec_tecu: station.vtec, obs_count: station.obs_count }],
+      latest_vtec: station.vtec,
+      mean_vtec: station.vtec,
+    }));
+}
+
+function hasFreshGopi(rows: LiveStationVtecSeries[]): boolean {
+  return rows.some(
+    (row) =>
+      !isSurveyorGeneral(row.station) &&
+      typeof row.latest_vtec === "number" &&
+      Number.isFinite(row.latest_vtec) &&
+      row.latest_vtec > 0,
+  );
+}
+
+export default function LocalIonosphereObservations({ now }: { now: number }) {
+  const [stations, setStations] = useState<LiveStationVtecSeries[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshFailed, setRefreshFailed] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      let showed = false;
+      let readingsDone = false;
+      let heatDone = false;
+      const finishFail = () => {
+        if (cancelled || showed || !readingsDone || !heatDone) return;
+        setRefreshFailed(true);
+        setLoading(false);
+      };
+      getTecHeatmap()
+        .then((heatmap) => {
+          if (cancelled) return;
+          heatDone = true;
+          const rows = seriesFromHeatmap(heatmap);
+          if (!rows.length) {
+            finishFail();
+            return;
+          }
+          if (showed) return;
+          showed = true;
+          setStations(rows);
+          setRefreshFailed(false);
+          setLoading(false);
+        })
+        .catch(() => {
+          if (cancelled) return;
+          heatDone = true;
+          finishFail();
+        });
+      getLiveStationReadings()
+        .then((rows) => {
+          if (cancelled) return;
+          readingsDone = true;
+          const list = Array.isArray(rows) ? rows : [];
+          if (!hasFreshGopi(list)) {
+            finishFail();
+            return;
+          }
+          showed = true;
+          setStations(list);
+          setRefreshFailed(false);
+          setLoading(false);
+        })
+        .catch(() => {
+          if (cancelled) return;
+          readingsDone = true;
+          finishFail();
+        });
+    };
+    load();
+    const timer = window.setInterval(() => {
+      if (!document.hidden) load();
+    }, 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
   const rows = stations.filter((station) => !isSurveyorGeneral(station.station)).map((station) => {
     const latest = station.points.filter((point) => Number.isFinite(point.vtec_tecu) && observationEpoch(point.time) !== null)
       .reduce<(typeof station.points)[number] | null>((last, point) =>
@@ -24,7 +106,7 @@ export default function LocalIonosphereObservations({ stations, now, refreshFail
     const status = gopi == null
       ? "UNAVAILABLE" as const
       : latest
-        ? monitoringFreshness(latest.time, now, true, refreshFailed)
+        ? monitoringFreshness(latest.time, now, true, false)
         : "LIVE" as const;
     return { station, latest, gopi, status };
   });
@@ -45,11 +127,11 @@ export default function LocalIonosphereObservations({ stations, now, refreshFail
     const timer = window.setInterval(() => { if (!document.hidden) void check(); }, 30000);
     return () => { cancelled = true; window.clearInterval(timer); };
   }, [loading, anyLive]);
-  const tone = refreshFailed ? "warn" : anyLive ? "ok" : loading ? "warn" : "off";
-  const statusLabel = refreshFailed
-    ? "Refresh failed"
-    : anyLive
-      ? "Live Data"
+  const tone = anyLive ? "ok" : refreshFailed || loading ? "warn" : "off";
+  const statusLabel = anyLive
+    ? "Live Data"
+    : refreshFailed
+      ? "Refresh failed"
       : loading
         ? "Loading"
         : "No recent TEC readings";
@@ -116,7 +198,7 @@ export default function LocalIonosphereObservations({ stations, now, refreshFail
         {" "}<a href="/live-pipeline/">Open live pipeline diagnostics →</a>
       </div>}
       <p className="sw-supporting-text">Only Gopi code TEC from the last 15 minutes contributes. Each station is the satellite consensus, so one bad satellite cannot set the range. This is a station mean, not a spatially weighted national estimate. VTEC alone does not establish disturbance; local impact remains unverified.</p>
-      {refreshFailed && <p role="status">Station observations could not be refreshed. Saved readings are marked and excluded from the current mean.</p>}
+      {refreshFailed && !anyLive && <p role="status">Station observations could not be refreshed. Saved readings are marked and excluded from the current mean.</p>}
       <details className="sw-alert-bulletin">
         <summary>Station readings and observation times</summary>
         <div className="sw-table-scroll">

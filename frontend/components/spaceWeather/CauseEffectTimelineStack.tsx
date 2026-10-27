@@ -666,7 +666,7 @@ export default function CauseEffectTimelineStack({
     <>
     {showChrome && (
       <>
-        <LocalIonosphereObservations stations={vtec} now={now} refreshFailed={vtecRefreshFailed} loading={vtecLoading} />
+        <LocalIonosphereObservations now={now} />
         {/* CORS map is heavier than the readings — mount when near viewport. */}
         <DeferredMount
           className="sw-deferred-block"

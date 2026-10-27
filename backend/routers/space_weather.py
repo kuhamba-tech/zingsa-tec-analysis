@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import threading
 import os
@@ -356,15 +357,28 @@ def _build_current_payload() -> SpaceWeatherCurrent:
     """Dashboard snapshot — keep this path free of Spider login stalls."""
     sw = dict(_sw())
     try:
-        ntrip_online, ntrip_total = _ntrip_stream_counts()
-        if ntrip_online is not None and ntrip_total:
-            sw["stations_online"] = ntrip_online
-            sw["stations_total"] = ntrip_total
-        else:
-            sw["stations_online"] = None
+        from backend.routers.cors_network import _fresh_code_live_connections
+        from zgiis.cors.stations import zingsa_cors_stations
+
+        fresh = _fresh_code_live_connections()
+        if fresh:
+            sw["stations_online"] = len(fresh)
+            sw["stations_total"] = len(zingsa_cors_stations())
+            sw["mean_vtec"] = round(sum(fresh.values()) / len(fresh), 2)
+            sw["vtec_tecu"] = sw["mean_vtec"]
     except Exception:
-        sw["stations_online"] = None
-        log.exception("station count overlay failed on /space-weather/current")
+        log.exception("fresh CORS connection count failed")
+    if sw.get("stations_online") is None:
+        try:
+            ntrip_online, ntrip_total = _ntrip_stream_counts()
+            if ntrip_online is not None and ntrip_total:
+                sw["stations_online"] = ntrip_online
+                sw["stations_total"] = ntrip_total
+            else:
+                sw["stations_online"] = None
+        except Exception:
+            sw["stations_online"] = None
+            log.exception("station count overlay failed on /space-weather/current")
     # Prefer in-memory collector samples; fall back to recent station VTEC so the
     # Zimbabwe Ionosphere card is not stuck on Unavailable when Spider is down.
     if sw.get("mean_vtec") is None and sw.get("vtec_tecu") is None:
@@ -434,25 +448,26 @@ def _build_current_payload() -> SpaceWeatherCurrent:
             sw["mean_vtec"] = logged_vtec
     # A saved snapshot already filled mean_vtec above. The card on this page
     # must show the stations streaming now, not that older number.
-    try:
-        from zgiis.cors.stations import is_surveyor_general
-        from zgiis.db.timescale import TecDB
-
-        live_db = TecDB()
+    if sw.get("mean_vtec") is None:
         try:
-            by_station = live_db.live_station_mean_vtec(seconds=15 * 60)
-        finally:
-            live_db.close()
-        vals = [
-            float(value)
-            for code, value in by_station.items()
-            if not is_surveyor_general(code) and value is not None and float(value) > 1.0
-        ]
-        if vals:
-            sw["mean_vtec"] = round(sum(vals) / len(vals), 2)
-            sw["vtec_tecu"] = sw["mean_vtec"]
-    except Exception:
-        log.exception("live station TEC mean failed")
+            from zgiis.cors.stations import is_surveyor_general
+            from zgiis.db.timescale import TecDB
+
+            live_db = TecDB()
+            try:
+                by_station = live_db.live_station_mean_vtec(seconds=15 * 60)
+            finally:
+                live_db.close()
+            vals = [
+                float(value)
+                for code, value in by_station.items()
+                if not is_surveyor_general(code) and value is not None and float(value) > 1.0
+            ]
+            if vals:
+                sw["mean_vtec"] = round(sum(vals) / len(vals), 2)
+                sw["vtec_tecu"] = sw["mean_vtec"]
+        except Exception:
+            log.exception("live station TEC mean failed")
     threading.Thread(
         target=log_snapshot,
         kwargs={"source": "dashboard", "force": False, "snapshot": sw},
@@ -481,10 +496,14 @@ def _build_current_payload() -> SpaceWeatherCurrent:
 
 
 @router.get("/current", response_model=SpaceWeatherCurrent)
-def current(_=Depends(require_api_key)):
-    """Dashboard snapshot with a short coalescing cache for SSR + client bursts."""
-    import time
+async def current(_=Depends(require_api_key)):
+    """Dashboard snapshot with a short coalescing cache and hard timeout.
 
+    Some Supabase-backed fallbacks can stall under connection-pool pressure.
+    This route must never hold a request open while a slow Postgres read keeps
+    retrying. Falling back to the last cached payload is preferable to a page
+    stuck on "Unavailable".
+    """
     now = time.monotonic()
     with _CURRENT_CACHE_LOCK:
         cached = _CURRENT_CACHE.get("payload")
@@ -492,7 +511,21 @@ def current(_=Depends(require_api_key)):
         if cached is not None and (now - ts) < _CURRENT_CACHE_TTL_S:
             return cached  # type: ignore[return-value]
 
-    payload = _build_current_payload()
+    try:
+        payload = await asyncio.wait_for(asyncio.to_thread(_build_current_payload), timeout=3.5)
+    except (asyncio.TimeoutError, Exception):
+        log.warning("/space-weather/current build timed out or failed; using cached fallback", exc_info=True)
+        payload = cached or SpaceWeatherCurrent(
+            kp_condition="Unavailable",
+            kp_color="#94a3b8",
+            gnss_risk="Unknown",
+            gnss_risk_color="#94a3b8",
+            stations_online=None,
+            stations_total=None,
+            mean_vtec=None,
+            updated_utc=None,
+        )
+
     with _CURRENT_CACHE_LOCK:
         _CURRENT_CACHE["payload"] = payload
         _CURRENT_CACHE["ts"] = time.monotonic()

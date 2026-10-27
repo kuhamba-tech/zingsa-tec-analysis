@@ -15,8 +15,13 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const frontend = path.join(root, "frontend");
 const nextDir = path.join(frontend, ".next");
-const venvPython = path.join(root, ".venv", "bin", "python");
-const uvicornBin = path.join(root, ".venv", "bin", "uvicorn");
+const isWin = process.platform === "win32";
+const venvPython = isWin
+  ? path.join(root, ".venv", "Scripts", "python.exe")
+  : path.join(root, ".venv", "bin", "python");
+const uvicornBin = isWin
+  ? path.join(root, ".venv", "Scripts", "uvicorn.exe")
+  : path.join(root, ".venv", "bin", "uvicorn");
 
 async function probe(url) {
   try {
@@ -98,16 +103,15 @@ async function ensureFrontend() {
   await new Promise((r) => setTimeout(r, 800));
   clearNextCache();
 
-  const nextBin = path.join(frontend, "node_modules", ".bin", "next");
+  const nextBin = path.join(frontend, "node_modules", "next", "dist", "bin", "next");
   if (!existsSync(nextBin)) {
     console.error("Missing frontend/node_modules — run npm install in frontend/ first.");
     process.exit(1);
   }
-  // Prefer the local binary: system `npx` can fail with
-  // "Class extends value undefined is not a constructor" on some Node builds.
+  // Use the actual Next CLI entrypoint rather than the nonexistent Windows .bin shim.
   start(
-    nextBin,
-    ["dev", "--webpack", "--port", "3000", "--hostname", "127.0.0.1"],
+    "node",
+    [nextBin, "dev", "--webpack", "--port", "3000", "--hostname", "127.0.0.1"],
     frontend,
     "frontend :3000",
   );

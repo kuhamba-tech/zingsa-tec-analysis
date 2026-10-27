@@ -52,9 +52,10 @@ export function resolveClientApiBase(): string {
     return `${protocol}//127.0.0.1:8000`;
   }
 
-  // Next dev / common frontend ports / Cursor port-forward previews — same-origin /backend.
-  // Never fall through to /api on unknown tunnel hosts in development: that 404s and
-  // leaves Live Metric stuck on Connecting / Updating….
+  // Next dev / common frontend ports / Cursor port-forward previews. For local
+  // workstations we prefer the direct FastAPI listener instead of the same-origin
+  // /backend proxy because the dev proxy can stall while the browser still shows
+  // the page shell.
   if (
     process.env.NODE_ENV === "development" ||
     port === "3000" ||
@@ -62,6 +63,9 @@ export function resolveClientApiBase(): string {
     port === "3100" ||
     port === "43128"
   ) {
+    if (local) {
+      return `${protocol}//127.0.0.1:8000`;
+    }
     const devOrigin = hasNumericPort ? safeOrigin : `${protocol}//127.0.0.1:3100`;
     return `${devOrigin}/backend`;
   }

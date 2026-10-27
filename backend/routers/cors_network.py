@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import math
 import logging
 import os
@@ -274,6 +275,183 @@ def _schedule_station_status_poll(*, source: str) -> None:
     ).start()
 
 
+_FRESH_CACHE: tuple[float, dict[str, float]] | None = None
+_FRESH_CACHE_TTL_S = 20.0
+_FRESH_CACHE_KEEP_S = 600.0
+_FRESH_LOCK = threading.Lock()
+
+
+def _query_fresh_code_live(minutes: float) -> dict[str, float]:
+    """One short read of stations that delivered code TEC.
+
+    Uses the transaction pooler. The session database is capped at 20 clients
+    and is already full with the collector and chart pool, so a new session
+    connection left both cards on Unavailable.
+    """
+    import psycopg2
+    from datetime import datetime, timedelta, timezone
+
+    from zgiis.cors.stations import is_surveyor_general
+    from zgiis.db.config import pooled_database_dsn
+
+    dsn = pooled_database_dsn()
+    if not dsn:
+        return {}
+    conn = None
+    try:
+        conn = psycopg2.connect(dsn, connect_timeout=5)
+        conn.autocommit = True
+        since = (datetime.now(tz=timezone.utc) - timedelta(minutes=minutes)).isoformat()
+        with conn.cursor() as cur:
+            cur.execute("SET statement_timeout = '4000'")
+            cur.execute(
+                """
+                SELECT LOWER(RTRIM(station, '_')) AS station,
+                       AVG(vtec_tecu) AS mean_vtec
+                FROM vtec_obs
+                WHERE time >= %s
+                  AND vtec_tecu > 0
+                  AND vtec_tecu <= 50
+                  AND tec_method LIKE %s
+                GROUP BY 1
+                """,
+                (since, "%code_live%"),
+            )
+            rows = cur.fetchall()
+        found: dict[str, float] = {}
+        for code, mean in rows:
+            key = str(code or "").lower().rstrip("_")
+            if not key or is_surveyor_general(key):
+                continue
+            try:
+                value = float(mean)
+            except (TypeError, ValueError):
+                continue
+            if value > 0:
+                found[key] = value
+        return found
+    except Exception as exc:
+        message = str(exc).splitlines()[0]
+        if "://" in message:
+            message = type(exc).__name__
+        log.warning("fresh code-live station read failed: %s", message[:240])
+        return {}
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def _cached_fresh_connections() -> dict[str, float] | None:
+    """Last good station list. Does not open a database connection."""
+    with _FRESH_LOCK:
+        if _FRESH_CACHE is None:
+            return None
+        if time.monotonic() - _FRESH_CACHE[0] > _FRESH_CACHE_KEEP_S:
+            return None
+        return dict(_FRESH_CACHE[1])
+
+
+def _fresh_code_live_connections(minutes: float = 15.0) -> dict[str, float]:
+    """ZINGSA stations that delivered code TEC in the window.
+
+    A station is connected when it has a fresh measurement, even if the single
+    NTRIP slot has already moved on to the next site. A failed read keeps the
+    last good count so the cards do not flip back to Unavailable.
+    """
+    global _FRESH_CACHE
+    with _FRESH_LOCK:
+        now = time.monotonic()
+        if _FRESH_CACHE is not None and (now - _FRESH_CACHE[0]) < _FRESH_CACHE_TTL_S:
+            return dict(_FRESH_CACHE[1])
+    found = _query_fresh_code_live(minutes)
+    with _FRESH_LOCK:
+        if found:
+            _FRESH_CACHE = (time.monotonic(), dict(found))
+            return dict(found)
+        if _FRESH_CACHE is not None and (time.monotonic() - _FRESH_CACHE[0]) < _FRESH_CACHE_KEEP_S:
+            return dict(_FRESH_CACHE[1])
+        return {}
+
+
+_REFRESH_STARTED = False
+
+
+def start_fresh_cors_refresh() -> None:
+    """Keep the station count warm so the dashboard cards do not wait on a query."""
+    global _REFRESH_STARTED
+    with _FRESH_LOCK:
+        if _REFRESH_STARTED:
+            return
+        _REFRESH_STARTED = True
+
+    def _loop() -> None:
+        while True:
+            try:
+                _fresh_code_live_connections()
+            except Exception:
+                log.exception("fresh CORS refresh failed")
+            time.sleep(20)
+
+    threading.Thread(target=_loop, daemon=True, name="zgiis-fresh-cors").start()
+
+
+@router.get("/connected")
+async def cors_connected(_=Depends(require_api_key)):
+    """Online ZINGSA count for the two dashboard cards.
+
+    Reads memory only. Chart queries must not be able to stall this response.
+    """
+    start_fresh_cors_refresh()
+    fresh = _cached_fresh_connections()
+    if fresh is None:
+        for _ in range(60):
+            await asyncio.sleep(0.1)
+            fresh = _cached_fresh_connections()
+            if fresh is not None:
+                break
+    found = fresh or {}
+    from zgiis.cors.stations import zingsa_cors_stations
+
+    total = len(zingsa_cors_stations())
+    online = len(found)
+    mean = round(sum(found.values()) / online, 2) if online else None
+    return {
+        "online": online,
+        "offline": max(0, total - online),
+        "total": total,
+        "mean_vtec": mean,
+    }
+
+
+def _mark_fresh_connections(stations: list, fresh: dict[str, float]) -> list:
+    """Count a site as connected when fresh code TEC arrived."""
+    from dataclasses import replace
+
+    from zgiis.cors.site_details import vendor_status_label
+
+    merged = []
+    for station in stations:
+        code = station.code.lower().rstrip("_")
+        value = fresh.get(code)
+        if value is None:
+            merged.append(station)
+            continue
+        source = getattr(station, "status_source", "") or ""
+        if source == "spider" and station.status == "online":
+            merged.append(replace(station, current_tec=round(value, 2)))
+            continue
+        merged.append(
+            replace(
+                station,
+                status="online",
+                status_source="ntrip",
+                current_tec=round(value, 2),
+                site_status_label=vendor_status_label("online", receiving=True),
+            )
+        )
+    return merged
+
+
 def _archive_freshness_hours() -> float:
     raw = os.getenv("LIVE_STATUS_ARCHIVE_HOURS", "1").strip()
     try:
@@ -442,6 +620,9 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
     # Spider Site Status is ground truth for online/offline. Apply the cached
     # overlay first so a slow archive/Supabase read never stalls the map.
     stations = _merge_spider_site_statuses(stations, refresh=refresh_ntrip)
+    fresh_connections = _fresh_code_live_connections()
+    if fresh_connections:
+        stations = _mark_fresh_connections(stations, fresh_connections)
     spider_stations = stations
     spider_ready = _stations_are_spider_authoritative(stations)
 
@@ -451,7 +632,7 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
     # normal page loads too — otherwise every card paints unknown / 0/25.
     # Archive reads can stall on a busy pooler; keep them off the path
     # when Spider is already authoritative.
-    if not pipeline_configured and not spider_ready:
+    if not pipeline_configured and not spider_ready and not _stations_have_live_status(stations):
         stations, archive_applied = _merge_archived_live_statuses(stations)
         stations = _hold_non_spider_as_unknown(stations)
         # Re-apply the already-read Spider rows without a second DB read/login.

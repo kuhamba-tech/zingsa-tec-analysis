@@ -34,15 +34,6 @@ const LineChart = dynamic(
 const ChartAnalysisBox = dynamic(() => import("@/components/dashboard/ChartAnalysisBox"), {
   ssr: false,
 });
-const TecMapRmseChart = dynamic(() => import("./TecMapRmseChart"), {
-  ssr: false,
-  loading: () => (
-    <div className="banner banner-info" role="status">
-      Calculating TEC map RMSE…
-    </div>
-  ),
-});
-const ReceiverBiasCharts = dynamic(() => import("./ReceiverBiasCharts"), { ssr: false });
 const HeliosphericKpBars = dynamic(() => import("./HeliosphericKpBars"), {
   ssr: false,
   loading: () => (
@@ -424,9 +415,6 @@ export default function HeliosphericMonitorStack() {
               KNMI Space Weather
             </a>
           </div>
-
-          <TecMapRmseChart />
-          <ReceiverBiasCharts />
         </>
       )}
     </div>

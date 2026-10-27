@@ -274,12 +274,13 @@ async def wdc_kyoto_analysis(
 @router.get("/iono-response-figures")
 async def iono_response_figures(
     days: int = Query(180, ge=14, le=366),
+    rmse: int = Query(1, ge=0, le=1),
     _=Depends(require_api_key),
 ):
     """Dst and Kp with the RMSE of Zimbabwe TEC maps over the same dates."""
     from zgiis.space_weather.iono_response_figures import build_iono_response_figures
 
-    return build_iono_response_figures(days=days)
+    return build_iono_response_figures(days=days, include_rmse=bool(rmse))
 
 
 @router.get("/receiver-bias")

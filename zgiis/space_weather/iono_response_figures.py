@@ -749,7 +749,7 @@ def _rmse_series(hours: float) -> tuple[list[dict[str, Any]], list[str]]:
     return rows, notes + failed
 
 
-def build_iono_response_figures(*, days: int = 180) -> dict[str, Any]:
+def build_iono_response_figures(*, days: int = 180, include_rmse: bool = True) -> dict[str, Any]:
     """Kp bars, Dst line, and live code-TEC map RMSE for the last `days` UTC days."""
     global _index_cache, _rmse_cache
     days = max(14, min(int(days), 366))
@@ -796,7 +796,9 @@ def build_iono_response_figures(*, days: int = 180) -> dict[str, Any]:
             and (now - cached_rmse[0]) < _RMSE_TTL_S
         )
     flags: list[str] = []
-    if rmse_hit and cached_rmse is not None:
+    if not include_rmse:
+        rmse = []
+    elif rmse_hit and cached_rmse is not None:
         rmse = cached_rmse[2]
         flags = list(cached_rmse[3])
     else:
@@ -819,7 +821,7 @@ def build_iono_response_figures(*, days: int = 180) -> dict[str, Any]:
         notes.append(
             "Days without a readable GPS broadcast ephemeris are omitted: " + ", ".join(missing_days) + "."
         )
-    if not rmse:
+    if include_rmse and not rmse:
         notes.append(
             "TEC map RMSE is shown when live NTRIP code TEC can be placed at ionospheric pierce points."
         )

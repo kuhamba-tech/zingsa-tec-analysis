@@ -14,7 +14,13 @@ import {
 } from "chart.js";
 import { Chart } from "react-chartjs-2";
 import { getIonoResponseFigures } from "@/lib/api";
+import {
+  rmseHistogramExplanation,
+  rmseHourExplanation,
+  rmseTimeExplanation,
+} from "@/lib/matambaChartExplanation";
 import type { IonoResponseFigures } from "@/lib/types";
+import MatambaChartPanel from "./MatambaChartPanel";
 
 ChartJS.register(LinearScale, PointElement, LineElement, BarElement, Tooltip, Legend);
 ChartJS.defaults.color = "#ffffff";
@@ -93,15 +99,17 @@ function lineWithGaps(points: Point[], gapMs = 6 * 60 * 60 * 1000): Point[] {
   const out: Point[] = [];
   let previous: number | null = null;
   for (const point of points) {
-    if (previous != null && point.x - previous > gapMs) out.push({ x: previous + 1, y: Number.NaN });
+    const x = typeof point.x === "number" ? point.x : null;
+    if (x == null) continue;
+    if (previous != null && x - previous > gapMs) out.push({ x: previous + 1, y: Number.NaN });
     out.push(point);
-    previous = point.x;
+    previous = x;
   }
   return out;
 }
 
 /**
- * Matamba and Danskin (2022) RMSE of TEC maps, drawn under the planetary Kp panel.
+ * Matamba and Danskin (2022) RMSE of TEC maps, on the Zimbabwe ionospheric response tab.
  * Each point is the 1° median-filtered grid minus the original code TEC at the pierce points.
  */
 export default function TecMapRmseChart() {
@@ -149,18 +157,38 @@ export default function TecMapRmseChart() {
       {
         type: "line",
         label: "7-day average",
-        data: lineWithGaps(
-          rows
-            .filter((point) => finite(point.smooth))
-            .map((point) => ({ x: epoch(point.time), y: point.smooth as number })),
-        ),
+        data: rows
+          .filter((point) => finite(point.smooth))
+          .map((point) => ({ x: epoch(point.time), y: point.smooth as number })),
         borderColor: "#ef4444",
         borderWidth: 2,
         pointRadius: 0,
-        spanGaps: false,
+        spanGaps: true,
         yAxisID: "y",
       },
     ];
+    const ekfLine = lineWithGaps(
+      rows
+        .filter((point) => finite(point.ekf))
+        .map((point) => ({ x: epoch(point.time), y: point.ekf as number })),
+    ).filter((point) => Number.isFinite(point.y));
+    if (ekfLine.length > 0) {
+      datasets.push({
+        type: "line",
+        label: "EKF Predicted",
+        data: lineWithGaps(
+          rows
+            .filter((point) => finite(point.ekf))
+            .map((point) => ({ x: epoch(point.time), y: point.ekf as number })),
+        ),
+        borderColor: "#fde68a",
+        borderDash: [6, 4],
+        borderWidth: 1.5,
+        pointRadius: 0,
+        spanGaps: false,
+        yAxisID: "y",
+      });
+    }
     const guides: Array<[number | null, string, string]> = [
       [data?.rmse_low ?? null, "−1.5σ", "#c4b15a"],
       [data?.rmse_high ?? null, "+1.5σ", "#c084fc"],
@@ -198,7 +226,7 @@ export default function TecMapRmseChart() {
     const binWidth = maxRmse <= 6 ? 0.1 : maxRmse <= 12 ? 0.25 : 0.5;
     const bins = histogramBins(samples.map((sample) => sample.rmse), binWidth);
     const xMax = Math.max(binWidth * bins.length, fit.high * 1.05);
-    const curve: Point[] = [];
+    const curve: Array<{ x: number; y: number }> = [];
     const steps = 160;
     for (let step = 1; step <= steps; step += 1) {
       const x = (step / steps) * xMax;
@@ -229,19 +257,15 @@ export default function TecMapRmseChart() {
   }, [data]);
 
   return (
-    <section
-      style={{
-        background: "#0a1929",
-        border: "1px solid var(--border)",
-        borderRadius: 10,
-        padding: "0.85rem 0.9rem 0.7rem",
-      }}
-    >
-      <div style={{ fontWeight: 700, marginBottom: "0.12rem" }}>RMSE of TEC maps</div>
-      <div style={{ fontSize: "0.7rem", color: "#ffffff", marginBottom: "0.55rem" }}>
+    <section className="matamba-figures">
+      <div className="matamba-figures-title">RMSE of TEC maps</div>
+      <div className="matamba-figures-note">
         Matamba and Danskin (2022): 1° nearest-neighbour map after a size-7 median filter, minus the
-        original code TEC at each pierce point. Each point uses the previous 15 minutes. The red curve
-        is the 7-day average. Olive and purple lines are the log-normal −1.5σ and +1.5σ.
+        original code TEC at each pierce point. Each point uses the previous 15 minutes. Hours
+        without enough pierce points stay empty. The red curve is the 7-day average and continues
+        across those hours. The dashed line is the EKF forecast and restarts after a gap longer
+        than six hours. Olive and purple lines are the log-normal −1.5σ and +1.5σ.
+        Click a graph for the Matamba and Danskin explanation.
       </div>
       {!data && !error && (
         <div className="banner banner-info" role="status">Calculating TEC map RMSE…</div>
@@ -253,7 +277,8 @@ export default function TecMapRmseChart() {
         </div>
       )}
       {chart && (
-        <div style={{ height: 280, position: "relative" }}>
+        <MatambaChartPanel label="RMSE of TEC maps" analysis={rmseTimeExplanation()}>
+        <div className="matamba-chart matamba-chart--rmse">
           <Chart
             type="scatter"
             data={{ datasets: chart.datasets }}
@@ -306,11 +331,15 @@ export default function TecMapRmseChart() {
             }}
           />
         </div>
+        </MatambaChartPanel>
       )}
       {histograms && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "0.8rem", marginTop: "0.9rem" }}>
-          <div>
-            <div style={{ height: 240, position: "relative" }}>
+        <div className="matamba-figure-stack">
+          <MatambaChartPanel
+            label="Histogram of RMSE"
+            analysis={rmseHistogramExplanation(histograms.fit)}
+          >
+            <div className="matamba-chart matamba-chart--hist">
             <Chart
               type="bar"
               data={{
@@ -394,17 +423,21 @@ export default function TecMapRmseChart() {
               }}
             />
             </div>
-            <div style={{ fontSize: "0.75rem", color: "#ffffff", marginTop: "0.35rem" }}>
+            <div className="matamba-figures-caption">
               (a) Histogram of RMSE; points = {histograms.fit.n}. μ = {histograms.fit.mean.toFixed(2)} is the mean of the log-normal fit, s = {histograms.fit.sigma.toFixed(2)} is the standard deviation of ln(RMSE). Dashed lines are exp(μ<sub>ln</sub> ± 1.5 s).
             </div>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "0.8rem" }}>
+          </MatambaChartPanel>
+          <div className="matamba-hour-grid">
             {([
               ["(b)", `RMSE < ${histograms.fit.low.toFixed(2)}`, histograms.below, "rgba(163, 177, 90, 0.9)"],
               ["(c)", `RMSE > ${histograms.fit.high.toFixed(2)}`, histograms.above, "rgba(192, 38, 211, 0.85)"],
             ] as const).map(([panel, title, series, color]) => (
-              <div key={panel}>
-                <div style={{ height: 210, position: "relative" }}>
+              <MatambaChartPanel
+                key={panel}
+                label={`Histogram of ${title}`}
+                analysis={rmseHourExplanation(panel === "(b)" ? "low" : "high", panel === "(b)" ? histograms.fit.low : histograms.fit.high, series.total)}
+              >
+                <div className="matamba-chart matamba-chart--hour">
                 <Chart
                   type="bar"
                   data={{
@@ -431,7 +464,9 @@ export default function TecMapRmseChart() {
                           },
                           label: (item) => {
                             const bar = series.bars[item.dataIndex];
-                            return `Fraction: ${item.parsed.y.toFixed(3)} (${bar?.count ?? 0} maps)`;
+                            const fraction = item.parsed.y;
+                            const shown = fraction == null ? "—" : fraction.toFixed(3);
+                            return `Fraction: ${shown} (${bar?.count ?? 0} maps)`;
                           },
                         },
                       },
@@ -455,10 +490,10 @@ export default function TecMapRmseChart() {
                   }}
                 />
                 </div>
-                <div style={{ fontSize: "0.75rem", color: "#ffffff", marginTop: "0.3rem" }}>
+                <div className="matamba-figures-caption">
                   {panel} Histogram of {title}; points = {series.total}
                 </div>
-              </div>
+              </MatambaChartPanel>
             ))}
           </div>
         </div>

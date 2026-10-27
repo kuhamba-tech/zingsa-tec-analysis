@@ -114,6 +114,7 @@ def start_background_warmup(*, include_live_ingest: bool = True) -> None:
         daemon=True,
         name="zgiis-warm-spider",
     ).start()
+    _warm_fresh_cors_count()
     if include_live_ingest:
         threading.Thread(
             target=_delayed_live_start,
@@ -125,6 +126,15 @@ def start_background_warmup(*, include_live_ingest: bool = True) -> None:
             daemon=True,
             name="zgiis-warm-vtec-charts",
         ).start()
+
+
+def _warm_fresh_cors_count() -> None:
+    try:
+        from backend.routers.cors_network import start_fresh_cors_refresh
+
+        start_fresh_cors_refresh()
+    except Exception:
+        log.exception("CORS connection count warmup failed")
 
 
 def start_light_cache_warmup() -> None:
@@ -157,6 +167,7 @@ def start_light_cache_warmup() -> None:
         daemon=True,
         name="zgiis-warm-spider-light",
     ).start()
+    _warm_fresh_cors_count()
     try:
         from zgiis.cors.trignet import start_trignet_tec
 

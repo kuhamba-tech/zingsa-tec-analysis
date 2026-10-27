@@ -9,8 +9,6 @@ import {
   LineElement,
   PointElement,
   Tooltip,
-  type ChartDataset,
-  type Point,
 } from "chart.js";
 import { Chart } from "react-chartjs-2";
 import { getIonoResponseFigures } from "@/lib/api";
@@ -70,7 +68,7 @@ export default function ZimbabweIonoResponseFigures() {
   useEffect(() => {
     let cancelled = false;
     const load = () => {
-      getIonoResponseFigures(180)
+      getIonoResponseFigures(180, false)
         .then((payload) => {
           if (!cancelled) {
             setData(payload);
@@ -146,66 +144,6 @@ export default function ZimbabweIonoResponseFigures() {
     };
   }, [data]);
 
-  const rmseChart = useMemo(() => {
-    if (!data || data.rmse.length === 0) return null;
-    const rows = data.rmse;
-    const xMin = Date.parse(`${data.start}T00:00:00Z`);
-    const xMax = Date.parse(`${data.end}T23:00:00Z`);
-    const datasets: ChartDataset<"scatter", Point[]>[] = [
-      {
-        type: "scatter",
-        label: "Observed",
-        data: rows.filter((point) => finite(point.rmse)).map((point) => ({ x: epoch(point.time), y: point.rmse as number })),
-        backgroundColor: "rgba(226, 232, 240, 0.75)",
-        pointRadius: 1.6,
-        yAxisID: "y",
-      },
-      {
-        type: "scatter",
-        label: "7-day average",
-        data: rows.filter((point) => finite(point.smooth)).map((point) => ({ x: epoch(point.time), y: point.smooth as number })),
-        showLine: true,
-        borderColor: "#ef4444",
-        borderWidth: 2,
-        pointRadius: 0,
-        yAxisID: "y",
-      },
-      {
-        type: "scatter",
-        label: "EKF Predicted",
-        data: rows.filter((point) => finite(point.ekf)).map((point) => ({ x: epoch(point.time), y: point.ekf as number })),
-        showLine: true,
-        borderColor: "#fde68a",
-        borderDash: [6, 4],
-        borderWidth: 1.5,
-        pointRadius: 0,
-        yAxisID: "y",
-      },
-    ];
-    const guides: Array<[number | null, string, string]> = [
-      [data.rmse_low, `${Number(data.rmse_low).toFixed(2)} TECU (−1.5σ)`, "#a3b15a"],
-      [data.rmse_high, `${Number(data.rmse_high).toFixed(2)} TECU (+1.5σ)`, "#e879f9"],
-    ];
-    for (const [level, label, color] of guides) {
-      if (!finite(level)) continue;
-      datasets.push({
-        type: "scatter",
-        label,
-        data: [
-          { x: xMin, y: level },
-          { x: xMax, y: level },
-        ],
-        showLine: true,
-        borderColor: color,
-        borderDash: [7, 4],
-        borderWidth: 1.5,
-        pointRadius: 0,
-        yAxisID: "y",
-      });
-    }
-    return { rows, chart: { datasets } };
-  }, [data]);
-
   const xMin = data ? Date.parse(`${data.start}T00:00:00Z`) : undefined;
   const xMax = data ? Date.parse(`${data.end}T23:00:00Z`) : undefined;
   const axis = {
@@ -264,47 +202,6 @@ export default function ZimbabweIonoResponseFigures() {
             }}
           />
         </Figure>
-      )}
-      {data && rmseChart && (
-        <Figure title="(b) RMSE of TEC maps">
-          <Chart
-            type="scatter"
-            data={rmseChart.chart}
-            options={{
-              responsive: true,
-              maintainAspectRatio: false,
-              plugins: {
-                legend: { position: "bottom", labels: { color: "#ffffff", boxWidth: 12 } },
-                tooltip: {
-                  callbacks: {
-                    title: (items) => dayMonth(Number(items[0]?.parsed.x)),
-                    label: (item) => {
-                      const name = item.dataset.label ?? "";
-                      if (name.includes("σ")) return name;
-                      const ms = Number(item.parsed.x);
-                      const point = rmseChart.rows.find((row) => Math.abs(epoch(row.time) - ms) < 1000);
-                      return tip(point, point?.rmse ?? null, "TECU");
-                    },
-                  },
-                },
-              },
-              scales: {
-                x: { type: "linear", ...axis },
-                y: {
-                  min: 0,
-                  title: { display: true, text: "RMSE", color: "#ffffff" },
-                  ticks: { color: "#ffffff" },
-                  grid: { color: "rgba(148, 163, 184, 0.16)" },
-                },
-              },
-            }}
-          />
-        </Figure>
-      )}
-      {data && !rmseChart && (
-        <div className="banner banner-info">
-          TEC-map RMSE is not shown. {data.note || "Live code TEC has not yet been placed at ionospheric pierce points."}
-        </div>
       )}
       {data && (
         <p className="sw-supporting-text" style={{ margin: 0 }}>

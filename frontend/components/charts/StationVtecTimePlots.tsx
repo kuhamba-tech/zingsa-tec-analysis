@@ -11,6 +11,8 @@ import type {
 } from "@/lib/types";
 import LineChart from "@/components/charts/LineChart";
 import { idwFillByStation, type LatLonSite } from "@/lib/idwSurface";
+import { isSurveyorGeneral, ZINGSA_STATION_TOTAL } from "@/lib/liveStationStatus";
+import { runMeanVtecEkf } from "@/lib/meanVtecEkf";
 
 const HOUR_OPTIONS = [2, 6, 12, 24] as const;
 const REFRESH_MS = 90_000;
@@ -200,11 +202,13 @@ function buildInterpolatedByStation(
   sites: LatLonSite[],
   hours: number,
 ): Record<string, GgStationPoint[]> {
-  if (sites.length < 2) return {};
+  const targets = sites.filter((site) => !isSurveyorGeneral(site.code));
+  if (targets.length < 2) return {};
   const { windowStartMs, windowEndMs } = resolveChartWindow(hours);
   const measuredAtTime = new Map<string, Record<string, number>>();
   for (const row of series) {
     const code = normalizeStationCode(row.station);
+    if (isSurveyorGeneral(code)) continue;
     for (const point of row.points) {
       if (!Number.isFinite(point.vtec_tecu) || point.vtec_tecu <= 0) continue;
       const ms = new Date(point.time).getTime();
@@ -221,7 +225,7 @@ function buildInterpolatedByStation(
     (a, b) => new Date(a).getTime() - new Date(b).getTime(),
   );
   for (const time of times) {
-    const fill = idwFillByStation(sites, measuredAtTime.get(time) ?? {});
+    const fill = idwFillByStation(targets, measuredAtTime.get(time) ?? {});
     for (const code of Object.keys(fill.interpolated)) {
       const value = fill.values[code];
       if (value == null || !Number.isFinite(value)) continue;
@@ -375,6 +379,19 @@ function StationChartCard({
     (ggPoints.length ? ggPoints[ggPoints.length - 1]?.vtec_tecu ?? null : null);
 
   const datasets = [
+    ...(merged.hasInterpolated
+      ? [
+          {
+            label: "Interpolated data",
+            data: merged.interpolated,
+            color: INTERP_COLOR,
+            borderDash: [8, 3, 2, 3],
+            borderWidth: 2.5,
+            fill: false,
+            spanGaps: true,
+          },
+        ]
+      : []),
     ...(merged.hasObserved
       ? [
           {
@@ -382,7 +399,7 @@ function StationChartCard({
             data: merged.observed,
             color: OBS_COLOR,
             fill: true,
-            spanGaps: false,
+            spanGaps: true,
           },
         ]
       : []),
@@ -406,19 +423,6 @@ function StationChartCard({
             color: GG_LINE_COLOR,
             // Dotted — distinct from solid GOPI and dashed Global TEC.
             borderDash: [2, 3],
-            borderWidth: 2.5,
-            fill: false,
-            spanGaps: true,
-          },
-        ]
-      : []),
-    ...(merged.hasInterpolated
-      ? [
-          {
-            label: "Interpolated data",
-            data: merged.interpolated,
-            color: INTERP_COLOR,
-            borderDash: [8, 3, 2, 3],
             borderWidth: 2.5,
             fill: false,
             spanGaps: true,
@@ -486,6 +490,7 @@ function StationChartCard({
           yLabel="VTEC (TECU)"
           height={200}
           compact
+          preserveSamples
           xValues={merged.xValues}
           xMin={merged.xMin}
           xMax={merged.xMax}
@@ -539,6 +544,11 @@ export default function StationVtecTimePlots({
           await new Promise((r) => setTimeout(r, 600));
           if (cancelled) return;
           rows = await getLiveVtecByStation(hours, resample, timeoutMs + 30_000);
+        }
+        const incomingPoints = rows.reduce((count, row) => count + row.points.length, 0);
+        const previousPoints = seriesRef.current.reduce((count, row) => count + row.points.length, 0);
+        if (incomingPoints === 0 && previousPoints > 0) {
+          throw new Error("Live GOPI series came back empty");
         }
 
         const cmpHours = Math.min(hours, GG_COMPARE_HOURS_CAP);
@@ -628,6 +638,8 @@ export default function StationVtecTimePlots({
 
   const loadingSlow = status === "pending" && hours >= 12;
   const networkMean = useMemo(() => buildNetworkMeanSeries(series, hours), [series, hours]);
+  const networkEkf = useMemo(() => runMeanVtecEkf(networkMean.values), [networkMean.values]);
+  const networkEkfReady = networkEkf.predicted.some((value) => value != null);
   const interpolatedByStation = useMemo(
     () => buildInterpolatedByStation(series, sites, hours),
     [series, sites, hours],
@@ -659,7 +671,7 @@ export default function StationVtecTimePlots({
   }, [methodByStation, globalByStation]);
 
   const reporting = useMemo(
-    () => series.filter((s) => s.points.length > 0).length,
+    () => series.filter((s) => !isSurveyorGeneral(s.station) && s.points.length > 0).length,
     [series],
   );
   const globalReporting = useMemo(() => Object.keys(globalByStation).length, [globalByStation]);
@@ -670,10 +682,10 @@ export default function StationVtecTimePlots({
         <div>
           <h2 className="home-section-heading">{title}</h2>
           <p className="station-vtec-plots-sub">
-            Absolute code TEC from the live NTRIP pipeline (GOPI) — solid blue. Dashed amber is DLR
+            Absolute code TEC from the live NTRIP pipeline (GOPI) — solid blue, joined across the minutes between samples. Dashed amber is DLR
             Global TEC at each station. Dotted pink is Method 2 (Gg = Cesaroni). Purple dash-dot is
-            interpolated data: inverse-distance GOPI from nearby stations that have a measurement,
-            drawn only where this station has no own sample. Start with 6h
+            interpolated data: inverse-distance GOPI for red (offline) sites and for any gap with no
+            own sample, drawn as a continuous line from the stations that are measuring. Start with 6h
             for a fast load; open 24h (day) for the full UTC day. EKF predicted lines stay off until a
             real per-station EKF series exists.
           </p>
@@ -711,7 +723,7 @@ export default function StationVtecTimePlots({
       )}
       {status === "ok" && (
         <p className="station-vtec-plots-meta">
-          {reporting} of {series.length || 25} stations reporting in the last{" "}
+          {reporting} of {ZINGSA_STATION_TOTAL} stations reporting in the last{" "}
           {hours === 24 ? "UTC day (00:00-24:00)" : `${hours} h`}
           {globalReporting > 0
             ? ` · Global TEC overlay on ${globalReporting} sites${globalSource ? ` (${globalSource})` : ""}`
@@ -728,7 +740,10 @@ export default function StationVtecTimePlots({
           <div className="station-vtec-plot-head">
             <div>
               <strong>Network mean VTEC</strong>
-              <span>Average of stations with live GOPI samples. Elevation below 20° and TEC outside 0–50 TECU are excluded.</span>
+              <span>
+                Average of stations with live GOPI samples. Elevation below 20° and TEC outside 0–50 TECU are excluded.
+                The dashed line is the Extended Kalman Filter forecast; a one-bin jump stays on the solid line.
+              </span>
             </div>
             <div className="station-vtec-plot-stats">
               <em>
@@ -744,16 +759,31 @@ export default function StationVtecTimePlots({
             labels={networkMean.labels}
             datasets={[
               {
-                label: "Network mean (GOPI)",
+                label: "Observed",
                 data: networkMean.values,
                 color: "#00ff88",
                 fill: true,
                 spanGaps: true,
+                tension: 0,
               },
+              ...(networkEkfReady
+                ? [
+                    {
+                      label: "EKF Predicted",
+                      data: networkEkf.predicted,
+                      color: "#e2e8f0",
+                      dashed: true,
+                      fill: false,
+                      spanGaps: false,
+                      tension: 0,
+                      meta: networkEkf.meta,
+                    },
+                  ]
+                : []),
             ]}
             yLabel="VTEC (TECU)"
             height={220}
-            compact
+            preserveSamples
             xValues={networkMean.xValues}
             xMin={networkMean.xMin}
             xMax={networkMean.xMax}
@@ -813,7 +843,7 @@ export default function StationVtecTimePlots({
               series={row}
               globalSeries={globalByStation[code]}
               ggDirect={ggByStation[code]}
-              interpolatedPoints={row.points.length ? undefined : interpolatedByStation[code]}
+              interpolatedPoints={interpolatedByStation[code]}
               methodRow={methodByStation[code]}
               hours={hours}
             />

@@ -942,8 +942,12 @@ export const getOmniAnalysis = (start: string, end: string, station?: string) =>
   get<OmniAnalysisResponse>("/tec/omni-analysis", { start, end, station, _ts: Date.now() }, ANALYSIS_TIMEOUT_MS);
 export const getCelestrakAnalysis = (start: string, end: string, station?: string) =>
   get<CelestrakAnalysisResponse>("/tec/celestrak-analysis", { start, end, station, _ts: Date.now() }, ANALYSIS_TIMEOUT_MS);
-export const getIonoResponseFigures = (days = 180) =>
-  get<IonoResponseFigures>("/tec/iono-response-figures", { days, _ts: Date.now() }, ANALYSIS_TIMEOUT_MS);
+export const getIonoResponseFigures = (days = 180, includeRmse = true) =>
+  get<IonoResponseFigures>(
+    "/tec/iono-response-figures",
+    { days, rmse: includeRmse ? 1 : 0, _ts: Date.now() },
+    ANALYSIS_TIMEOUT_MS,
+  );
 
 export const getReceiverBias = (days = 120) =>
   get<ReceiverBiasResponse>("/tec/receiver-bias", { days, _ts: Date.now() }, 30_000);
@@ -1047,6 +1051,27 @@ export const getTecMethodPeriods = (day?: string | null, timeoutMs = 30_000) =>
     { ...(day ? { day } : {}), _ts: Date.now() },
     timeoutMs,
   );
+export type CorsConnectedNow = {
+  online: number;
+  offline: number;
+  total: number;
+  mean_vtec: number | null;
+};
+
+/** Memory-cached station count. Must stay fast enough for the two top cards. */
+export const getCorsConnected = () =>
+  get<CorsConnectedNow>("/cors/connected", { _ts: Date.now() }, 8_000);
+
+/** 15-minute Gopi consensus only. Does not wait for the station history bins. */
+export const getLiveStationReadings = () =>
+  dedupeGet("live/vtec-by-station:latest", () =>
+    getWithRetry<LiveStationVtecSeries[]>(
+      "/live/vtec-by-station",
+      { latest_only: "true", hours: 0.5, resample_minutes: 2, _ts: Date.now() },
+      30_000,
+    ),
+  );
+
 export const getLiveVtecByStation = (hours = 6, resampleMinutes = 2, timeoutMs?: number) =>
   dedupeGet(`live/vtec-by-station:${hours}:${resampleMinutes}:${timeoutMs ?? "default"}`, () => get<LiveStationVtecSeries[]>(
     "/live/vtec-by-station",
@@ -1066,6 +1091,7 @@ export const getZimbabweScientificPlots = (
   resampleMinutes = 15,
   timeoutMs = 90_000,
   day?: string | null,
+  archiveOnly = false,
 ) =>
   getWithRetry<ZimbabweScientificPlotsResponse>(
     "/live/zimbabwe-scientific-plots",
@@ -1073,6 +1099,7 @@ export const getZimbabweScientificPlots = (
       hours,
       resample_minutes: resampleMinutes,
       ...(day ? { day } : {}),
+      ...(archiveOnly ? { archive_only: 1 } : {}),
       _ts: Date.now(),
     },
     timeoutMs,

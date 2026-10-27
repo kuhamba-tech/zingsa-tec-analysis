@@ -3,7 +3,7 @@
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent } from "react";
-import { getSpaceWeather, getSolarActivity, getTimelines, refreshSpaceWeather, getStations, getEkfStatus, getHeliosphericMonitor, getTecMethodComparison } from "@/lib/api";
+import { getSpaceWeather, getSolarActivity, getTimelines, refreshSpaceWeather, getStations, getEkfStatus, getHeliosphericMonitor, getTecMethodComparison, getLiveStationReadings, getCorsConnected } from "@/lib/api";
 import { peekSpaceWeather, publishSpaceWeather, subscribeSpaceWeather } from "@/lib/spaceWeatherStore";
 import { absorbInlineBootPayload, bootSpaceWeather } from "@/lib/bootSpaceWeather";
 import { bootSolarActivity } from "@/lib/bootSolarActivity";
@@ -48,7 +48,7 @@ import {
 } from "@/lib/chartTimeAxis";
 import { alignEkfToPoints } from "@/lib/ekfAlign";
 import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
-import { connectedStreamCount, countSpiderLiveStationStatuses, zingsaOnlineCountPoints, ZINGSA_STATION_TOTAL, type LiveStationCounts } from "@/lib/liveStationStatus";
+import { connectedStreamCount, countSpiderLiveStationStatuses, isSurveyorGeneral, zingsaOnlineCountPoints, ZINGSA_STATION_TOTAL, type LiveStationCounts } from "@/lib/liveStationStatus";
 import type { EkfPoint, EkfStatus, SpaceWeatherCurrent, SolarActivityFull, SpaceWeatherTimelines, TimelinePoint } from "@/lib/types";
 import { DashboardHeaderClocks } from "@/components/dashboard/DashboardClocks";
 import SpaceWeatherTitleIcon from "@/components/spaceWeather/SpaceWeatherTitleIcon";
@@ -95,6 +95,14 @@ const TecMethodComparisonLab = dynamic(
 );
 const ZimbabweIonoResponseFigures = dynamic(
   () => import("@/components/spaceWeather/ZimbabweIonoResponseFigures"),
+  { ssr: false, loading: () => sectionFallback },
+);
+const TecMapRmseChart = dynamic(
+  () => import("@/components/spaceWeather/TecMapRmseChart"),
+  { ssr: false, loading: () => sectionFallback },
+);
+const ReceiverBiasCharts = dynamic(
+  () => import("@/components/spaceWeather/ReceiverBiasCharts"),
   { ssr: false, loading: () => sectionFallback },
 );
 const ZimbabweScientificTecPlots = dynamic(
@@ -380,7 +388,8 @@ function applyStationsSnapshot(
   setLiveStationCounts: (c: LiveStationCounts | null) => void,
   setLiveMeanVtec: (v: number | null) => void,
 ) {
-  setLiveStationCounts(countSpiderLiveStationStatuses(stations));
+  const counts = countSpiderLiveStationStatuses(stations);
+  if (counts && counts.online + counts.offline > 0) setLiveStationCounts(counts);
   const mean = meanStationVtec(stations);
   if (mean != null) setLiveMeanVtec(mean);
 }
@@ -457,7 +466,7 @@ export default function SpaceWeatherClient({
       const raw = (params.get("tab") || "").toLowerCase();
       // Zimbabwe is tab index 2 (after Solar Activity; Kp Scale follows it).
       // Accept legacy ?tab=3 bookmarks that previously pointed here.
-      if (raw === "2" || raw === "3" || raw === "zimbabwe" || raw === "ionosphere" || raw === "local") {
+      if (raw === "2" || raw === "3" || raw === "zimbabwe" || raw === "ionosphere" || raw === "iono" || raw === "local") {
         setTab(2);
       }
     } catch {
@@ -724,6 +733,61 @@ export default function SpaceWeatherClient({
   useEffect(() => subscribeStations((next) => {
     if (next.length) applyStationsSnapshot(next, setLiveStationCounts, setLiveMeanVtec);
   }), []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const applyCount = (online: number, total: number, mean: number | null) => {
+      if (cancelled || online <= 0 || total <= 0) return;
+      setLiveStationCounts({
+        online,
+        offline: Math.max(0, total - online),
+        unavailable: 0,
+        total,
+      });
+      if (mean != null && Number.isFinite(mean)) setLiveMeanVtec(Math.round(mean * 10) / 10);
+    };
+    const loadConnected = async () => {
+      for (let attempt = 0; attempt < 4 && !cancelled; attempt += 1) {
+        try {
+          const row = await getCorsConnected();
+          if (row && row.online > 0) {
+            applyCount(row.online, row.total, row.mean_vtec);
+            return;
+          }
+        } catch {
+          /* The first paint often races the API. Try again before leaving the cards blank. */
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 1500));
+      }
+    };
+    const load = () => {
+      void loadConnected();
+      getLiveStationReadings()
+        .then((rows) => {
+          if (cancelled || !Array.isArray(rows)) return;
+          const zingsa = rows.filter((row) => !isSurveyorGeneral(row.station));
+          const online = zingsa.filter((row) => typeof row.latest_vtec === "number" && row.latest_vtec > 0);
+          if (!online.length) return;
+          setLiveStationCounts({
+            online: online.length,
+            offline: Math.max(0, ZINGSA_STATION_TOTAL - online.length),
+            unavailable: 0,
+            total: ZINGSA_STATION_TOTAL,
+          });
+          const mean = online.reduce((sum, row) => sum + (row.latest_vtec ?? 0), 0) / online.length;
+          if (Number.isFinite(mean)) setLiveMeanVtec(Math.round(mean * 10) / 10);
+        })
+        .catch(() => null);
+    };
+    load();
+    const timer = window.setInterval(() => {
+      if (!document.hidden) load();
+    }, 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
 
   const freshnessMsg = useFeedFreshness("space-weather", feedStatus);
   // Never claim “figures show N/A” while we already have live/cached values on screen.
@@ -1430,13 +1494,16 @@ export default function SpaceWeatherClient({
       {tab === 2 && (
         <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
           <p style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>
-            Zimbabwe-only ionosphere content: Dst and Kp beside the RMSE of the TEC maps,
-            live CORS VTEC, STEC/VTEC teaching, GOPI vs Gg = Cesaroni comparison,
-            North–South spatial TEC research, and scintillation / GNSS risk context.
+            Zimbabwe-only ionosphere content: diurnal and seasonal GPS-TEC, Dst and Kp beside
+            the RMSE of the TEC maps, live CORS VTEC, STEC/VTEC teaching, GOPI vs Gg = Cesaroni
+            comparison, North–South spatial TEC research, and scintillation / GNSS risk context.
             Geomagnetic Kp colour bands live on the separate <strong>Kp Scale</strong> tab.
           </p>
+          <ZimbabweScientificTecPlots part="climatology" />
           {/* Defer heavy CORS / Gg labs so metric cards keep the API free on first paint. */}
           <ZimbabweIonoResponseFigures />
+          <TecMapRmseChart />
+          <ReceiverBiasCharts />
           <DeferredMount
             className="sw-deferred-block"
             minHeight={280}
@@ -1507,7 +1574,7 @@ export default function SpaceWeatherClient({
             minDelayMs={loadProfile.heavyMountDelayMs + 700}
             fallback={sectionFallback}
           >
-            <ZimbabweScientificTecPlots />
+            <ZimbabweScientificTecPlots part="research" />
           </DeferredMount>
           <DeferredMount
             className="sw-deferred-block"

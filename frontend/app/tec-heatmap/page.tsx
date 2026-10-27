@@ -8,7 +8,6 @@ import { heatmapQualityBanner, icaoTecLabel, icaoTecLevel, inferHeatmapQuality }
 import { mergeTecHeatmapWithStations } from "@/lib/tecHeatmapMerge";
 import type { Station, TecHeatmapResponse } from "@/lib/types";
 import type { MapLayer } from "@/components/maps/CorsMapWithLayers";
-import TecHeatMapLegend from "@/components/maps/TecHeatMapLegend";
 import StationVtecTimePlots from "@/components/charts/StationVtecTimePlots";
 import LiveTecMethodComparePanel from "@/components/maps/LiveTecMethodComparePanel";
 import LiveVtecHealthBanner from "@/components/live/LiveVtecHealthBanner";
@@ -208,8 +207,6 @@ export default function TecHeatmapPage() {
           )}
         </div>
       </div>
-
-      <TecHeatMapLegend className="tec-heatmap-legend-below" maxVtec={maxVtec} />
 
       {mapLayer === "TEC Heat Map" && (
         <LiveTecMethodComparePanel

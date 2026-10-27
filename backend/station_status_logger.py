@@ -49,7 +49,12 @@ def _status_from_streams(streams: dict[str, dict]) -> dict[str, str]:
     result: dict[str, str] = {}
     for station in ZIMBABWE_CORS_STATIONS:
         code = station.code.lower().rstrip("_")
-        result[code] = normalize_station_status(derive_status_from_stream(streams.get(code)))
+        stream = streams.get(code)
+        if not stream:
+            # The collector holds one NTRIP slot. Stations waiting for that
+            # slot are not offline; writing them offline blanked CORS Connected.
+            continue
+        result[code] = normalize_station_status(derive_status_from_stream(stream))
     return result
 
 
