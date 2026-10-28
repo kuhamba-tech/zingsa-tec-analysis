@@ -195,8 +195,8 @@ export function latBandDiurnalMeanStd(
     std[band.id] = base.hours.map((hour) => {
       const values = byHour.get(hour) ?? [];
       if (values.length < 2) return null;
-      const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
-      const variance = values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / (values.length - 1);
+      const mean = values.reduce((sum: number, value: number) => sum + value, 0) / values.length;
+      const variance = values.reduce((sum: number, value: number) => sum + (value - mean) ** 2, 0) / (values.length - 1);
       return Math.round(Math.sqrt(variance) * 100) / 100;
     });
   }

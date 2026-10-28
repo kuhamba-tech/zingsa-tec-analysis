@@ -107,6 +107,8 @@ interface Props {
   onSyncHoverMs?: (ms: number | null) => void;
   /** Keep a visible marker when the series is long. Sparse multi-day TEC is unreadable at radius 0. */
   pointRadius?: number;
+  /** Logarithmic primary Y axis (GOES X-ray flux). */
+  yLogScale?: boolean;
   /** Hard / suggested primary Y bounds (e.g. solar-wind speed to show Fast stream). */
   yMin?: number;
   yMax?: number;
