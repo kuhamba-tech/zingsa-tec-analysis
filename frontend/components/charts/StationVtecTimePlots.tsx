@@ -15,6 +15,8 @@ import { isSurveyorGeneral, ZINGSA_STATION_TOTAL } from "@/lib/liveStationStatus
 import { runMeanVtecEkf } from "@/lib/meanVtecEkf";
 
 const HOUR_OPTIONS = [2, 6, 12, 24] as const;
+/** Live history query is capped at 7 days. */
+const DAY_FILTER_COUNT = 7;
 const REFRESH_MS = 90_000;
 const GOPI_COLOR = "#38bdf8";
 const GG_COLOR = "#eab308";
@@ -72,6 +74,7 @@ function formatTick(iso: string): string {
 }
 
 function formatUtcTick(windowStartMs: number, hourOffset: number): string {
+  if (hourOffset >= 24) return "24:00";
   const d = new Date(windowStartMs + hourOffset * 3_600_000);
   return d.toLocaleTimeString("en-GB", {
     timeZone: "UTC",
@@ -107,12 +110,60 @@ function timeKey(iso: string): string {
   return `${y}-${mo}-${day}T${h}:${m}:00Z`;
 }
 
-/** 24h (day) = current UTC calendar day 00:00–24:00; shorter ranges stay rolling. */
-function resolveChartWindow(hours: number): {
+function utcToday(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function recentUtcDays(count: number): string[] {
+  const now = new Date();
+  const start = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const days: string[] = [];
+  for (let i = 0; i < count; i += 1) {
+    days.push(new Date(start - i * 86_400_000).toISOString().slice(0, 10));
+  }
+  return days;
+}
+
+function parseUtcDay(day: string): number | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  const ms = Date.parse(`${day}T00:00:00Z`);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function formatDayChip(day: string, today: string): string {
+  if (day === today) return "Today";
+  const ms = parseUtcDay(day);
+  if (ms == null) return day;
+  return new Date(ms).toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    timeZone: "UTC",
+  });
+}
+
+/** Hours of history required so a chosen UTC day is inside the API lookback. */
+function fetchHoursFor(hours: number, day: string | null): number {
+  if (!day) return hours;
+  const start = parseUtcDay(day);
+  if (start == null) return hours;
+  const elapsed = (Date.now() - start) / 3_600_000;
+  return Math.min(168, Math.max(hours, Math.ceil(elapsed + 0.5)));
+}
+
+/** A chosen day is 00:00–24:00 UTC. 24h with no day is today. Shorter ranges stay rolling. */
+function resolveChartWindow(hours: number, day?: string | null): {
   windowStartMs: number;
   windowEndMs: number;
   spanHours: number;
 } {
+  const selected = day ? parseUtcDay(day) : null;
+  if (selected != null) {
+    return {
+      windowStartMs: selected,
+      windowEndMs: selected + 24 * 3_600_000,
+      spanHours: 24,
+    };
+  }
   const now = Date.now();
   if (hours >= 24) {
     const start = new Date(now);
@@ -136,8 +187,9 @@ function buildGgSeriesByStation(
   ggRows: LiveObservation[],
   hours: number,
   resampleMinutes: number,
+  day?: string | null,
 ): Record<string, GgStationPoint[]> {
-  const { windowStartMs, windowEndMs } = resolveChartWindow(hours);
+  const { windowStartMs, windowEndMs } = resolveChartWindow(hours, day);
   const buckets = new Map<string, Map<string, number[]>>();
   for (const o of ggRows) {
     if (o.vtec_tecu == null || !Number.isFinite(o.vtec_tecu) || o.vtec_tecu <= 0) continue;
@@ -201,10 +253,11 @@ function buildInterpolatedByStation(
   series: LiveStationVtecSeries[],
   sites: LatLonSite[],
   hours: number,
+  day?: string | null,
 ): Record<string, GgStationPoint[]> {
   const targets = sites.filter((site) => !isSurveyorGeneral(site.code));
   if (targets.length < 2) return {};
-  const { windowStartMs, windowEndMs } = resolveChartWindow(hours);
+  const { windowStartMs, windowEndMs } = resolveChartWindow(hours, day);
   const measuredAtTime = new Map<string, Record<string, number>>();
   for (const row of series) {
     const code = normalizeStationCode(row.station);
@@ -244,6 +297,7 @@ function mergeSeries(
   ggPoints: GgStationPoint[] | undefined,
   interpolated: GgStationPoint[] | undefined,
   hours: number,
+  day?: string | null,
 ): {
   labels: string[];
   observed: (number | null)[];
@@ -265,14 +319,14 @@ function mergeSeries(
   const globMap = new Map((global?.points ?? []).map((p) => [timeKey(p.time), p.vtec_tecu]));
   const ggMap = new Map((ggPoints ?? []).map((p) => [timeKey(p.time), p.vtec_tecu]));
   const interpMap = new Map((interpolated ?? []).map((p) => [timeKey(p.time), p.vtec_tecu]));
-  const { windowStartMs, windowEndMs, spanHours } = resolveChartWindow(hours);
+  const { windowStartMs, windowEndMs, spanHours } = resolveChartWindow(hours, day);
   const times = Array.from(new Set([...obsMap.keys(), ...globMap.keys(), ...ggMap.keys(), ...interpMap.keys()]))
     .filter((t) => {
       const ms = new Date(t).getTime();
       return Number.isFinite(ms) && ms >= windowStartMs && ms <= windowEndMs;
     })
     .sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
-  const useFullWindow = hours >= 12;
+  const useFullWindow = Boolean(day) || hours >= 12;
   const xValues = useFullWindow
     ? times.map((t) => (new Date(t).getTime() - windowStartMs) / 3_600_000)
     : undefined;
@@ -300,6 +354,7 @@ function mergeSeries(
 function buildNetworkMeanSeries(
   series: LiveStationVtecSeries[],
   hours: number,
+  day?: string | null,
 ): {
   labels: string[];
   values: (number | null)[];
@@ -311,7 +366,7 @@ function buildNetworkMeanSeries(
   xLabel?: string;
   stationCount: number;
 } {
-  const { windowStartMs, windowEndMs, spanHours } = resolveChartWindow(hours);
+  const { windowStartMs, windowEndMs, spanHours } = resolveChartWindow(hours, day);
   const bucket = new Map<string, number[]>();
   let stationCount = 0;
   for (const row of series) {
@@ -330,7 +385,7 @@ function buildNetworkMeanSeries(
   const times = Array.from(bucket.keys()).sort(
     (a, b) => new Date(a).getTime() - new Date(b).getTime(),
   );
-  const useFullWindow = hours >= 12;
+  const useFullWindow = Boolean(day) || hours >= 12;
   return {
     labels: times.map(formatTick),
     values: times.map((t) => {
@@ -358,6 +413,7 @@ function StationChartCard({
   ggDirect,
   interpolatedPoints,
   hours,
+  day,
   methodRow,
 }: {
   series: LiveStationVtecSeries;
@@ -365,10 +421,11 @@ function StationChartCard({
   ggDirect?: GgStationPoint[];
   interpolatedPoints?: GgStationPoint[];
   hours: number;
+  day?: string | null;
   methodRow?: TecMethodStationCompare;
 }) {
   const ggPoints = resolveGgPoints(series, ggDirect, methodRow);
-  const merged = mergeSeries(series, globalSeries, ggPoints, interpolatedPoints, hours);
+  const merged = mergeSeries(series, globalSeries, ggPoints, interpolatedPoints, hours, day);
   const hasData = merged.hasObserved || merged.hasGlobal || merged.hasGg || merged.hasInterpolated;
   const latestInterpolated = interpolatedPoints?.length
     ? interpolatedPoints[interpolatedPoints.length - 1]?.vtec_tecu ?? null
@@ -515,8 +572,9 @@ export default function StationVtecTimePlots({
   title = "Live VTEC vs time — every CORS station",
   className,
 }: Props) {
-  // Default 6h so first paint succeeds under load; user can open 24h after.
-  const [hours, setHours] = useState<(typeof HOUR_OPTIONS)[number]>(6);
+  // 24h opens today's UTC day. The day chips plot any of the last 7 days.
+  const [hours, setHours] = useState<(typeof HOUR_OPTIONS)[number]>(24);
+  const [selectedDay, setSelectedDay] = useState<string | null>(utcToday);
   const [series, setSeries] = useState<LiveStationVtecSeries[]>([]);
   const [globalByStation, setGlobalByStation] = useState<Record<string, GlobalTecStationSeries>>({});
   const [sites, setSites] = useState<LatLonSite[]>([]);
@@ -533,9 +591,10 @@ export default function StationVtecTimePlots({
     const load = async (background = false) => {
       if (!background) setStatus("pending");
       try {
-        const resample = resampleMinutesForHours(hours);
-        const timeoutMs = timeoutForHours(hours);
-        const loadRows = () => getLiveVtecByStation(hours, resample, timeoutMs);
+        const lookback = fetchHoursFor(hours, selectedDay);
+        const resample = resampleMinutesForHours(selectedDay ? 24 : hours);
+        const timeoutMs = timeoutForHours(lookback);
+        const loadRows = () => getLiveVtecByStation(lookback, resample, timeoutMs);
         let rows: LiveStationVtecSeries[];
         try {
           rows = await loadRows();
@@ -543,17 +602,22 @@ export default function StationVtecTimePlots({
           // One retry with extra headroom — concurrent map/lab traffic can stall the first call.
           await new Promise((r) => setTimeout(r, 600));
           if (cancelled) return;
-          rows = await getLiveVtecByStation(hours, resample, timeoutMs + 30_000);
+          rows = await getLiveVtecByStation(lookback, resample, timeoutMs + 30_000);
         }
-        const incomingPoints = rows.reduce((count, row) => count + row.points.length, 0);
         const previousPoints = seriesRef.current.reduce((count, row) => count + row.points.length, 0);
-        if (incomingPoints === 0 && previousPoints > 0) {
+        if (rows.length === 0 && previousPoints > 0) {
           throw new Error("Live GOPI series came back empty");
         }
+        if (cancelled) return;
+        // Draw GOPI immediately. Global TEC and Gg can take much longer and must
+        // not keep the 24-hour graph on the loading message.
+        setSeries(rows);
+        setError(null);
+        setStatus("ok");
 
         const cmpHours = Math.min(hours, GG_COMPARE_HOURS_CAP);
         const [globalPayload, methodPayload, catalog] = await Promise.all([
-          getGlobalVtecByStation(hours).catch(() => null),
+          getGlobalVtecByStation(Math.min(48, lookback)).catch(() => null),
           getTecMethodComparison(
             cmpHours,
             undefined,
@@ -610,7 +674,7 @@ export default function StationVtecTimePlots({
 
         if (methodPayload?.gg?.length) {
           setGgByStation(
-            buildGgSeriesByStation(methodPayload.gg, hours, resample),
+            buildGgSeriesByStation(methodPayload.gg, hours, resample, selectedDay),
           );
         } else {
           setGgByStation({});
@@ -634,15 +698,18 @@ export default function StationVtecTimePlots({
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [hours]);
+  }, [hours, selectedDay]);
 
   const loadingSlow = status === "pending" && hours >= 12;
-  const networkMean = useMemo(() => buildNetworkMeanSeries(series, hours), [series, hours]);
+  const networkMean = useMemo(
+    () => buildNetworkMeanSeries(series, hours, selectedDay),
+    [series, hours, selectedDay],
+  );
   const networkEkf = useMemo(() => runMeanVtecEkf(networkMean.values), [networkMean.values]);
   const networkEkfReady = networkEkf.predicted.some((value) => value != null);
   const interpolatedByStation = useMemo(
-    () => buildInterpolatedByStation(series, sites, hours),
-    [series, sites, hours],
+    () => buildInterpolatedByStation(series, sites, hours, selectedDay),
+    [series, sites, hours, selectedDay],
   );
 
   const orderedSeries = useMemo(() => {
@@ -670,10 +737,16 @@ export default function StationVtecTimePlots({
     };
   }, [methodByStation, globalByStation]);
 
-  const reporting = useMemo(
-    () => series.filter((s) => !isSurveyorGeneral(s.station) && s.points.length > 0).length,
-    [series],
-  );
+  const reporting = useMemo(() => {
+    const { windowStartMs, windowEndMs } = resolveChartWindow(hours, selectedDay);
+    return series.filter((row) => {
+      if (isSurveyorGeneral(row.station)) return false;
+      return row.points.some((point) => {
+        const ms = new Date(point.time).getTime();
+        return Number.isFinite(ms) && ms >= windowStartMs && ms <= windowEndMs && point.vtec_tecu > 0;
+      });
+    }).length;
+  }, [series, hours, selectedDay]);
   const globalReporting = useMemo(() => Object.keys(globalByStation).length, [globalByStation]);
 
   return (
@@ -685,23 +758,46 @@ export default function StationVtecTimePlots({
             Absolute code TEC from the live NTRIP pipeline (GOPI) — solid blue, joined across the minutes between samples. Dashed amber is DLR
             Global TEC at each station. Dotted pink is Method 2 (Gg = Cesaroni). Purple dash-dot is
             interpolated data: inverse-distance GOPI for red (offline) sites and for any gap with no
-            own sample, drawn as a continuous line from the stations that are measuring. Start with 6h
-            for a fast load; open 24h (day) for the full UTC day. EKF predicted lines stay off until a
-            real per-station EKF series exists.
+            own sample, drawn as a continuous line from the stations that are measuring. 24h plots one
+            UTC day from 00:00 to 24:00. Choose another day to display that graph. EKF predicted lines
+            stay off until a real per-station EKF series exists.
           </p>
         </div>
-        <div className="station-vtec-plots-controls" role="group" aria-label="VTEC history window">
+      </div>
+      <div className="station-vtec-plots-controls">
+        <div className="station-vtec-hour-filters" role="group" aria-label="VTEC history window">
           {HOUR_OPTIONS.map((h) => (
             <button
               key={h}
               type="button"
               className={hours === h ? "active" : ""}
-              onClick={() => setHours(h)}
+              onClick={() => {
+                setHours(h);
+                setSelectedDay(h === 24 ? utcToday() : null);
+              }}
             >
-              {h === 24 ? "24h (day)" : `${h}h`}
+              {h === 24 ? "24h" : `${h}h`}
             </button>
           ))}
         </div>
+        {hours >= 24 && (
+          <div className="station-vtec-day-filters" role="group" aria-label="UTC day">
+            {recentUtcDays(DAY_FILTER_COUNT).map((day) => (
+              <button
+                key={day}
+                type="button"
+                className={selectedDay === day ? "active" : ""}
+                title={`${day} UTC`}
+                onClick={() => {
+                  setHours(24);
+                  setSelectedDay(day);
+                }}
+              >
+                {formatDayChip(day, utcToday())}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {status === "pending" && series.length === 0 && (
@@ -723,8 +819,8 @@ export default function StationVtecTimePlots({
       )}
       {status === "ok" && (
         <p className="station-vtec-plots-meta">
-          {reporting} of {ZINGSA_STATION_TOTAL} stations reporting in the last{" "}
-          {hours === 24 ? "UTC day (00:00-24:00)" : `${hours} h`}
+          {reporting} of {ZINGSA_STATION_TOTAL} stations reporting{" "}
+          {selectedDay ? `on ${selectedDay} UTC (00:00–24:00)` : `in the last ${hours} h`}
           {globalReporting > 0
             ? ` · Global TEC overlay on ${globalReporting} sites${globalSource ? ` (${globalSource})` : ""}`
             : ""}
@@ -735,13 +831,15 @@ export default function StationVtecTimePlots({
         </p>
       )}
 
-      {networkMean.stationCount > 0 && networkMean.values.some((v) => v != null) && (
+      {(networkMean.values.some((v) => v != null) || hours >= 24 || status !== "pending") && (
         <article className="card station-vtec-plot-card station-vtec-plot-card--wide" aria-label="Network mean VTEC">
           <div className="station-vtec-plot-head">
             <div>
               <strong>Network mean VTEC</strong>
               <span>
-                Average of stations with live GOPI samples. Elevation below 20° and TEC outside 0–50 TECU are excluded.
+                Average of stations with live GOPI samples
+                {selectedDay ? ` on ${selectedDay} UTC, plotted across 00:00–24:00` : ` for the last ${hours} h`}.
+                Elevation below 20° and TEC outside 0–50 TECU are excluded.
                 The dashed line is the Extended Kalman Filter forecast; a one-bin jump stays on the solid line.
               </span>
             </div>
@@ -755,6 +853,7 @@ export default function StationVtecTimePlots({
               <small>{networkMean.stationCount} stations</small>
             </div>
           </div>
+          {networkMean.values.some((value) => value != null) ? (
           <LineChart
             labels={networkMean.labels}
             datasets={[
@@ -791,6 +890,13 @@ export default function StationVtecTimePlots({
             formatXTick={networkMean.formatXTick}
             xLabel={networkMean.xLabel}
           />
+          ) : (
+            <div className="station-vtec-plot-empty">
+              {status === "pending"
+                ? "Loading the 24-hour graph…"
+                : `No measured GOPI on ${selectedDay ?? "this window"}.`}
+            </div>
+          )}
         </article>
       )}
 
@@ -846,6 +952,7 @@ export default function StationVtecTimePlots({
               interpolatedPoints={interpolatedByStation[code]}
               methodRow={methodByStation[code]}
               hours={hours}
+              day={selectedDay}
             />
           );
         })}

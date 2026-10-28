@@ -1555,8 +1555,18 @@ select option {
 }
 .station-vtec-plots-controls {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.45rem 0.75rem;
+  width: 100%;
+}
+.station-vtec-hour-filters,
+.station-vtec-day-filters {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
   gap: 0.35rem;
-  flex-shrink: 0;
 }
 .station-vtec-plots-controls button {
   border: 1px solid var(--border);

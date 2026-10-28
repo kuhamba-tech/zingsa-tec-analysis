@@ -40,7 +40,7 @@ import {
   SIX_H_MS,
   alignTimeDomain,
   chronologicalPoints,
-  formatKnmiUtcTick,
+  formatUtcAxisTick,
   parseTimelineEpoch,
   sharedTimeDomain,
   startOfUtcDay,
@@ -310,6 +310,9 @@ function TimelineCard({
         };
       })()
     : {};
+  const spanHours = domain ? (domain.max - domain.min) / ONE_H_MS : 6;
+  // A 6-hour or 24-hour window labels every hour. Longer windows keep 6-hour marks.
+  const hourMarks = spanHours <= 26;
   const toggle = () => pts.length > 0 && onToggle(graphId);
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === "Enter" || event.key === " ") {
@@ -354,8 +357,8 @@ function TimelineCard({
             xMin={domain.min}
             xMax={domain.max}
             xStepSize={ONE_H_MS}
-            xMajorStepMs={SIX_H_MS}
-            formatXTick={formatKnmiUtcTick}
+            xMajorStepMs={hourMarks ? ONE_H_MS : SIX_H_MS}
+            formatXTick={(ms) => formatUtcAxisTick(ms, { majorHours: hourMarks ? 1 : 6 })}
             xLabel="UTC"
             syncHoverMs={syncHoverMs}
             onSyncHoverMs={onSyncHoverMs}
