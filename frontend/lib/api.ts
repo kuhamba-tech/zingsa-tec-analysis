@@ -30,6 +30,7 @@ import type {
   IntermagnetLatestResponse,
   IonoResponseFigures,
   ReceiverBiasResponse,
+  TecGradientMapsResponse,
   TrigNetResponse,
   LiveObservation,
   LivePipelineStatus,
@@ -952,6 +953,9 @@ export const getIonoResponseFigures = (days = 180, includeRmse = true) =>
 export const getReceiverBias = (days = 120) =>
   get<ReceiverBiasResponse>("/tec/receiver-bias", { days, _ts: Date.now() }, 30_000);
 
+export const getTecGradients = () =>
+  get<TecGradientMapsResponse>("/tec/gradients", { _ts: Date.now() }, 60_000);
+
 export const getGfzKpAnalysis = (start: string, end: string, station?: string) =>
   get<GfzKpAnalysisResponse>("/tec/gfz-kp-analysis", { start, end, station, _ts: Date.now() }, ANALYSIS_TIMEOUT_MS);
 export const getWdcKyotoAnalysis = (start: string, end: string, station?: string) =>
@@ -1116,7 +1120,7 @@ export const getNorthSouthTecResearch = (
   );
 export const getLiveStations = () => get<StationLiveStatus[]>("/live/stations");
 export const getKyotoIndices = (params:Record<string,string|number>) =>
-  dedupeGet(`kyoto:${JSON.stringify(params)}`,()=>get<import("./kyotoIndices").KyotoResponse>("/space-weather/geomagnetic-indices",params,55_000));
+  dedupeGet(`kyoto:${JSON.stringify(params)}`,()=>get<import("./kyotoIndices").KyotoResponse>("/space-weather/geomagnetic-indices",params,90_000));
 export const getKyotoVtecComparison = (params:Record<string,string|number>) =>
   get<{points:{time:string;vtec:number;stations:number;observations:number}[];catalog:{code:string;region:string}[]}>("/space-weather/geomagnetic-vtec",params,55_000);
 export const getTecClimatology = (params: Record<string,string|number>) =>

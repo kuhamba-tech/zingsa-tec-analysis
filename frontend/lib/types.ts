@@ -1687,6 +1687,37 @@ export interface TheoryStep {
   ipp_detail?: boolean;
 }
 
+export interface TecGradientMapsResponse {
+  available: boolean;
+  generated_at: string;
+  window_start: string;
+  window_end: string;
+  window_minutes: number;
+  half_minutes: number;
+  grid_step_deg: number;
+  median_filter_size: number;
+  lat0: number | null;
+  lon0: number | null;
+  lat1: number | null;
+  lon1: number | null;
+  ipp_count: number;
+  ipp_count_first_half: number;
+  ipp_count_second_half: number;
+  spatial: Array<Array<number | null>> | null;
+  temporal: Array<Array<number | null>> | null;
+  spatial_max_tecu_per_deg: number | null;
+  spatial_mean_tecu_per_deg: number | null;
+  spatial_east_max_tecu_per_deg: number | null;
+  spatial_north_max_tecu_per_deg: number | null;
+  temporal_max_tecu_per_min: number | null;
+  temporal_min_tecu_per_min: number | null;
+  temporal_mean_tecu_per_min: number | null;
+  temporal_available: boolean;
+  message: string;
+  temporal_message: string;
+  method: string;
+}
+
 export interface VtecTheoryPayload {
   citation: string;
   journey: TheoryJourneyPill[];

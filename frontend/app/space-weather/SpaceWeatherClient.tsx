@@ -101,6 +101,18 @@ const TecMapRmseChart = dynamic(
   () => import("@/components/spaceWeather/TecMapRmseChart"),
   { ssr: false, loading: () => sectionFallback },
 );
+const TecGradientMaps = dynamic(
+  () => import("@/components/maps/TecGradientMaps"),
+  { ssr: false, loading: () => sectionFallback },
+);
+const LiveTecMultiDayChart = dynamic(
+  () => import("@/components/charts/LiveTecMultiDayChart"),
+  { ssr: false, loading: () => sectionFallback },
+);
+const ZimbabweMeanDiurnalTec = dynamic(
+  () => import("@/components/charts/ZimbabweMeanDiurnalTec"),
+  { ssr: false, loading: () => sectionFallback },
+);
 const ReceiverBiasCharts = dynamic(
   () => import("@/components/spaceWeather/ReceiverBiasCharts"),
   { ssr: false, loading: () => sectionFallback },
@@ -1502,10 +1514,13 @@ export default function SpaceWeatherClient({
             comparison, North–South spatial TEC research, and scintillation / GNSS risk context.
             Geomagnetic Kp colour bands live on the separate <strong>Kp Scale</strong> tab.
           </p>
+          <LiveTecMultiDayChart />
+          <ZimbabweMeanDiurnalTec />
           <ZimbabweScientificTecPlots part="climatology" />
           {/* Defer heavy CORS / Gg labs so metric cards keep the API free on first paint. */}
           <ZimbabweIonoResponseFigures />
           <TecMapRmseChart />
+          <TecGradientMaps />
           <ReceiverBiasCharts />
           <DeferredMount
             className="sw-deferred-block"

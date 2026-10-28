@@ -9,9 +9,11 @@ import { mergeTecHeatmapWithStations } from "@/lib/tecHeatmapMerge";
 import type { Station, TecHeatmapResponse } from "@/lib/types";
 import type { MapLayer } from "@/components/maps/CorsMapWithLayers";
 import StationVtecTimePlots from "@/components/charts/StationVtecTimePlots";
+import LiveTecMultiDayChart from "@/components/charts/LiveTecMultiDayChart";
 import LiveTecMethodComparePanel from "@/components/maps/LiveTecMethodComparePanel";
 import LiveVtecHealthBanner from "@/components/live/LiveVtecHealthBanner";
 import LiveVtecDiagnosticsPanel from "@/components/live/LiveVtecDiagnosticsPanel";
+import TecGradientMaps from "@/components/maps/TecGradientMaps";
 
 const CorsMap = dynamic(() => import("@/components/maps/CorsMap"), { ssr: false });
 
@@ -104,7 +106,6 @@ export default function TecHeatmapPage() {
   const maxVtec = displayHeatmap?.tec_max ?? null;
   const diagnostics = displayHeatmap?.diagnostics ?? null;
   const fit = diagnostics?.fit;
-  const gradients = diagnostics?.gradients;
   const ionosonde = diagnostics?.ionosonde_comparison;
   const borderComparison = diagnostics?.border_station_comparison ?? [];
   const matamba = diagnostics?.matamba;
@@ -214,6 +215,8 @@ export default function TecHeatmapPage() {
         />
       )}
 
+      {mapLayer === "TEC Heat Map" && <LiveTecMultiDayChart />}
+
       {mapLayer === "TEC Heat Map" && <StationVtecTimePlots />}
 
       <LiveVtecDiagnosticsPanel className="tec-map-diagnostics" />
@@ -268,41 +271,7 @@ export default function TecHeatmapPage() {
             </div>
           )}
 
-          <div className="tec-map-diagnostic-panel">
-            <h2>TEC Gradients</h2>
-            <p>
-              Matamba-style adjacent-cell gradients on the median-filtered 1 degree grid. ICAO advisory severity remains
-              based on absolute TEC; gradients support GNSS impact assessment.
-            </p>
-            <div className="tec-map-diagnostic-grid">
-              <div>
-                <span>Spatial max</span>
-                <strong>{gradients?.spatial_max_tecu_per_deg != null ? `${gradients.spatial_max_tecu_per_deg.toFixed(3)} TECU/deg` : "N/A"}</strong>
-                <small>{gradients?.spatial_max_direction ?? "direction unavailable"}</small>
-              </div>
-              <div>
-                <span>North-south</span>
-                <strong>{gradients?.spatial_lat_max_tecu_per_deg != null ? `${gradients.spatial_lat_max_tecu_per_deg.toFixed(3)} TECU/deg` : "N/A"}</strong>
-              </div>
-              <div>
-                <span>East-west</span>
-                <strong>{gradients?.spatial_lon_max_tecu_per_deg != null ? `${gradients.spatial_lon_max_tecu_per_deg.toFixed(3)} TECU/deg` : "N/A"}</strong>
-              </div>
-              <div>
-                <span>Spatial mean</span>
-                <strong>{gradients?.spatial_mean_tecu_per_deg != null ? `${gradients.spatial_mean_tecu_per_deg.toFixed(3)} TECU/deg` : "N/A"}</strong>
-              </div>
-              <div>
-                <span>Temporal max</span>
-                <strong>{gradients?.temporal_max_tecu_per_hour != null ? `${gradients.temporal_max_tecu_per_hour.toFixed(2)} TECU/hr` : "Awaiting history"}</strong>
-                <small>{gradients?.temporal_available ? `${gradients.temporal_cadence_minutes ?? 5} min map-to-map` : "previous map unavailable"}</small>
-              </div>
-              <div>
-                <span>Temporal mean</span>
-                <strong>{gradients?.temporal_mean_tecu_per_hour != null ? `${gradients.temporal_mean_tecu_per_hour.toFixed(2)} TECU/hr` : "Awaiting history"}</strong>
-              </div>
-            </div>
-          </div>
+          <TecGradientMaps />
 
           <div className="tec-map-diagnostic-panel">
             <h2>Madimbo Ionosonde</h2>

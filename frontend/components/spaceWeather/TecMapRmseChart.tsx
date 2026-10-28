@@ -28,6 +28,33 @@ ChartJS.defaults.animation = false;
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
+/** Figure 6 colours: pale dots (black on the paper’s white page), red average, olive low, magenta high. */
+const COLOR_RMSE = "rgba(226, 232, 240, 0.92)";
+const COLOR_AVERAGE = "#ef4444";
+const COLOR_LOW = "#c4b15a";
+const COLOR_HIGH = "#e879f9";
+const COLOR_EKF = "#fde68a";
+
+function ColorKey({
+  items,
+}: {
+  items: Array<{ kind: "dot" | "line" | "dashed"; color: string; text: string }>;
+}) {
+  return (
+    <ul className="matamba-color-key">
+      {items.map((item) => (
+        <li key={item.text}>
+          <span
+            className={`matamba-swatch matamba-swatch--${item.kind}`}
+            style={item.kind === "dashed" ? { borderTopColor: item.color } : { background: item.color }}
+          />
+          <span>{item.text}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function epoch(time: string): number {
   return Date.parse(time);
 }
@@ -148,9 +175,9 @@ export default function TecMapRmseChart() {
     const datasets: ChartDataset<"line" | "scatter", Point[]>[] = [
       {
         type: "scatter",
-        label: "RMSE",
+        label: "Observed RMSE",
         data: rows.map((point) => ({ x: epoch(point.time), y: point.rmse as number })),
-        backgroundColor: "rgba(226, 232, 240, 0.72)",
+        backgroundColor: COLOR_RMSE,
         pointRadius: 1.5,
         yAxisID: "y",
       },
@@ -160,7 +187,7 @@ export default function TecMapRmseChart() {
         data: rows
           .filter((point) => finite(point.smooth))
           .map((point) => ({ x: epoch(point.time), y: point.smooth as number })),
-        borderColor: "#ef4444",
+        borderColor: COLOR_AVERAGE,
         borderWidth: 2,
         pointRadius: 0,
         spanGaps: true,
@@ -181,7 +208,7 @@ export default function TecMapRmseChart() {
             .filter((point) => finite(point.ekf))
             .map((point) => ({ x: epoch(point.time), y: point.ekf as number })),
         ),
-        borderColor: "#fde68a",
+        borderColor: COLOR_EKF,
         borderDash: [6, 4],
         borderWidth: 1.5,
         pointRadius: 0,
@@ -190,14 +217,14 @@ export default function TecMapRmseChart() {
       });
     }
     const guides: Array<[number | null, string, string]> = [
-      [data?.rmse_low ?? null, "−1.5σ", "#c4b15a"],
-      [data?.rmse_high ?? null, "+1.5σ", "#c084fc"],
+      [data?.rmse_low ?? null, "typical low", COLOR_LOW],
+      [data?.rmse_high ?? null, "typical high", COLOR_HIGH],
     ];
     for (const [level, label, color] of guides) {
       if (!finite(level)) continue;
       datasets.push({
         type: "line",
-        label: `${level.toFixed(2)} TECU (${label})`,
+        label: `${label} (${level.toFixed(2)} TECU)`,
         data: [
           { x: xMin, y: level },
           { x: xMax, y: level },
@@ -260,12 +287,8 @@ export default function TecMapRmseChart() {
     <section className="matamba-figures">
       <div className="matamba-figures-title">RMSE of TEC maps</div>
       <div className="matamba-figures-note">
-        Matamba and Danskin (2022): 1° nearest-neighbour map after a size-7 median filter, minus the
-        original code TEC at each pierce point. Each point uses the previous 15 minutes. Hours
-        without enough pierce points stay empty. The red curve is the 7-day average and continues
-        across those hours. The dashed line is the EKF forecast and restarts after a gap longer
-        than six hours. Olive and purple lines are the log-normal −1.5σ and +1.5σ.
-        Click a graph for the Matamba and Danskin explanation.
+        Matamba and Danskin (2022), Figure 6: each point is the RMSE of one TEC map. The colour key
+        under the graph says what each series is. Click a graph for the full explanation.
       </div>
       {!data && !error && (
         <div className="banner banner-info" role="status">Calculating TEC map RMSE…</div>
@@ -331,6 +354,41 @@ export default function TecMapRmseChart() {
             }}
           />
         </div>
+        <ColorKey
+          items={[
+            {
+              kind: "dot",
+              color: COLOR_RMSE,
+              text: "Pale dots — Observed RMSE. Each dot is one map: how far the measured code TEC at the pierce points sits from the 1° median-filtered grid. Matamba and Danskin draw these in black.",
+            },
+            {
+              kind: "line",
+              color: COLOR_AVERAGE,
+              text: "Red line — 7-day average of that RMSE. It continues across hours that had no map.",
+            },
+            ...(chart.datasets.some((series) => series.label === "EKF Predicted")
+              ? [{
+                  kind: "dashed" as const,
+                  color: COLOR_EKF,
+                  text: "Amber dashed — EKF Predicted. This system’s forecast of the RMSE. The line stops after a gap longer than six hours.",
+                }]
+              : []),
+            ...(finite(data?.rmse_low)
+              ? [{
+                  kind: "dashed" as const,
+                  color: COLOR_LOW,
+                  text: `Olive dashed — typical low (${Number(data?.rmse_low).toFixed(2)} TECU). Maps below this line agree unusually well with the measurements. Figure 6 draws this role at 1.4 TECU; here it is exp(mean of ln(RMSE) − 1.5 s) for the maps on this page.`,
+                }]
+              : []),
+            ...(finite(data?.rmse_high)
+              ? [{
+                  kind: "dashed" as const,
+                  color: COLOR_HIGH,
+                  text: `Magenta dashed — typical high (${Number(data?.rmse_high).toFixed(2)} TECU). Maps above this line are a poor fit. Figure 6 draws this role at 2.8 TECU; here it is exp(mean of ln(RMSE) + 1.5 s) for these maps.`,
+                }]
+              : []),
+          ]}
+        />
         </MatambaChartPanel>
       )}
       {histograms && (
@@ -358,16 +416,16 @@ export default function TecMapRmseChart() {
                     type: "line" as const,
                     label: "Log-normal fit",
                     data: histograms.curve,
-                    borderColor: "#ef4444",
+                    borderColor: COLOR_AVERAGE,
                     borderWidth: 2,
                     pointRadius: 0,
                     order: 1,
                   },
                   {
                     type: "line" as const,
-                    label: `${histograms.fit.low.toFixed(2)} TECU`,
+                    label: `Typical low (${histograms.fit.low.toFixed(2)} TECU)`,
                     data: [{ x: histograms.fit.low, y: 0 }, { x: histograms.fit.low, y: histograms.yMax }],
-                    borderColor: "#c4b15a",
+                    borderColor: COLOR_LOW,
                     borderDash: [5, 4],
                     borderWidth: 1.6,
                     pointRadius: 0,
@@ -375,9 +433,9 @@ export default function TecMapRmseChart() {
                   },
                   {
                     type: "line" as const,
-                    label: `${histograms.fit.high.toFixed(2)} TECU`,
+                    label: `Typical high (${histograms.fit.high.toFixed(2)} TECU)`,
                     data: [{ x: histograms.fit.high, y: 0 }, { x: histograms.fit.high, y: histograms.yMax }],
-                    borderColor: "#c084fc",
+                    borderColor: COLOR_HIGH,
                     borderDash: [5, 4],
                     borderWidth: 1.6,
                     pointRadius: 0,
@@ -424,13 +482,13 @@ export default function TecMapRmseChart() {
             />
             </div>
             <div className="matamba-figures-caption">
-              (a) Histogram of RMSE; points = {histograms.fit.n}. μ = {histograms.fit.mean.toFixed(2)} is the mean of the log-normal fit, s = {histograms.fit.sigma.toFixed(2)} is the standard deviation of ln(RMSE). Dashed lines are exp(μ<sub>ln</sub> ± 1.5 s).
+              (a) Teal bars count the maps in each RMSE bin. The red curve is the log-normal fit. Olive dashed is the typical-low line and magenta dashed is the typical-high line, exp(μ<sub>ln</sub> ± 1.5 s). Points = {histograms.fit.n}. μ = {histograms.fit.mean.toFixed(2)} TECU. s = {histograms.fit.sigma.toFixed(2)}.
             </div>
           </MatambaChartPanel>
           <div className="matamba-hour-grid">
             {([
-              ["(b)", `RMSE < ${histograms.fit.low.toFixed(2)}`, histograms.below, "rgba(163, 177, 90, 0.9)"],
-              ["(c)", `RMSE > ${histograms.fit.high.toFixed(2)}`, histograms.above, "rgba(192, 38, 211, 0.85)"],
+              ["(b)", `Olive bars: RMSE below the typical low (${histograms.fit.low.toFixed(2)} TECU)`, histograms.below, "rgba(196, 177, 90, 0.92)"],
+              ["(c)", `Magenta bars: RMSE above the typical high (${histograms.fit.high.toFixed(2)} TECU)`, histograms.above, "rgba(232, 121, 249, 0.9)"],
             ] as const).map(([panel, title, series, color]) => (
               <MatambaChartPanel
                 key={panel}
@@ -491,7 +549,7 @@ export default function TecMapRmseChart() {
                 />
                 </div>
                 <div className="matamba-figures-caption">
-                  {panel} Histogram of {title}; points = {series.total}
+                  {panel} {title}. Points = {series.total}
                 </div>
               </MatambaChartPanel>
             ))}

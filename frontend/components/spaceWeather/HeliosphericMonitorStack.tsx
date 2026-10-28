@@ -42,6 +42,14 @@ const HeliosphericKpBars = dynamic(() => import("./HeliosphericKpBars"), {
     </div>
   ),
 });
+const SymhRingCurrentChart = dynamic(() => import("./SymhRingCurrentChart"), {
+  ssr: false,
+  loading: () => (
+    <div className="banner banner-info" role="status">
+      Loading SYM-H…
+    </div>
+  ),
+});
 
 const PROTON_COLORS: Record<string, string> = {
   ">=10 MeV": "#38bdf8",
@@ -373,25 +381,28 @@ export default function HeliosphericMonitorStack() {
 
           <PanelShell
             title="GFZ / NOAA planetary Kp · observed & forecast"
-            subtitle="NOAA planetary K-index forecast · observed (green) · estimated (amber) · predicted (cyan) · Kyoto Dst (white line, right axis) · time axis UTC"
+            subtitle="NOAA planetary K-index forecast · observed (green) · estimated (amber) · predicted (cyan) · Kyoto Dst (white line, right axis) · SYM-H ring current plotted underneath · time axis UTC"
             panelId="kp"
             selected={selected === "kp"}
             onToggle={toggle}
             analysis={analyzeHeliosphericPanel("kp", data)}
           >
             {data.kp.labels.length > 0 ? (
-              <HeliosphericKpBars
-                labels={data.kp.labels}
-                times={data.kp.times}
-                epochMs={data.kp.epoch_ms}
-                observed={data.kp.observed}
-                estimated={data.kp.estimated}
-                predicted={data.kp.predicted}
-                dst={data.dst?.dst}
-                dstLabels={data.dst?.labels}
-                dstTimes={data.dst?.times}
-                dstEpochMs={data.dst?.epoch_ms}
-              />
+              <>
+                <HeliosphericKpBars
+                  labels={data.kp.labels}
+                  times={data.kp.times}
+                  epochMs={data.kp.epoch_ms}
+                  observed={data.kp.observed}
+                  estimated={data.kp.estimated}
+                  predicted={data.kp.predicted}
+                  dst={data.dst?.dst}
+                  dstLabels={data.dst?.labels}
+                  dstTimes={data.dst?.times}
+                  dstEpochMs={data.dst?.epoch_ms}
+                />
+                <SymhRingCurrentChart />
+              </>
             ) : (
               <div className="banner banner-info">
                 Kp forecast unavailable{data.errors?.kp ? `: ${data.errors.kp}` : "."}

@@ -271,6 +271,14 @@ async def wdc_kyoto_analysis(
     return WdcKyotoAnalysisResponse(**payload)
 
 
+@router.get("/gradients")
+async def tec_gradients(_=Depends(require_api_key)):
+    """Scharr spatial gradient and half-window temporal gradient for the latest 15 minutes."""
+    from zgiis.maps.tec_gradients import build_tec_gradient_maps
+
+    return await asyncio.to_thread(build_tec_gradient_maps)
+
+
 @router.get("/iono-response-figures")
 async def iono_response_figures(
     days: int = Query(180, ge=14, le=366),

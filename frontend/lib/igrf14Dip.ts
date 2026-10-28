@@ -170,14 +170,56 @@ export function anomalyPaths(epoch: number, lonStart = -180, lonEnd = 180, step 
   return paths;
 }
 
-/** Where a station sits in the equatorial ionization anomaly. */
-export function eiaRegion(dipLat: number): string {
+export type AnomalyReading = {
+  /** Rabiu: equatorial ±0–20°, mid-latitude ±20–60°, high-latitude ±60–90°. */
+  belt: "equatorial" | "mid-latitude" | "high-latitude";
+  /** Short label for the station table. */
+  region: string;
+  /** One complete sentence for the marker card. */
+  detail: string;
+};
+
+/**
+ * Place a dip latitude in Rabiu's equatorial ionosphere.
+ * Crests of the Appleton anomaly sit near ±17–20°; the map draws ±15° as the crest guide.
+ */
+export function anomalyReading(dipLat: number): AnomalyReading {
   const distance = Math.abs(dipLat);
   const hemisphere = dipLat < 0 ? "southern" : "northern";
-  if (distance <= 5) return "Magnetic-equator trough";
-  if (distance < 10) return `Between trough and ${hemisphere} crest`;
-  if (distance <= 20) return `${hemisphere === "southern" ? "Southern" : "Northern"} EIA crest`;
-  return `Poleward of the ${hemisphere} crest`;
+  const poleward = polewardOfSouthernCrestDeg(dipLat);
+  const belt: AnomalyReading["belt"] =
+    distance <= 20 ? "equatorial" : distance <= 60 ? "mid-latitude" : "high-latitude";
+  let region: string;
+  if (distance <= 3) region = "Dip equator (electrojet)";
+  else if (distance <= 5) region = "Anomaly trough";
+  else if (distance < 10) region = `Between trough and ${hemisphere} crest`;
+  else if (distance <= 20) region = `${hemisphere === "southern" ? "Southern" : "Northern"} crest belt`;
+  else region = `Poleward of the ${hemisphere} crest`;
+
+  const crest =
+    poleward > 0.25
+      ? `${poleward.toFixed(1)}° poleward of the southern crest (−15° dip)`
+      : poleward < -0.25
+        ? `${Math.abs(poleward).toFixed(1)}° equatorward of the southern crest (−15° dip)`
+        : "on the southern crest (−15° dip)";
+  const rabiu =
+    belt === "equatorial"
+      ? "Rabiu places this in the equatorial ionosphere, about ±0–20° magnetic latitude. The Appleton anomaly is a trough on the dip equator and two crests near ±17–20°, built by the daytime plasma fountain."
+      : belt === "mid-latitude"
+        ? "Rabiu places magnetic latitudes beyond about ±20° in the mid-latitude ionosphere (±20–60°). This station is outside the equatorial belt, so it does not sit on the Appleton anomaly crest."
+        : "Rabiu places magnetic latitudes beyond about ±60° in the high-latitude ionosphere.";
+  const ionolab =
+    belt === "mid-latitude"
+      ? "IONOLAB calls the midlatitude ionosphere the most stable of the polar, midlatitude and equatorial regions."
+      : belt === "equatorial"
+        ? "IONOLAB treats the equatorial ionosphere as distinct from that more stable midlatitude region. Daytime electron density peaks in the F layer, which splits into F1 and F2."
+        : "IONOLAB treats the high-latitude (polar) ionosphere as separate from the more stable midlatitude region.";
+  return { belt, region, detail: `${crest}. ${rabiu} ${ionolab}` };
+}
+
+/** Where a station sits in the equatorial ionization anomaly. */
+export function eiaRegion(dipLat: number): string {
+  return anomalyReading(dipLat).region;
 }
 
 /** Degrees poleward of the southern crest. Positive means further south than −15°. */

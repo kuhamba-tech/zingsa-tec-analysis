@@ -32,12 +32,23 @@ def iso(value):
 
 
 def request(path, **params):
-    response=requests.get(f'{BASE}/{path}',params=params,timeout=(3,7),headers={'User-Agent':'ZINGSA-scientific-dashboard/1.0'})
-    response.raise_for_status()
-    payload=response.json()
-    if payload.get('status',{}).get('code') not in (1200,1201):
-        raise RuntimeError('Kyoto HAPI reported an unsuccessful response')
-    return payload
+    last_error=None
+    for _attempt in range(2):
+        try:
+            response=requests.get(
+                f'{BASE}/{path}',
+                params=params,
+                timeout=(20, 60),
+                headers={'User-Agent':'ZINGSA-scientific-dashboard/1.0'},
+            )
+            response.raise_for_status()
+            payload=response.json()
+            if payload.get('status',{}).get('code') not in (1200,1201):
+                raise RuntimeError('Kyoto HAPI reported an unsuccessful response')
+            return payload
+        except (requests.Timeout, requests.ConnectionError) as exc:
+            last_error=exc
+    raise last_error
 
 
 def parse(payload):
@@ -124,17 +135,21 @@ def fetch(hours=24, start=None, end=None):
                 'last_successful_fetch':iso(datetime.now(timezone.utc)),
                 'product_status':', '.join(sorted({r['product_status'] for r in genuine})) or 'unavailable',
                 'cadence_seconds':60,'rows':rows,'units':'nT',
-                'publication_warning': 'No current ASY/SYM observations were returned. Showing the latest published provisional window.' if used_published_window else None,
-                'fetch_error':False}
-            try:
-                persist(result)
-                result['persistence']='archived'
-            except Exception:
-                result['persistence']='archive unavailable; source response retained in memory'
+                'publication_warning': 'Kyoto has not published SYM-H for the latest hours. This line is the latest window that contains measured minutes.' if used_published_window else None,
+                'fetch_error':False,
+                'persistence':'archive queued'}
             _cache[key]=(time.monotonic(),result)
             _cache.move_to_end(key)
             while len(_cache)>16:
                 _cache.popitem(last=False)
+            # Archive after the response is cached. A slow session-pool checkout
+            # must not hold this lock or hide the Kyoto series from the chart.
+            threading.Thread(
+                target=_archive,
+                args=(copy.deepcopy(result),),
+                name='kyoto-asysym-archive',
+                daemon=True,
+            ).start()
             return stamp_status(result)
         except Exception:
             if previous:
@@ -144,6 +159,14 @@ def fetch(hours=24, start=None, end=None):
                 _cache[key]=(time.monotonic(),retained)
                 return stamp_status(retained,True)
             raise
+
+
+def _archive(payload):
+    try:
+        persist(payload)
+    except Exception:
+        log = __import__('logging').getLogger(__name__)
+        log.warning('Kyoto ASY/SYM archive skipped; source series was already returned')
 
 
 def persist(payload):

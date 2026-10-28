@@ -157,12 +157,12 @@ def _matamba_metadata() -> dict[str, Any]:
         "quality_metrics": ["map RMSE", "station coverage quality factor", "spatial TEC gradient", "temporal TEC gradient"],
         "gradient_method": {
             "spatial": (
-                "Cell-to-cell TEC change on the 1 degree median-filtered grid, reported for north-south, "
-                "east-west, and combined adjacent-cell gradients in TECU/degree."
+                "Scharr operator on the 1 degree median-filtered pierce-point grid, "
+                "magnitude in TECU/degree. The gradient maps are served separately."
             ),
             "temporal": (
-                "Absolute TEC change between consecutive 5-minute median-filtered map products, normalized "
-                "to TECU/hour. Each map uses the previous 15 minutes of observations."
+                "Second half of the 15-minute window minus the first half, divided by 7.5 minutes, "
+                "in TECU/min."
             ),
             "icao_note": (
                 "ICAO Doc 10100 advisory level is still based on absolute vertical TEC thresholds; gradients "

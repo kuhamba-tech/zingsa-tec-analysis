@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Station, TecHeatmapResponse } from "@/lib/types";
 import { igrf14Epoch } from "@/lib/geomagneticEquator";
-import { anomalyPaths, dipLatitudeDeg, eiaRegion, polewardOfSouthernCrestDeg } from "@/lib/igrf14Dip";
+import { anomalyPaths, anomalyReading, dipLatitudeDeg } from "@/lib/igrf14Dip";
 import { getLiveStationStatus } from "@/lib/liveStationStatus";
 import { buildCorsNetworkEdges, isReferenceCorsStation } from "@/lib/corsNetworkDistances";
 import type { ProposedCorsSite } from "@/lib/corsGeneticOptimizer";
@@ -881,11 +881,15 @@ export default function CorsMap({
       background: "#0a0f1a",
       border: "1px solid #244d73",
       borderRadius: "8px",
-      padding: "0.45rem 0.7rem",
+      padding: "0.5rem 0.75rem",
       fontSize: "0.75rem",
+      lineHeight: "1.35",
       color: "#fff",
+      width: "260px",
+      maxWidth: "min(260px, calc(100vw - 24px))",
       pointerEvents: "none",
       zIndex: "10",
+      boxSizing: "border-box",
     });
     popupElementRef.current = popupEl;
 
@@ -959,7 +963,12 @@ export default function CorsMap({
       vectorSourceRef.current = vectorSource;
       syncStationFeatures(stationsRef.current);
 
-      const popup = new Overlay({ element: popupEl, positioning: "bottom-center", offset: [0, -14] });
+      const popup = new Overlay({
+        element: popupEl,
+        positioning: "bottom-center",
+        offset: [0, -14],
+        autoPan: { margin: 24, animation: { duration: 180 } },
+      });
 
       const stationLayer = new VectorLayer({
         source: vectorSource,
@@ -1039,14 +1048,10 @@ export default function CorsMap({
               ? `<div style="color:#ffffff;font-size:0.68rem">${icaoTecDistanceLabel(tecValue)}</div>`
               : "";
           const dip = dipLatitudeDeg(s.lat, s.lon, igrf14Epoch());
-          const crestOffset = dip != null ? polewardOfSouthernCrestDeg(dip) : null;
+          const place = dip != null ? anomalyReading(dip) : null;
           const mlatLine =
-            dip != null
-              ? `<div style="color:#67e8f9;font-size:0.72rem;font-weight:700">Dip latitude ${dip.toFixed(1)}° · ${eiaRegion(dip)}</div>${
-                  crestOffset != null && crestOffset > 0.25
-                    ? `<div style="color:#f59e0b;font-size:0.68rem">${crestOffset.toFixed(1)}° poleward of the southern crest</div>`
-                    : ""
-                }`
+            place != null && dip != null
+              ? `<div style="margin-top:0.35rem;color:#67e8f9;font-weight:700">Dip latitude ${dip.toFixed(1)}° · ${place.belt}</div><div style="color:#f59e0b;font-weight:700">${place.region}</div><div style="margin-top:0.2rem;color:#e2e8f0;font-size:0.68rem;font-weight:400">${place.detail}</div>`
               : "";
           const tecLine =
             tecValue != null
@@ -1079,7 +1084,11 @@ export default function CorsMap({
               ? `<div style="margin-top:0.2rem;color:#c4b5fd;font-weight:700">${s.connected_rovers} connected rover${s.connected_rovers === 1 ? "" : "s"}</div>`
               : "";
           popupEl.innerHTML = `<b>${s.code.toUpperCase()}</b>${tecLine}${ggLine}${deltaLine}${mlatLine}${tecSourceLine}${icaoLine}${distLine}${sourcetableLine}${roverLine}<div style="margin-top:0.2rem;color:#ffffff">Click Details →</div>`;
-          popup.setPosition(evt.coordinate);
+          popup.setPosition(
+            Number.isFinite(s.lon) && Number.isFinite(s.lat)
+              ? fromLonLat([s.lon, s.lat])
+              : evt.coordinate,
+          );
           popupEl.style.display = "block";
         } else {
           setSelectedRef.current(null);

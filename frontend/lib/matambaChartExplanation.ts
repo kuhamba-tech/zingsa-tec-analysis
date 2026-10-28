@@ -5,14 +5,14 @@ const CITE = "Matamba and Danskin (2022), Space Weather, doi:10.1029/2021SW00301
 
 export function rmseTimeExplanation(): ChartAnalysisBlock {
   return {
-    lead: `Each white point is the RMSE of one near-real-time TEC map against the code TEC that built it. ${CITE}`,
+    lead: `Each pale dot is the observed RMSE of one near-real-time TEC map against the code TEC that built it. Matamba and Danskin draw the same dots in black. ${CITE}`,
     bullets: [
       "Every 5 minutes, the previous 15 minutes of GPS code TEC are placed at the 350 km ionospheric pierce point, binned on a 1° grid, filled by nearest neighbour, and smoothed with a median filter of size 7.",
       "Elevation below 20° and TEC outside 0–50 TECU are excluded, the same observation bounds used by Matamba and Danskin.",
-      "RMSE is the root-mean-square of (measured TEC − filtered grid) at those pierce points. A low value means the map agrees with the measurements. A value near or above the purple +1.5σ line means the grid is a poor fit.",
-      "The olive and purple lines are exp(mean of ln(RMSE) ± 1.5 standard deviations), the paper’s dividers between a typical map and an unusually good or poor fit.",
+      "RMSE is the root-mean-square of (measured TEC − filtered grid) at those pierce points. A low value means the map agrees with the measurements. A value on or above the magenta typical-high line means the grid is a poor fit.",
+      "The olive dashed line is the typical low and the magenta dashed line is the typical high. They are exp(mean of ln(RMSE) ± 1.5 standard deviations). In Figure 6 of the paper those same roles are drawn at 1.4 and 2.8 TECU for the May–November 2021 sample.",
       "The red curve is the 7-day average. It continues across hours that did not have enough pierce points. Those hours are not plotted as RMSE measurements.",
-      "The dashed line is this system’s Extended Kalman Filter forecast of RMSE. It restarts after a gap longer than six hours and is not part of the Matamba map.",
+      "The amber dashed line is this system’s Extended Kalman Filter forecast of RMSE. It stops after a gap longer than six hours and is not part of the Matamba map.",
       "The time axis is UTC. Zimbabwe local time (CAT) is UT+2.",
     ],
   };
@@ -29,9 +29,10 @@ export function rmseHistogramExplanation(stats: {
     lead: `Matamba and Danskin summarise map RMSE with a log-normal fit, because RMSE is positive and skewed. ${CITE}`,
     bullets: [
       `This sample has ${stats.n} maps. μ = ${stats.mean.toFixed(2)} TECU is the mean of the fitted log-normal. s = ${stats.sigma.toFixed(2)} is the standard deviation of ln(RMSE).`,
-      `The olive dashed line is ${stats.low.toFixed(2)} TECU, exp(μ_ln − 1.5 s). Maps below it agree unusually well with the measured code TEC.`,
-      `The purple dashed line is ${stats.high.toFixed(2)} TECU, exp(μ_ln + 1.5 s). Maps above it are a poor fit and should not be treated as a clean ionospheric field.`,
-      "The red curve is that log-normal density scaled to the histogram counts. It is a description of this sample, not a forecast.",
+      `Teal bars are the count of maps in each RMSE bin. The red curve is the log-normal fit scaled to those counts. It describes this sample. It is not a forecast.`,
+      `The olive dashed line is the typical low, ${stats.low.toFixed(2)} TECU, exp(μ_ln − 1.5 s). Maps below it agree unusually well with the measured code TEC.`,
+      `The magenta dashed line is the typical high, ${stats.high.toFixed(2)} TECU, exp(μ_ln + 1.5 s). Maps above it are a poor fit and should not be treated as a clean ionospheric field.`,
+      "Figure 6 uses the same olive and magenta roles at 1.4 and 2.8 TECU. The lines here are computed from this sample.",
     ],
   };
 }
@@ -42,11 +43,12 @@ export function rmseHourExplanation(
   total: number,
 ): ChartAnalysisBlock {
   const side = kind === "low" ? "below" : "above";
+  const colour = kind === "low" ? "Olive" : "Magenta";
   const meaning = kind === "low"
-    ? "These are the hours when the 1° median-filtered map usually agrees with the pierce-point code TEC."
-    : "These are the hours when the map usually disagrees with the pierce-point code TEC. Matamba and Danskin use that class to mark a poor map fit, not a Kp storm by itself.";
+    ? "Olive bars are the hours when the 1° median-filtered map usually agrees with the pierce-point code TEC (below the typical-low line)."
+    : "Magenta bars are the hours when the map usually disagrees with the pierce-point code TEC (above the typical-high line). Matamba and Danskin use that class to mark a poor map fit, not a Kp storm by itself.";
   return {
-    lead: `${total} maps have RMSE ${side} ${threshold.toFixed(2)} TECU. The bars are the fraction of those maps in each UT hour. ${CITE}`,
+    lead: `${colour} bars: ${total} maps have RMSE ${side} ${threshold.toFixed(2)} TECU. The bar height is the fraction of those maps in each UT hour. ${CITE}`,
     bullets: [
       meaning,
       "The paper separates the sample at exp(μ_ln ± 1.5 s) and then asks at what Universal Time those maps occur.",

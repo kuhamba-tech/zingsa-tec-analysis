@@ -18,7 +18,12 @@ export default function UnderstandingTecPage() {
           Imagine standing at a Zimbabwe CORS station in Harare. A GPS satellite is 20,200 km above you.
           This guide explains, in plain language, how electrons in the ionosphere affect that signal,
           what Total Electron Content means, and how ZGIIS turns dual-frequency GNSS into the maps on
-          your dashboard.
+          your dashboard. The ionosphere itself is the solar-ionized atmosphere from about 90 to
+          1000 km, with D, E and F layers, as set out by{" "}
+          <a href="https://www.ionolab.org/index.php?page=ionosphere&language=en" target="_blank" rel="noreferrer">
+            IONOLAB
+          </a>
+          . GNSS L-band crosses that region and is delayed. HF below about 40 MHz can be bent back to Earth.
         </p>
         <p className="vtec-theory-freq-note">
           GPS L1 = 1575.42 MHz | GPS L2 = 1227.60 MHz | 1 TECU = 10^16 electrons m^-2

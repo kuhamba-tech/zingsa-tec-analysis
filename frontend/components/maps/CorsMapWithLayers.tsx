@@ -13,7 +13,8 @@ import { heatmapQualityBanner, icaoTecLabel, icaoTecLevel, inferHeatmapQuality }
 import type { ProposedCorsSite } from "@/lib/corsGeneticOptimizer";
 import type { Station, TecHeatmapResponse, TrigNetResponse } from "@/lib/types";
 import { igrf14Epoch } from "@/lib/geomagneticEquator";
-import { dipLatitudeDeg, eiaRegion, polewardOfSouthernCrestDeg } from "@/lib/igrf14Dip";
+import { anomalyReading, dipLatitudeDeg } from "@/lib/igrf14Dip";
+import { IONOLAB_IONOSPHERE_URL, IONOSPHERE_REGIONS } from "@/lib/tecPrimer";
 import { getLiveStationStatus, isSurveyorGeneral, type LiveStationCounts } from "@/lib/liveStationStatus";
 
 const StationVtecTimePlots = dynamic(
@@ -121,8 +122,7 @@ function GeomagneticCorsTable({
           surveyor: isSurveyorGeneral(station.code),
           tec: zimbabweLiveGopi(station, heatmap),
           dip,
-          region: eiaRegion(dip),
-          poleward: polewardOfSouthernCrestDeg(dip),
+          place: anomalyReading(dip),
         };
       })
       .filter((row): row is NonNullable<typeof row> => row != null)
@@ -135,18 +135,33 @@ function GeomagneticCorsTable({
         CORS and the equatorial ionization anomaly
       </div>
       <p style={{ margin: "0 0 0.6rem", fontSize: "0.75rem", color: "var(--text-muted)" }}>
-        The cyan line is the magnetic dip equator around the Earth. Where that field is horizontal,
-        the dayside equatorial electrojet flows along it (geomag.org). Oryema, Jurua, D’ujanga and
-        Ssebiyonga (2015) put the anomaly trough on this equator and the crests near ±15° dip latitude.
-        Coordinates are IGRF-14 dip latitude at epoch {epoch.toFixed(3)} (tan μ = ½ tan I).
-        Stations are ordered from the equator southward. GOPI is the live NTRIP code TEC.
-        Surveyor General sites stay on the map and are left out of the ZINGSA TEC count.
+        Rabiu defines the magnetic (dip) equator as the line of zero dip. In Africa that line lies
+        almost east–west, and Africa has the broadest inland span of it. He divides the ionosphere
+        into equatorial (about ±0–20° magnetic latitude), mid-latitude (±20–60°) and high-latitude
+        (±60–90°). The Appleton anomaly is a daytime trough on the dip equator and two crests near
+        ±17–20°, produced by the plasma fountain: the eastward electric field and the northward
+        geomagnetic field lift the plasma, which then diffuses down the field lines. Crests start
+        near 09:00 local time and move poleward about 1° per hour until around 14:00, when they are
+        strongest. Cyan is that dip equator from IGRF-14 at epoch {epoch.toFixed(3)} (tan μ = ½ tan I).
+        Amber and violet are the ±15° crest guides, inside Rabiu’s crest belt. The equatorial electrojet
+        is the strong eastward current within about ±3° of the dip equator. Stations are ordered from
+        the equator southward. GOPI is the live NTRIP code TEC. Surveyor General sites stay on the map
+        and are left out of the ZINGSA TEC count.
+      </p>
+      <p style={{ margin: "0 0 0.6rem", fontSize: "0.75rem", color: "var(--text-muted)" }}>
+        {IONOSPHERE_REGIONS} Daytime ionized layers run from about 90 to 1000 km (D, E and F; the F
+        layer splits into F1 and F2 by day, and the D layer fades at night). GNSS L-band crosses
+        those layers and is delayed. HF below about 40 MHz can be bent back to Earth.{" "}
+        <a href={IONOLAB_IONOSPHERE_URL} target="_blank" rel="noreferrer">
+          IONOLAB — General information on the ionosphere
+        </a>
+        .
       </p>
       <div style={{ overflowX: "auto", maxHeight: 280 }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.78rem" }}>
           <thead>
             <tr>
-              {["Station", "GOPI (TECU)", "Dip latitude", "Anomaly region", "From southern crest"].map((heading) => (
+              {["Station", "GOPI (TECU)", "Dip latitude", "Anomaly region", "Rabiu belt"].map((heading) => (
                 <th key={heading} style={{ textAlign: "left", padding: "0.35rem 0.5rem", position: "sticky", top: 0 }}>
                   {heading}
                 </th>
@@ -165,10 +180,8 @@ function GeomagneticCorsTable({
                   {row.tec != null ? row.tec.toFixed(1) : "—"}
                 </td>
                 <td style={{ padding: "0.28rem 0.5rem" }}>{row.dip.toFixed(2)}°</td>
-                <td style={{ padding: "0.28rem 0.5rem" }}>{row.region}</td>
-                <td style={{ padding: "0.28rem 0.5rem" }}>
-                  {row.poleward > 0.25 ? `${row.poleward.toFixed(1)}° poleward` : "Equatorward of the crest"}
-                </td>
+                <td style={{ padding: "0.28rem 0.5rem" }}>{row.place.region}</td>
+                <td style={{ padding: "0.28rem 0.5rem" }}>{row.place.belt}</td>
               </tr>
             ))}
           </tbody>
@@ -489,6 +502,11 @@ export default function CorsMapWithLayers({
             {trignetActive
               ? `${trignet?.station_count ?? "…"} TrigNet · ${stations.length} Zimbabwe · G ${trignetHeatmap?.station_count ?? 0} · Gg ${Object.keys(trignetGgCombined).length}${trignet?.rinex_day ? ` · RINEX ${trignet.rinex_day}` : ""}`
               : `${liveCounts.total} stations · ${liveLabel} · ${riskLevel} GNSS risk`}
+            {tecLayerActive && (
+              <p className="home-map-tec-note">
+                The Zimbabwe CORS Network&apos;s local TEC maps provide information about vertical TEC (VTEC) derived from ground-based GNSS measurements with a latency of not more than 5 minutes and an update rate of 15 minutes.
+              </p>
+            )}
           </div>
         </div>
 
@@ -638,7 +656,7 @@ export default function CorsMapWithLayers({
               {geomagneticLayerActive && (
                 <>
                   {" "}
-                  The cyan magnetic equator runs around the Earth. Amber and violet are the ±15° anomaly crests (IGRF-14 dip latitude). Markers show GOPI TEC.
+                  The cyan line is the magnetic dip equator: zero dip, almost east–west across Africa (Rabiu, after Cohen, 1967). Amber and violet are the ±15° crest guides inside Rabiu’s Appleton crest belt (about ±17–20°). Markers show GOPI TEC. Click a station for its belt.
                 </>
               )}
               {(tecLayerActive || trignetActive) && (

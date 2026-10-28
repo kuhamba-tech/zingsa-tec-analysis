@@ -105,8 +105,8 @@ interface Props {
   syncHoverMs?: number | null;
   /** Report hover time so sibling charts can draw the same vertical cursor. */
   onSyncHoverMs?: (ms: number | null) => void;
-  /** Optional log scale for Y (e.g. GOES X-ray W/m²). */
-  yLogScale?: boolean;
+  /** Keep a visible marker when the series is long. Sparse multi-day TEC is unreadable at radius 0. */
+  pointRadius?: number;
   /** Hard / suggested primary Y bounds (e.g. solar-wind speed to show Fast stream). */
   yMin?: number;
   yMax?: number;
@@ -210,6 +210,7 @@ export default function LineChart({
   epochMs,
   syncHoverMs = null,
   onSyncHoverMs,
+  pointRadius: pointRadiusOverride,
   yLogScale = false,
   yMin,
   yMax,
@@ -440,13 +441,15 @@ export default function LineChart({
                 }
               : undefined,
             pointRadius:
-              budget.pointRadius === 0 || drawLabels.length > 80
-                ? 0
-                : compact
-                  ? 2
-                  : drawLabels.length > 200
-                    ? 0
-                    : budget.pointRadius,
+              pointRadiusOverride != null
+                ? pointRadiusOverride
+                : budget.pointRadius === 0 || drawLabels.length > 80
+                  ? 0
+                  : compact
+                    ? 2
+                    : drawLabels.length > 200
+                      ? 0
+                      : budget.pointRadius,
             pointHoverRadius: compact ? 5 : 4,
             tension: ds.tension ?? (preserveSamples ? 0 : budget.tension),
             spanGaps: ds.spanGaps ?? true,

@@ -20,6 +20,19 @@ export const TEC_OPERATIONAL_NOTE =
 export const TEC_L1_DELAY_NOTE =
   "At GPS L1 (~1575 MHz), ionospheric code delay ≈ 0.162 m per TECU. At 30 TECU that is ~4.9 m of range delay if uncorrected.";
 
+/** https://www.ionolab.org/index.php?page=ionosphere&language=en */
+export const IONOLAB_IONOSPHERE_URL =
+  "https://www.ionolab.org/index.php?page=ionosphere&language=en";
+
+export const IONOSPHERE_LAYERS =
+  "IONOLAB describes the ionosphere as the region of the atmosphere ionized mainly by solar radiation. In daytime the ionized layers lie about 90 to 1000 km above the surface, with an electron density of order 10¹⁰ to 10¹² per cubic metre. The peaks are the D, E and F layers. By day the F layer splits into F1 and F2, and the D layer disappears at night. The F layer has the greatest electron density. The E layer has fewer electrons and can return only some lower HF frequencies, at times as a sporadic-E layer. The D layer mostly absorbs the wave, and it absorbs more at a lower frequency.";
+
+export const IONOSPHERE_REGIONS =
+  "IONOLAB separates Earth into a high-latitude (polar) ionosphere, a midlatitude ionosphere and an equatorial ionosphere. The midlatitude ionosphere is the least problematic and the most stable.";
+
+export const IONOSPHERE_RADIO =
+  "Layers of free electrons bend radio below about 40–50 MHz back toward Earth. That bending is refraction; for HF it behaves like a reflection from the F layer, and mainly from F2. The highest frequency returned by a vertical beam is the critical frequency. On a slanted path the highest frequency that still returns is the maximum usable frequency, usually not above about 40 MHz, and about 25–30 MHz when the Sun is quiet. GNSS L-band, near 1.2–1.6 GHz, is far above that limit, so the signal is not turned back. It crosses the ionosphere and is delayed in proportion to the electron content. That delay is the TEC on this dashboard. The electron content itself changes from seconds to years: through the hour, the season and the sunspot cycle.";
+
 /** How to classify TEC quantities you see in the app and notebook. */
 export const TEC_CLASSIFICATIONS: {
   id: string;

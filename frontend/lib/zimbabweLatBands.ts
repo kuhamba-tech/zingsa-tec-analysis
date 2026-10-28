@@ -144,7 +144,67 @@ function finalizeBuckets(
   return out;
 }
 
-/** Hourly (tick) mean VTEC by lat band from live per-station series (GOPI / code_live). */
+export type LatBandDiurnalStats = LatBandDiurnalSeries & {
+  std: Record<ZimbabweLatBandId, (number | null)[]>;
+  /** First and last UTC day that contributed a sample, YYYY-MM-DD. */
+  period: [string, string] | null;
+};
+
+/** Mean and sample standard deviation of measured VTEC in each UT hour. */
+export function latBandDiurnalMeanStd(
+  series: LiveStationVtecSeries[],
+  latByStation?: Map<string, number>,
+): LatBandDiurnalStats {
+  const lats = latByStation ?? stationLatLookup();
+  const buckets = new Map<ZimbabweLatBandId, Map<number, number[]>>();
+  const stationsSeen = new Map<ZimbabweLatBandId, Set<string>>();
+  let firstMs = Number.POSITIVE_INFINITY;
+  let lastMs = Number.NEGATIVE_INFINITY;
+  for (const band of ZIMBABWE_LAT_BANDS) {
+    buckets.set(band.id, new Map());
+    stationsSeen.set(band.id, new Set());
+  }
+
+  for (const row of series) {
+    const code = normalizeStationCode(row.station);
+    if (isSurveyorGeneral(code)) continue;
+    const lat = lats.get(code);
+    if (lat == null || !Number.isFinite(lat)) continue;
+    const band = zimbabweLatBand(lat);
+    stationsSeen.get(band)!.add(code);
+    const hourMap = buckets.get(band)!;
+    for (const point of row.points ?? []) {
+      if (point.vtec_tecu == null || !Number.isFinite(point.vtec_tecu)) continue;
+      if (point.vtec_tecu <= 0 || point.vtec_tecu > 100) continue;
+      const ms = Date.parse(point.time);
+      if (!Number.isFinite(ms)) continue;
+      const tick = diurnalHourBin(hourOfDayUtc(point.time) ?? Number.NaN);
+      if (tick == null) continue;
+      const values = hourMap.get(tick) ?? [];
+      values.push(point.vtec_tecu);
+      hourMap.set(tick, values);
+      if (ms < firstMs) firstMs = ms;
+      if (ms > lastMs) lastMs = ms;
+    }
+  }
+
+  const base = finalizeBuckets(buckets, stationsSeen);
+  const std = {} as Record<ZimbabweLatBandId, (number | null)[]>;
+  for (const band of ZIMBABWE_LAT_BANDS) {
+    const byHour = buckets.get(band.id) ?? new Map();
+    std[band.id] = base.hours.map((hour) => {
+      const values = byHour.get(hour) ?? [];
+      if (values.length < 2) return null;
+      const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
+      const variance = values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / (values.length - 1);
+      return Math.round(Math.sqrt(variance) * 100) / 100;
+    });
+  }
+  const period: [string, string] | null = Number.isFinite(firstMs) && Number.isFinite(lastMs)
+    ? [new Date(firstMs).toISOString().slice(0, 10), new Date(lastMs).toISOString().slice(0, 10)]
+    : null;
+  return { ...base, std, period };
+}
 export function latBandDiurnalFromStationSeries(
   series: LiveStationVtecSeries[],
   latByStation?: Map<string, number>,

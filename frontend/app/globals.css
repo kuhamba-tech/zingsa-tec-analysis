@@ -2185,6 +2185,13 @@ select option {
   font-size: 0.75rem;
   color: var(--text-muted);
 }
+.home-map-tec-note {
+  margin: 0.28rem 0 0;
+  max-width: 46rem;
+  color: var(--text);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
 .home-map-toolbar-center {
   display: flex;
   align-items: center;
@@ -4517,6 +4524,47 @@ a.home-map-layer-btn {
   border-left: 3px solid rgba(22, 139, 210, 0.8);
   margin-top: 0.75rem !important;
   padding-left: 0.7rem;
+}
+.tec-gradient-maps {
+  grid-column: 1 / -1;
+  border: 1px solid #244d73;
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.72);
+  padding: 0.9rem 1rem 1rem;
+  color: #ffffff;
+}
+.tec-gradient-maps h2 {
+  margin: 0 0 0.45rem;
+  font-size: 0.82rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.tec-gradient-maps p {
+  margin: 0 0 0.75rem;
+  color: #e2e8f0;
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+.tec-gradient-map-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-start;
+}
+.tec-gradient-map {
+  flex: 1 1 320px;
+  margin: 0;
+  min-width: 0;
+}
+.tec-gradient-map figcaption {
+  margin-bottom: 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+.tec-gradient-map svg {
+  width: 100%;
+  height: auto;
+  display: block;
 }
 .tec-map-recommendations {
   display: grid;
@@ -8098,6 +8146,51 @@ a.home-map-layer-btn {
 
 .matamba-figures-caption {
   margin-top: 0.35rem;
+}
+
+.matamba-color-key {
+  list-style: none;
+  margin: 0.55rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.matamba-color-key li {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: #ffffff;
+}
+
+.matamba-swatch {
+  flex: 0 0 auto;
+  width: 1.15rem;
+  margin-top: 0.28rem;
+}
+
+.matamba-swatch--dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  margin-top: 0.28rem;
+  margin-left: 0.35rem;
+  margin-right: 0.35rem;
+  border-radius: 50%;
+}
+
+.matamba-swatch--line {
+  height: 3px;
+  border-radius: 2px;
+}
+
+.matamba-swatch--dashed {
+  height: 0;
+  margin-top: 0.45rem;
+  border-top: 2px dashed;
+  background: transparent;
 }
 
 .matamba-figure-stack {

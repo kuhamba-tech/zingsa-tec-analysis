@@ -22,6 +22,8 @@ const nextConfig: NextConfig = {
   experimental: {
     // Tree-shake heavy chart/map barrels so mobile chunks stay smaller.
     optimizePackageImports: ["chart.js", "react-chartjs-2", "ol"],
+    // The 7-day TEC history query can take about a minute when the database is busy.
+    proxyTimeout: 120_000,
   },
   // Next 16 blocks disallowed hosts for /_next/* in development, which can
   // prevent hydration and leave Live Metric stuck on "Connecting".

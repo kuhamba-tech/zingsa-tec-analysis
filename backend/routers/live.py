@@ -59,6 +59,7 @@ _VTEC_LATEST_CACHE_TTL_S = 20.0
 _FRESH_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="zgiis-fresh")
 # Station GOPI history must not wait behind a stuck session-pool checkout.
 _CHART_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="zgiis-vtec-chart")
+_HISTORY_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="zgiis-vtec-history")
 
 # Heavy Gg re-calibration — short TTL so Zimbabwe tab does not stampede the worker.
 _TEC_METHOD_CMP_CACHE: dict[tuple[float, str | None, int], tuple[float, TecMethodComparisonResponse]] = {}
@@ -677,12 +678,13 @@ async def live_vtec_by_station(
 
     cache_key = (float(hours), int(resample_minutes))
     now = time.time()
+    cache_ttl = 300.0 if hours >= 48 else _VTEC_BY_STATION_CACHE_TTL_S
     cached = _VTEC_BY_STATION_CACHE.get(cache_key)
-    if cached and (now - cached[0]) < _VTEC_BY_STATION_CACHE_TTL_S:
+    if cached and (now - cached[0]) < cache_ttl:
         return cached[1]
 
     result = await asyncio.get_running_loop().run_in_executor(
-        _CHART_EXECUTOR,
+        _HISTORY_EXECUTOR if hours >= 48 else _CHART_EXECUTOR,
         lambda h=hours, step=resample_minutes: _build_live_vtec_by_station(
             hours=h,
             resample_minutes=step,
@@ -776,7 +778,7 @@ def _build_live_vtec_by_station(
 
     since = (datetime.now(tz=timezone.utc) - timedelta(hours=hours)).isoformat()
     step = max(1, int(resample_minutes))
-    timeout_ms = int(min(20000, 6000 + float(hours) * 500))
+    timeout_ms = int(min(45000 if hours > 48 else 20000, 6000 + float(hours) * 500))
     conn = None
     try:
         conn = psycopg2.connect(dsn, connect_timeout=5)

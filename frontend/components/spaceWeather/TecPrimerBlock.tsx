@@ -1,6 +1,10 @@
 "use client";
 
 import {
+  IONOLAB_IONOSPHERE_URL,
+  IONOSPHERE_LAYERS,
+  IONOSPHERE_RADIO,
+  IONOSPHERE_REGIONS,
   TEC_DEFINITION,
   TEC_FORMULA,
   TEC_OPERATIONAL_NOTE,
@@ -35,6 +39,18 @@ export default function TecPrimerBlock({ compact = false }: { compact?: boolean 
           ))}
         </tbody>
       </table>
+      <div className="sw-metric-explain-heading">The ionosphere</div>
+      <p className="sw-metric-explain-body">{IONOSPHERE_REGIONS}</p>
+      <p className="sw-metric-explain-body" style={{ marginTop: "0.45rem" }}>{IONOSPHERE_RADIO}</p>
+      {!compact && (
+        <p className="sw-metric-explain-body" style={{ marginTop: "0.45rem" }}>{IONOSPHERE_LAYERS}</p>
+      )}
+      <p className="sw-metric-explain-body" style={{ marginTop: "0.45rem", fontSize: "0.78rem" }}>
+        Source:{" "}
+        <a href={IONOLAB_IONOSPHERE_URL} target="_blank" rel="noreferrer">
+          IONOLAB — General information on the ionosphere
+        </a>
+      </p>
       {!compact && (
         <>
           <p className="sw-metric-explain-body" style={{ marginTop: "0.65rem" }}>
