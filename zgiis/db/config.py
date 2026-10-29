@@ -314,11 +314,29 @@ def transaction(conn):
     """Run one atomic unit on a connection that is normally autocommit.
 
     ``with conn:`` does not open a transaction while autocommit is on.
+    A transaction-mode pooler rejects ``set_session`` (used when autocommit
+    is toggled). Those connections stay in autocommit and use BEGIN/COMMIT.
     """
     if conn is None or getattr(conn, "closed", 1):
         raise DatabaseUnavailable("Supabase Postgres connection is closed")
     previous = conn.autocommit
-    conn.autocommit = False
+    try:
+        conn.autocommit = False
+    except Exception:
+        cur = conn.cursor()
+        try:
+            cur.execute("BEGIN")
+            yield conn
+            cur.execute("COMMIT")
+        except Exception:
+            try:
+                cur.execute("ROLLBACK")
+            except Exception:
+                pass
+            raise
+        finally:
+            cur.close()
+        return
     try:
         yield conn
         conn.commit()
@@ -329,7 +347,10 @@ def transaction(conn):
             pass
         raise
     finally:
-        conn.autocommit = previous
+        try:
+            conn.autocommit = previous
+        except Exception:
+            pass
 
 
 @contextmanager

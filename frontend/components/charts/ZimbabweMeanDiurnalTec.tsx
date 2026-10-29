@@ -126,8 +126,10 @@ export default function ZimbabweMeanDiurnalTec() {
     <section className="station-vtec-plots" aria-label="Mean daily TEC by Zimbabwe region">
       <div className="station-vtec-plots-header">
         <div>
-          <h2>Mean daily TEC — northern, central and southern Zimbabwe</h2>
-          <p className="station-vtec-plots-sub">
+          <h2 className="metric-label" style={{ marginBottom: 4, whiteSpace: "normal", overflow: "visible" }}>
+            Mean daily TEC — northern, central and southern Zimbabwe
+          </h2>
+          <p className="sw-supporting-text" style={{ margin: 0 }}>
             Mean GOPI code TEC at each Universal Time hour. Blue is northern Zimbabwe
             (latitude north of −18.2°), orange is central (north of −20.2°), and yellow is
             southern. The bars are the standard deviation of the measured samples in that

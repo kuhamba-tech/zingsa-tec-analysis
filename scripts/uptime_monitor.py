@@ -10,13 +10,15 @@ from backend.env_bootstrap import load_runtime_env
 load_runtime_env()
 from zgiis.db.uptime_monitor import UptimeMonitorDB
 from zgiis.live.spider_site_status import fetch_spider_site_statuses
-from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
+from zgiis.cors.stations import zingsa_cors_stations
 
 
 def main():
     logging.basicConfig(level=logging.INFO)
     owner = str(uuid.uuid4())
-    codes = {s.code.lower().rstrip('_') for s in ZIMBABWE_CORS_STATIONS}
+    # Spider does not list the Surveyor General sites. They are not part of
+    # the 19-station ZINGSA network, so a complete observation is those 19.
+    codes = {s.code.lower().rstrip('_') for s in zingsa_cors_stations()}
     while True:
         db = None
         try:

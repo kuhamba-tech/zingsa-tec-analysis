@@ -2,7 +2,6 @@
 import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import CorsMap from "./CorsMap";
-import IntermagnetMapReadout from "./IntermagnetMapReadout";
 import LiveTecMethodComparePanel from "./LiveTecMethodComparePanel";
 import NetworkDistancesPanel from "./NetworkDistancesPanel";
 import { TecMapColorbar } from "./TecHeatMapLegend";
@@ -601,7 +600,6 @@ export default function CorsMapWithLayers({
               maxWidth: "calc(100% - 24px)",
             }}
           >
-          <IntermagnetMapReadout />
           <div
             style={{
               display: "inline-flex",

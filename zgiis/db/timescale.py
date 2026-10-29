@@ -689,6 +689,25 @@ class TecDB:
         )
         return int(row[0])
 
+    def recent_code_live_station_codes(self, hours: float = 0.25) -> list[str]:
+        """ZINGSA stations that stored live code TEC in the last N hours."""
+        since = (datetime.now(tz=timezone.utc) - timedelta(hours=hours)).isoformat()
+        with self._io_lock:
+            self._ensure_conn()
+            with self._conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT DISTINCT station FROM vtec_obs
+                    WHERE time >= %s
+                      AND tec_method LIKE %s
+                      AND vtec_tecu > 0
+                      AND vtec_tecu < 200
+                    """,
+                    (since, "%code_live%"),
+                )
+                rows = cur.fetchall()
+        return [str(row[0]).lower().rstrip("_") for row in rows if row and row[0]]
+
     # ── Housekeeping ──────────────────────────────────────────────────────────
 
     def prune_older_than(self, days: int = 90) -> int:

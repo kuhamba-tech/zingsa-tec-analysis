@@ -190,9 +190,9 @@ def build_space_weather_report(
     now = datetime.now(tz=timezone.utc)
     window_start = now - timedelta(hours=win_hours)
 
-    from zgiis.db.space_weather_db import SpaceWeatherDB
+    from zgiis.db.space_weather_db import read_log_dataframe
 
-    df = SpaceWeatherDB().query_dataframe(hours=win_hours, resample=meta.get("resample"))
+    df = read_log_dataframe(hours=win_hours, resample=meta.get("resample"))
     if df.empty:
         return {
             "period": period,

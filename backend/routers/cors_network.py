@@ -1048,7 +1048,11 @@ def rover_clients(
 ):
     """Live NTRIP rover / client counts per CORS (Spider Business Center feed)."""
     from zgiis.live.rover_clients import load_rover_clients
+    from zgiis.live.spider_rover_clients import fetch_spider_rover_snapshot
 
+    live = fetch_spider_rover_snapshot()
+    if live is not None:
+        return RoverClientsOut(**live.to_dict())
     snap = load_rover_clients(force_refresh=refresh)
     return RoverClientsOut(**snap.to_dict())
 

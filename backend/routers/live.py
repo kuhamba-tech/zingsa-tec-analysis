@@ -1062,15 +1062,17 @@ async def live_stations(_=Depends(require_api_key)):
     mean_by_station: dict = {}
     db = _db()
     try:
-        # Operational station state is live only inside the same 90-second
-        # freshness window used for NTRIP stream status. Older DB rows are
-        # historical data and must not keep a marker/value looking current.
-        # One grouped query replaces pulling every observation in that window.
+        # The collector holds one caster socket and gives each connected
+        # ZINGSA station about a minute. A full pass of the stations that
+        # are actually online takes roughly 15 minutes, so a 90-second
+        # cutoff leaves every card except the current socket blank. Show
+        # the mean TEC from each station's latest visit during that pass.
+        # Stations with no measurement in the pass stay empty.
         reader = getattr(type(db), "live_station_mean_vtec", None) if db is not None else None
         if reader is not None:
             mean_by_station = {
                 str(code).lower().rstrip("_"): value
-                for code, value in (db.live_station_mean_vtec(seconds=90.0) or {}).items()
+                for code, value in (db.live_station_mean_vtec(seconds=20 * 60) or {}).items()
             }
             latest_by_station = {code: {"vtec_tecu": value} for code, value in mean_by_station.items()}
         else:
@@ -1083,7 +1085,7 @@ async def live_stations(_=Depends(require_api_key)):
                     df = df[live_mask]
                 if "time" in df.columns:
                     observed_at = pd.to_datetime(df["time"], utc=True, errors="coerce")
-                    cutoff = datetime.now(timezone.utc) - timedelta(seconds=90)
+                    cutoff = datetime.now(timezone.utc) - timedelta(seconds=20 * 60)
                     df = df[observed_at >= cutoff]
                 if not df.empty:
                     latest = df.sort_values("time").groupby("station").tail(1).set_index("station")
@@ -1158,9 +1160,25 @@ async def pipeline_status(_=Depends(require_api_key)):
     # start NTRIP, so the hour count has to come from the database or the
     # dashboard reports the pipeline as stopped while rows are still arriving.
     recent_record_count_1h = int(s.get("recent_vtec_records_1h") or 0)
+    active_streams = int(s["active_streams"] or 0)
+    streams = dict(s.get("streams") or {})
+    message = s.get("message")
+    ingest_enabled = bool(s.get("ingest_enabled", True))
     try:
         if db is not None:
             recent_record_count_1h = int(db.recent_code_live_count(hours=1.0))
+            if active_streams == 0:
+                from zgiis.cors.stations import is_surveyor_general
+
+                codes = [
+                    code
+                    for code in db.recent_code_live_station_codes(hours=0.25)
+                    if code and not is_surveyor_general(code)
+                ]
+                if codes:
+                    active_streams = len(codes)
+                    ingest_enabled = True
+                    message = "Dedicated collector is storing live TEC for the ZINGSA stations."
     except Exception as exc:
         log.warning("pipeline recent TEC count failed: %s", exc)
     db_backend = s.get("db_backend") or "supabase"
@@ -1173,9 +1191,9 @@ async def pipeline_status(_=Depends(require_api_key)):
         if db_backend == "unknown":
             db_backend = "supabase"
     return LivePipelineStatus(
-        ntrip_configured=s["configured"],
-        active_streams=s["active_streams"],
-        streams=s["streams"],
+        ntrip_configured=s["configured"] or active_streams > 0,
+        active_streams=active_streams,
+        streams=streams,
         db_backend=db_backend,
         db_env_key=s.get("db_env_key"),
         db_host_kind=s.get("db_host_kind", "supabase"),
@@ -1183,8 +1201,8 @@ async def pipeline_status(_=Depends(require_api_key)):
         recent_record_count_1h=recent_record_count_1h,
         diagnostics=s.get("diagnostics") or {},
         runtime_mode=s.get("runtime_mode", "persistent-process"),
-        ingest_enabled=bool(s.get("ingest_enabled", True)),
-        message=s.get("message"),
+        ingest_enabled=ingest_enabled,
+        message=message,
     )
 
 

@@ -14,7 +14,7 @@ import {
 import { peekStations } from "@/lib/stationsStore";
 import MetricCard from "@/components/cards/MetricCard";
 import LineChart from "@/components/charts/LineChart";
-import { countLiveStationStatuses, formatCorsConnectedDisplay } from "@/lib/liveStationStatus";
+import { countLiveStationStatuses, formatCorsConnectedDisplay, ZINGSA_STATION_TOTAL } from "@/lib/liveStationStatus";
 import type { Station } from "@/lib/types";
 import type {
   LiveObservation,
@@ -184,12 +184,10 @@ export default function LivePipelinePage() {
   const latencyChartLabels = latencyRows.slice(0, 12).map((s) => s.code.toUpperCase());
   const latencyChartData = latencyRows.slice(0, 12).map((s) => s.latency_ms ?? 0);
   const vtecOnline = stationStatus.filter((s) => !s.stale && s.last_vtec != null && s.last_vtec > 0).length;
-  const total = corsStations.length || stationStatus.length || 25;
-  const corsCounts = countLiveStationStatuses(corsStations, total);
+  const corsCounts = countLiveStationStatuses(corsStations, ZINGSA_STATION_TOTAL);
   const corsConnected = formatCorsConnectedDisplay(corsCounts);
-  const configuredStreams = pipelineStatus ? Object.keys(pipelineStatus.streams ?? {}).length : 0;
   const activeStreams = pipelineStatus?.active_streams ?? 0;
-  const streamTotal = configuredStreams || total;
+  const streamTotal = ZINGSA_STATION_TOTAL;
   const streamRows = pipelineStatus?.streams ? Object.entries(pipelineStatus.streams) : [];
   const pipelineDiagnostics = pipelineStatus?.diagnostics ?? {};
   const ntripState = pipelineStatus

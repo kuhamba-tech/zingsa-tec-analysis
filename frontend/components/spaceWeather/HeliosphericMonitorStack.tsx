@@ -46,7 +46,7 @@ const SymhRingCurrentChart = dynamic(() => import("./SymhRingCurrentChart"), {
   ssr: false,
   loading: () => (
     <div className="banner banner-info" role="status">
-      Loading SYM-H…
+      Loading ring current…
     </div>
   ),
 });
@@ -381,7 +381,7 @@ export default function HeliosphericMonitorStack() {
 
           <PanelShell
             title="GFZ / NOAA planetary Kp · observed & forecast"
-            subtitle="NOAA planetary K-index forecast · observed (green) · estimated (amber) · predicted (cyan) · Kyoto Dst (white line, right axis) · SYM-H ring current plotted underneath · time axis UTC"
+            subtitle="NOAA planetary K-index forecast · observed (green) · estimated (amber) · predicted (cyan) · Kyoto Dst (white line, right axis) · live hourly Dst ring current plotted underneath · time axis UTC"
             panelId="kp"
             selected={selected === "kp"}
             onToggle={toggle}
@@ -401,7 +401,12 @@ export default function HeliosphericMonitorStack() {
                   dstTimes={data.dst?.times}
                   dstEpochMs={data.dst?.epoch_ms}
                 />
-                <SymhRingCurrentChart />
+                <SymhRingCurrentChart
+                  dst={data.dst?.dst}
+                  labels={data.dst?.labels}
+                  times={data.dst?.times}
+                  epochMs={data.dst?.epoch_ms}
+                />
               </>
             ) : (
               <div className="banner banner-info">

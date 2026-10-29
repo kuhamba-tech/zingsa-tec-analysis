@@ -4561,6 +4561,30 @@ a.home-map-layer-btn {
   font-size: 0.78rem;
   font-weight: 700;
 }
+.tec-gradient-hybrid {
+  height: 420px;
+  width: 100%;
+  border: 1px solid #244d73;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #07111c;
+}
+.tec-gradient-hybrid .ol-viewport {
+  border-radius: 8px;
+}
+.tec-gradient-scale {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-top: 0.4rem;
+  color: #e2e8f0;
+  font-size: 0.72rem;
+}
+.tec-gradient-scale i {
+  flex: 1 1 auto;
+  height: 10px;
+  border-radius: 999px;
+}
 .tec-gradient-map svg {
   width: 100%;
   height: auto;

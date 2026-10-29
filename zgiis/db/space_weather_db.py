@@ -10,6 +10,7 @@ Stored in Supabase Postgres.
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -372,31 +373,96 @@ class SpaceWeatherDB:
         else:
             df = pd.read_sql_query(sql, self._conn, params=[since])
 
-        if df.empty:
-            return df
+        return _finalize_log_frame(df, resample)
 
-        df["time"] = pd.to_datetime(df["time"], utc=True, errors="coerce")
-        df = df.dropna(subset=["time"]).set_index("time").sort_index()
 
-        if resample:
-            numeric = [c for c in _NUMERIC_COLUMNS if c in df.columns]
-            averaged = df[numeric].resample(resample).mean(numeric_only=True)
-            # A station count is not a rate. Averaging a real 14 with a catalog
-            # size (19 or 25) draws a peak near 18 that never happened.
-            if "stations_online" in averaged.columns:
-                cap = _zingsa_station_cap()
-                online = df["stations_online"]
-                total = df["stations_total"] if "stations_total" in df.columns else None
-                plausible = online.where((online >= 2) & (online <= cap))
-                # 19/19 and 25/25 are the catalog length, not stations that
-                # came online. Averaging those with a real 14 draws a peak
-                # near 18.
-                if total is not None:
-                    plausible = plausible.where(online < total.fillna(cap + 1))
-                averaged["stations_online"] = plausible.resample(resample).median()
-            df = averaged
+def _finalize_log_frame(df: pd.DataFrame, resample: str | None) -> pd.DataFrame:
+    """Sort the archive and, when asked, average it onto the report grid."""
+    if df.empty:
+        return df
 
-        return df.reset_index()
+    df = df.copy()
+    df["time"] = pd.to_datetime(df["time"], utc=True, errors="coerce")
+    df = df.dropna(subset=["time"]).set_index("time").sort_index()
+
+    if resample:
+        numeric = [c for c in _NUMERIC_COLUMNS if c in df.columns]
+        averaged = df[numeric].resample(resample).mean(numeric_only=True)
+        # A station count is not a rate. Averaging a real 14 with a catalog
+        # size (19 or 25) draws a peak near 18 that never happened.
+        if "stations_online" in averaged.columns:
+            cap = _zingsa_station_cap()
+            online = df["stations_online"]
+            total = df["stations_total"] if "stations_total" in df.columns else None
+            plausible = online.where((online >= 2) & (online <= cap))
+            # 19/19 and 25/25 are the catalog length, not stations that
+            # came online. Averaging those with a real 14 draws a peak
+            # near 18.
+            if total is not None:
+                plausible = plausible.where(online < total.fillna(cap + 1))
+            averaged["stations_online"] = plausible.resample(resample).median()
+        df = averaged
+
+    return df.reset_index()
+
+
+def read_log_dataframe(
+    hours: float = 24.0,
+    *,
+    resample: str | None = None,
+) -> pd.DataFrame:
+    """Read the space-weather archive through the transaction pooler.
+
+    The report must not borrow a session-pool connection. That pool is capped
+    and a held checkout is what made the production report return 503.
+    """
+    import psycopg2
+
+    from zgiis.db.config import ensure_sslmode, pooled_database_dsn
+
+    candidates: list[str] = []
+    pooler = pooled_database_dsn()
+    session = ensure_sslmode(os.getenv("SUPABASE_DATABASE_URL") or "")
+    for dsn in (pooler, session):
+        if dsn and dsn not in candidates:
+            candidates.append(dsn)
+    if not candidates:
+        log.error("SUPABASE_POOLER_URL is not configured")
+        return pd.DataFrame()
+
+    since = (datetime.now(tz=timezone.utc) - timedelta(hours=hours)).isoformat()
+    timeout_ms = int(min(20000, 8000 + float(hours) * 2))
+    sql = """
+        SELECT time, kp, kp_condition, dst, f107, plasma_speed, s4,
+               gnss_risk, gnss_risk_score, stations_online, stations_total, mean_vtec
+        FROM space_weather_log
+        WHERE time >= %s
+        ORDER BY time
+    """
+    last_error: Exception | None = None
+    for dsn in candidates:
+        conn = None
+        try:
+            conn = psycopg2.connect(dsn, connect_timeout=5)
+            conn.autocommit = True
+            with conn.cursor() as cur:
+                cur.execute(f"SET statement_timeout = '{timeout_ms}'")
+                cur.execute(sql, (since,))
+                rows = cur.fetchall()
+                columns = [desc[0] for desc in cur.description]
+            if not rows:
+                return pd.DataFrame(columns=columns)
+            return _finalize_log_frame(pd.DataFrame(rows, columns=columns), resample)
+        except Exception as exc:
+            last_error = exc
+        finally:
+            if conn is not None:
+                conn.close()
+    log.warning(
+        "space-weather report archive read failed: %s",
+        type(last_error).__name__ if last_error else "unavailable",
+    )
+    return pd.DataFrame()
 
     def correlation_matrix(
         self,

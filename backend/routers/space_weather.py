@@ -695,15 +695,9 @@ def space_weather_report(
     if period not in REPORT_WINDOWS:
         raise HTTPException(status_code=422, detail=f"Invalid period. Choose from: {', '.join(REPORT_WINDOWS)}")
 
-    hours = REPORT_WINDOWS[period]["hours"]
-    uptime_rows: list[dict] = []
-    try:
-        from backend.station_status_logger import get_db as get_status_db
-        uptime_rows = get_status_db().uptime_summary(hours=hours)
-    except Exception:
-        pass
-
-    payload = build_space_weather_report(period, uptime_rows=uptime_rows)
+    # Station uptime uses a session-pool checkout that can sit forever when
+    # that pool is full. The report itself is the archive, so do not wait on it.
+    payload = build_space_weather_report(period, uptime_rows=[])
     return SpaceWeatherReportResponse(**payload)
 
 

@@ -339,7 +339,9 @@ export const getHeliosphericMonitor = (forceRefresh = false, requireNetwork = fa
   if (!forceRefresh && !requireNetwork && cached) {
     const recentlyFetched = Date.now() - lastHelioNetworkAt < LIVE_REFRESH_MIN_MS;
     if (recentlyFetched) return Promise.resolve(cached);
-    const pending = dedupeGet("space-weather/heliospheric-monitor", () =>
+    // Paint can use the stored series, but the caller must receive the NOAA
+    // refresh. Returning the cache here left the ring-current line a day behind.
+    return dedupeGet("space-weather/heliospheric-monitor", () =>
       get<HeliosphericMonitorResponse>(
         "/space-weather/heliospheric-monitor",
         { _ts: Date.now() },
@@ -351,8 +353,6 @@ export const getHeliosphericMonitor = (forceRefresh = false, requireNetwork = fa
         })
         .catch(() => cached),
     );
-    void pending;
-    return Promise.resolve(cached);
   }
 
   return dedupeGet(`space-weather/heliospheric-monitor${forceRefresh ? ":refresh" : ""}${requireNetwork ? ":verified" : ""}`, () =>

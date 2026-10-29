@@ -22,7 +22,7 @@ def test_report_handles_archive_without_optional_tec_column():
     )
 
     with patch(
-        "zgiis.db.space_weather_db.SpaceWeatherDB.query_dataframe",
+        "zgiis.db.space_weather_db.read_log_dataframe",
         return_value=archive,
     ):
         report = build_space_weather_report("daily")

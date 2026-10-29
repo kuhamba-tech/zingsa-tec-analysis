@@ -1,14 +1,62 @@
 """Durable, confirmed Spider transitions; existing archives remain untouched."""
 from datetime import datetime, timezone
+import os
 import uuid
 
 from zgiis.db.config import schema_init_enabled
-from zgiis.db.station_status_db import StationStatusDB
+
+
+class _DirectMonitorConnection:
+    """One Postgres connection that is closed when the check finishes.
+
+    The session pool is capped. Holding a checkout there is what made the
+    station-uptime page report that the database was not configured.
+    """
+
+    def __init__(self, conn, dsn: str):
+        self._dsn = dsn
+        self._is_pg = True
+        self._conn = conn
+
+    def close(self) -> None:
+        conn = self._conn
+        self._conn = None
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def _open_monitor_db():
+    import psycopg2
+
+    from zgiis.db.config import DatabaseUnavailable, ensure_sslmode, pooled_database_dsn
+
+    candidates: list[str] = []
+    for dsn in (
+        pooled_database_dsn(),
+        ensure_sslmode(os.getenv("SUPABASE_DATABASE_URL") or ""),
+    ):
+        if dsn and dsn not in candidates:
+            candidates.append(dsn)
+    if not candidates:
+        raise DatabaseUnavailable("SUPABASE_DATABASE_URL is not configured")
+    last_error: Exception | None = None
+    for dsn in candidates:
+        try:
+            conn = psycopg2.connect(dsn, connect_timeout=5)
+        except Exception as exc:
+            last_error = exc
+            continue
+        conn.autocommit = True
+        return _DirectMonitorConnection(conn, dsn)
+    raise DatabaseUnavailable("Supabase Postgres init failed") from last_error
 
 
 class UptimeMonitorDB:
     def __init__(self, db=None):
-        self.db = db or StationStatusDB()
+        self.db = db if db is not None else _open_monitor_db()
         if self.db._dsn and not self.db._is_pg:
             self.db.close()
             raise RuntimeError('Configured monitoring database unavailable; refusing a separate local archive')
