@@ -11,6 +11,7 @@ export default function SpaceWeatherBootScript() {
       id="zgiis-sw-boot"
       src={typeof window === "undefined" ? "/zgiis-sw-boot.js" : undefined}
       type={typeof window === "undefined" ? "text/javascript" : "text/plain"}
+      async
       suppressHydrationWarning
     />
   );

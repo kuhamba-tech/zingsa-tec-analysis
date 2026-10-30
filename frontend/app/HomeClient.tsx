@@ -273,19 +273,10 @@ export default function HomeClient({ initialSw = null }: HomeClientProps) {
     void bootSpaceWeather().then((sw) => {
       if (sw) applySw(sw, "ok");
     });
-    // Prefetch heavy timeline/map chunk after first paint (desktop + mobile).
-    const cancelPrefetch = scheduleSecondary(() => {
-      void import("@/lib/loadCauseEffectTimeline")
-        .then(({ prefetchCauseEffectTimelineStack }) => {
-          prefetchCauseEffectTimelineStack();
-        })
-        .catch(() => null);
-    }, getLoadProfile());
 
     return () => {
       cancelled = true;
       window.clearInterval(poll);
-      cancelPrefetch();
     };
   }, []);
 
@@ -550,8 +541,6 @@ export default function HomeClient({ initialSw = null }: HomeClientProps) {
       <DeferredMount
         className="sw-deferred-block"
         minHeight={320}
-        rootMargin="480px 0px"
-        eager
         fallback={
           <div className="banner banner-info" role="status" style={{ margin: "0.75rem 0" }}>
             Loading timelines and CORS map…
@@ -608,12 +597,12 @@ export default function HomeClient({ initialSw = null }: HomeClientProps) {
                     <h3 className="home-step-title">{item.title}</h3>
                     <p className="home-step-desc">{item.desc}</p>
                     <div className="home-step-actions">
-                      <Link href={item.href} className="home-step-cta">
+                      <Link href={item.href} className="home-step-cta" prefetch={false}>
                         {item.cta}
                         <span aria-hidden="true"> →</span>
                       </Link>
                       {"altHref" in item && item.altHref && (
-                        <Link href={item.altHref} className="home-step-alt">
+                        <Link href={item.altHref} className="home-step-alt" prefetch={false}>
                           {item.altLabel}
                         </Link>
                       )}
@@ -630,7 +619,7 @@ export default function HomeClient({ initialSw = null }: HomeClientProps) {
         <h2 className="home-section-heading">Analysis Modules</h2>
         <div className="analysis-modules-grid">
           {MODULES.map(({ href, icon, title, desc }) => (
-            <Link key={href} href={href} className="home-module-link">
+            <Link key={href} href={href} className="home-module-link" prefetch={false}>
               <div className="card card-accent home-module-card">
                 <div className="home-module-icon">{icon}</div>
                 <div className="home-module-title">{title}</div>

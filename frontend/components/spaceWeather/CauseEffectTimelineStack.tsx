@@ -671,8 +671,6 @@ export default function CauseEffectTimelineStack({
         <DeferredMount
           className="sw-deferred-block"
           minHeight={260}
-          rootMargin="240px 0px"
-          eager
           fallback={
             <div className="home-map-loading" role="status" aria-live="polite">
               <span className="home-map-loading-spinner" aria-hidden="true" />

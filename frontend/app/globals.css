@@ -7988,6 +7988,12 @@ a.home-map-layer-btn {
   contain-intrinsic-size: 320px;
 }
 
+.home-getting-started,
+.home-modules {
+  content-visibility: auto;
+  contain-intrinsic-size: 280px;
+}
+
 .space-weather-page .sw-deferred-block + .sw-deferred-block {
   margin-top: 0.25rem;
 }

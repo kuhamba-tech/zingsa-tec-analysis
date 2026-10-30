@@ -33,7 +33,9 @@ export default function DeferredMount({
   minHeight,
 }: Props) {
   const ref = useRef<HTMLDivElement | null>(null);
-  const [visible, setVisible] = useState(eager && minDelayMs <= 0);
+  // Always start hidden. `eager && minDelayMs <= 0` used to set this true on the
+  // first render, which mounted Chart.js / OpenLayers before the phone check ran.
+  const [visible, setVisible] = useState(false);
   const [margin, setMargin] = useState(rootMargin ?? "120px 0px");
 
   useEffect(() => {
@@ -42,8 +44,8 @@ export default function DeferredMount({
       return;
     }
     const profile = getLoadProfile();
-    // Tighter preload on phones so OpenLayers / Chart.js stay off the critical path.
-    setMargin(profile.slowNetwork ? "0px 0px" : profile.lightPayload ? "24px 0px" : "120px 0px");
+    // Tighter preload on phones and Android TV so OpenLayers / Chart.js stay off the critical path.
+    setMargin(profile.tv || profile.slowNetwork ? "0px 0px" : profile.lightPayload ? "24px 0px" : "120px 0px");
   }, [rootMargin]);
 
   useEffect(() => {
@@ -67,10 +69,18 @@ export default function DeferredMount({
 
     const arm = () => {
       if (cancelled) return;
-      if (delayFloor > 0) {
+      // A block already on screen during startup waits so Chart.js / OpenLayers
+      // do not compete with the metric cards. Android TV is a wide screen, so
+      // those blocks are in view immediately — hold them longer than a phone.
+      // A later scroll, or a section that mounts after the first paint, starts quickly.
+      const duringStartup = performance.now() < (profile.tv ? 2800 : 1200);
+      const wait = duringStartup
+        ? Math.max(delayFloor, profile.tv ? 3600 : profile.lightPayload ? 1500 : 900)
+        : Math.min(delayFloor, 220);
+      if (wait > 0) {
         delayHandle = window.setTimeout(() => {
           if (!cancelled) setVisible(true);
-        }, delayFloor) as unknown as number;
+        }, wait) as unknown as number;
       } else {
         setVisible(true);
       }

@@ -5,8 +5,10 @@
  */
 
 export type LoadProfile = {
-  /** Narrow viewport or coarse pointer — treat as phone/tablet. */
+  /** Phone, tablet, or a large-screen Android TV / leanback browser. */
   constrained: boolean;
+  /** Android TV, Fire TV, or another 10-foot browser. Wide, but slow to parse JS. */
+  tv: boolean;
   /** Navigator reports Save-Data or slow effective connection. */
   slowNetwork: boolean;
   /** Prefer smaller timeline payloads and longer poll intervals. */
@@ -70,11 +72,28 @@ function isConstrainedViewport(): boolean {
   );
 }
 
+/**
+ * Android TV, Fire TV, Google TV, and other leanback browsers.
+ * The viewport is 1080p or 4K, so a width check treats them as desktops and
+ * pulls Chart.js plus OpenLayers onto the first screen. The CPU is closer to a phone.
+ */
+export function isAndroidTvClient(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent || "";
+  if (/Android TV|Google TV|Fire TV|BRAVIA|Leanback|\bAFT[A-Z0-9]+\b|SHIELD Android TV|MiBOX|Nexus Player/i.test(ua)) {
+    return true;
+  }
+  if (typeof window.matchMedia !== "function") return false;
+  // Remote-controlled large screen. Touchscreen laptops still report hover.
+  return window.matchMedia("(min-width: 960px) and (pointer: coarse) and (hover: none)").matches;
+}
+
 /** SSR-safe profile — prefer light defaults so first HTML never assumes desktop fibre. */
 export function getLoadProfile(): LoadProfile {
   if (typeof window === "undefined") {
     return {
       constrained: true,
+      tv: false,
       slowNetwork: false,
       lightPayload: true,
       pollIntervalMs: 90_000,
@@ -90,31 +109,34 @@ export function getLoadProfile(): LoadProfile {
     };
   }
   const constrained = isConstrainedViewport();
+  const tv = isAndroidTvClient();
   const { saveData, slow } = connectionHints();
   const cursorPreview = isCursorCloudPreview();
   // Cursor CVM ingress + multi-MB webpack chunks: always start light even on
   // a wide desktop viewport so metric cards win over Chart.js / OpenLayers.
-  const lightPayload = constrained || saveData || slow || cursorPreview;
-  const slowNetwork = saveData || slow || cursorPreview;
+  // Android TV is wide too, but parsing those libraries stalls the first paint.
+  const lightPayload = constrained || tv || saveData || slow || cursorPreview;
+  const slowNetwork = saveData || slow || cursorPreview || tv;
   return {
-    constrained: constrained || cursorPreview,
+    constrained: constrained || cursorPreview || tv,
+    tv,
     slowNetwork,
     lightPayload,
     // Both desktop and mobile: longer polls reduce background contention.
     pollIntervalMs: slowNetwork ? 180_000 : constrained ? 120_000 : 60_000,
-    timelineMaxPoints: slowNetwork ? 32 : constrained ? 48 : 96,
+    timelineMaxPoints: tv ? 24 : slowNetwork ? 32 : constrained ? 48 : 96,
     // Cursor: short delay so shared Chart.js can prefetch, then graphs mount.
-    heavyMountDelayMs: cursorPreview ? 550 : slowNetwork ? 700 : constrained ? 280 : 80,
+    heavyMountDelayMs: tv ? 1600 : cursorPreview ? 550 : slowNetwork ? 700 : constrained ? 280 : 80,
     // Always skip heliospheric/timeline warm on first paint — tabs warm on demand.
     deferSecondaryApis: true,
     // Station status is a live count, so it follows the metric cards closely.
     // The slower Gg comparison is scheduled separately and must not delay this.
-    stationsDeferMs: cursorPreview ? 900 : slowNetwork ? 600 : constrained ? 220 : 60,
+    stationsDeferMs: tv ? 900 : cursorPreview ? 900 : slowNetwork ? 600 : constrained ? 220 : 60,
     // Short first window everywhere; users can expand to 24h / 3d.
     defaultRangeHours: 6,
     vtecResampleMinutes: slowNetwork ? 15 : constrained ? 10 : 5,
-    vtecHoursCap: slowNetwork ? 12 : constrained ? 18 : 24,
-    chartMaxPoints: cursorPreview ? 48 : slowNetwork ? 40 : constrained ? 64 : 120,
+    vtecHoursCap: tv ? 6 : slowNetwork ? 12 : constrained ? 18 : 24,
+    chartMaxPoints: tv ? 32 : cursorPreview ? 48 : slowNetwork ? 40 : constrained ? 64 : 120,
     chartAnimations: false,
   };
 }
@@ -161,11 +183,13 @@ export function scheduleSecondary(fn: () => void, profile?: LoadProfile): () => 
   // Cursor CVM: warm graph APIs sooner so charts are not starved after paint.
   const timeout = isCursorCloudPreview()
     ? 700
-    : p.slowNetwork
-      ? 4200
-      : p.constrained
-        ? 2600
-        : 1100;
+    : p.tv
+      ? 5000
+      : p.slowNetwork
+        ? 4200
+        : p.constrained
+          ? 2600
+          : 1100;
   return afterNextPaint(fn, timeout);
 }
 

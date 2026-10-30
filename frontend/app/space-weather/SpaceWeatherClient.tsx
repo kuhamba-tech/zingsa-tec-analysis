@@ -15,7 +15,6 @@ import {
 } from "@/lib/solarActivityStore";
 import { peekStations, subscribeStations } from "@/lib/stationsStore";
 import { ensureLiveTecHeatmap } from "@/lib/tecHeatmapStore";
-import { loadCorsMapWithLayers } from "@/lib/loadCorsMapWithLayers";
 import ClickableMetricGrid from "@/components/spaceWeather/ClickableMetricGrid";
 import DeferredMount from "@/components/spaceWeather/DeferredMount";
 import SwSectionBanner from "@/components/spaceWeather/SwSectionBanner";
@@ -28,7 +27,6 @@ import {
   scheduleSecondary,
   type LoadProfile,
 } from "@/lib/loadBudget";
-import { prefetchLineChart } from "@/lib/loadLineChart";
 import type { ChartAnalysisBlock } from "@/lib/multiSourceChartAnalysis";
 import {
   analyzeF107Timeline,
@@ -491,20 +489,16 @@ export default function SpaceWeatherClient({
 
   useEffect(() => {
     // Measured live TEC is a short request, so it starts with the cards.
-    // OpenLayers and the Gg comparison are heavier and wait until after paint,
-    // a little longer on a phone, so they do not delay the indices.
+    // OpenLayers loads with the CORS map when that section nears the viewport.
+    // The Gg comparison waits until after paint, and only on a fast desktop.
     ensureLiveTecHeatmap();
     const profile = getLoadProfile();
-    const stopMap = afterNextPaint(() => {
-      void loadCorsMapWithLayers();
-    }, profile.constrained ? 650 : 140);
-    const stopGg = profile.constrained
+    const stopGg = profile.lightPayload
       ? () => undefined
       : afterNextPaint(() => {
           void getTecMethodComparison(2, undefined, 300, 60_000).catch(() => null);
-        }, 450);
+        }, 1200);
     return () => {
-      stopMap();
       stopGg();
     };
   }, []);
@@ -701,9 +695,6 @@ export default function SpaceWeatherClient({
 
   useEffect(() => {
     const profile = getLoadProfile();
-    // Start Chart.js download immediately after first paint so GOES / timelines
-    // do not wait on a cold multi-MB chunk over the Cursor ingress.
-    const stopPrefetch = afterNextPaint(() => prefetchLineChart(), 40);
     void bootSpaceWeather().then((boot) => {
       if (!boot) return;
       setSw(boot);
@@ -736,7 +727,6 @@ export default function SpaceWeatherClient({
       if (!peekSpaceWeather()) fetchAll(false);
     }, 5_500);
     return () => {
-      stopPrefetch();
       window.clearInterval(id);
       window.clearTimeout(watchdog);
       window.clearTimeout(retry1);
@@ -1182,7 +1172,7 @@ export default function SpaceWeatherClient({
         <SwSectionBanner
           icon="🔔"
           title="NOAA alerts, watches and warnings"
-          meta={<Link href="/storm-watch/">Open Alerts →</Link>}
+          meta={<Link href="/storm-watch/" prefetch={false}>Open Alerts →</Link>}
         />
         <p className="sw-supporting-text sw-hide-on-narrow" style={{ margin: "0.75rem 0 0" }}>
           Recent SWPC bulletins and feed status are listed on the Alerts page with storm watches.
@@ -1195,7 +1185,6 @@ export default function SpaceWeatherClient({
           <DeferredMount
             className="sw-deferred-block"
             minHeight={320}
-            rootMargin="720px 0px"
             minDelayMs={loadProfile.heavyMountDelayMs}
             fallback={sectionFallback}
           >
@@ -1245,7 +1234,13 @@ export default function SpaceWeatherClient({
             <span>solar monitor-live data</span>
           </div>
 
-          {/* First paint: only GOES + F10.7. Heavy stacks wait so CVM ingress is not flooded. */}
+          {/* Chart.js stays off the first download until this block nears the viewport. */}
+          <DeferredMount
+            className="sw-deferred-block"
+            minHeight={420}
+            minDelayMs={loadProfile.heavyMountDelayMs}
+            fallback={sectionFallback}
+          >
           <GoesSolarXrayCard
             title="1 · SOLAR X-RAY FLUX (GOES-16) · 0.1–0.8 nm"
             xraySlice={xraySlice}
@@ -1275,6 +1270,7 @@ export default function SpaceWeatherClient({
             emptyMsg="Live NOAA F10.7 feed unavailable."
             {...liveMetricSync}
           />
+          </DeferredMount>
 
           <DeferredMount
             className="sw-deferred-block"
@@ -1525,9 +1521,7 @@ export default function SpaceWeatherClient({
           <DeferredMount
             className="sw-deferred-block"
             minHeight={280}
-            rootMargin="200px 0px"
-            minDelayMs={0}
-            eager
+            minDelayMs={loadProfile.heavyMountDelayMs}
             fallback={sectionFallback}
           >
             <CauseEffectTimelineStack
