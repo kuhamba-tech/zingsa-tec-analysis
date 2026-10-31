@@ -142,10 +142,12 @@ function lineWithGaps(points: Point[], gapMs = 6 * 60 * 60 * 1000): Point[] {
 export default function TecMapRmseChart() {
   const [data, setData] = useState<IonoResponseFigures | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     const load = () => {
+      setError(null);
       getIonoResponseFigures(180)
         .then((payload) => {
           if (cancelled) return;
@@ -157,12 +159,12 @@ export default function TecMapRmseChart() {
         });
     };
     load();
-    const timer = window.setInterval(load, 180_000);
+    const timer = window.setInterval(load, 30_000);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, []);
+  }, [retry]);
 
   const chart = useMemo(() => {
     const rows = stride((data?.rmse ?? []).filter((point) => finite(point.rmse)), 3500);
@@ -293,7 +295,9 @@ export default function TecMapRmseChart() {
       {!data && !error && (
         <div className="banner banner-info" role="status">Calculating TEC map RMSE…</div>
       )}
-      {error && !chart && <div className="banner banner-warn">{error}</div>}
+      {error && !chart && <div className="banner banner-warn" role="status">
+        {error} <button className="btn" onClick={() => setRetry((value) => value + 1)}>Retry RMSE</button>
+      </div>}
       {data && !chart && (
         <div className="banner banner-info">
           {data.note || "No pierce-point maps yet. Hours without code TEC stay empty."}

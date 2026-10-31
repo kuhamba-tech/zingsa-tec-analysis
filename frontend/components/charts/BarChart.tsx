@@ -15,7 +15,7 @@ interface Props {
 
 export default function BarChart({ labels, values, errors, yLabel = "VTEC (TECU)", color = "#168bd2", height = 280 }: Props) {
   return (
-    <div style={{ height, position: "relative" }}>
+    <div style={{ height, position: "relative", minWidth: 0, width: "100%" }}>
       <Bar
         data={{
           labels,
@@ -30,6 +30,10 @@ export default function BarChart({ labels, values, errors, yLabel = "VTEC (TECU)
         }}
         options={{
           responsive: true,
+          // Chart.js does not cancel delayed resize updates on destroy.
+          resizeDelay: 0,
+          animation: false,
+          devicePixelRatio: typeof window === "undefined" ? 1 : Math.min(window.devicePixelRatio || 1, 2),
           maintainAspectRatio: false,
           plugins: { legend: { display: false } },
           scales: {

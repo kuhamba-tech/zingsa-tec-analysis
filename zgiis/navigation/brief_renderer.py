@@ -119,6 +119,15 @@ def _render_structured_brief(brief: dict[str, Any], *, lang: str, mode: str) -> 
     else:
         lines.append(f"{lbl['agency']} — {title}")
 
+    if brief.get("brief_generated_at"):
+        from zgiis.navigation.plain_news import _parse_time, news_time_lines
+
+        lines.extend(news_time_lines(
+            _parse_time(brief.get("data_observed_at")),
+            _parse_time(brief.get("brief_generated_at")),
+            _parse_time(brief.get("data_checked_at")),
+        ))
+
     if headline:
         lines.append("")
         lines.append(headline if lang == "en" else f"{headline}")

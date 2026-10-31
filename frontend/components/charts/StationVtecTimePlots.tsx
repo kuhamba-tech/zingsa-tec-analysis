@@ -10,6 +10,7 @@ import type {
   TecMethodStationCompare,
 } from "@/lib/types";
 import LineChart from "@/components/charts/LineChart";
+import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
 import { idwFillByStation, type LatLonSite } from "@/lib/idwSurface";
 import { isSurveyorGeneral, ZINGSA_STATION_TOTAL } from "@/lib/liveStationStatus";
 import { runMeanVtecEkf } from "@/lib/meanVtecEkf";
@@ -435,58 +436,55 @@ function StationChartCard({
     methodRow?.gg_latest ??
     (ggPoints.length ? ggPoints[ggPoints.length - 1]?.vtec_tecu ?? null : null);
 
-  const datasets = [
-    ...(merged.hasInterpolated
-      ? [
-          {
-            label: "Interpolated data",
-            data: merged.interpolated,
-            color: INTERP_COLOR,
-            borderDash: [8, 3, 2, 3],
-            borderWidth: 2.5,
-            fill: false,
-            spanGaps: true,
-          },
-        ]
-      : []),
-    ...(merged.hasObserved
-      ? [
-          {
-            label: "Observed GOPI (NTRIP)",
-            data: merged.observed,
-            color: OBS_COLOR,
-            fill: true,
-            spanGaps: true,
-          },
-        ]
-      : []),
-    ...(merged.hasGlobal
-      ? [
-          {
-            label: "Global TEC (DLR)",
-            data: merged.global,
-            color: GLOBAL_COLOR,
-            dashed: true,
-            fill: false,
-            spanGaps: true,
-          },
-        ]
-      : []),
-    ...(merged.hasGg
-      ? [
-          {
-            label: "Gg = Cesaroni",
-            data: merged.gg,
-            color: GG_LINE_COLOR,
-            // Dotted — distinct from solid GOPI and dashed Global TEC.
-            borderDash: [2, 3],
-            borderWidth: 2.5,
-            fill: false,
-            spanGaps: true,
-          },
-        ]
-      : []),
-  ];
+  // A station with its own GOPI samples opens on the observed chart.
+  // A station with none (Binga, Chimanimani, any other silent site) opens on
+  // the interpolated series, with the global map beside it.
+  const interpolatedDataset = {
+    label: "Interpolated data",
+    data: merged.interpolated,
+    color: INTERP_COLOR,
+    borderDash: [8, 3, 2, 3] as number[],
+    borderWidth: 2.5,
+    fill: false,
+    spanGaps: true,
+  };
+  const globalDataset = {
+    label: "Global TEC (DLR)",
+    data: merged.global,
+    color: GLOBAL_COLOR,
+    dashed: true,
+    fill: false,
+    spanGaps: true,
+  };
+  const datasets = merged.hasObserved
+    ? [
+        ...(merged.hasInterpolated ? [interpolatedDataset] : []),
+        {
+          label: "Observed GOPI (NTRIP)",
+          data: merged.observed,
+          color: OBS_COLOR,
+          fill: true,
+          spanGaps: true,
+        },
+        ...(merged.hasGlobal ? [globalDataset] : []),
+        ...(merged.hasGg
+          ? [
+              {
+                label: "Gg = Cesaroni",
+                data: merged.gg,
+                color: GG_LINE_COLOR,
+                borderDash: [2, 3] as number[],
+                borderWidth: 2.5,
+                fill: false,
+                spanGaps: true,
+              },
+            ]
+          : []),
+      ]
+    : [
+        ...(merged.hasInterpolated ? [interpolatedDataset] : []),
+        ...(merged.hasGlobal ? [globalDataset] : []),
+      ];
 
   return (
     <article className="card station-vtec-plot-card" aria-label={`${series.station} VTEC time series`}>
@@ -515,7 +513,7 @@ function StationChartCard({
               <small>global</small>
             </>
           )}
-          {latestGg != null && (
+          {merged.hasObserved && latestGg != null && (
             <>
               <em style={{ color: GG_COLOR }}>{latestGg.toFixed(1)} TECU</em>
               <small>Gg</small>
@@ -523,7 +521,7 @@ function StationChartCard({
           )}
         </div>
       </div>
-      {methodRow && (methodRow.gopi_mean != null || methodRow.gg_mean != null) && (
+      {merged.hasObserved && methodRow && (methodRow.gopi_mean != null || methodRow.gg_mean != null) && (
         <div className="station-vtec-method-chip" title="Live window means from GOPI vs Gg calibration">
           <span style={{ color: GOPI_COLOR }}>
             GOPI mean {methodRow.gopi_mean != null ? methodRow.gopi_mean.toFixed(1) : "—"}
@@ -582,6 +580,8 @@ export default function StationVtecTimePlots({
   const [methodByStation, setMethodByStation] = useState<Record<string, TecMethodStationCompare>>({});
   const [globalSource, setGlobalSource] = useState<string | null>(null);
   const [status, setStatus] = useState<"pending" | "ok" | "down">("pending");
+  const [meanExplainOpen, setMeanExplainOpen] = useState(false);
+  const [compareExplainOpen, setCompareExplainOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const seriesRef = useRef<LiveStationVtecSeries[]>([]);
   seriesRef.current = series;
@@ -604,9 +604,14 @@ export default function StationVtecTimePlots({
           if (cancelled) return;
           rows = await getLiveVtecByStation(lookback, resample, timeoutMs + 30_000);
         }
-        const previousPoints = seriesRef.current.reduce((count, row) => count + row.points.length, 0);
-        if (rows.length === 0 && previousPoints > 0) {
-          throw new Error("Live GOPI series came back empty");
+        if (rows.length === 0) {
+          await new Promise((r) => setTimeout(r, 800));
+          if (cancelled) return;
+          rows = await getLiveVtecByStation(lookback, resample, timeoutMs + 30_000);
+        }
+        // [] is a failed history read. A real empty day is the station catalog with no points.
+        if (rows.length === 0) {
+          throw new Error("Live GOPI history did not return samples");
         }
         if (cancelled) return;
         // Draw GOPI immediately. Global TEC and Gg can take much longer and must
@@ -707,6 +712,37 @@ export default function StationVtecTimePlots({
   );
   const networkEkf = useMemo(() => runMeanVtecEkf(networkMean.values), [networkMean.values]);
   const networkEkfReady = networkEkf.predicted.some((value) => value != null);
+  const networkMeanAnalysis = useMemo(() => {
+    let latest: number | null = null;
+    let latestAt = "";
+    let peak: number | null = null;
+    let peakAt = "";
+    let pairedEkf: number | null = null;
+    for (const [index, value] of networkMean.values.entries()) {
+      if (value == null || !Number.isFinite(value)) continue;
+      latest = value;
+      latestAt = networkMean.labels[index] ?? "";
+      const forecast = networkEkf.predicted[index];
+      if (forecast != null && Number.isFinite(forecast)) pairedEkf = forecast;
+      if (peak == null || value > peak) {
+        peak = value;
+        peakAt = networkMean.labels[index] ?? "";
+      }
+    }
+    const windowLabel = selectedDay
+      ? `${selectedDay} UTC, 00:00–24:00`
+      : `the last ${hours} h`;
+    const measured = latest != null
+      ? `The latest network mean is ${latest.toFixed(1)} TECU${latestAt ? ` at ${latestAt} UTC` : ""}, from ${networkMean.stationCount} stations.${peak != null ? ` The highest mean in this plot is ${peak.toFixed(1)} TECU${peakAt ? ` at ${peakAt} UTC` : ""}.` : ""}`
+      : "No measured network mean is available in this window.";
+    const filter = pairedEkf != null && latest != null
+      ? `The filter forecast beside the latest sample is ${pairedEkf.toFixed(1)} TECU, so the observed mean differs by ${Math.abs(latest - pairedEkf).toFixed(1)} TECU. A single-bin spike stays on the solid line. The filter coasts until that new level holds for two further samples.`
+      : "The dashed forecast stays off until the filter has a real observed start. No prediction is invented for a window the filter cannot run.";
+    return {
+      lead: `This graph means the average vertical TEC of the Zimbabwe CORS stations that reported live GOPI in ${windowLabel}. The solid green line is that observed mean. The dashed line, when it is drawn, is the Extended Kalman Filter forecast made before each sample is seen. Elevation below 30° and TEC outside 0–50 TECU are left out. Its importance is the ionosphere over the network: a quiet day rises through the morning, and a jump the filter does not follow is the first local sign that the mean has left that smooth curve.`,
+      bullets: [measured, filter],
+    };
+  }, [hours, networkEkf.predicted, networkMean.labels, networkMean.stationCount, networkMean.values, selectedDay]);
   const interpolatedByStation = useMemo(
     () => buildInterpolatedByStation(series, sites, hours, selectedDay),
     [series, sites, hours, selectedDay],
@@ -736,6 +772,62 @@ export default function StationVtecTimePlots({
       global: labels.map((code) => globalByStation[code]?.latest_vtec ?? null),
     };
   }, [methodByStation, globalByStation]);
+
+  const methodCompareAnalysis = useMemo(() => {
+    if (!methodCompareChart) return { lead: "", bullets: [] as string[] };
+    const finite = (value: number | null): value is number => value != null && Number.isFinite(value);
+    const average = (values: (number | null)[]) => {
+      const kept = values.filter(finite);
+      if (!kept.length) return null;
+      return kept.reduce((sum, value) => sum + value, 0) / kept.length;
+    };
+    let widestCal: { station: string; gap: number; gopi: number; gg: number } | null = null;
+    let widestMap: { station: string; gap: number; gopi: number; global: number } | null = null;
+    for (const [index, station] of methodCompareChart.labels.entries()) {
+      const gopi = methodCompareChart.gopi[index];
+      const gg = methodCompareChart.gg[index];
+      const globalTec = methodCompareChart.global[index];
+      if (finite(gopi) && finite(gg)) {
+        const gap = Math.abs(gopi - gg);
+        if (!widestCal || gap > widestCal.gap) widestCal = { station, gap, gopi, gg };
+      }
+      if (finite(gopi) && finite(globalTec)) {
+        const gap = Math.abs(gopi - globalTec);
+        if (!widestMap || gap > widestMap.gap) widestMap = { station, gap, gopi, global: globalTec };
+      }
+    }
+    const gopiMean = average(methodCompareChart.gopi);
+    const ggMean = average(methodCompareChart.gg);
+    const globalMean = average(methodCompareChart.global);
+    const paired = methodCompareChart.labels.filter((_, index) =>
+      finite(methodCompareChart.gopi[index]) && finite(methodCompareChart.gg[index]),
+    ).length;
+    const mapped = methodCompareChart.labels.filter((_, index) =>
+      finite(methodCompareChart.gopi[index]) && finite(methodCompareChart.global[index]),
+    ).length;
+    const levelParts: string[] = [];
+    if (gopiMean != null) levelParts.push(`the latest GOPI averages ${gopiMean.toFixed(1)} TECU`);
+    if (ggMean != null) levelParts.push(`Gg averages ${ggMean.toFixed(1)} TECU`);
+    if (globalMean != null) levelParts.push(`the DLR map at those sites averages ${globalMean.toFixed(1)} TECU`);
+    const joinedLevels = levelParts.length <= 1
+      ? (levelParts[0] ?? "")
+      : levelParts.length === 2
+        ? `${levelParts[0]} and ${levelParts[1]}`
+        : `${levelParts.slice(0, -1).join(", ")}, and ${levelParts[levelParts.length - 1]}`;
+    const levels = joinedLevels
+      ? `Across the stations drawn, ${joinedLevels}.`
+      : "No latest station values are available for this comparison.";
+    const calibration = widestCal
+      ? `GOPI and Gg are paired at ${paired} stations. The widest calibration gap is ${widestCal.gap.toFixed(1)} TECU at ${widestCal.station} (GOPI ${widestCal.gopi.toFixed(1)}, Gg ${widestCal.gg.toFixed(1)}). A gap of that size at one site is a calibration or sample-quality question. It is not, by itself, a geomagnetic storm.`
+      : "No station has both a GOPI and a Gg latest value in this comparison.";
+    const mapGap = widestMap && gopiMean != null && globalMean != null
+      ? `GOPI and the global map are paired at ${mapped} stations. The widest local-minus-map gap is ${widestMap.gap.toFixed(1)} TECU at ${widestMap.station} (GOPI ${widestMap.gopi.toFixed(1)}, map ${widestMap.global.toFixed(1)}). The map is a smooth large-scale product, so it can sit above or below the local code TEC without a storm. Zimbabwe is checked with the network mean and S4, not with this gap alone.`
+      : "No station has both a GOPI sample and a DLR map value in this comparison.";
+    return {
+      lead: "This graph means the latest vertical TEC at each Zimbabwe CORS station. It is not a time series: the horizontal axis is the station. Blue is GOPI, the live code TEC from the NTRIP pipeline. Yellow is Gg, the Cesaroni calibration of those samples. Orange is the DLR global TEC map read at the same site. Its importance is agreement. GOPI and Gg should track each other, and both are the local ionosphere. The orange line is the large-scale map, so a steady offset from the local lines is a product difference, not a storm rating.",
+      bullets: [levels, calibration, mapGap],
+    };
+  }, [methodCompareChart]);
 
   const reporting = useMemo(() => {
     const { windowStartMs, windowEndMs } = resolveChartWindow(hours, selectedDay);
@@ -832,14 +924,28 @@ export default function StationVtecTimePlots({
       )}
 
       {(networkMean.values.some((v) => v != null) || hours >= 24 || status !== "pending") && (
-        <article className="card station-vtec-plot-card station-vtec-plot-card--wide" aria-label="Network mean VTEC">
+        <article
+          className="card station-vtec-plot-card station-vtec-plot-card--wide"
+          aria-label="Network mean VTEC"
+          aria-expanded={meanExplainOpen}
+          onClick={() => setMeanExplainOpen((open) => !open)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              setMeanExplainOpen((open) => !open);
+            }
+          }}
+          role="button"
+          tabIndex={0}
+          style={{ cursor: "pointer" }}
+        >
           <div className="station-vtec-plot-head">
             <div>
               <strong>Network mean VTEC</strong>
               <span>
                 Average of stations with live GOPI samples
                 {selectedDay ? ` on ${selectedDay} UTC, plotted across 00:00–24:00` : ` for the last ${hours} h`}.
-                Elevation below 20° and TEC outside 0–50 TECU are excluded.
+                Elevation below 30° and TEC outside 0–50 TECU are excluded.
                 The dashed line is the Extended Kalman Filter forecast; a one-bin jump stays on the solid line.
               </span>
             </div>
@@ -894,14 +1000,40 @@ export default function StationVtecTimePlots({
             <div className="station-vtec-plot-empty">
               {status === "pending"
                 ? "Loading the 24-hour graph…"
-                : `No measured GOPI on ${selectedDay ?? "this window"}.`}
+                : status === "down"
+                  ? "Live GOPI history did not load. The chart will retry."
+                  : `No measured GOPI on ${selectedDay ?? "this window"}.`}
             </div>
+          )}
+          <div style={{ fontSize: "0.72rem", color: "var(--accent)", marginTop: "0.45rem", fontWeight: 700 }}>
+            {meanExplainOpen ? "Click the graph to hide the explanation" : "Click the graph for what it means"}
+          </div>
+          {meanExplainOpen && (
+            <ChartAnalysisBox
+              block={networkMeanAnalysis}
+              title="What this graph means"
+              afterLeadTitle="Scientific explanation"
+            />
           )}
         </article>
       )}
 
       {methodCompareChart && (
-        <article className="card station-vtec-plot-card station-vtec-plot-card--wide" aria-label="GOPI vs Gg latest VTEC">
+        <article
+          className="card station-vtec-plot-card station-vtec-plot-card--wide"
+          aria-label="GOPI vs Gg latest VTEC"
+          aria-expanded={compareExplainOpen}
+          onClick={() => setCompareExplainOpen((open) => !open)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              setCompareExplainOpen((open) => !open);
+            }
+          }}
+          role="button"
+          tabIndex={0}
+          style={{ cursor: "pointer" }}
+        >
           <div className="station-vtec-plot-head">
             <div>
               <strong>GOPI, Gg and Global TEC by station</strong>
@@ -937,6 +1069,16 @@ export default function StationVtecTimePlots({
             height={220}
             compact
           />
+          <div style={{ fontSize: "0.72rem", color: "var(--accent)", marginTop: "0.45rem", fontWeight: 700 }}>
+            {compareExplainOpen ? "Click the graph to hide the explanation" : "Click the graph for what it means"}
+          </div>
+          {compareExplainOpen && (
+            <ChartAnalysisBox
+              block={methodCompareAnalysis}
+              title="What this graph means"
+              afterLeadTitle="Scientific explanation"
+            />
+          )}
         </article>
       )}
 

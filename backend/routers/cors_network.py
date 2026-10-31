@@ -11,6 +11,7 @@ from typing import Any
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
 from backend.deps import require_api_key
+from zgiis.processing.elevation_mask import ELEVATION_MIN_DEG
 from backend.schemas import (
     CorsHealthOut,
     RoverClientsOut,
@@ -305,13 +306,14 @@ def _query_fresh_code_live(minutes: float) -> dict[str, float]:
         with conn.cursor() as cur:
             cur.execute("SET statement_timeout = '4000'")
             cur.execute(
-                """
+                f"""
                 SELECT LOWER(RTRIM(station, '_')) AS station,
                        AVG(vtec_tecu) AS mean_vtec
                 FROM vtec_obs
                 WHERE time >= %s
                   AND vtec_tecu > 0
                   AND vtec_tecu <= 50
+                  AND elevation_deg >= {ELEVATION_MIN_DEG:g}
                   AND tec_method LIKE %s
                 GROUP BY 1
                 """,

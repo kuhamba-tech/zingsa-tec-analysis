@@ -463,6 +463,9 @@ export default function LineChart({
         }}
         options={{
           responsive: true,
+          // Chart.js does not cancel delayed resize updates on destroy.
+          resizeDelay: 0,
+          devicePixelRatio: typeof window === "undefined" ? 1 : Math.min(window.devicePixelRatio || 1, 2),
           maintainAspectRatio: false,
           color: "#ffffff",
           animation: budget.animation,

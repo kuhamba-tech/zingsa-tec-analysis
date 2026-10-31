@@ -281,6 +281,37 @@ export const getSpaceWeather = (requireNetwork = false) => {
   }
   return pending;
 };
+export type SolarDiskRegion = {
+  number: number;
+  location: string;
+  latitude_deg: number;
+  central_meridian_deg: number;
+  area_millionths: number;
+  spot_count: number;
+  magnetic_class: string;
+  on_disk: boolean;
+  x: number | null;
+  y: number | null;
+  label_x: number | null;
+  label_y: number | null;
+};
+
+export type SolarDiskResponse = {
+  mode: string;
+  image_url: string;
+  image_time: string | null;
+  issued: string | null;
+  active_region_count: number | null;
+  sunspot_number: number | null;
+  regions: SolarDiskRegion[];
+  source: string;
+  updated_utc: string | null;
+  error: string | null;
+};
+
+export const getSolarDisk = () =>
+  get<SolarDiskResponse>("/space-weather/solar-disk", { _ts: Date.now() }, 20_000);
+
 export const getSolarActivity = (forceRefresh = false, requireNetwork = false) => {
   const cached = peekSolarActivity();
   if (!forceRefresh && !requireNetwork && cached) {
@@ -423,17 +454,24 @@ export const ackEkfAlert = (alertId: string) =>
   });
 
 // ── Navigation News (broadcast agent) ───────────────────────────────────────────
+export const getScientificUpdates = () =>
+  getWithRetry<import("./types").ScientificDiscussion>("/space-weather/scientific-updates", { _ts: Date.now() }, 12_000);
+
 export const getNavigationNews = (
   audience?: AudienceId,
   refreshNtrip = false,
   force = false,
+  city?: string,
+  day?: string,
 ) =>
   getWithRetry<NavigationNewsBundleApi>("/navigation-news", {
     _ts: Date.now(),
+    ...(city ? { city } : {}),
+    ...(day ? { day } : {}),
     ...(audience ? { audience } : {}),
     ...(refreshNtrip ? { refresh_ntrip: "true" } : {}),
     ...(force ? { force: "true" } : {}),
-  });
+  }, 30_000);
 
 export const getNavigationNewsSchedule = () =>
   getWithRetry<NavigationNewsScheduleApi>("/navigation-news/schedule", { _ts: Date.now() });
@@ -944,17 +982,18 @@ export const getOmniAnalysis = (start: string, end: string, station?: string) =>
 export const getCelestrakAnalysis = (start: string, end: string, station?: string) =>
   get<CelestrakAnalysisResponse>("/tec/celestrak-analysis", { start, end, station, _ts: Date.now() }, ANALYSIS_TIMEOUT_MS);
 export const getIonoResponseFigures = (days = 180, includeRmse = true) =>
-  get<IonoResponseFigures>(
+  dedupeGet(`iono-response-figures:${days}:${includeRmse}`, () => getWithRetry<IonoResponseFigures>(
     "/tec/iono-response-figures",
     { days, rmse: includeRmse ? 1 : 0, _ts: Date.now() },
     ANALYSIS_TIMEOUT_MS,
-  );
+  ));
 
 export const getReceiverBias = (days = 120) =>
   get<ReceiverBiasResponse>("/tec/receiver-bias", { days, _ts: Date.now() }, 30_000);
 
 export const getTecGradients = () =>
-  get<TecGradientMapsResponse>("/tec/gradients", { _ts: Date.now() }, 60_000);
+  dedupeGet("tec/gradients", () =>
+    getWithRetry<TecGradientMapsResponse>("/tec/gradients", { _ts: Date.now() }, 60_000));
 
 export const getGfzKpAnalysis = (start: string, end: string, station?: string) =>
   get<GfzKpAnalysisResponse>("/tec/gfz-kp-analysis", { start, end, station, _ts: Date.now() }, ANALYSIS_TIMEOUT_MS);

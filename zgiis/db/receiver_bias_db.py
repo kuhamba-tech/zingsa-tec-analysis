@@ -101,12 +101,21 @@ def upsert_days(rows: list[tuple]) -> int:
 
 
 def read_series(days: int = 120) -> list[dict]:
+    import psycopg2
+    from zgiis.db.config import pooled_database_dsn
+
     end = datetime.now(timezone.utc).date()
     start = end - timedelta(days=max(1, int(days)) - 1)
-    conn = checkout()
+    # This archive read must not compete with long-lived processing connections
+    # in the general pool. The chart service coalesces it to one worker/read.
+    dsn = pooled_database_dsn()
+    if not dsn:
+        raise RuntimeError("Receiver-bias database is not configured")
+    conn = psycopg2.connect(dsn, connect_timeout=3)
     try:
-        _ready(conn)
+        conn.autocommit = True
         with conn.cursor() as cur:
+            cur.execute("SET statement_timeout = '5000'")
             cur.execute(
                 """
                 SELECT station, day, bias_tecu, n_epochs, bias_method
@@ -118,7 +127,7 @@ def read_series(days: int = 120) -> list[dict]:
             )
             fetched = cur.fetchall()
     finally:
-        release(conn)
+        conn.close()
     grouped: dict[str, list[dict]] = {}
     for station, day, bias, n_epochs, method in fetched:
         grouped.setdefault(str(station), []).append(

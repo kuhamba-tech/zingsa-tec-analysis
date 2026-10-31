@@ -9,6 +9,17 @@ import {
   donkiStormCountColor,
 } from "./solarEventColors";
 import { tecTypicalContext } from "./tecPrimer";
+import {
+  BZ_BEAT,
+  CYCLE_25_SCALE,
+  DST_BEAT,
+  FLARE_BEAT,
+  HOW_BULLETINS_ARE_WRITTEN,
+  KP_BEAT,
+  TEC_BEAT,
+  WIND_BEAT,
+  ZIMBABWE_TRANSLATION,
+} from "./scientistBulletin";
 
 /** Primary Sun→Zimbabwe summary cards (Phase 1 redesign). */
 export type MetricKey =
@@ -80,30 +91,23 @@ export interface MetricCardOptions {
 }
 
 export const METRIC_EXPLANATIONS: Record<MetricKey, string> = {
-  solar_activity:
-    "Derived solar activity level summarises current GOES flare context and NOAA SWPC alert bulletin count. It is an operational snapshot, not a geomagnetic storm rating.",
-  solar_flare:
-    "GOES soft X-ray measurements (0.1–0.8 nm) indicate the strength of solar flare emission. Classes A/B/C/M/X describe X-ray flux, not geomagnetic or GNSS impact levels. A solar flare does not necessarily produce a geomagnetic storm.",
-  solar_wind:
-    "Solar wind carries plasma and magnetic fields from the Sun. The primary card value is bulk speed; density, proton temperature, IMF Bz, and IMF Bt are listed below in the detail rows. Increased speed can accompany CMEs and high-speed streams, but high solar-wind speed alone does not establish a geomagnetic storm.",
-  imf_bz:
-    "Southward IMF Bz favours magnetic reconnection and energy transfer from the solar wind into Earth's magnetosphere. Magnitude and duration are both important. A brief negative spike is not the same as sustained southward Bz.",
-  geomagnetic_storm:
-    "NOAA G-scale geomagnetic storm levels are assigned from planetary Kp. Kp 0–4 is not a G1–G5 storm (Kp 4 is active but below the G1 threshold). Storm conditions begin at Kp ≥ 5 (G1). A geomagnetic storm does not automatically mean Zimbabwe's ionosphere or GNSS is degraded.",
-  dst:
-    "Dst and SYM-H measure storm-time changes in Earth's magnetic field, particularly ring-current development. They support magnetospheric context and must not be converted directly into NOAA G1–G5 labels.",
-  zimbabwe_iono:
-    "Zimbabwe network VTEC from live CORS/GNSS observations. TEC is the line integral of electron density along the signal path (1 TECU = 10¹⁶ el/m²). The colour strip is VTEC magnitude (Low <10, Typical 10–40, High 40–100, Storm 100–200, Extreme >200 TECU) — not whether it is night or day outside. Quiet nights often sit in Low; quiet days often in Typical. High VTEC alone is not ionospheric disturbance — ΔTEC relative to a quiet reference and ROTI are under development. Do not classify local disturbance solely from Kp.",
+  solar_activity: `${HOW_BULLETINS_ARE_WRITTEN} ${CYCLE_25_SCALE} The activity level on this card is that first beat: GOES flare context plus the SWPC bulletin count. It is not a geomagnetic storm rating.`,
+  solar_flare: `${FLARE_BEAT} Classes A/B/C/M/X are the 0.1–0.8 nm X-ray flux. Each letter is about ten times the flux of the letter before it. The number is only the multiplier inside that class.`,
+  solar_wind: `${WIND_BEAT} The card value is bulk speed. Density, proton temperature, Bz and Bt are the fields that decide whether the stream is geoeffective.`,
+  imf_bz: `${BZ_BEAT} Southward Bz favours reconnection. A brief negative spike is reported as a fluctuation, not as a storm.`,
+  geomagnetic_storm: `${KP_BEAT} ${ZIMBABWE_TRANSLATION}`,
+  dst: `${DST_BEAT} Do not convert a Dst value into a NOAA G1–G5 label.`,
+  zimbabwe_iono: `${TEC_BEAT} ${ZIMBABWE_TRANSLATION} Network VTEC is the line integral of electron density (1 TECU = 10¹⁶ el/m²). The colour strip is magnitude — Low below 10, Typical 10–40, High 40–100, Storm 100–200, Extreme above 200 TECU — not the local time of day. ΔTEC and ROTI stay unpublished until a quiet-day reference is validated.`,
   gnss_risk:
-    "Operational navigation impact label. Until validated local ΔTEC/ROTI/RTK metrics drive the engine, treat this as provisional space-weather context (Kp, scintillation archive, related indices) — not proof of Zimbabwe GNSS failure.",
+    "Write this label as a provisional operations line, not as proof that a receiver has failed. Name the driver (dayside flare, CME arrival, or coronal-hole stream), the Kp or G-scale, and whether Zimbabwe TEC or S4 has actually moved. Until local ΔTEC, ROTI and RTK rules are validated, the score is context from Kp, the scintillation archive and related indices.",
   stations:
-    "How many Zimbabwe CORS stations are online versus the network total. Online status is not the same as TEC processing availability. Open the CORS map for station-level detail.",
+    "State how many of the 19 ZINGSA CORS stations are online. Online is not the same as a fresh TEC solution. A drop in the count can put a hole in the network-mean TEC and S4 graphs, so say so before treating a TEC change as ionospheric.",
   donki_flares:
-    "NASA DONKI flare event count over the selected 7-day window. A higher count means more recent solar eruptive activity; storm impact at Earth still depends on direction, timing, and associated CME or solar-wind conditions.",
+    "This is the 7-day flare count. It is not the 26 August M2.2 event by itself. In a bulletin each flare still needs a class, a peak time in UTC, and whether it was eruptive. More flares mean a more active disk. They do not, by themselves, mean an Earth-directed ejection or a storm at Kp.",
   donki_cmes:
-    "NASA DONKI coronal mass ejection count over the selected 7-day window. Earth-directed CMEs can arrive 1–3 days later and drive geomagnetic storms; not every CME is geoeffective.",
+    "This count is the CME catalogue for the selected 7 days. It is not the October or August watch by itself. Sort each ejection: Earth-directed plasma can arrive in 1–3 days, a glancing edge is weaker and less certain, and a limb or farside CME is directed away unless a later Earth-directed part is measured. Not every CME is geoeffective. The two watches below show how NOAA describes an ejection on its own, and an ejection that follows a coronal-hole stream.",
   donki_storms:
-    "NASA DONKI geomagnetic storm event count over the selected 7-day window. These Earth-side disturbances (Kp/Dst context) are more directly linked to GNSS degradation than flare or CME counts alone.",
+    "These are Earth-side geomagnetic storms in the 7-day window, closer to GNSS impact than a flare count. Still write Kp, Dst and Bz, then check the Zimbabwe TEC and S4 graphs before claiming a local effect.",
 };
 
 export interface NoaaGScale {
@@ -907,7 +911,7 @@ export function interpretMetric(
         alertN == null
           ? ""
           : ` ${alertN} SWPC alert bulletin(s) are listed (issue time does not prove an alert is still active).`;
-      return `Solar activity is ${activity}.${flareNote}${alertNote} This summary is not a geomagnetic storm rating.`;
+      return `Earth-facing level: ${activity}.${flareNote}${alertNote} State the class and whether any eruption is Earth-directed before writing a storm sentence. This card is not a G-scale rating.`;
     }
 
     case "solar_flare": {
@@ -917,7 +921,7 @@ export function interpretMetric(
         return "GOES X-ray class is unavailable. No flare interpretation is issued.";
       }
       const fluxNote = flux ? ` Long-band flux is ${flux}.` : "";
-      return `Current GOES long-band class is ${fc}.${fluxNote} This is an X-ray flare class, not a geomagnetic or GNSS impact rating. A flare does not necessarily produce a geomagnetic storm.`;
+      return `GOES class ${fc}.${fluxNote} X-rays are the flare beat (about 8 minutes to Earth, sunlit HF). The following sentence has to say whether the event was eruptive and Earth-directed, glancing, or leaving the limb. The class itself is not a geomagnetic storm.`;
     }
 
     case "solar_wind": {
@@ -942,7 +946,7 @@ export function interpretMetric(
         parts.push(`IMF Bt ${imfBt.toFixed(1)} nT`);
       }
       const plasmaNote = parts.length ? ` Accompanying fields: ${parts.join("; ")}.` : "";
-      return `Solar-wind speed is ${Math.round(wind)} km/s (${solarWindInterpretation(wind).toLowerCase()}).${plasmaNote} High speed alone does not establish a geomagnetic storm — read with IMF Bz and Kp/Dst.`;
+      return `Solar wind ${Math.round(wind)} km/s (${solarWindInterpretation(wind).toLowerCase()}).${plasmaNote} Hold the storm sentence until Bz and Kp or Dst agree. A fast stream with northward Bz is written as active at most, not as a G-scale storm.`;
     }
 
     case "imf_bz": {
@@ -955,7 +959,7 @@ export function interpretMetric(
         bt != null && Number.isFinite(bt) ? ` IMF Bt is ${bt.toFixed(1)} nT.` : "";
       const southExtra = south ? ` ${south}.` : "";
       if (bz < 0) {
-        return `IMF Bz is ${formatBzDisplay(bz)} (southward).${southExtra}${btNote} Southward orientation favours magnetospheric coupling; sustained intervals matter more than brief spikes.`;
+        return `Bz ${formatBzDisplay(bz)}, southward.${southExtra}${btNote} A short negative spike is a fluctuation. Hours of southward Bz near −5 to −10 nT, with elevated speed, is the coupling that has produced G1–G2 in this cycle.`;
       }
       if (bz > 0) {
         return `IMF Bz is ${formatBzDisplay(bz)} (northward).${btNote} Coupling is usually weaker than during sustained southward Bz.`;
@@ -970,11 +974,11 @@ export function interpretMetric(
       }
       if (!g.isStorm) {
         if (kp >= 4) {
-          return `${g.display} (Kp ${formatKpDisplay(kp)}). Conditions are active but below the G1 storm threshold (Kp ≥ 5). This is not a NOAA G-scale geomagnetic storm.`;
+          return `${g.display} (Kp ${formatKpDisplay(kp)}). Active, and still below G1 (Kp ≥ 5). Write it as active, not as a geomagnetic storm. Global Kp does not establish local Zimbabwe impacts; check timestamped local TEC variability and receiver measurements.`;
         }
         return `${g.display} (Kp ${formatKpDisplay(kp)}). No NOAA G1–G5 geomagnetic storm is in progress.`;
       }
-      return `${g.display} (Kp ${formatKpDisplay(kp)}). This indicates NOAA ${g.code} geomagnetic storm conditions globally. It does not automatically mean Zimbabwe's ionosphere or GNSS is degraded — check the Zimbabwe Ionosphere and GNSS Risk cards.`;
+      return `${g.display} (Kp ${formatKpDisplay(kp)}). NOAA ${g.code} is a planetary storm level. Evaluate Zimbabwe effects with local ionospheric observations and measured receiver performance. A G1 or G2 watch alone is not a local outage.`;
     }
 
     case "dst":
@@ -988,7 +992,7 @@ export function interpretMetric(
         else if (dst > -100) level = "moderate storm-time depression";
         else if (dst > -200) level = "intense storm-time depression";
         else level = "severe storm-time depression";
-        return `Dst ${formatDstDisplay(dst)} indicates ${level}. Dst/SYM-H are magnetospheric context, not NOAA G-scale labels.`;
+        return `Dst ${formatDstDisplay(dst)}: ${level}. Quote it in nT beside Kp. Do not relabel it as a G-scale. A fall through −50 nT, with southward Bz, is the main-phase sentence.`;
       }
 
     case "zimbabwe_iono":
@@ -998,7 +1002,7 @@ export function interpretMetric(
       {
         const level = tecScaleFromVtec(vtec);
         const context = tecTypicalContext(vtec);
-        return `Network VTEC is ${formatVtecDisplay(vtec)} — ${level.title} band (typical ${level.range} TECU). ${context} ΔTEC% and ROTI show “reference baseline under development” until scientifically validated. Do not classify local disturbance from Kp alone.`;
+        return `Network VTEC ${formatVtecDisplay(vtec)} — ${level.title} (${level.range} TECU). ${context} Separate the ordinary daytime EUV rise from a storm departure. ΔTEC and ROTI stay unpublished until a quiet-day reference is validated. Do not call this a disturbance from Kp alone.`;
       }
 
     case "gnss_risk": {
@@ -1043,7 +1047,7 @@ export function interpretMetric(
       const n = Array.isArray(sa.donki_cmes) ? sa.donki_cmes.length : 0;
       return n === 0
         ? "Zero cataloged CME events in the selected 7-day window."
-        : `${n} CME event(s) in the selected 7-day window. Only Earth-directed (halo / partial-halo) events typically matter for geomagnetic storm risk.`;
+        : `${n} CME event(s) in the selected 7-day window. An apparent halo or catalogue association does not establish Earth arrival; use explicit model guidance.`;
     }
 
     case "donki_storms": {

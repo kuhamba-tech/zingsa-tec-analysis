@@ -32,6 +32,7 @@ frontend/tsconfig.tsbuildinfo
 # committed historical archive.
 static/data/
 !static/data/tec_archive_hourly.csv
+!static/data/navigation_news_plain.json
 
 static_export/
 

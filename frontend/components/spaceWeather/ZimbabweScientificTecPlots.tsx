@@ -31,6 +31,14 @@ const SEASON_PANELS = [
 
 const GPS_TEC_COLOR = "#5b7cfa";
 
+function archiveYearLabel(start: unknown, end: unknown): string {
+  const years = [start, end]
+    .filter((value): value is string => typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value))
+    .map((value) => value.slice(0, 4));
+  const unique = [...new Set(years)].sort();
+  return unique.join("–");
+}
+
 type PlotsPart = "climatology" | "research" | "all";
 
 let plotCache: { key: string; data: ZimbabweScientificPlotsResponse; at: number } | null = null;
@@ -298,6 +306,7 @@ export default function ZimbabweScientificTecPlots({ part = "all" }: { part?: Pl
 
   const diurnal = data?.diurnal_latband;
   const seasonal = data?.seasonal;
+  const seasonalYears = archiveYearLabel(seasonal?.archive?.first_date, seasonal?.archive?.last_date);
   const transect = data?.modip_transect;
   const qd = data?.quiet_disturbed;
 
@@ -439,8 +448,8 @@ export default function ZimbabweScientificTecPlots({ part = "all" }: { part?: Pl
         </div>
         <p className="sw-supporting-text" style={{ margin: 0 }}>
           {showClimatology
-            ? "Northern, central, and southern Zimbabwe diurnal VTEC, then the four equinox and solstice diurnal panels. GPS-TEC is the measured median. RBF and IRI-2020 are not drawn because those model series are not in the archive."
-            : "Station-mean VTEC along the Zimbabwe north–south transect, and quiet versus disturbed diurnal composites. Shaded ribbons are interquartile ranges from measured samples."}
+            ? "Northern, central, and southern Zimbabwe diurnal VTEC, then the four equinox and solstice diurnal panels. GPS-TEC is the measured median. RBF and IRI-2020 are not drawn because those model series are not in the archive. Read the hour of the peak and which band is highest from the measurements. A seasonal change in the daytime peak is the EUV climate. A storm sentence still needs Kp, Dst and southward Bz on that day."
+            : "Station-mean VTEC along the Zimbabwe north–south transect, and quiet versus disturbed diurnal composites. Shaded ribbons are interquartile ranges from measured samples. Quiet is Kp below the threshold and disturbed is Kp at or above it. The gap between those two curves is the local storm departure, not the ordinary noon rise."}
         </p>
         {showClimatology && (data?.logged_days?.length ?? 0) > 0 && (
           <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem", marginTop: "0.55rem" }}>
@@ -524,7 +533,7 @@ export default function ZimbabweScientificTecPlots({ part = "all" }: { part?: Pl
       {showClimatology && (
       <section className="card" style={{ display: "flex", flexDirection: "column", gap: "0.55rem" }}>
         <div>
-          <div className="metric-label" style={{ marginBottom: 4 }}>2 · Seasonal diurnal TEC — equinox and solstice</div>
+          <div className="metric-label" style={{ marginBottom: 4 }}>2 · Seasonal diurnal TEC — equinox and solstice{seasonalYears ? ` · ${seasonalYears}` : ""}</div>
           <p className="sw-supporting-text" style={{ margin: 0 }}>
             Median GPS-TEC by hour within ±15 days of each equinox and solstice, from the CMN hourly archive.
           </p>
@@ -538,6 +547,8 @@ export default function ZimbabweScientificTecPlots({ part = "all" }: { part?: Pl
         >
           {SEASON_PANELS.map((panel) => {
             const season = seasonById.get(panel.id);
+            const years = archiveYearLabel(season?.date_start, season?.date_end) || seasonalYears;
+            const title = `${panel.title}${years ? ` — ${years}` : ""}`;
             const hasCurve = !!season?.available && season.p50.some((value) => value != null && Number.isFinite(value));
             return (
               <div
@@ -549,14 +560,20 @@ export default function ZimbabweScientificTecPlots({ part = "all" }: { part?: Pl
                   padding: "0.35rem 0.3rem 0.15rem",
                 }}
               >
-                <div style={{ textAlign: "center", color: "#ffffff", fontSize: "0.95rem" }}>{panel.title}</div>
+                <div style={{ textAlign: "center", color: "#ffffff", fontSize: "0.95rem" }}>{title}</div>
+                {season?.available && (
+                  <p className="sw-supporting-text" style={{ textAlign: "center", margin: "0.25rem 0", fontSize: "0.75rem" }}>
+                    Observed dates: {season.date_start?.slice(0, 10)} to {season.date_end?.slice(0, 10)}
+                    {season.partial ? " · Partial edge coverage" : ""}
+                  </p>
+                )}
                 <div style={{ height: 260 }}>
                   {hasCurve && season ? (
                     <Line
                       data={{
                         datasets: [
                           {
-                            label: "GPS-TEC",
+                            label: `GPS-TEC${years ? ` (${years})` : ""}`,
                             data: season.hours.map((hour, index) => ({ x: hour, y: season.p50[index] })),
                             borderColor: GPS_TEC_COLOR,
                             backgroundColor: GPS_TEC_COLOR,
@@ -571,6 +588,7 @@ export default function ZimbabweScientificTecPlots({ part = "all" }: { part?: Pl
                     />
                   ) : (
                     <div className="banner banner-info" style={{ margin: "4.5rem 0.6rem 0" }}>
+                      {years && <div>No observations for {years} in this seasonal window.</div>}
                       {season?.note || (loading ? "Loading this season window…" : "No measured GPS-TEC in this window.")}
                     </div>
                   )}
@@ -593,7 +611,7 @@ export default function ZimbabweScientificTecPlots({ part = "all" }: { part?: Pl
         <div className="sw-supporting-text" style={{ marginTop: "-0.35rem", fontSize: "0.75rem" }}>
           {seasonal.seasons.map((s) => (
             <div key={s.id}>
-              <strong>{s.label}:</strong>{" "}
+              <strong>{s.label}{archiveYearLabel(s.date_start, s.date_end) || seasonalYears ? ` — ${archiveYearLabel(s.date_start, s.date_end) || seasonalYears}` : ""}:</strong>{" "}
               {s.available
                 ? `${s.sample_count.toLocaleString()} hourly samples · ${s.stations.join(", ")} · ${s.date_start?.slice(0, 10)} → ${s.date_end?.slice(0, 10)}${s.partial ? " · partial edge coverage" : ""}`
                 : s.note || "unavailable"}

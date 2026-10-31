@@ -1,0 +1,116 @@
+{
+  "version": 5,
+  "locations": [
+    {"city":"HARARE","name":"Harare","stations":["hara","zinh","hacy"]},
+    {"city":"BULAWAYO","name":"Bulawayo","stations":["bula"]},
+    {"city":"MUTARE","name":"Mutare","stations":["muta"]},
+    {"city":"GWERU","name":"Gweru","stations":["gwer"]},
+    {"city":"MASVINGO","name":"Masvingo","stations":["masv"]},
+    {"city":"KWEKWE","name":"Kwekwe","stations":["kwek"]},
+    {"city":"KARIBA","name":"Kariba","stations":["kari"]},
+    {"city":"VICTORIA FALLS","name":"Victoria Falls","stations":["vicf"]},
+    {"city":"KAROI","name":"Karoi","stations":["karo"]},
+    {"city":"CHIVHU","name":"Chivhu","stations":["chiv"]},
+    {"city":"CHIREDZI","name":"Chiredzi","stations":["chir"]},
+    {"city":"BEITBRIDGE","name":"Beitbridge","stations":["beit"]},
+    {"city":"BINGA","name":"Binga","stations":["bing"]},
+    {"city":"GOKWE","name":"Gokwe","stations":["gokw"]}
+  ],
+  "regional": {
+    "explanation": "TEC (total electron content) measures charged particles that can slow GPS signals.",
+    "missing": "No recent local TEC reading is available; the local effect is unconfirmed.",
+    "network": "We could not check the local service that improves GPS accuracy. This does not confirm a space-weather problem.",
+    "global_storm": "Latest global readings show magnetic storm activity.",
+    "global_watch": "Space-weather checks indicate a higher risk to GPS.",
+    "effects": {
+      "citizen": "Disturbed signals can move a map pin away from the correct place.",
+      "farmer": "Disturbed signals can make tractor guidance drift from a planting or spraying line.",
+      "surveyor": "Disturbed signals can make precise positions take longer to settle.",
+      "driver": "Disturbed signals can shift map pins and pickup points.",
+      "aviation": "Disturbed signals can affect satellite navigation; use official aviation advisories.",
+      "scientist": "Changing TEC can affect GPS measurements; compare independent stations."
+    },
+    "timing": {
+      "citizen": "Use maps with address and landmark checks.",
+      "farmer": "Start precise work once guidance holds a known line; pause if it drifts.",
+      "surveyor": "Begin precise work when repeated checks on a known survey point agree.",
+      "driver": "Continue using road signs and confirm doubtful pickup locations.",
+      "aviation": "Make flight decisions using official advisories and approved checks.",
+      "scientist": "Use measurements after their quality checks pass."
+    }
+  },
+  "states": {
+    "excellent": {
+      "headline": "No strong space-weather warning",
+      "summary": "The latest checks show no strong space-weather warning. GPS accuracy still depends on your location and equipment."
+    },
+    "moderate": {
+      "headline": "Check GPS before precise work",
+      "summary": "Some checks suggest GPS accuracy may vary. This matters most for work that needs an exact position."
+    },
+    "warning": {
+      "headline": "Take extra care with GPS",
+      "summary": "Current conditions may affect GPS accuracy. A GPS problem at your location has not been confirmed."
+    },
+    "unknown": {
+      "headline": "Waiting for a fresh space-weather update",
+      "summary": "Current readings are missing or out of date. We cannot confirm conditions right now."
+    }
+  },
+  "audiences": {
+    "citizen": {
+      "title": "For everyone",
+      "action": {
+        "excellent": "Use maps as usual. Check the address and nearby landmarks before you travel.",
+        "moderate": "If a map pin looks wrong, check the address and nearby landmarks.",
+        "warning": "Confirm important locations using an address or landmarks as well as GPS.",
+        "unknown": "Check addresses and landmarks, and look out for the next update."
+      }
+    },
+    "farmer": {
+      "title": "For farmers",
+      "action": {
+        "excellent": "Check your tractor's guidance before planting, spraying or marking field edges.",
+        "moderate": "Check that your tractor follows the correct line. Pause automatic steering if it drifts.",
+        "warning": "Check field lines carefully. Pause work that needs exact positioning if guidance becomes unreliable.",
+        "unknown": "Check tractor guidance on a known line before starting work."
+      }
+    },
+    "surveyor": {
+      "title": "For surveyors",
+      "action": {
+        "excellent": "Check a known survey point before recording measurements.",
+        "moderate": "Repeat measurements on known points. Accept results only after your normal accuracy checks.",
+        "warning": "Repeat control checks. Pause precise measurements if results are inconsistent.",
+        "unknown": "Use known survey points to check accuracy before accepting measurements."
+      }
+    },
+    "driver": {
+      "title": "For drivers",
+      "action": {
+        "excellent": "Use maps as usual and follow road signs.",
+        "moderate": "Check road signs and confirm pickup locations if the map pin looks wrong.",
+        "warning": "Confirm pickup locations with passengers. Follow road signs if the map disagrees.",
+        "unknown": "Follow road signs and confirm pickup locations when needed."
+      }
+    },
+    "aviation": {
+      "title": "For aviation teams",
+      "action": {
+        "excellent": "Follow official flight notices and your normal navigation checks.",
+        "moderate": "Check official aviation space-weather notices and follow approved navigation procedures.",
+        "warning": "Check official aviation alerts. Follow approved procedures for navigation or radio problems.",
+        "unknown": "Use official aviation notices and approved navigation checks for flight decisions."
+      }
+    },
+    "scientist": {
+      "title": "For researchers",
+      "action": {
+        "excellent": "Check data quality before using today's GPS measurements.",
+        "moderate": "Check unusual readings against other stations before drawing conclusions.",
+        "warning": "Save unusual readings and compare independent sources before reporting a local impact.",
+        "unknown": "Mark missing readings clearly. Wait for fresh data before describing current conditions."
+      }
+    }
+  }
+}

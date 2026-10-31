@@ -101,9 +101,10 @@ def test_matamba_rmse_drops_tec_above_50():
     assert matamba_rmse([-19.2] * 7, [30.2] * 7, [12.0] * 7) is None
 
 
-def test_observation_bounds_follow_the_paper():
-    assert observation_kept(0.0, 20.0)
+def test_observation_bounds_follow_the_platform_mask():
+    assert observation_kept(0.0, 30.0)
     assert observation_kept(50.0, 90.0)
+    assert not observation_kept(0.0, 29.9)
     assert not observation_kept(-0.1, 30.0)
     assert not observation_kept(50.1, 30.0)
     assert not observation_kept(12.0, 19.9)
@@ -145,3 +146,102 @@ def test_rolling_mean_is_the_trailing_average():
         "2026-05-01T02:00:00Z",
     ]
     assert rolling_mean_time(stamps, [2.0, 4.0, 6.0], hours=1, minimum=1) == [2.0, 3.0, 5.0]
+
+
+def test_cold_ephemeris_download_is_shared_and_never_blocks_request(monkeypatch, tmp_path):
+    from concurrent.futures import Future
+    from datetime import date
+    import pandas as pd
+    import zgiis.space_weather.iono_response_figures as figures
+
+    future = Future()
+    submissions = []
+
+    class Pool:
+        def submit(self, fn, day):
+            submissions.append(day)
+            return future
+
+    monkeypatch.setattr(figures, "_BRDC_DIR", tmp_path)
+    monkeypatch.setattr(figures, "_nav_pool", Pool())
+    monkeypatch.setattr(figures, "_nav_jobs", {})
+    monkeypatch.setattr(figures, "_nav_failed_at", {})
+    monkeypatch.setattr(figures, "_failed_at", {})
+    day = date(2026, 5, 1)
+    assert figures._nav_frame(day) is None
+    assert figures._nav_frame(day) is None
+    assert submissions == [day]
+    frame = pd.DataFrame({"sv": ["G01"]})
+    future.set_result(frame)
+    figures._failed_at[day.isoformat()] = 1.0
+    assert figures._nav_frame(day) is frame
+    assert day.isoformat() not in figures._failed_at
+
+
+def test_failed_ephemeris_download_is_not_retried_on_every_poll(monkeypatch, tmp_path):
+    from concurrent.futures import Future
+    from datetime import date
+    import zgiis.space_weather.iono_response_figures as figures
+
+    future = Future()
+    future.set_result(None)
+    day = date(2026, 5, 1)
+    monkeypatch.setattr(figures, "_BRDC_DIR", tmp_path)
+    monkeypatch.setattr(figures, "_nav_jobs", {day: future})
+    monkeypatch.setattr(figures, "_nav_failed_at", {})
+    assert figures._nav_frame(day) is None
+    assert figures._nav_frame(day) is None
+    assert day not in figures._nav_jobs
+
+
+def test_rmse_releases_database_connection_after_failed_read(monkeypatch):
+    import pytest
+    import zgiis.db.timescale as timescale
+    from zgiis.space_weather.iono_response_figures import _code_live_frame
+
+    closed = []
+
+    class BrokenDB:
+        _is_pg = True
+
+        def _read_sql(self, *args):
+            raise RuntimeError("database offline")
+
+        def close(self):
+            closed.append(True)
+
+    monkeypatch.setattr(timescale, "TecDB", BrokenDB)
+    with pytest.raises(RuntimeError, match="database offline"):
+        _code_live_frame(datetime.now(timezone.utc))
+    assert closed == [True]
+
+
+def test_rmse_history_build_does_not_block_indices_or_start_duplicate_jobs(monkeypatch):
+    from concurrent.futures import Future
+    import zgiis.space_weather.iono_response_figures as figures
+
+    future = Future()
+    submissions = []
+
+    class Pool:
+        def submit(self, fn, **kwargs):
+            submissions.append(kwargs)
+            return future
+
+    monkeypatch.setattr(figures, "_rmse_pool", Pool())
+    monkeypatch.setattr(figures, "_rmse_job", None)
+    monkeypatch.setattr(figures, "_rmse_cache", None)
+    monkeypatch.setattr(figures, "_index_cache", None)
+    monkeypatch.setattr(figures, "_kp_series", lambda *args: ([{"kp": 2}], "GFZ"))
+    monkeypatch.setattr(figures, "_dst_series", lambda *args: ([{"dst": -5}], "Kyoto"))
+    first = figures.build_iono_response_figures()
+    again = figures.build_iono_response_figures()
+    assert first["kp"] == [{"kp": 2}]
+    assert first["dst"] == [{"dst": -5}]
+    assert first["rmse"] == again["rmse"] == []
+    assert "background" in first["note"]
+    assert len(submissions) == 1
+    future.set_result(([{"time": "2026-10-30T00:00:00Z", "rmse": 2.0}], []))
+    ready = figures.build_iono_response_figures()
+    assert ready["rmse"][0]["rmse"] == 2.0
+    assert len(submissions) == 1

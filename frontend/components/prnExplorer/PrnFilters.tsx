@@ -1,5 +1,7 @@
 "use client";
 
+import { ELEVATION_MIN_DEG } from "@/lib/elevationMask";
+
 interface Props {
   stations: string[];
   prns: string[];
@@ -63,7 +65,7 @@ export default function PrnFilters({
         </label>
         <label className="form-label">
           Elevation min: {elevMin} deg
-          <input type="range" min={0} max={45} step={5} value={elevMin} onChange={(e) => onElevMin(Number(e.target.value))} />
+          <input type="range" min={ELEVATION_MIN_DEG} max={45} step={5} value={elevMin} onChange={(e) => onElevMin(Number(e.target.value))} />
         </label>
         <button type="button" className="btn" onClick={onRefresh} disabled={loading}>
           {loading ? "Loading..." : "Refresh"}

@@ -13,18 +13,25 @@ The map shows that magnitude in TECU/deg.
 Temporal gradient splits the same 15-minute window in half. It is the second
 map minus the first, divided by half the window (7.5 min), in TECU/min.
 
-Cells farther than one degree from a measured ionospheric pierce point are
-left empty. Empty inputs stay empty.
+Every 1° cell that meets the Zimbabwe outline is coloured. An empty cell
+inside the country takes the nearest measured bin before the median filter
+and the Scharr gradient. Cells outside the outline stay empty. The temporal
+map uses that same country fill when both halves of the window have pierce
+points. Empty inputs stay empty.
 """
 from __future__ import annotations
 
 import logging
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import numpy as np
+
+from zgiis.maps.zimbabwe_land import cell_intersects_zimbabwe
+from zgiis.processing.elevation_mask import ELEVATION_MIN_DEG
 
 log = logging.getLogger(__name__)
 
@@ -137,14 +144,48 @@ def _bin_median(
     return grid, occupied
 
 
-def _near_measurement(occupied: np.ndarray) -> np.ndarray:
-    """True for a measured cell and its eight neighbours."""
-    rows, cols = occupied.shape
-    near = occupied.copy()
-    ys, xs = np.nonzero(occupied)
-    for i, j in zip(ys, xs):
-        near[max(0, i - 1) : i + 2, max(0, j - 1) : j + 2] = True
-    return near
+def _zimbabwe_cells(shape: tuple[int, int], bounds: tuple[int, int, int, int]) -> np.ndarray:
+    """Cells whose 1° square meets the Zimbabwe outline."""
+    lat0, _, lon0, _ = bounds
+    mask = np.zeros(shape, dtype=bool)
+    nlat, nlon = shape
+    for i in range(nlat):
+        for j in range(nlon):
+            mask[i, j] = cell_intersects_zimbabwe(float(lat0 + i), float(lon0 + j), GRID_DEG)
+    return mask
+
+
+def _country_bounds() -> tuple[int, int, int, int]:
+    """Integer 1° cells that meet the Zimbabwe outline."""
+    lats: list[int] = []
+    lons: list[int] = []
+    for lat in range(-23, -14):
+        for lon in range(25, 34):
+            if cell_intersects_zimbabwe(float(lat), float(lon), GRID_DEG):
+                lats.append(lat)
+                lons.append(lon)
+    return min(lats), max(lats), min(lons), max(lons)
+
+
+def _union_bounds(
+    measured: tuple[int, int, int, int],
+    country: tuple[int, int, int, int],
+) -> tuple[int, int, int, int]:
+    """Cover the pierce-point bins and the country, without an unbounded grid."""
+    lat0 = min(measured[0], country[0])
+    lat1 = max(measured[1], country[1])
+    lon0 = min(measured[2], country[2])
+    lon1 = max(measured[3], country[3])
+    if lat1 - lat0 + 1 > 40 or lon1 - lon0 + 1 > 40:
+        return measured
+    return lat0, lat1, lon0, lon1
+
+
+def _scharr_filled(grid: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Scharr on the filled grid, including the outer cells of that grid."""
+    padded = np.pad(grid, 1, mode="edge")
+    east, north = scharr_components(padded)
+    return east[1:-1, 1:-1], north[1:-1, 1:-1]
 
 
 def _filtered(lat, lon, tec, bounds: tuple[int, int, int, int]) -> tuple[np.ndarray, np.ndarray]:
@@ -206,16 +247,17 @@ def gradient_maps_from_pierce_points(
     lat = np.array([item[1] for item in kept], dtype=float)
     lon = np.array([item[2] for item in kept], dtype=float)
     tec = np.array([item[3] for item in kept], dtype=float)
-    bounds = _bounds(lat, lon)
-    if bounds is None:
+    ipp_bounds = _bounds(lat, lon)
+    if ipp_bounds is None:
         return _empty_payload(moment, window_minutes, "Pierce points do not cover a 3 by 3 degree grid.")
+    bounds = _union_bounds(ipp_bounds, _country_bounds())
 
-    full, occupied = _filtered(lat, lon, tec, bounds)
-    measured = _near_measurement(occupied)
-    east, north = scharr_components(full)
-    east = np.where(measured, east, np.nan)
-    north = np.where(measured, north, np.nan)
-    spatial = _json_grid(np.hypot(east, north), measured)
+    full, _occupied = _filtered(lat, lon, tec, bounds)
+    inside = _zimbabwe_cells(full.shape, bounds)
+    east, north = _scharr_filled(full)
+    east = np.where(inside, east, np.nan)
+    north = np.where(inside, north, np.nan)
+    spatial = _json_grid(np.hypot(east, north), inside)
     spatial_max, _, spatial_mean = _finite_stats(spatial)
     east_abs = np.abs(east)
     north_abs = np.abs(north)
@@ -233,10 +275,10 @@ def gradient_maps_from_pierce_points(
         second_lat = np.array([item[1] for item in second])
         second_lon = np.array([item[2] for item in second])
         second_tec = np.array([item[3] for item in second])
-        map_first, occ_first = _filtered(first_lat, first_lon, first_tec, bounds)
-        map_second, occ_second = _filtered(second_lat, second_lon, second_tec, bounds)
+        map_first, _occ_first = _filtered(first_lat, first_lon, first_tec, bounds)
+        map_second, _occ_second = _filtered(second_lat, second_lon, second_tec, bounds)
         rate = (map_second - map_first) / (window_minutes / 2.0)
-        both = occ_first & occ_second
+        both = inside & np.isfinite(map_first) & np.isfinite(map_second)
         temporal = _json_grid(rate, both)
         if not any(cell is not None for row in temporal for cell in row):
             temporal = None
@@ -276,8 +318,10 @@ def gradient_maps_from_pierce_points(
         "temporal_message": temporal_note,
         "method": (
             "Scharr spatial gradient (TECU/deg) on the 1° nearest-neighbour, "
-            "size-7 median-filtered grid. Temporal gradient is the second half "
-            "of the 15-minute window minus the first, divided by 7.5 minutes (TECU/min)."
+            "size-7 median-filtered grid. Every cell that meets the Zimbabwe "
+            "outline is coloured from the nearest measured bin. "
+            "Temporal gradient is the second half of the 15-minute window minus the "
+            "first, divided by 7.5 minutes (TECU/min), on that same country fill."
         ),
     }
 
@@ -314,8 +358,10 @@ def _empty_payload(moment: datetime, window_minutes: float, message: str) -> dic
         "temporal_message": message,
         "method": (
             "Scharr spatial gradient (TECU/deg) on the 1° nearest-neighbour, "
-            "size-7 median-filtered grid. Temporal gradient is the second half "
-            "of the 15-minute window minus the first, divided by 7.5 minutes (TECU/min)."
+            "size-7 median-filtered grid. Every cell that meets the Zimbabwe "
+            "outline is coloured from the nearest measured bin. "
+            "Temporal gradient is the second half of the 15-minute window minus the "
+            "first, divided by 7.5 minutes (TECU/min), on that same country fill."
         ),
     }
 
@@ -365,7 +411,7 @@ def _query_rows(now: datetime) -> list[tuple]:
         with conn.cursor() as cur:
             cur.execute("SET statement_timeout = '15000'")
             cur.execute(
-                """
+                f"""
                 SELECT date_trunc('minute', time) AT TIME ZONE 'UTC' AS minute,
                        LOWER(RTRIM(station, '_')) AS station,
                        prn,
@@ -375,7 +421,7 @@ def _query_rows(now: datetime) -> list[tuple]:
                 WHERE time >= %s
                   AND vtec_tecu >= 0
                   AND vtec_tecu <= 50
-                  AND elevation_deg >= 20
+                  AND elevation_deg >= {ELEVATION_MIN_DEG:g}
                   AND tec_method LIKE %s
                   AND tec_method NOT LIKE 'dlr_%%'
                 GROUP BY 1, 2, 3
@@ -388,7 +434,7 @@ def _query_rows(now: datetime) -> list[tuple]:
         if "://" in message or "@" in message:
             message = type(exc).__name__
         log.warning("TEC gradient read failed: %s", message[:240])
-        return []
+        raise RuntimeError("The TEC database could not be reached. Please retry shortly.") from exc
     finally:
         if conn is not None:
             conn.close()
@@ -423,7 +469,7 @@ def _place(rows: list[tuple]) -> list[tuple[datetime, float, float, float]] | No
     return placed
 
 
-def build_tec_gradient_maps(*, now: datetime | None = None) -> dict[str, Any]:
+def _build_tec_gradient_maps(*, now: datetime | None = None) -> dict[str, Any]:
     """Current 15-minute gradient maps. Cached for 90 seconds."""
     global _cache
     moment = now or datetime.now(timezone.utc)
@@ -442,7 +488,7 @@ def build_tec_gradient_maps(*, now: datetime | None = None) -> dict[str, Any]:
                 payload = _empty_payload(
                     moment,
                     WINDOW_MINUTES,
-                    "GPS broadcast ephemeris is not available, so pierce points cannot be placed.",
+                    "Waiting for GPS broadcast ephemeris before placing pierce points. Retrying automatically.",
                 )
             else:
                 payload = gradient_maps_from_pierce_points(placed, now=moment)
@@ -452,3 +498,33 @@ def build_tec_gradient_maps(*, now: datetime | None = None) -> dict[str, Any]:
     with _cache_lock:
         _cache = (time.time(), payload)
     return payload
+
+
+_build_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="tec-gradients")
+_build_lock = threading.Lock()
+_build_job = None
+
+
+def build_tec_gradient_maps(*, now: datetime | None = None) -> dict[str, Any]:
+    """Serve completed maps while one worker queries and places the next window."""
+    global _build_job
+    moment = now or datetime.now(timezone.utc)
+    with _build_lock:
+        if _build_job is not None and _build_job.done():
+            job = _build_job
+            _build_job = None
+            return job.result()
+        with _cache_lock:
+            cached = _cache
+        if cached is not None:
+            ttl = _CACHE_S if cached[1].get("available") else _FAIL_CACHE_S
+            if time.time() - cached[0] < ttl:
+                return cached[1]
+        if _build_job is None:
+            _build_job = _build_pool.submit(_build_tec_gradient_maps, now=moment)
+        if cached is not None:
+            return cached[1]
+    return _empty_payload(
+        moment, WINDOW_MINUTES,
+        "Gradient maps are being calculated in the background. This panel refreshes automatically.",
+    )

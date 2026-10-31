@@ -16,6 +16,7 @@ import {
   type MetricKey,
 } from "@/lib/spaceWeatherMetrics";
 import TecPrimerBlock from "./TecPrimerBlock";
+import VisibleSolarDisk from "./VisibleSolarDisk";
 import { MetricCardIcon, MetricDetailIcon } from "./MetricCardIcons";
 
 interface Props {
@@ -277,6 +278,52 @@ function ExplanationPanel({
       <div className="sw-metric-explain-current">Current value: {value}</div>
       <div className="sw-metric-explain-heading">Explanation</div>
       <p className="sw-metric-explain-body">{METRIC_EXPLANATIONS[metricKey]}</p>
+      {metricKey === "donki_flares" && (
+        <>
+          <div className="sw-metric-explain-heading">26 August 2026 · M2.2 flare, R1</div>
+          <p className="sw-metric-explain-body">
+            NOAA reported a minor flare that peaked at 06:34 UTC on 26 August 2026 and reached M2.2.
+            The radio-blackout scale for that flare is R1. The GOES-19 SUVI image at 131 Å, taken at
+            06:32 UTC, shows the bright site circled on the disk. That wavelength lights up the hot
+            flare plasma.
+          </p>
+          <p className="sw-metric-explain-body" style={{ marginTop: "0.45rem" }}>
+            A solar flare is a release of stored coronal energy, measured here by the soft X-ray flux.
+            An M2 flare is ordinary near solar maximum. Flares of this size are usually impulsive:
+            the X-ray flux rises and falls within minutes, though some events last longer. The effect
+            at Earth is immediate and only on the sunlit side: a weak, temporary degradation of
+            high-frequency radio. R1 is that radio effect. It is not a geomagnetic storm, and it is
+            not by itself a change in Zimbabwe TEC.
+          </p>
+        </>
+      )}
+      {metricKey === "donki_cmes" && (
+        <>
+          <div className="sw-metric-explain-heading">11 October 2026 · G2 watch</div>
+          <p className="sw-metric-explain-body">
+            NOAA issued a geomagnetic storm watch for the 11 October UTC day at G2, moderate.
+            Several coronal mass ejections were expected to reach Earth and raise geomagnetic activity.
+            A CME is an eruption of solar plasma together with magnetic field. A storm follows only if
+            that structure arrives and the field inside it stays southward. A watch at this level is
+            not rare. The plots beside the watch are a WSA-ENLIL run from 8 October 2026, 21:00 UTC:
+            plasma density and radial speed at Earth and at STEREO-A, with the disturbed structure
+            drawn near 11 October 00:00 UTC. Whether the response reaches a moderate storm depends on
+            the direction of the embedded field. Over Zimbabwe that arrival is read on TEC and S4
+            from the CORS network.
+          </p>
+          <div className="sw-metric-explain-heading">27–29 August 2026 · coronal hole, then a CME</div>
+          <p className="sw-metric-explain-body">
+            The watches for 27–29 August were G1 and then G2. The driver was a coronal-hole high-speed
+            stream, followed by a CME. On the solar image the coronal hole is the darker patch in the
+            GOES-19 SUVI 195 Å frame of 26 August 2026, 16:36 UTC: a cooler, less dense part of the
+            corona, so the wind leaves faster. The coronagraph frame under it is the CME, the bright
+            front leaving the Sun. The fast stream arrives first as a compressed region in the
+            interplanetary field, and activity can step up quickly. The ejection behind it can lift
+            the response further. The positioning check for Zimbabwe is a southward field, then a
+            change in TEC or S4 on the CORS network.
+          </p>
+        </>
+      )}
       {metricKey === "zimbabwe_iono" && (
         <div style={{ marginTop: "0.75rem" }}>
           <TecPrimerBlock />
@@ -295,6 +342,7 @@ function ExplanationPanel({
           state.
         </p>
       )}
+      {metricKey === "solar_activity" && <VisibleSolarDisk embedded />}
       {metricKey === "solar_activity" && solar && (
         <div className="sw-metric-explain-body" style={{ marginTop: "0.65rem" }}>
           <div className="sw-metric-explain-heading">Expanded details</div>

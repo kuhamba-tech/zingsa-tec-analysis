@@ -154,6 +154,11 @@ export default function GoesSolarXrayCard({
               </span>
             ))}
           </div>
+          <p className="sw-supporting-text" style={{ margin: "0.55rem 0 0" }}>
+            Click the graph. Name the GOES class and the UTC peak. A trace that stays in the B or C
+            band is background to low activity. An M or X spike is the flare beat: say whether it
+            was eruptive and Earth-directed before writing a geomagnetic storm.
+          </p>
           {explanationOpen && <ChartAnalysisBox block={analysis} title="Scientific interpretation" />}
         </>
       ) : (

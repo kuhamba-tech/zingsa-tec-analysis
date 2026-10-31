@@ -233,7 +233,7 @@ VARS_STEP_5 = [
 
 VARS_STEP_6 = [
     _sym("TEC<sub>R</sub>", "Levelled slant TEC (absolute + precise)"),
-    _sym("<em>N</em>", "Number of epochs in one continuous arc (elevation > 20°)"),
+    _sym("<em>N</em>", "Number of epochs in one continuous arc (elevation ≥ 30°)"),
     _sym("μ, σ", "Mean and standard deviation of arc offsets (MAD filter)"),
     _sym("Arc", "Continuous observations from one PRN without time gaps"),
 ]

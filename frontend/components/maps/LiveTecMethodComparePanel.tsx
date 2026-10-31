@@ -7,6 +7,8 @@ import { idwFillByStation, stationCodeKey, type LatLonSite } from "@/lib/idwSurf
 import type { TecMethodComparisonResponse, TecMethodStationCompare } from "@/lib/types";
 
 const REFRESH_MS = 90_000;
+const PENDING_RETRY_MS = 15_000;
+const PENDING_NOTE = "Live comparison is still reading the database.";
 const GOPI_COLOR = "#38bdf8";
 const GG_COLOR = "#f59e0b";
 const GLOBAL_COLOR = "#c4b5fd";
@@ -72,12 +74,17 @@ export default function LiveTecMethodComparePanel({
 
   useEffect(() => {
     let cancelled = false;
-    const load = () => {
+    let retryTimer: number | null = null;
+    const loadComparison = () => {
+      retryTimer = null;
       getTecMethodComparison(2, undefined, 300, 60_000)
         .then((res) => {
           if (cancelled) return;
           setData(res);
           setError(null);
+          if (!res.available && res.note === PENDING_NOTE) {
+            retryTimer = window.setTimeout(loadComparison, PENDING_RETRY_MS);
+          }
         })
         .catch((err) => {
           if (cancelled) return;
@@ -86,6 +93,9 @@ export default function LiveTecMethodComparePanel({
         .finally(() => {
           if (!cancelled) setLoading(false);
         });
+    };
+    const load = () => {
+      loadComparison();
       getGlobalVtecByStation(2, true)
         .then((globalTec) => {
           if (cancelled || !globalTec) return;
@@ -117,6 +127,7 @@ export default function LiveTecMethodComparePanel({
     return () => {
       cancelled = true;
       window.clearInterval(id);
+      if (retryTimer != null) window.clearTimeout(retryTimer);
     };
   }, []);
 
@@ -277,6 +288,16 @@ export default function LiveTecMethodComparePanel({
 
       {loading && !data && (
         <div className="live-tec-method-compare-status">Computing Gg calibration on live GOPI samples…</div>
+      )}
+      {data && !data.available && data.note === PENDING_NOTE && (
+        <div className="live-tec-method-compare-status" role="status">
+          The comparison is taking longer than usual. It will retry automatically when the database query finishes.
+        </div>
+      )}
+      {data && !data.available && data.note !== PENDING_NOTE && (
+        <div className="live-tec-method-compare-status" role="status">
+          No fresh live GOPI samples are available to compare. Results will appear when new observations reach the backend.
+        </div>
       )}
       {error && !data && (
         <div className="live-tec-method-compare-status live-tec-method-compare-status--err">{error}</div>

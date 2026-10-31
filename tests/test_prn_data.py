@@ -94,7 +94,7 @@ class PrnDataTests(unittest.TestCase):
             import os
             os.environ["ZGIIS_CMN_SOURCE"] = tmp
             try:
-                df = load_cmn_prn_observations(start="2024-04-01", end="2024-04-01", elev_min=20)
+                df = load_cmn_prn_observations(start="2024-04-01", end="2024-04-01", elev_min=30)
             finally:
                 os.environ.pop("ZGIIS_CMN_SOURCE", None)
         self.assertFalse(df.empty)

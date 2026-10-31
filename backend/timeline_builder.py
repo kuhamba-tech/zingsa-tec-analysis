@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import datetime as dt
 import math
+import threading
 
 from backend.schemas import SpaceWeatherTimelines, TimelinePoint
 from backend.timeline_cache import merge_timeline
@@ -84,10 +85,53 @@ def limit_timelines(
 
 
 def _archive_frame(hours: float = 168.0, resample: str = "1h"):
-    try:
-        from backend.space_weather_logger import get_db
+    """Read the logged archive on its own short connection.
 
-        return get_db().query_dataframe(hours=hours, resample=resample)
+    The shared pool is often busy with station charts. Waiting for a pooled
+    connection makes this route sit silent until the browser gives up and the
+    ionosphere panel reports a failed timeline feed.
+    """
+    try:
+        import pandas as pd
+        import psycopg2
+
+        from zgiis.db.config import database_dsn
+        from zgiis.db.space_weather_db import _finalize_log_frame
+
+        dsn = database_dsn()
+        if not dsn:
+            return None
+        since = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=hours)).isoformat()
+        conn = psycopg2.connect(dsn, connect_timeout=4)
+        try:
+            conn.autocommit = True
+            with conn.cursor() as cur:
+                cur.execute("SET statement_timeout = '8000'")
+            frame = pd.read_sql(
+                """
+                SELECT date_trunc('hour', time) AS time,
+                       AVG(kp) AS kp,
+                       MAX(kp_condition) AS kp_condition,
+                       AVG(dst) AS dst,
+                       AVG(f107) AS f107,
+                       AVG(plasma_speed) AS plasma_speed,
+                       AVG(s4) AS s4,
+                       MAX(gnss_risk) AS gnss_risk,
+                       AVG(gnss_risk_score) AS gnss_risk_score,
+                       AVG(stations_online) AS stations_online,
+                       MAX(stations_total) AS stations_total,
+                       AVG(mean_vtec) AS mean_vtec
+                FROM space_weather_log
+                WHERE time >= %s
+                GROUP BY 1
+                ORDER BY 1
+                """,
+                conn,
+                params=[since],
+            )
+        finally:
+            conn.close()
+        return _finalize_log_frame(frame, resample)
     except Exception:
         return None
 
@@ -127,6 +171,25 @@ def _within_zingsa_network(points: list[TimelinePoint]) -> list[TimelinePoint]:
             continue
         kept.append(point)
     return kept
+
+
+def _gic_points() -> list[TimelinePoint]:
+    """GIC is optional on this route. A busy pool must not hold the response."""
+    holder: dict[str, list[tuple[str, float]]] = {}
+
+    def run() -> None:
+        try:
+            from zgiis.gic.timeline import load_gic_timeline
+
+            _, raw = load_gic_timeline(hours=168.0, resample="1h")
+            holder["rows"] = list(raw or [])
+        except Exception:
+            holder["rows"] = []
+
+    worker = threading.Thread(target=run, name="timeline-gic", daemon=True)
+    worker.start()
+    worker.join(4)
+    return [TimelinePoint(t=t, v=v) for t, v in holder.get("rows", [])]
 
 
 def _archive_points(column: str, df) -> list[TimelinePoint]:
@@ -246,14 +309,7 @@ def build_timelines(sw: dict) -> SpaceWeatherTimelines:
 
     mean_vtec = merge_timeline("mean_vtec", _archive_points("mean_vtec", archive))
 
-    gic_pts: list[TimelinePoint] = []
-    try:
-        from zgiis.gic.timeline import load_gic_timeline
-
-        _, gic_raw = load_gic_timeline(hours=168.0, resample="1h")
-        gic_pts = [TimelinePoint(t=t, v=v) for t, v in gic_raw]
-    except Exception:
-        gic_pts = []
+    gic_pts = _gic_points()
     gic = merge_timeline("gic", gic_pts)
 
     return SpaceWeatherTimelines(

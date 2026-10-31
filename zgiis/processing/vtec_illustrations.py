@@ -511,7 +511,7 @@ _register(
   {_legend_row(188, "#f472b6", "TEC_G (noisy)")}
   {_legend_row(206, "#f59e0b", "TEC_P (precise)")}
   {_legend_row(224, "#00ff88", "TEC_R = TEC_P + mean(G-P)")}
-  {_footer("Uses arc with elevation &gt; 20 deg")}
+  {_footer("Uses arc with elevation of at least 30 deg")}
 """
     ),
 )

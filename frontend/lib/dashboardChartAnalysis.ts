@@ -1,4 +1,5 @@
 import type { ChartAnalysisBlock } from "./multiSourceChartAnalysis";
+import { CYCLE_25_SCALE, DST_BEAT, KP_BEAT, TEC_BEAT, WIND_BEAT, ZIMBABWE_TRANSLATION } from "./scientistBulletin";
 import type { GicTimelineBundle } from "@/components/dashboard/GicLiveTimelinePanel";
 import type { StationUptimeRow, TimelinePoint } from "./types";
 
@@ -107,8 +108,9 @@ export function analyzeKpDstTimeline(
   const latestDst = latestPoint(dstPoints);
 
   const bullets: string[] = [
-    "Left axis — Kp: planetary geomagnetic storm index (≥ 5 = storm). Right axis — Dst: ring-current intensity in nT (more negative = stronger storm, ≤ −50 nT threshold).",
-    "Solid lines are observed NOAA/SWPC values; dashed lines are Extended Kalman Filter predictions for comparison.",
+    KP_BEAT,
+    DST_BEAT,
+    "Left axis is Kp. Right axis is Dst in nT. Solid lines are observed NOAA/SWPC values; dashed lines are the Extended Kalman Filter, for comparison only.",
   ];
 
   if (kpPeak) {
@@ -145,8 +147,8 @@ export function analyzeKpDstTimeline(
 
   const lead =
     kpPeak && kpPeak.v >= 5
-      ? `Geomagnetic storm activity detected — peak Kp ${fmt(kpPeak.v)} with Dst down to ${fmt(dstTrough?.v ?? null, 0)} nT in this 7-day window.`
-      : "Dual-axis storm monitor — Kp proves storms at Earth; Dst shows ring-current intensity. Watch both together.";
+      ? `Storm window: peak Kp ${fmt(kpPeak.v)} with Dst down to ${fmt(dstTrough?.v ?? null, 0)} nT. Write the driver (CME or coronal-hole stream) and whether Bz was south before calling a Zimbabwe impact.`
+      : "Kp and Dst together. A storm sentence needs Kp at or above 5, or Dst through −50 nT, with southward Bz. Kp 4 stays 'active'.";
 
   return { lead, bullets };
 }
@@ -157,13 +159,14 @@ export function analyzeKpTimeline(points: TimelinePoint[]): ChartAnalysisBlock {
   const vals = validValues(points);
   const stormSamples = vals.filter((value) => value >= 5).length;
   const bullets = [
-    "Kp is a quasi-logarithmic planetary geomagnetic index from 0 to 9. Kp ≥ 5 marks G1 storm conditions; it describes disturbance at Earth, not solar activity at the Sun.",
+    KP_BEAT,
+    ZIMBABWE_TRANSLATION,
   ];
   if (peak) bullets.push(`Peak Kp ${fmt(peak.v)} on ${dayKey(peak.t)} — ${kpStormClass(peak.v)}.`);
   if (latest) bullets.push(`Latest Kp ${fmt(latest.v)} — ${kpStormClass(latest.v)}. Confirm operational effects with Dst, local S4/ROTI, TEC gradients, and receiver tracking quality.`);
   if (stormSamples) bullets.push(`${stormSamples} plotted sample${stormSamples === 1 ? "" : "s"} reached the Kp ≥ 5 storm threshold.`);
   return {
-    lead: peak && peak.v >= 5 ? "Storm-level planetary geomagnetic activity appears in this window." : "Planetary geomagnetic activity remains below the conventional storm threshold in this window.",
+    lead: peak && peak.v >= 5 ? "Planetary Kp reaches storm level in this window. Confirm Bz and the Zimbabwe TEC trace before a local impact line." : "Planetary Kp stays below G1 in this window. Kp 4, if present, is active and is not a storm.",
     bullets,
   };
 }
@@ -174,13 +177,13 @@ export function analyzeDstTimeline(points: TimelinePoint[]): ChartAnalysisBlock 
   const vals = validValues(points);
   const stormSamples = vals.filter((value) => value <= -50).length;
   const bullets = [
-    "Dst measures the symmetric magnetospheric ring current in nanotesla. Sustained negative values indicate storm development: approximately −50 nT for a moderate disturbance and below −100 nT for an intense storm.",
+    DST_BEAT,
   ];
   if (trough) bullets.push(`Most negative Dst ${fmt(trough.v, 0)} nT on ${dayKey(trough.t)} — ${dstStormNote(trough.v)}.`);
   if (latest) bullets.push(`Latest Dst ${fmt(latest.v, 0)} nT. A single sharp point should be verified against neighbouring hourly samples and Kp before declaring a storm main phase.`);
   if (stormSamples) bullets.push(`${stormSamples} plotted sample${stormSamples === 1 ? "" : "s"} crossed the −50 nT storm threshold.`);
   return {
-    lead: trough && trough.v <= -50 ? "The ring-current index reaches storm-level depression in this window." : "Dst remains above the conventional −50 nT storm threshold in this window.",
+    lead: trough && trough.v <= -50 ? "The ring current is in a storm-level depression. Pair the time with southward Bz and with Kp before writing the main phase." : "Dst stays above the −50 nT storm threshold in this window.",
     bullets,
   };
 }
@@ -190,7 +193,7 @@ export function analyzeF107Timeline(points: TimelinePoint[]): ChartAnalysisBlock
   const peak = peakPoint(points);
   const latest = latestPoint(points);
   const bullets: string[] = [
-    "F10.7 is solar radio flux (sfu) — measures how active the Sun is. It drives long-term ionospheric background TEC but does not by itself prove a geomagnetic storm (use Kp/Dst for that).",
+    `F10.7 is the solar radio flux in sfu. It sets the weeks-long EUV background for Zimbabwe TEC. It does not prove a geomagnetic storm; that sentence still needs Kp and Dst. ${CYCLE_25_SCALE}`,
   ];
   if (peak && vals.length) {
     bullets.push(
@@ -201,7 +204,7 @@ export function analyzeF107Timeline(points: TimelinePoint[]): ChartAnalysisBlock
     bullets.push(`Current flux ${fmt(latest.v, 1)} sfu (${dayKey(latest.t)}). Rising F10.7 over weeks raises average TEC; sudden storms still appear first on the Kp/Dst chart.`);
   }
   return {
-    lead: "Solar flux timeline — Sun activity proxy, not an Earth storm detector.",
+    lead: "Solar radio flux. Use it for the background TEC level of the cycle, not for today's storm.",
     bullets,
   };
 }
@@ -211,7 +214,7 @@ export function analyzeSolarWindTimeline(points: TimelinePoint[]): ChartAnalysis
   const peak = peakPoint(points);
   const latest = latestPoint(points);
   const bullets: string[] = [
-    "Solar wind speed (km/s) from NOAA — fast wind (> 500 km/s) or sudden jumps often precede geomagnetic storms when a CME or coronal hole stream arrives at Earth.",
+    WIND_BEAT,
   ];
   if (peak) {
     bullets.push(`Fastest wind in window: ${fmt(peak.v, 0)} km/s on ${dayKey(peak.t)}${peak.v >= 600 ? " — elevated; watch Kp/Dst for storm response within hours to days." : "."}`);
@@ -223,7 +226,7 @@ export function analyzeSolarWindTimeline(points: TimelinePoint[]): ChartAnalysis
     );
   }
   return {
-    lead: "Solar wind driver — fast streams and CME shocks trigger geomagnetic storms when they reach Earth.",
+    lead: "Solar-wind speed at Earth. Name a coronal-hole stream or a CME shock, then read Bz.",
     bullets,
   };
 }
@@ -234,7 +237,8 @@ export function analyzeTecTimeline(points: TimelinePoint[]): ChartAnalysisBlock 
   const latest = latestPoint(points);
   const avg = mean(vals);
   const bullets: string[] = [
-    "Network mean VTEC (TECU) from Zimbabwe CORS archive — total electron content in the ionosphere over the station network. Higher TEC can reduce GNSS accuracy, especially with scintillation (S4 chart).",
+    TEC_BEAT,
+    ZIMBABWE_TRANSLATION,
   ];
   if (peak && avg != null) {
     bullets.push(
@@ -248,7 +252,7 @@ export function analyzeTecTimeline(points: TimelinePoint[]): ChartAnalysisBlock 
     );
   }
   return {
-    lead: "Ionospheric TEC over Zimbabwe — local response to solar and geomagnetic forcing.",
+    lead: "Zimbabwe network VTEC. Write the UTC time, then say whether the change matches a flare, a later storm, or the ordinary daytime curve.",
     bullets,
   };
 }
@@ -258,7 +262,7 @@ export function analyzeS4Timeline(points: TimelinePoint[]): ChartAnalysisBlock {
   const peak = peakPoint(points);
   const latest = latestPoint(points);
   const bullets: string[] = [
-    "S4 scintillation index (0–1) — GNSS signal fading from ionospheric irregularities. S4 > 0.5 indicates strong scintillation; often elevated during geomagnetic storms at low latitudes.",
+    "S4 is the scintillation index from 0 to 1. Above about 0.5 is strong fading on the GNSS link. At Zimbabwe's latitude it is the local storm sentence: it rises with irregularities after a CME or a fast stream, read together with TEC on the CORS network.",
   ];
   if (peak) {
     bullets.push(
@@ -269,7 +273,7 @@ export function analyzeS4Timeline(points: TimelinePoint[]): ChartAnalysisBlock {
     bullets.push(`Latest S4 ${fmt(latest.v, 2)} on ${dayKey(latest.t)}. Cross-check with Kp and TEC when S4 rises during storm intervals.`);
   }
   return {
-    lead: "Scintillation monitor — GNSS quality over Zimbabwe, sensitive to storm-time ionospheric irregularities.",
+    lead: "Scintillation over Zimbabwe. This is the local GNSS-quality line in the bulletin, read next to TEC, Bz and Kp.",
     bullets,
   };
 }

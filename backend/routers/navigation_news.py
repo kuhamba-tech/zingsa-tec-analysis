@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from typing import Literal
+from datetime import date
+import asyncio
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -64,42 +66,39 @@ def _stations(*, refresh_ntrip: bool = False) -> list:
     return _stations(refresh_ntrip=refresh_ntrip)
 
 
-def _build_bundle_fresh(*, refresh_ntrip: bool = False) -> NavigationNewsBundleOut:
-    from zgiis.navigation.audience_news import build_audience_news
-    from zgiis.navigation.gnss_forecast import build_gnss_forecast_bundle
+def _briefs_for_areas(assessments: list[dict]) -> list[dict]:
+    from zgiis.navigation.advisory_messages import build_assessment_briefs, build_national_briefs
+    return build_assessment_briefs(assessments[0]) if len(assessments)==1 else build_national_briefs(assessments)
 
-    sw = _sw_dict()
-    stations = _stations(refresh_ntrip=refresh_ntrip)
-    bundle = build_gnss_forecast_bundle(sw, stations)
-    briefs = build_audience_news(bundle.forecasts, bundle.computedAt, sw)
 
+def _build_bundle_fresh(*, refresh_ntrip: bool = False, city: str | None = None, day: date | None = None) -> NavigationNewsBundleOut:
+    from zgiis.navigation.advisory_assessment import build_advisory_assessment
+    from zgiis.navigation.news_tec_context import live_tec_context
+    from zgiis.navigation.plain_news import plain_news_templates
+
+    from zgiis.navigation.advisory_inputs import advisory_inputs
+    from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
+
+    inputs, status = advisory_inputs.read({"global_context": _sw_dict, "local_tec": live_tec_context})
+    sw = inputs["global_context"]
+    stations = ZIMBABWE_CORS_STATIONS
+    tec = inputs["local_tec"] or []
+    cities = [city] if city else [item["city"] for item in plain_news_templates()["locations"]]
+    assessments = [
+        build_advisory_assessment(city=name, day=day, local_tec=tec, stations=stations, sw=sw)
+        for name in cities
+    ]
+    for assessment in assessments:
+        assessment["input_status"] = status
+    issued = assessments[0]["issued_at"]
     return NavigationNewsBundleOut(
-        computed_at=bundle.computedAt,
-        last_updated_at=bundle.computedAt,
-        next_update_at=bundle.computedAt,
-        update_interval_hours=4,
-        update_history=[],
-        input_summary=bundle.inputSummary,
-        sources=bundle.sources,
-        briefs=[
-            NavigationNewsBriefOut(
-                id=b.id,
-                icon=b.icon,
-                title=b.title,
-                audience=b.audience,
-                headline=b.headline,
-                summary=b.summary,
-                space_weather_today=b.space_weather_today,
-                space_weather_bullets=b.space_weather_bullets,
-                bullets=b.bullets,
-                action=b.action,
-                status_tone=b.status_tone,
-                broadcast_script=b.broadcast_script,
-                social_script=b.social_script,
-                channels=b.channels,
-            )
-            for b in briefs
-        ],
+        computed_at=issued, last_updated_at=issued,
+        next_update_at=assessments[0]["next_update"], update_interval_hours=4, update_history=[],
+        input_summary="Observed station TEC; global context separate. Unverified performance and forecasts remain unavailable.",
+        sources={"spaceWeather":bool(sw), "corsStations":bool(stations)},
+        assessment=assessments[0] if city else None,
+        assessments=assessments,
+        briefs=[NavigationNewsBriefOut(**b) for b in _briefs_for_areas(assessments)],
     )
 
 
@@ -113,12 +112,16 @@ def _bundle_from_cache_dict(data: dict) -> NavigationNewsBundleOut:
         input_summary=data["input_summary"],
         sources=data.get("sources", {}),
         briefs=[NavigationNewsBriefOut(**b) for b in data.get("briefs", [])],
+        assessment=data.get("assessment"),
+        assessments=list(data.get("assessments") or []),
     )
 
 
-def get_navigation_news_bundle(*, refresh_ntrip: bool = False, force: bool = False) -> NavigationNewsBundleOut:
+def get_navigation_news_bundle(*, refresh_ntrip: bool = False, force: bool = False, city: str | None = None, day: date | None = None) -> NavigationNewsBundleOut:
     """Return cached bundle (4 h TTL) or rebuild and record update time."""
     global _mem_cache
+    if city is not None or day is not None:
+        return _build_bundle_fresh(refresh_ntrip=refresh_ntrip, city=city, day=day)
 
     from zgiis.navigation.news_cache import (
         cache_is_fresh,
@@ -127,8 +130,11 @@ def get_navigation_news_bundle(*, refresh_ntrip: bool = False, force: bool = Fal
         record_to_bundle_dict,
     )
 
+    from zgiis.navigation.plain_news import plain_news_templates
+
     record = _mem_cache if _mem_cache and cache_is_fresh(_mem_cache) else load_cache()
-    if record and not force and cache_is_fresh(record):
+    covers_every_area = bool(record) and len(record.assessments) >= len(plain_news_templates()["locations"])
+    if record and not force and cache_is_fresh(record) and covers_every_area:
         _mem_cache = record
         return _bundle_from_cache_dict(record_to_bundle_dict(record))
 
@@ -167,6 +173,8 @@ async def navigation_news(
     audience: str | None = Query(None, description="Optional filter: farmer, surveyor, citizen, driver, aviation"),
     refresh_ntrip: bool = Query(False),
     force: bool = Query(False, description="Bypass 4-hour cache and rebuild now"),
+    city: str | None = Query(None, description="Local advisory, for example Masvingo or Harare"),
+    day: date | None = Query(None, description="CAT working day; future intervals need a validated forecast"),
     _=Depends(require_api_key),
 ):
     """
@@ -180,7 +188,13 @@ async def navigation_news(
             status_code=422,
             detail=f"Invalid audience '{audience}'. Use: farmer, surveyor, citizen, driver, aviation",
         )
-    bundle = get_navigation_news_bundle(refresh_ntrip=refresh_ntrip, force=force)
+    if city:
+        from zgiis.navigation.plain_news import plain_news_templates
+
+        city = city.strip().upper()
+        if city not in {item["city"] for item in plain_news_templates()["locations"]}:
+            raise HTTPException(status_code=422, detail="Choose a supported Zimbabwe city")
+    bundle = await asyncio.to_thread(get_navigation_news_bundle, refresh_ntrip=refresh_ntrip, force=force, city=city, day=day)
     if audience:
         filtered = [b for b in bundle.briefs if b.id == audience]
         return NavigationNewsBundleOut(
@@ -192,6 +206,8 @@ async def navigation_news(
             input_summary=bundle.input_summary,
             sources=bundle.sources,
             briefs=filtered,
+            assessment=bundle.assessment,
+            assessments=bundle.assessments,
         )
     return bundle
 

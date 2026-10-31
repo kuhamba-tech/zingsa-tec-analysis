@@ -20,6 +20,7 @@ from backend.schemas import (
     StormAlertStatus,
     SolarActivityFull,
     SolarCycleIndicesResponse,
+    SolarDiskResponse,
     SolarWindDetail,
     SpaceWeatherCorrelationResponse,
     SpaceWeatherCurrent,
@@ -348,7 +349,7 @@ _CURRENT_CACHE_TTL_S = 2.0
 _CURRENT_CACHE: dict[str, object] = {"ts": 0.0, "payload": None}
 _CURRENT_CACHE_LOCK = threading.Lock()
 
-_TIMELINES_CACHE_TTL_S = 8.0
+_TIMELINES_CACHE_TTL_S = 60.0
 _TIMELINES_CACHE: dict[str, object] = {}
 _TIMELINES_CACHE_LOCK = threading.Lock()
 
@@ -532,6 +533,12 @@ async def current(_=Depends(require_api_key)):
     return payload
 
 
+@router.get("/scientific-updates")
+async def scientific_updates(_=Depends(require_api_key)):
+    from zgiis.space_weather.scientific_updates import get_scientific_updates
+    return await asyncio.to_thread(get_scientific_updates)
+
+
 @router.get("/solar-activity", response_model=SolarActivityFull)
 def solar_activity(
     force_refresh: bool = Query(False),
@@ -599,26 +606,39 @@ def solar_activity(
     )
 
 
+def _timelines_payload(max_points: int) -> SpaceWeatherTimelines:
+    return limit_timelines(build_timelines(_sw()), max_points=max_points)
+
+
 @router.get("/timelines", response_model=SpaceWeatherTimelines)
-def timelines(
+async def timelines(
     max_points: int = Query(168, ge=24, le=2000),
     _=Depends(require_api_key),
 ):
-    # Sync route so NOAA/SQLite work runs in the threadpool and does not
-    # starve other handlers (heliospheric-monitor was timing out behind this).
-    import time
+    """Merged index series. A slow archive read must not leave the browser waiting.
 
+    The Zimbabwe ionosphere panel treats a hung request as a failed feed, so
+    this route answers with the last series, or an empty one, within 12 seconds.
+    """
     key = int(max_points)
     now = time.monotonic()
     with _TIMELINES_CACHE_LOCK:
         entry = _TIMELINES_CACHE.get(key)
+        stale = entry["payload"] if entry else None  # type: ignore[index]
         if entry and (now - float(entry["ts"])) < _TIMELINES_CACHE_TTL_S:
-            return entry["payload"]  # type: ignore[index]
+            return stale  # type: ignore[return-value]
 
-    payload = limit_timelines(build_timelines(_sw()), max_points=max_points)
+    try:
+        payload = await asyncio.wait_for(
+            asyncio.to_thread(_timelines_payload, key),
+            timeout=12,
+        )
+    except (asyncio.TimeoutError, Exception):
+        log.warning("timelines build timed out; serving the last series")
+        return stale if isinstance(stale, SpaceWeatherTimelines) else SpaceWeatherTimelines()
+
     with _TIMELINES_CACHE_LOCK:
         _TIMELINES_CACHE[key] = {"ts": time.monotonic(), "payload": payload}
-        # Bound memory if clients request many max_points variants.
         if len(_TIMELINES_CACHE) > 12:
             oldest = min(_TIMELINES_CACHE.items(), key=lambda item: float(item[1]["ts"]))[0]
             _TIMELINES_CACHE.pop(oldest, None)
@@ -775,6 +795,15 @@ def ekf_alert_log(hours: float = 24.0, _=Depends(require_api_key)):
     from zgiis.db.ekf_alert_db import EkfAlertDB
     rows = EkfAlertDB().list_alerts(hours=hours)
     return [EkfAlertOut(**r) for r in rows]
+
+
+@router.get("/solar-disk", response_model=SolarDiskResponse)
+async def solar_disk(force_refresh: bool = Query(False), _=Depends(require_api_key)):
+    """SDO visible disk plus NOAA active-region numbers and the sunspot count."""
+    from zgiis.space_weather.solar_disk import build_solar_disk
+
+    payload = await asyncio.to_thread(build_solar_disk, force_refresh=force_refresh)
+    return SolarDiskResponse(**payload)
 
 
 @router.get("/solar-cycle-indices", response_model=SolarCycleIndicesResponse)

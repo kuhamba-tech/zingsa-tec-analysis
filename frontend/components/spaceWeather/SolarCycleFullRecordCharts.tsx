@@ -5,6 +5,7 @@ import LineChart from "@/components/charts/LineChart";
 import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
 import { getSolarCycleIndices } from "@/lib/api";
 import type { ChartAnalysisBlock } from "@/lib/multiSourceChartAnalysis";
+import { CYCLE_25_SCALE } from "@/lib/scientistBulletin";
 import type { SolarCycleIndicesResponse } from "@/lib/types";
 
 const START_YEAR = 1965;
@@ -28,21 +29,20 @@ function coverageLabel(from: string | null, to: string | null): string {
 }
 
 const F107_ANALYSIS: ChartAnalysisBlock = {
-  lead: "F10.7 is the monthly mean 10.7 cm solar radio flux (SFU) — a long-term proxy for solar EUV that drives the ionospheric electron density background.",
+  lead: "Monthly mean 10.7 cm flux in sfu. This is the solar-cycle climate behind Zimbabwe's daytime TEC, not today's storm.",
   bullets: [
-    "Quiet conditions are typically below ~70 SFU; active levels sit near 70–150 SFU; high activity exceeds ~150 SFU.",
-    "Unlike X-ray flares or Kp, F10.7 describes the solar-cycle climate, not an instantaneous storm trigger.",
-    "Higher F10.7 usually means a thicker daytime ionosphere and higher baseline TEC over Zimbabwe — useful context for quiet-day TEC models.",
-    "Always pair F10.7 with IMF Bz, solar-wind speed, and Kp/Dst when judging whether a TEC departure is storm-driven.",
+    "Near the 2020 minimum the flux often sat around 70 sfu. Through the 2024 maximum it commonly exceeded 150 sfu, and that raised the quiet-day TEC background over Zimbabwe.",
+    CYCLE_25_SCALE,
+    "A month of high F10.7 does not prove a geomagnetic storm. The storm sentence still needs an Earth-directed CME or a fast stream, southward Bz, and Kp or Dst.",
   ],
 };
 
 const SSN_ANALYSIS: ChartAnalysisBlock = {
-  lead: "Sunspot Number (SSN) counts solar active regions and tracks the ~11-year solar cycle together with F10.7.",
+  lead: "Sunspot number counts spotted regions and tracks the same ~11-year cycle as F10.7. It is the chance of flares over weeks, not a storm on a given day.",
   bullets: [
-    "Elevated SSN raises the chance of flares and CMEs over weeks to months, but SSN alone does not prove a geomagnetic storm on a given day.",
-    "Use SSN/F10.7 for solar-cycle context; use X-rays, IMF Bz, solar wind, and Kp for event-level interpretation.",
-    "Min-cycle and max-cycle reference lines help place the current month in the cycle envelope.",
+    "Write it as the disk climate. A high sunspot number raises the chance of M- and X-class flares. Each flare still needs a UTC peak and a direction: Earth-directed, glancing, or leaving the limb.",
+    CYCLE_25_SCALE,
+    "The on-disk count used on the visible-disk card is 10 × groups + spots for regions still facing Earth. This monthly series is the longer sunspot-number record.",
   ],
 };
 

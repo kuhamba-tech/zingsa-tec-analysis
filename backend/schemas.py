@@ -48,6 +48,34 @@ class SolarCycleIndicesResponse(BaseModel):
     points: list[SolarCycleIndexPoint] = []
 
 
+class SolarDiskRegion(BaseModel):
+    number: int
+    location: str
+    latitude_deg: float
+    central_meridian_deg: float
+    area_millionths: int
+    spot_count: int
+    magnetic_class: str
+    on_disk: bool = True
+    x: float | None = None
+    y: float | None = None
+    label_x: float | None = None
+    label_y: float | None = None
+
+
+class SolarDiskResponse(BaseModel):
+    mode: str = "unavailable"
+    image_url: str = ""
+    image_time: str | None = None
+    issued: str | None = None
+    active_region_count: int | None = None
+    sunspot_number: int | None = None
+    regions: list[SolarDiskRegion] = []
+    source: str = ""
+    updated_utc: str | None = None
+    error: str | None = None
+
+
 class HeliosphericSeriesPoint(BaseModel):
     """Generic labeled timeline payload used by heliospheric monitor panels."""
 
@@ -1326,6 +1354,10 @@ class NavigationNewsBriefOut(BaseModel):
     broadcast_script: str
     social_script: str
     channels: list[str]
+    data_observed_at: str | None = None
+    brief_generated_at: str | None = None
+    data_checked_at: str | None = None
+    advisory: dict | None = None
 
 
 class NavigationNewsBundleOut(BaseModel):
@@ -1337,6 +1369,8 @@ class NavigationNewsBundleOut(BaseModel):
     input_summary: str
     sources: dict[str, bool]
     briefs: list[NavigationNewsBriefOut]
+    assessment: dict | None = None
+    assessments: list[dict] = []
 
 
 class AiAudienceRecommendationOut(BaseModel):

@@ -26,6 +26,8 @@ from typing import Any, Iterable
 import numpy as np
 import pandas as pd
 
+from zgiis.processing.elevation_mask import ELEVATION_MIN_DEG
+
 log = logging.getLogger(__name__)
 
 # Match GOPI / Seemala geometry (tec_core Re=6378 km, H_ipp=350 km, elev≥30°)
@@ -36,7 +38,7 @@ ARC_GAP_S = 600.0
 MIN_ARC_POINTS = 8
 WINDOW_MINUTES = 15
 MAX_POLY_DEGREE = 2
-ELEV_MASK_DEG = 30.0
+ELEV_MASK_DEG = ELEVATION_MIN_DEG
 # Magnetic dip equator offset over Africa (~15°E) — notebook Fig 5.
 AFRICA_MAG_EQ_OFFSET_DEG = 5.0
 # Live NTRIP windows are short: unbounded arc biases can invent 100+ TECU

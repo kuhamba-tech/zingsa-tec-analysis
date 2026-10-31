@@ -33,8 +33,9 @@ def _get_session(session_id: str) -> dict:
 def _build_cfg(elevation_min: float, ipp_height: float, dcb_folder: str):
     import sys; sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     from tec_core import TecConfig
+    from zgiis.processing.elevation_mask import ELEVATION_MIN_DEG
     return TecConfig(
-        elevation_min_deg=elevation_min,
+        elevation_min_deg=max(ELEVATION_MIN_DEG, elevation_min),
         ipp_height_km=ipp_height,
         dcb_folder=dcb_folder.strip() or None,
     )

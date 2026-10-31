@@ -8,7 +8,7 @@ export function rmseTimeExplanation(): ChartAnalysisBlock {
     lead: `Each pale dot is the observed RMSE of one near-real-time TEC map against the code TEC that built it. Matamba and Danskin draw the same dots in black. ${CITE}`,
     bullets: [
       "Every 5 minutes, the previous 15 minutes of GPS code TEC are placed at the 350 km ionospheric pierce point, binned on a 1° grid, filled by nearest neighbour, and smoothed with a median filter of size 7.",
-      "Elevation below 20° and TEC outside 0–50 TECU are excluded, the same observation bounds used by Matamba and Danskin.",
+      "Elevation below 30° and TEC outside 0–50 TECU are excluded, the same mask used by live GOPI and Gg.",
       "RMSE is the root-mean-square of (measured TEC − filtered grid) at those pierce points. A low value means the map agrees with the measurements. A value on or above the magenta typical-high line means the grid is a poor fit.",
       "The olive dashed line is the typical low and the magenta dashed line is the typical high. They are exp(mean of ln(RMSE) ± 1.5 standard deviations). In Figure 6 of the paper those same roles are drawn at 1.4 and 2.8 TECU for the May–November 2021 sample.",
       "The red curve is the 7-day average. It continues across hours that did not have enough pierce points. Those hours are not plotted as RMSE measurements.",

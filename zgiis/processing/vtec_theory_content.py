@@ -237,7 +237,7 @@ _STEP_SPECS: list[dict] = [
             "TEC_P has ~0.003 TECU precision but an unknown offset (ambiguity). "
             "TEC_G has no ambiguity but ~2 TECU noise. "
             "Levelling resolves this by computing the mean difference "
-            "(TEC_G − TEC_P) over a single continuous satellite arc at elevation > 20°. "
+            "(TEC_G − TEC_P) over a single continuous satellite arc at elevation ≥ 30°. "
             "That mean difference is the arc's ambiguity estimate. "
             "Adding it to the phase TEC produces TEC_R — slant TEC that is "
             "both precise (phase noise level) and absolute (code level), "
@@ -247,7 +247,7 @@ _STEP_SPECS: list[dict] = [
             "TEC_R is the input to all downstream VTEC, DCB, and IPP calculations. "
             "Levelling errors of even 1–2 TECU propagate directly into VTEC values, "
             "so outlier rejection during offset estimation is critical. "
-            "Low-elevation data (< 20°) are excluded to reduce multipath contamination."
+            "Low-elevation data (below 30°) are excluded to reduce multipath contamination."
         ),
         "equations": [
             equation_record(EQ_4_14, "4.14", "Outlier rejection using 2σ criterion on arc offsets (xᵢ = TEC_G − TEC_P)"),

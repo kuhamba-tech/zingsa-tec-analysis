@@ -13,11 +13,14 @@ import logging
 import math
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+
+from zgiis.processing.elevation_mask import ELEVATION_MIN_DEG
 
 log = logging.getLogger(__name__)
 
@@ -45,6 +48,11 @@ _failed_at: dict[str, float] = {}
 _pending: set[date] = set()
 _backfill_running = False
 _map_generation = 0
+_nav_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="tec-ephemeris")
+_nav_jobs: dict[date, Any] = {}
+_nav_failed_at: dict[date, float] = {}
+_rmse_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="tec-map-rmse")
+_rmse_job: tuple[str, Any] | None = None
 
 
 def _screen_hour(samples: list[tuple[float, float, float]]) -> list[tuple[float, float, float]]:
@@ -79,12 +87,12 @@ def map_rmse(samples: list[tuple[float, float, float]]) -> float | None:
 
 
 def observation_kept(tec: float, elevation: float) -> bool:
-    """Matamba and Danskin accept elevation of at least 20° and TEC from 0 to 50."""
+    """Keep TEC from 0 to 50 TECU at an elevation of at least 30°."""
     return (
         math.isfinite(tec)
         and math.isfinite(elevation)
         and 0.0 <= tec <= 50.0
-        and elevation >= 20.0
+        and elevation >= ELEVATION_MIN_DEG
     )
 
 
@@ -424,26 +432,29 @@ def _code_live_frame(since: datetime):
     db = TecDB()
     stamp = since.astimezone(timezone.utc).isoformat()
     if db._is_pg:
-        sql = """
+        sql = f"""
         SELECT time, station, prn, vtec_tecu, elevation_deg
         FROM vtec_obs
         WHERE time >= %s
           AND tec_method LIKE '%%code_live%%'
           AND vtec_tecu >= 0
           AND vtec_tecu <= 50
-          AND elevation_deg >= 20
+          AND elevation_deg >= {ELEVATION_MIN_DEG:g}
         """
     else:
-        sql = """
+        sql = f"""
         SELECT time, station, prn, vtec_tecu, elevation_deg
         FROM vtec_obs
         WHERE time >= ?
           AND tec_method LIKE '%code_live%'
           AND vtec_tecu >= 0
           AND vtec_tecu <= 50
-          AND elevation_deg >= 20
+          AND elevation_deg >= {ELEVATION_MIN_DEG:g}
         """
-    return db._read_sql(sql, [stamp])
+    try:
+        return db._read_sql(sql, [stamp])
+    finally:
+        db.close()
 
 
 def _rows_from_frame(frame) -> dict[str, list[tuple]]:
@@ -468,7 +479,7 @@ def _rows_from_frame(frame) -> dict[str, list[tuple]]:
     return grouped
 
 
-def _nav_frame(day: date):
+def _download_nav_frame(day: date):
     import pandas as pd
 
     path = _BRDC_DIR / f"{day.isoformat()}.pkl"
@@ -491,7 +502,7 @@ def _nav_frame(day: date):
     candidates = [noon, noon - timedelta(days=1)] if day == today else [noon]
     frame = None
     for candidate in candidates:
-        downloaded = _download_brdc(candidate)
+        downloaded = _download_brdc(candidate, timeout=5)
         if downloaded is None:
             continue
         try:
@@ -512,6 +523,49 @@ def _nav_frame(day: date):
         path.with_suffix(".tmp").replace(path)
     except Exception as exc:
         log.info("Could not cache broadcast ephemeris for %s: %s", day.isoformat(), exc)
+    return frame
+
+
+def _nav_frame(day: date):
+    """Use disk ephemeris immediately; share cold downloads outside HTTP requests."""
+    import pandas as pd
+
+    path = _BRDC_DIR / f"{day.isoformat()}.pkl"
+    frame = None
+    if path.exists():
+        try:
+            frame = pd.read_pickle(path)
+            if frame is not None and getattr(frame, "empty", True):
+                frame = None
+            fresh = day < datetime.now(timezone.utc).date() or time.time() - path.stat().st_mtime < _TODAY_NAV_S
+            if frame is not None and fresh:
+                with _state_lock:
+                    _failed_at.pop(day.isoformat(), None)
+                    job = _nav_jobs.get(day)
+                    if job is not None and job.done():
+                        _nav_jobs.pop(day, None)
+                return frame
+        except Exception:
+            frame = None
+
+    with _state_lock:
+        job = _nav_jobs.get(day)
+        if job is not None and job.done():
+            _nav_jobs.pop(day, None)
+            try:
+                downloaded = job.result()
+            except Exception:
+                log.warning("Broadcast ephemeris download failed for %s", day, exc_info=True)
+                downloaded = None
+            if downloaded is not None:
+                _failed_at.pop(day.isoformat(), None)
+                _nav_failed_at.pop(day, None)
+                return downloaded
+            _nav_failed_at[day] = time.time()
+        elif job is not None:
+            return frame
+        if time.time() - _nav_failed_at.get(day, 0.0) >= _NAV_RETRY_S:
+            _nav_jobs[day] = _nav_pool.submit(_download_nav_frame, day)
     return frame
 
 
@@ -597,7 +651,8 @@ def _place_and_publish(day: date, rows: list[tuple], *, count_generation: bool) 
     key = day.isoformat()
     with _state_lock:
         if placed is None:
-            _failed_at[key] = time.time()
+            if day not in _nav_jobs:
+                _failed_at[key] = time.time()
             return "missing"
         _placed[key] = placed
         _failed_at.pop(key, None)
@@ -647,7 +702,8 @@ def _place_historical(day: date) -> None:
         placed = None
     with _state_lock:
         if placed is None:
-            _failed_at[key] = time.time()
+            if day not in _nav_jobs:
+                _failed_at[key] = time.time()
             return
         _placed[key] = placed
         _failed_at.pop(key, None)
@@ -751,7 +807,7 @@ def _rmse_series(hours: float) -> tuple[list[dict[str, Any]], list[str]]:
 
 def build_iono_response_figures(*, days: int = 180, include_rmse: bool = True) -> dict[str, Any]:
     """Kp bars, Dst line, and live code-TEC map RMSE for the last `days` UTC days."""
-    global _index_cache, _rmse_cache
+    global _index_cache, _rmse_cache, _rmse_job
     days = max(14, min(int(days), 366))
     end = datetime.now(timezone.utc).date()
     start = end - timedelta(days=days - 1)
@@ -802,21 +858,32 @@ def build_iono_response_figures(*, days: int = 180, include_rmse: bool = True) -
         rmse = cached_rmse[2]
         flags = list(cached_rmse[3])
     else:
-        try:
-            rmse, flags = _rmse_series(hours=days * 24)
-        except Exception as exc:
-            log.warning("TEC map RMSE series failed: %s", exc)
-            rmse = []
-            notes.append("Live TEC map RMSE could not be computed.")
-        with _state_lock:
-            generation = _map_generation
-        rmse_key = f"{cache_key}:{generation}"
+        # History queries and IPP placement can outlive the HTTP timeout.
+        # One worker builds the maps; requests keep serving the last result.
         with _cache_lock:
-            _rmse_cache = (time.time(), rmse_key, rmse, flags)
+            if _rmse_job is not None and _rmse_job[1].done():
+                job_key, job = _rmse_job
+                _rmse_job = None
+                try:
+                    ready_rmse, ready_flags = job.result()
+                except Exception as exc:
+                    log.warning("TEC map RMSE series failed: %s", exc)
+                    ready_rmse, ready_flags = [], []
+                    notes.append("Live TEC map RMSE could not be computed. Retrying on refresh.")
+                _rmse_cache = (time.time(), job_key, ready_rmse, ready_flags)
+            cached_rmse = _rmse_cache
+            current = cached_rmse is not None and cached_rmse[1].startswith(f"{cache_key}:")
+            rmse = cached_rmse[2] if current else []
+            flags = list(cached_rmse[3]) if current else []
+            fresh = current and cached_rmse[1] == rmse_key and time.time() - cached_rmse[0] < _RMSE_TTL_S
+            if not fresh and _rmse_job is None:
+                _rmse_job = (rmse_key, _rmse_pool.submit(_rmse_series, hours=days * 24))
+            if _rmse_job is not None:
+                flags.append("pending")
 
     missing_days = [item for item in flags if item != "pending"]
     if "pending" in flags:
-        notes.append("Earlier days are still being placed at the ionospheric pierce points.")
+        notes.append("TEC maps are being calculated in the background. This panel refreshes automatically.")
     if missing_days:
         notes.append(
             "Days without a readable GPS broadcast ephemeris are omitted: " + ", ".join(missing_days) + "."
@@ -831,7 +898,7 @@ def build_iono_response_figures(*, days: int = 180, include_rmse: bool = True) -
         "Matamba and Danskin (2022) RMSE between live Zimbabwe NTRIP code TEC (GOPI) at the "
         "ionospheric pierce point and the 1° nearest-neighbour grid after a median filter of size 7. "
         "Each value uses the previous 15 minutes and is updated every 5 minutes. "
-        "TEC below 0 or above 50 TECU, and elevation below 20°, is excluded. "
+        "TEC below 0 or above 50 TECU, and elevation below 30°, is excluded. "
         "The red curve is the 7-day running average."
     )
     if low is not None and high is not None:

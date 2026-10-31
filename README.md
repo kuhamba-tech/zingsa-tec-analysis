@@ -9,7 +9,7 @@ This Python app replaces MATLAB post-processing and follows the same operational
 
 1. Process RINEX in GOP to create `.Cmn` files.
 2. Load `.Cmn` files in this app.
-3. Filter noisy observations with elevation mask `>= 25 deg`.
+3. Filter noisy observations with elevation mask `>= 30 deg`.
 4. Extract and analyze `Time`, `Elevation`, `VTEC`.
 5. Produce day, month, and year TEC summaries with storm visualization.
 6. Optionally merge Kp index to study TEC-Kp relationship.

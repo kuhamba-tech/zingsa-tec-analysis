@@ -25,6 +25,9 @@ class NavigationNewsCacheRecord:
     sources: dict[str, Any]
     briefs: list[dict[str, Any]]
     update_history: list[str] = field(default_factory=list)
+    content_version: int = 0
+    assessment: dict | None = None
+    assessments: list[dict] = field(default_factory=list)
 
 
 def _cache_path() -> Path:
@@ -51,9 +54,19 @@ def next_update_from(last: datetime) -> datetime:
 
 
 def cache_is_fresh(record: NavigationNewsCacheRecord, now: datetime | None = None) -> bool:
+    from zgiis.navigation.plain_news import plain_news_templates
+
+    if record.content_version != plain_news_templates()["version"]:
+        return False
     now = now or datetime.now(timezone.utc)
     try:
-        return now < parse_iso(record.next_update_at)
+        # The broadcast schedule stays four-hourly; a requested advisory must
+        # not reuse a local TEC assessment for that entire interval.
+        age = (now - parse_iso(record.computed_at)).total_seconds()
+        assessments = record.assessments or ([record.assessment] if record.assessment else [])
+        validities = [item.get("valid_until") for item in assessments]
+        return (0 <= age < 120 and now < parse_iso(record.next_update_at)
+                and bool(validities) and all(value and now < parse_iso(value) for value in validities))
     except Exception:
         return False
 
@@ -76,6 +89,8 @@ def save_cache(record: NavigationNewsCacheRecord) -> None:
 
 
 def record_refresh(bundle: dict[str, Any], now: datetime | None = None) -> NavigationNewsCacheRecord:
+    from zgiis.navigation.plain_news import plain_news_templates
+
     now = now or datetime.now(timezone.utc)
     now_s = format_iso(now)
     next_s = format_iso(next_update_from(now))
@@ -94,7 +109,10 @@ def record_refresh(bundle: dict[str, Any], now: datetime | None = None) -> Navig
         input_summary=str(bundle.get("input_summary") or ""),
         sources=dict(bundle.get("sources") or {}),
         briefs=list(bundle.get("briefs") or []),
+        assessment=bundle.get("assessment"),
+        assessments=list(bundle.get("assessments") or []),
         update_history=history,
+        content_version=plain_news_templates()["version"],
     )
     save_cache(record)
     log.info("Navigation news refreshed at %s — next update %s", now_s, next_s)
@@ -111,4 +129,6 @@ def record_to_bundle_dict(record: NavigationNewsCacheRecord) -> dict[str, Any]:
         "input_summary": record.input_summary,
         "sources": record.sources,
         "briefs": record.briefs,
+        "assessment": record.assessment,
+        "assessments": record.assessments,
     }

@@ -1,0 +1,17 @@
+{
+  "version": "zingsa-advisory-1",
+  "quality": {
+    "max_age_seconds": 900,
+    "future_clock_tolerance_seconds": 60,
+    "max_station_distance_km": 80,
+    "min_rate_points": 3,
+    "max_rate_gap_seconds": 600
+  },
+  "ionosphere": {"validated": false, "calibration_id": null, "criteria": []},
+  "sectors": {
+    "citizen": {"validated": false, "calibration_id": null, "criteria": []},
+    "farmer": {"validated": false, "calibration_id": null, "criteria": []},
+    "surveyor": {"validated": false, "calibration_id": null, "criteria": []}
+  },
+  "forecast": {"enabled": false, "model_id": null, "validation_id": null}
+}

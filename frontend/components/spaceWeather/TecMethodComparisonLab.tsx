@@ -15,6 +15,7 @@ import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
 import { getTecMethodComparison } from "@/lib/api";
 import { getTecMethodCmpParams } from "@/lib/tecMethodCompareParams";
 import type { ChartAnalysisBlock } from "@/lib/multiSourceChartAnalysis";
+import { ELEVATION_MIN_DEG } from "@/lib/elevationMask";
 import { diurnalPercentilesFullDay, hourOfDayUtc, flatLayerStec } from "@/lib/tecTeachingMath";
 import type { LiveObservation, TecMethodComparisonResponse, TecMethodInfo } from "@/lib/types";
 import ZimbabweLatBandTecCharts from "@/components/spaceWeather/ZimbabweLatBandTecCharts";
@@ -35,7 +36,7 @@ const GRAPH_HELP: Record<GraphId, ChartAnalysisBlock> = {
       "Both start from dual-frequency geometry-free TEC; they diverge in how hardware biases are removed.",
       "GOPI: Seemala-style DCB / σ handling (live path often code TEC without monthly DCB files).",
       "Gg: windowed least squares for a VTEC(MODIP, LT) polynomial + arc biases (Cesaroni / PyTECGg).",
-      "Vertical offset between cyan and amber is usually calibration — not a second ionosphere.",
+      "A steady vertical offset between cyan and amber is the bias model, not a second ionosphere and not a geomagnetic storm. A storm shows up as a shared change in both traces at the same UTC time.",
     ],
   },
   "cmp-elev": {
@@ -196,7 +197,7 @@ export default function TecMethodComparisonLab() {
       const vtec: { x: number; y: number }[] = [];
       for (const o of rows) {
         const el = o.elevation_deg;
-        if (el == null || el < 15) continue;
+        if (el == null || el < ELEVATION_MIN_DEG) continue;
         if (o.stec_tecu != null) stec.push({ x: el, y: o.stec_tecu });
         if (o.vtec_tecu != null) vtec.push({ x: el, y: o.vtec_tecu });
       }
@@ -210,8 +211,8 @@ export default function TecMethodComparisonLab() {
     const med =
       gopi.map((o) => o.vtec_tecu).filter((v): v is number => v != null && Number.isFinite(v)).sort((a, b) => a - b);
     const mid = med.length ? med[Math.floor(med.length / 2)] : 20;
-    const flat = Array.from({ length: 76 }, (_, i) => {
-      const el = 15 + i;
+    const flat = Array.from({ length: 91 - ELEVATION_MIN_DEG }, (_, i) => {
+      const el = ELEVATION_MIN_DEG + i;
       return { x: el, y: flatLayerStec(mid, el) };
     });
     return { g, c, flat };
@@ -223,7 +224,7 @@ export default function TecMethodComparisonLab() {
       for (const o of rows) {
         const el = o.elevation_deg;
         const az = o.azimuth_deg;
-        if (el == null || az == null || o.vtec_tecu == null) continue;
+        if (el == null || el < ELEVATION_MIN_DEG || az == null || o.vtec_tecu == null) continue;
         // Polar-like: x = (90-el)*sin(az), y = (90-el)*cos(az)
         const r = 90 - el;
         const rad = ((az - 90) * Math.PI) / 180;

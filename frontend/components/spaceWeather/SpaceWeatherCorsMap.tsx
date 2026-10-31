@@ -95,9 +95,11 @@ export default function SpaceWeatherCorsMap({ height: preferredHeight = 440 }: {
         if (!cancelled) setStationsLoading(false);
       });
 
-    // Live TEC starts with the page (see ensureLiveTecHeatmap) and is shared,
-    // so this map does not wait on an idle callback before painting G / Gg.
-    ensureLiveTecHeatmap();
+    // Station markers use /cors/stations. Start the TEC grid after that request
+    // is on the wire so the two do not open together with the metric cards.
+    const heatTimer = window.setTimeout(() => {
+      if (!cancelled) ensureLiveTecHeatmap();
+    }, 800);
     const unsubscribeHeatmap = subscribeTecHeatmap((next) => {
       if (!cancelled && next) setHeatmap(next);
     });
@@ -106,6 +108,7 @@ export default function SpaceWeatherCorsMap({ height: preferredHeight = 440 }: {
 
     return () => {
       cancelled = true;
+      window.clearTimeout(heatTimer);
       unsubscribeHeatmap();
     };
   }, []);

@@ -2,7 +2,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { withTrailingSlash } from "@/lib/withTrailingSlash";
 import SiteTranslator from "./SiteTranslator";
 import PageErrorBoundary from "./PageErrorBoundary";
@@ -143,15 +143,62 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const searchQuery = searchParams.toString();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [mobileViewport, setMobileViewport] = useState(false);
+  const menuRef = useRef<HTMLButtonElement>(null);
+  const sidebarRef = useRef<HTMLElement>(null);
+  const mainRef = useRef<HTMLElement>(null);
   const [locationHash, setLocationHash] = useState("");
 
   useEffect(() => {
     setMobileOpen(false);
-  }, [pathname]);
+  }, [pathname, searchQuery]);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 768px)");
+    const sync = () => {
+      setMobileViewport(media.matches);
+      if (!media.matches) setMobileOpen(false);
+    };
+    sync();
+    media.addEventListener("change", sync);
+    return () => media.removeEventListener("change", sync);
+  }, []);
 
   useEffect(() => {
     document.body.classList.toggle("mobile-nav-open", mobileOpen);
     return () => document.body.classList.remove("mobile-nav-open");
+  }, [mobileOpen]);
+
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const previousFocus = document.activeElement as HTMLElement | null;
+    const sidebar = sidebarRef.current;
+    sidebar?.querySelector<HTMLElement>(".app-mobile-close")?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setMobileOpen(false);
+      }
+      if (event.key !== "Tab" || !sidebar) return;
+      const stops = [menuRef.current, ...sidebar.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), [tabindex="0"]',
+      )].filter((element): element is HTMLElement => Boolean(element?.getClientRects().length));
+      const first = stops[0];
+      const last = stops[stops.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      const returnFocus = menuRef.current?.getClientRects().length ? menuRef.current : previousFocus;
+      if (returnFocus?.isConnected && returnFocus.getClientRects().length) returnFocus.focus();
+    };
   }, [mobileOpen]);
 
   useEffect(() => {
@@ -182,8 +229,13 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="app-shell">
+      <a className="app-skip-link" href="#app-content" onClick={(event) => {
+        event.preventDefault();
+        mainRef.current?.focus();
+      }}>Skip to content</a>
       <header className="app-topbar">
         <button
+          ref={menuRef}
           className="app-hamburger"
           onClick={() => setMobileOpen((open) => !open)}
           aria-label={mobileOpen ? "Close navigation" : "Open navigation"}
@@ -199,7 +251,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       {mobileOpen && <div className="app-overlay" onClick={closeMobile} />}
 
       <aside
+        ref={sidebarRef}
         id="app-navigation"
+        aria-label="Main navigation"
+        inert={mobileViewport && !mobileOpen}
         className={`app-sidebar${collapsed ? " is-collapsed" : ""}${mobileOpen ? " is-mobile-open" : ""}`}
       >
         <div className="app-sidebar-head">
@@ -259,10 +314,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
 
-      <main className="app-main">
+      <main ref={mainRef} id="app-content" className="app-main" tabIndex={-1} inert={mobileOpen}>
         <PageErrorBoundary key={pathname}>{children}</PageErrorBoundary>
       </main>
-      <SiteTranslator />
+      <div inert={mobileOpen}><SiteTranslator /></div>
     </div>
   );
 }

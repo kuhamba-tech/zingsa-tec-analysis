@@ -317,6 +317,16 @@ export interface SolarActivityFull {
   radio_burst_rows: Record<string, unknown>[];
 }
 
+export interface ScientificDiscussion {
+  source: string;
+  source_url: string;
+  issued_at?: string;
+  checked_at?: string;
+  status: "current" | "stale" | "unavailable";
+  sections?: {topic: string; observed: string; forecast: string}[];
+  note: string;
+}
+
 // ── CORS Network ──────────────────────────────────────────────────────────────
 export interface TrigNetStation {
   code: string;
@@ -896,6 +906,10 @@ export interface ReceiverBiasStation {
 export interface ReceiverBiasResponse {
   stations: ReceiverBiasStation[];
   note: string;
+  status?: "loading" | "ready" | "stale" | "unavailable";
+  checked_at?: string | null;
+  message?: string;
+  retry_after_seconds?: number;
 }
 
 export interface GfzKpDailyPoint {
@@ -1756,8 +1770,24 @@ export interface NavigationNewsBriefApi {
   broadcast_script: string;
   social_script: string;
   channels: string[];
+  data_observed_at?: string | null;
+  brief_generated_at?: string | null;
+  data_checked_at?: string | null;
+  advisory?: { risk_level: AdvisoryRisk; gnss_performance: string; assessment_id: string } | null;
 }
 
+export type AdvisoryRisk = "favourable" | "caution" | "high_risk" | "insufficient_data";
+export interface GnssAdvisoryAssessment {
+  assessment_id: string; rules_version: string; location: string; location_key: string;
+  issued_at: string; observation_time: string | null; valid_until: string; next_update: string;
+  vtec: number | null; delta_tec: number | null; rot: number | null; roti: number | null;
+  tec_rate_tecu_per_min: number | null; spatial_gradient: number | null;
+  risk_level: AdvisoryRisk; ionospheric_risk: AdvisoryRisk; gnss_performance: string;
+  freshness: string; confidence: number | null; working_day: string; forecast_enabled: boolean;
+  coverage: {reference_station: string | null; warning: string; contributors: {code:string; distance_km:number}[]};
+  working_windows: {start:string; end:string; time_cat:string; basis:string; risk_level:AdvisoryRisk; conditions:string; recommendation:string; confidence:number|null}[];
+  data_sources: Record<string, unknown>[]; limitations: string[];
+}
 export interface NavigationNewsBundleApi {
   computed_at: string;
   last_updated_at: string;
@@ -1767,6 +1797,8 @@ export interface NavigationNewsBundleApi {
   input_summary: string;
   sources: { spaceWeather?: boolean; corsStations?: boolean; ntripProbe?: boolean };
   briefs: NavigationNewsBriefApi[];
+  assessment?: GnssAdvisoryAssessment | null;
+  assessments?: GnssAdvisoryAssessment[];
 }
 
 export interface NavigationNewsScheduleApi {

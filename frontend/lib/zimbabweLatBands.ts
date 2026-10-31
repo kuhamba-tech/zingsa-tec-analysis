@@ -150,10 +150,30 @@ export type LatBandDiurnalStats = LatBandDiurnalSeries & {
   period: [string, string] | null;
 };
 
-/** Mean and sample standard deviation of measured VTEC in each UT hour. */
+/** UTC days that contain a measured VTEC sample, oldest first. */
+export function utcDaysInStationSeries(series: LiveStationVtecSeries[]): string[] {
+  const days = new Set<string>();
+  for (const row of series) {
+    const code = normalizeStationCode(row.station);
+    if (isSurveyorGeneral(code)) continue;
+    for (const point of row.points ?? []) {
+      if (point.vtec_tecu == null || !Number.isFinite(point.vtec_tecu)) continue;
+      if (point.vtec_tecu <= 0 || point.vtec_tecu > 100) continue;
+      const ms = Date.parse(point.time);
+      if (!Number.isFinite(ms)) continue;
+      days.add(new Date(ms).toISOString().slice(0, 10));
+    }
+  }
+  return [...days].sort();
+}
+
+/** Mean and sample standard deviation of measured VTEC in each UT hour.
+ *  `utcDay` (YYYY-MM-DD) keeps only that Universal Time day.
+ */
 export function latBandDiurnalMeanStd(
   series: LiveStationVtecSeries[],
   latByStation?: Map<string, number>,
+  utcDay?: string | null,
 ): LatBandDiurnalStats {
   const lats = latByStation ?? stationLatLookup();
   const buckets = new Map<ZimbabweLatBandId, Map<number, number[]>>();
@@ -171,15 +191,16 @@ export function latBandDiurnalMeanStd(
     const lat = lats.get(code);
     if (lat == null || !Number.isFinite(lat)) continue;
     const band = zimbabweLatBand(lat);
-    stationsSeen.get(band)!.add(code);
     const hourMap = buckets.get(band)!;
     for (const point of row.points ?? []) {
       if (point.vtec_tecu == null || !Number.isFinite(point.vtec_tecu)) continue;
       if (point.vtec_tecu <= 0 || point.vtec_tecu > 100) continue;
       const ms = Date.parse(point.time);
       if (!Number.isFinite(ms)) continue;
+      if (utcDay && new Date(ms).toISOString().slice(0, 10) !== utcDay) continue;
       const tick = diurnalHourBin(hourOfDayUtc(point.time) ?? Number.NaN);
       if (tick == null) continue;
+      stationsSeen.get(band)!.add(code);
       const values = hourMap.get(tick) ?? [];
       values.push(point.vtec_tecu);
       hourMap.set(tick, values);

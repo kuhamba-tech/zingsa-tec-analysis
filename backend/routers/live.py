@@ -12,6 +12,7 @@ import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 
 from backend.deps import require_api_key
+from zgiis.processing.elevation_mask import ELEVATION_MIN_DEG
 from backend.schemas import (
     LiveObservation,
     LivePipelineStatus,
@@ -58,7 +59,7 @@ _VTEC_LATEST_CACHE_TTL_S = 20.0
 # Chart queries fill the default thread pool. This card must still run.
 _FRESH_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="zgiis-fresh")
 # Station GOPI history must not wait behind a stuck session-pool checkout.
-_CHART_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="zgiis-vtec-chart")
+_CHART_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="zgiis-vtec-chart")
 _HISTORY_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="zgiis-vtec-history")
 
 # Heavy Gg re-calibration — short TTL so Zimbabwe tab does not stampede the worker.
@@ -66,6 +67,7 @@ _TEC_METHOD_CMP_CACHE: dict[tuple[float, str | None, int], tuple[float, TecMetho
 _TEC_METHOD_CMP_CACHE_TTL_S = 180.0
 _TEC_METHOD_PERIOD_CACHE: dict[str, tuple[float, dict]] = {}
 _TEC_METHOD_CMP_INFLIGHT: dict[tuple[float, str | None, int], asyncio.Future] = {}
+_TEC_METHOD_CMP_WAIT_S = 10.0
 
 _SCI_PLOTS_CACHE: dict[tuple[float, int], tuple[float, dict]] = {}
 _SCI_PLOTS_CACHE_TTL_S = 120.0
@@ -124,15 +126,20 @@ def _build_live_vtec(
     station: str | None,
     limit: int,
     enrich_geometry: bool,
+    frame: pd.DataFrame | None = None,
+    cap_per_station: bool = False,
 ) -> list[LiveObservation]:
     """Sync builder — run via asyncio.to_thread so look-angle math cannot stall the event loop."""
-    db = _db()
-    if db is None:
-        return []
     try:
-        # Cap at SQL: never pull hundreds of thousands of NTRIP rows into pandas.
-        fetch_limit = max(int(limit) * 4, int(limit) + 200) if limit else None
-        df = db.query_recent(hours=hours, station=station, limit=fetch_limit)
+        if frame is None:
+            db = _db()
+            if db is None:
+                return []
+            # Cap at SQL: never pull hundreds of thousands of NTRIP rows into pandas.
+            fetch_limit = max(int(limit) * 4, int(limit) + 200) if limit else None
+            df = db.query_recent(hours=hours, station=station, limit=fetch_limit)
+        else:
+            df = frame
         if df is None or getattr(df, "empty", True):
             return []
         if "tec_method" in df.columns:
@@ -146,7 +153,15 @@ def _build_live_vtec(
             else:
                 return []
         # Evenly subsample so elevation / constellation charts stay responsive.
-        if len(df) > limit:
+        # A pre-capped multi-station frame must stay balanced: a global stride
+        # would keep only the busiest receiver.
+        if cap_per_station and "station" in df.columns and len(df) > limit:
+            df = (
+                df.sort_values("time")
+                .groupby(df["station"].astype(str).str.lower(), group_keys=False)
+                .tail(limit)
+            )
+        elif len(df) > limit:
             step = max(1, len(df) // limit)
             df = df.iloc[::step].head(limit)
 
@@ -159,7 +174,9 @@ def _build_live_vtec(
                 # worker while phone and laptop metric cards are loading.
                 # The background refresh keeps filling the cache; a later
                 # poll attaches azimuth once satellites are available.
-                ensure_broadcast_ephemeris(wait_s=3.0)
+                # Azimuth is not stored. A cold cache needs the broadcast file
+                # before skyplot and IPP tracks can be drawn.
+                ensure_broadcast_ephemeris(wait_s=15.0)
                 nav = get_nav_cache()
                 if nav.gps_sv_count() <= 0:
                     nav = None
@@ -450,11 +467,28 @@ def _build_tec_method_comparison(
     # Bound samples per receiver: a busy site must not hide the other stations.
     from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
     codes = [station] if station else [s.code.lower().rstrip("_") for s in ZIMBABWE_CORS_STATIONS]
-    gopi_rows = []
-    for code in dict.fromkeys(codes):
-        gopi_rows.extend(_build_live_vtec(
-            hours=hours, station=code, limit=limit, enrich_geometry=False,
-        ))
+    codes = list(dict.fromkeys(codes))
+    if station:
+        gopi_rows = _build_live_vtec(
+            hours=hours, station=station, limit=limit, enrich_geometry=False,
+        )
+    else:
+        # One read for the whole network, on the session that is already open.
+        db = _db()
+        frame = pd.DataFrame()
+        if db is not None:
+            fetch_limit = max(int(limit) * 2, 80)
+            frame = db.query_recent_per_station(
+                hours=hours, stations=codes, per_station_limit=fetch_limit,
+            )
+        gopi_rows = _build_live_vtec(
+            hours=hours,
+            station=None,
+            limit=limit,
+            enrich_geometry=False,
+            frame=frame,
+            cap_per_station=True,
+        )
     # Tag as GOPI for comparison UI even when DB method strings vary.
     gopi: list[LiveObservation] = []
     for obs in gopi_rows:
@@ -591,34 +625,47 @@ async def tec_method_comparison(
         return cached[1]
 
     inflight = _TEC_METHOD_CMP_INFLIGHT.get(cache_key)
-    if inflight is not None and not inflight.done():
-        return await inflight
+    if inflight is None or inflight.done():
+        async def _build_and_cache() -> TecMethodComparisonResponse:
+            try:
+                result = await asyncio.to_thread(
+                    _build_tec_method_comparison,
+                    hours=hours,
+                    station=station,
+                    limit=limit,
+                )
+                if result.available:
+                    _TEC_METHOD_CMP_CACHE[cache_key] = (time.time(), result)
+                return result
+            finally:
+                if _TEC_METHOD_CMP_INFLIGHT.get(cache_key) is asyncio.current_task():
+                    _TEC_METHOD_CMP_INFLIGHT.pop(cache_key, None)
 
-    loop = asyncio.get_running_loop()
-    fut: asyncio.Future = loop.create_future()
-    _TEC_METHOD_CMP_INFLIGHT[cache_key] = fut
+        inflight = asyncio.create_task(_build_and_cache())
+        _TEC_METHOD_CMP_INFLIGHT[cache_key] = inflight
 
-    async def _run() -> TecMethodComparisonResponse:
-        try:
-            result = await asyncio.to_thread(
-                _build_tec_method_comparison,
-                hours=hours,
-                station=station,
-                limit=limit,
-            )
-            _TEC_METHOD_CMP_CACHE[cache_key] = (time.time(), result)
-            if not fut.done():
-                fut.set_result(result)
-            return result
-        except Exception as exc:
-            if not fut.done():
-                fut.set_exception(exc)
-            raise
-        finally:
-            if _TEC_METHOD_CMP_INFLIGHT.get(cache_key) is fut:
-                _TEC_METHOD_CMP_INFLIGHT.pop(cache_key, None)
+        def _log_unobserved_failure(task: asyncio.Future) -> None:
+            if task.cancelled():
+                return
+            exc = task.exception()
+            if exc is not None:
+                log.error("tec-method-comparison background build failed", exc_info=exc)
 
-    return await _run()
+        inflight.add_done_callback(_log_unobserved_failure)
+
+    try:
+        return await asyncio.wait_for(
+            asyncio.shield(inflight),
+            timeout=_TEC_METHOD_CMP_WAIT_S,
+        )
+    except asyncio.TimeoutError:
+        log.warning("tec-method-comparison is still building; returning a pending response")
+        return TecMethodComparisonResponse(
+            available=False,
+            hours=hours,
+            sample_limit=limit,
+            note="Live comparison is still reading the database.",
+        )
 
 
 @router.get("/tec-method-periods")
@@ -690,15 +737,16 @@ async def live_vtec_by_station(
             resample_minutes=step,
         ),
     )
-    # A failed read used to cache an empty series and the blue GOPI line
-    # stayed where the last successful response ended.
-    if any(row.points for row in result) or cache_key not in _VTEC_BY_STATION_CACHE:
+    # [] is a failed connection. A completed read returns the station catalog,
+    # including a day that truly has no bins. Caching [] made the chart say
+    # "No measured GOPI" until the TTL expired and the next connect also failed.
+    if result:
         _VTEC_BY_STATION_CACHE[cache_key] = (time.time(), result)
         return result
     previous = _VTEC_BY_STATION_CACHE.get(cache_key)
-    if previous is not None and (time.time() - previous[0]) < 600:
+    if previous is not None and any(row.points for row in previous[1]):
+        log.info("live vtec-by-station serving the last successful series after a failed read")
         return previous[1]
-    _VTEC_BY_STATION_CACHE[cache_key] = (time.time(), result)
     return result
 
 
@@ -748,6 +796,21 @@ def _utc_iso(value: datetime | None) -> str | None:
     return value.isoformat().replace("+00:00", "Z")
 
 
+def _history_database_dsns() -> list[str]:
+    """Pooler first, then the session database.
+
+    The session port is capped and times out while the dashboard is open.
+    The live station cards already read through the transaction pooler.
+    """
+    from zgiis.db.config import database_dsn, pooled_database_dsn
+
+    seen: list[str] = []
+    for dsn in (pooled_database_dsn(), database_dsn()):
+        if dsn and dsn not in seen:
+            seen.append(dsn)
+    return seen
+
+
 def _build_live_vtec_by_station(
     *,
     hours: float,
@@ -755,14 +818,13 @@ def _build_live_vtec_by_station(
 ) -> list[LiveStationVtecSeries]:
     """Binned GOPI history for the station charts.
 
-    Uses the transaction pooler with a short statement timeout. The session
-    pool is capped and a checkout there was hanging, so the charts kept the
-    last series (GOPI stopped near 07:55 UTC while later measurements existed).
+    Tries the transaction pooler, then the session database. A failed connect
+    returns an empty list so the caller can keep the last successful series.
+    A completed query with no bins returns the station catalog.
     """
     import psycopg2
 
     from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
-    from zgiis.db.config import pooled_database_dsn
 
     catalog = {
         s.code.lower().rstrip("_"): s
@@ -772,66 +834,79 @@ def _build_live_vtec_by_station(
         LiveStationVtecSeries(station=code, name=station.name, points=[])
         for code, station in sorted(catalog.items(), key=lambda item: item[0])
     ]
-    dsn = pooled_database_dsn()
-    if not dsn:
-        return empty
+    dsns = _history_database_dsns()
+    if not dsns:
+        return []
 
     since = (datetime.now(tz=timezone.utc) - timedelta(hours=hours)).isoformat()
     step = max(1, int(resample_minutes))
-    timeout_ms = int(min(45000 if hours > 48 else 20000, 6000 + float(hours) * 500))
-    conn = None
-    try:
-        conn = psycopg2.connect(dsn, connect_timeout=5)
-        conn.autocommit = True
-        with conn.cursor() as cur:
-            cur.execute(f"SET statement_timeout = '{timeout_ms}'")
-            cur.execute(
-                """
-                SELECT LOWER(RTRIM(station, '_')) AS station,
-                       to_timestamp(
-                         floor(extract(epoch FROM time) / %s) * %s
-                       ) AT TIME ZONE 'UTC' AS bucket,
-                       MAX(time) AS observed_at,
-                       AVG(vtec_tecu) AS vtec_tecu,
-                       COUNT(*) AS obs_count
-                FROM vtec_obs
-                WHERE time >= %s
-                  AND vtec_tecu IS NOT NULL
-                  AND vtec_tecu > 0
-                  AND vtec_tecu <= 50
-                  AND elevation_deg >= 20
-                  AND tec_method LIKE %s
-                  AND tec_method NOT LIKE 'dlr_%%'
-                GROUP BY 1, 2
-                ORDER BY 1, 2
-                """,
-                (float(step * 60), float(step * 60), since, "%code_live%"),
-            )
-            bin_rows = cur.fetchall()
-            latest_since = (datetime.now(tz=timezone.utc) - timedelta(minutes=15)).isoformat()
-            cur.execute(
-                """
-                SELECT LOWER(RTRIM(station, '_')) AS station,
-                       AVG(vtec_tecu) AS mean_vtec
-                FROM vtec_obs
-                WHERE time >= %s
-                  AND vtec_tecu > 0
-                  AND vtec_tecu <= 50
-                  AND tec_method LIKE %s
-                GROUP BY 1
-                """,
-                (latest_since, "%code_live%"),
-            )
-            latest_rows = cur.fetchall()
-    except Exception as exc:
-        message = str(exc).splitlines()[0]
-        if "://" in message or "@" in message:
-            message = type(exc).__name__
-        log.warning("live vtec-by-station read failed: %s", message[:240])
+    if hours >= 24:
+        timeout_ms = 45000
+    elif hours >= 12:
+        timeout_ms = 25000
+    else:
+        timeout_ms = 12000
+    bin_rows = None
+    latest_rows = None
+    for dsn in dsns:
+        conn = None
+        try:
+            conn = psycopg2.connect(dsn, connect_timeout=20)
+            conn.autocommit = True
+            with conn.cursor() as cur:
+                cur.execute(f"SET statement_timeout = '{timeout_ms}'")
+                cur.execute(
+                    f"""
+                    SELECT LOWER(RTRIM(station, '_')) AS station,
+                           to_timestamp(
+                             floor(extract(epoch FROM time) / %s) * %s
+                           ) AT TIME ZONE 'UTC' AS bucket,
+                           MAX(time) AS observed_at,
+                           AVG(vtec_tecu) AS vtec_tecu,
+                           COUNT(*) AS obs_count
+                    FROM vtec_obs
+                    WHERE time >= %s
+                      AND vtec_tecu IS NOT NULL
+                      AND vtec_tecu > 0
+                      AND vtec_tecu <= 50
+                      AND elevation_deg >= {ELEVATION_MIN_DEG:g}
+                      AND tec_method LIKE %s
+                      AND tec_method NOT LIKE 'dlr_%%'
+                    GROUP BY 1, 2
+                    ORDER BY 1, 2
+                    """,
+                    (float(step * 60), float(step * 60), since, "%code_live%"),
+                )
+                bin_rows = cur.fetchall()
+                latest_since = (datetime.now(tz=timezone.utc) - timedelta(minutes=15)).isoformat()
+                cur.execute(
+                    f"""
+                    SELECT LOWER(RTRIM(station, '_')) AS station,
+                           AVG(vtec_tecu) AS mean_vtec
+                    FROM vtec_obs
+                    WHERE time >= %s
+                      AND vtec_tecu > 0
+                      AND vtec_tecu <= 50
+                      AND elevation_deg >= {ELEVATION_MIN_DEG:g}
+                      AND tec_method LIKE %s
+                    GROUP BY 1
+                    """,
+                    (latest_since, "%code_live%"),
+                )
+                latest_rows = cur.fetchall()
+            break
+        except Exception as exc:
+            bin_rows = None
+            latest_rows = None
+            message = str(exc).splitlines()[0]
+            if "://" in message or "@" in message:
+                message = type(exc).__name__
+            log.warning("live vtec-by-station read failed: %s", message[:240])
+        finally:
+            if conn is not None:
+                conn.close()
+    if bin_rows is None or latest_rows is None:
         return []
-    finally:
-        if conn is not None:
-            conn.close()
 
     gopi_by: dict[str, float] = {}
     for code, mean in latest_rows:

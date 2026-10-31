@@ -23,6 +23,7 @@ from typing import Callable, Iterable, Optional
 import numpy as np
 import pandas as pd
 
+from zgiis.processing.elevation_mask import ELEVATION_MIN_DEG
 from zgiis.space_weather.geomagnetic_scale import classify_kp
 
 LOGGER = logging.getLogger(__name__)
@@ -322,7 +323,7 @@ CMN_COLUMNS = [
 
 @dataclass
 class TecConfig:
-    elevation_min_deg: float = 30.0
+    elevation_min_deg: float = ELEVATION_MIN_DEG
     ipp_height_km: float = 350.0
     dcb_folder: Optional[Path] = None   # folder containing P1C1/P1P2 .DCB files
 
@@ -718,7 +719,7 @@ def _level_tec_all_prns(dfx: pd.DataFrame) -> pd.Series:
     Book Chapter 4, Section 4.2.3 (TEC leveling), Eq 4.14-4.15.
     For each PRN, detect connected arcs (gap > 5 min = new arc), correct cycle slips
     in TECP (Eq 4.13), then compute the arc baseline = mean(TECG - TECP) using only
-    epochs with elevation > 20° (outliers removed via 2-sigma rule, Eq 4.14).
+    epochs at or above the platform elevation mask (outliers removed via 2-sigma rule, Eq 4.14).
     Returns TECR = TECP_corrected + baseline  (the leveled slant TEC).
     Falls back to TECG (code TEC) when phase data is all NaN.
     """
@@ -754,10 +755,9 @@ def _level_tec_all_prns(dfx: pd.DataFrame) -> pd.Series:
             if valid.sum() > 1:
                 tecp_corr[valid] = _cycle_slip_correct(arc_tecp[valid])
 
-            # Use elevation > 20° for baseline computation (Fig 4.3 / Eq 4.15)
-            lev_mask = arc_elev > 20.0
-            if lev_mask.sum() < 3:
-                lev_mask = ~np.isnan(arc_elev)  # fallback: use all non-NaN elevations
+            # Baseline uses the same 30° mask as the rest of the platform.
+            # Low-elevation epochs are multipath and are not a fallback.
+            lev_mask = arc_elev >= ELEVATION_MIN_DEG
 
             offsets = (arc_tecg - tecp_corr)[lev_mask]
             offsets = offsets[~np.isnan(offsets)]

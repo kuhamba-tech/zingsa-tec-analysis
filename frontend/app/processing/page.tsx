@@ -9,6 +9,7 @@ import LineChart from "@/components/charts/LineChart";
 import RinexConverterPanel from "@/components/processing/RinexConverterPanel";
 import RinexDownloadPanel from "@/components/processing/RinexDownloadPanel";
 import type { TecSummaryRow, TecHourlyRow, TecPlotSeries, BiasRow, Station } from "@/lib/types";
+import { ELEVATION_MIN_DEG } from "@/lib/elevationMask";
 import type { MapLayer } from "@/components/maps/CorsMapWithLayers";
 
 function formatDayLabel(dateStr: string) {
@@ -628,7 +629,7 @@ export default function ProcessingPage() {
   const [stationsList, setStationsList] = useState<Station[]>([]);
   const [allStations, setAllStations] = useState(true);
   const [selectedStations, setSelectedStations] = useState<string[]>([]);
-  const [elevMin, setElevMin] = useState(30);
+  const [elevMin, setElevMin] = useState(ELEVATION_MIN_DEG);
   const [ippHeight, setIppHeight] = useState(350);
   const [dcbFolder, setDcbFolder] = useState("");
   const [kpCsv, setKpCsv] = useState("");
@@ -1288,8 +1289,8 @@ export default function ProcessingPage() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "0.7rem" }}>
           <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
             <label className="metric-label">Min elevation (°)</label>
-            <input type="number" min={0} max={90} step={1} value={elevMin}
-              onChange={(e) => setElevMin(parseFloat(e.target.value) || 0)}
+            <input type="number" min={ELEVATION_MIN_DEG} max={90} step={1} value={elevMin}
+              onChange={(e) => setElevMin(Math.max(ELEVATION_MIN_DEG, parseFloat(e.target.value) || ELEVATION_MIN_DEG))}
               style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "6px", padding: "0.4rem 0.7rem", color: "var(--text)" }} />
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>

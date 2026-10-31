@@ -72,11 +72,14 @@ export default function DeferredMount({
       // A block already on screen during startup waits so Chart.js / OpenLayers
       // do not compete with the metric cards. Android TV is a wide screen, so
       // those blocks are in view immediately — hold them longer than a phone.
-      // A later scroll, or a section that mounts after the first paint, starts quickly.
+      // A later scroll starts quickly unless the block asked for its own delay.
+      // That delay is how the TEC comparison and station charts stay behind the map.
       const duringStartup = performance.now() < (profile.tv ? 2800 : 1200);
       const wait = duringStartup
         ? Math.max(delayFloor, profile.tv ? 3600 : profile.lightPayload ? 1500 : 900)
-        : Math.min(delayFloor, 220);
+        : minDelayMs > 0
+          ? minDelayMs
+          : 80;
       if (wait > 0) {
         delayHandle = window.setTimeout(() => {
           if (!cancelled) setVisible(true);

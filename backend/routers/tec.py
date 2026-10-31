@@ -11,6 +11,7 @@ import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from backend.deps import require_api_key
+from zgiis.processing.elevation_mask import ELEVATION_MIN_DEG
 from backend.schemas import (
     ArchiveMeta,
     AnomalyAnalysisResponse,
@@ -276,7 +277,10 @@ async def tec_gradients(_=Depends(require_api_key)):
     """Scharr spatial gradient and half-window temporal gradient for the latest 15 minutes."""
     from zgiis.maps.tec_gradients import build_tec_gradient_maps
 
-    return await asyncio.to_thread(build_tec_gradient_maps)
+    try:
+        return await asyncio.to_thread(build_tec_gradient_maps)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.get("/iono-response-figures")
@@ -288,7 +292,11 @@ async def iono_response_figures(
     """Dst and Kp with the RMSE of Zimbabwe TEC maps over the same dates."""
     from zgiis.space_weather.iono_response_figures import build_iono_response_figures
 
-    return build_iono_response_figures(days=days, include_rmse=bool(rmse))
+    return await asyncio.to_thread(
+        build_iono_response_figures,
+        days=days,
+        include_rmse=bool(rmse),
+    )
 
 
 @router.get("/receiver-bias")
@@ -297,9 +305,9 @@ async def receiver_bias(
     _=Depends(require_api_key),
 ):
     """Logged daily receiver biases for the near-real-time TEC maps."""
-    from zgiis.processing.receiver_bias_log import series_for_chart
+    from zgiis.processing.receiver_bias_service import chart_response
 
-    return series_for_chart(days=days)
+    return chart_response(days)
 
 
 @router.get("/trignet")
@@ -672,7 +680,7 @@ async def prn_explorer(
     start: str | None = Query(None),
     end: str | None = Query(None),
     hours: float = Query(168.0, ge=1, le=8760),
-    elev_min: float = Query(20.0, ge=0, le=90),
+    elev_min: float = Query(ELEVATION_MIN_DEG, ge=ELEVATION_MIN_DEG, le=90),
     prns: str | None = Query(None, description="Comma-separated PRN list, e.g. G01,G02"),
     limit: int = Query(5000, ge=100, le=20000),
     _=Depends(require_api_key),
@@ -723,7 +731,7 @@ async def prn(
     constellation: str | None = Query(None),
     station: str | None = Query(None),
     hours: float = Query(168.0, ge=1, le=8760),
-    elev_min: float = Query(20.0, ge=0, le=90),
+    elev_min: float = Query(ELEVATION_MIN_DEG, ge=ELEVATION_MIN_DEG, le=90),
     _=Depends(require_api_key),
 ):
     from zgiis.gnss_prn.prn_data import aggregate_prn_rows, load_prn_observations

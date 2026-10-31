@@ -10,6 +10,8 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from zgiis.processing.elevation_mask import ELEVATION_MIN_DEG
+
 log = logging.getLogger(__name__)
 
 CAT = timezone(timedelta(hours=2))
@@ -100,7 +102,7 @@ def _hour_rows(db: Any, start: datetime, end: datetime) -> list[tuple]:
 
 
 def _gopi_hours(db: Any, start: datetime, end: datetime) -> dict[tuple[str, datetime], tuple[float, int]]:
-    sql = """
+    sql = f"""
     SELECT lower(rtrim(station, '_')) AS station,
            date_trunc('hour', time) AS hour,
            percentile_cont(0.5) WITHIN GROUP (ORDER BY vtec_tecu) AS gopi,
@@ -109,7 +111,7 @@ def _gopi_hours(db: Any, start: datetime, end: datetime) -> dict[tuple[str, date
     WHERE time >= %s AND time < %s
       AND tec_method LIKE '%%code_live%%'
       AND vtec_tecu > 0 AND vtec_tecu < 120
-      AND (elevation_deg IS NULL OR elevation_deg >= 30)
+      AND elevation_deg >= {ELEVATION_MIN_DEG:g}
     GROUP BY 1, 2
     """
     frame = db._read_sql(sql, [start, end])
@@ -143,7 +145,7 @@ def _gg_hours(db: Any, start: datetime, end: datetime) -> dict[tuple[str, dateti
     from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS, get_station
     from zgiis.processing.gg_calibration import calibrate_gg_from_observations
 
-    sql = """
+    sql = f"""
     SELECT time, station, prn, constellation, elevation_deg, stec_tecu, vtec_tecu
     FROM (
         SELECT time, station, prn, constellation, elevation_deg, stec_tecu, vtec_tecu,
@@ -155,7 +157,7 @@ def _gg_hours(db: Any, start: datetime, end: datetime) -> dict[tuple[str, dateti
         WHERE time >= %s AND time < %s
           AND tec_method LIKE '%%code_live%%'
           AND vtec_tecu > 0 AND vtec_tecu < 120
-          AND elevation_deg >= 30
+          AND elevation_deg >= {ELEVATION_MIN_DEG:g}
     ) sampled
     WHERE rn <= %s
     """

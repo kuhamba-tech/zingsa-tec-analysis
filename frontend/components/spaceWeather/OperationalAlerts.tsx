@@ -1,10 +1,16 @@
 import Link from "next/link";
 import type { SolarActivityFull } from "@/lib/types";
 import { monitoringFreshness, observationEpoch, observationTime } from "@/lib/monitoringStatus";
+import { zimbabweBulletinNote, type SwpcBulletin } from "@/lib/swpcBulletin";
 import SwSectionBanner from "./SwSectionBanner";
 
 function text(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function bulletinOf(alert: Record<string, unknown>): SwpcBulletin {
+  const raw = alert.bulletin;
+  return raw && typeof raw === "object" ? (raw as SwpcBulletin) : {};
 }
 
 export default function OperationalAlerts({
@@ -29,7 +35,16 @@ export default function OperationalAlerts({
       (observationEpoch(text(a.issue_datetime)) ?? 0),
   );
   const latest = alerts[0];
-  const latestMessage = text(latest?.message) ?? text(latest?.product_id) ?? null;
+  const latestBulletin = latest ? bulletinOf(latest) : {};
+  const latestHeadline =
+    text(latestBulletin.headline) ?? text(latest?.message) ?? text(latest?.product_id) ?? null;
+  const codes = Array.from(
+    new Set(
+      alerts
+        .map((alert) => text(bulletinOf(alert).code) ?? text(alert.product_id))
+        .filter((code): code is string => Boolean(code)),
+    ),
+  );
   const loading = !solar && !refreshFailed;
   const tone = status === "LIVE" ? "ok" : status === "DELAYED" ? "warn" : "off";
   const statusLabel =
@@ -51,14 +66,17 @@ export default function OperationalAlerts({
       />
 
       <div className="sw-alerts-watch-card">
-        {latestMessage ? (
+        {latestHeadline ? (
           <>
             <div className="sw-alerts-watch-issued">
-              Issued {observationTime(text(latest?.issue_datetime))}
+              {text(latestBulletin.code) ?? text(latest?.product_id) ?? "NOAA bulletin"}
+              {latestBulletin.serial ? ` · serial ${latestBulletin.serial}` : ""}
+              {" · "}
+              Issued {observationTime(text(latest?.issue_datetime) ?? text(latestBulletin.issue_time))}
             </div>
-            <pre className="sw-alerts-watch-message">{latestMessage}</pre>
+            <p className="sw-alerts-watch-message">{latestHeadline}</p>
             <p className="sw-supporting-text" style={{ margin: 0 }}>
-              Check bulletin validity; a recent listing does not confirm an active warning.
+              {zimbabweBulletinNote(text(latestBulletin.code) ?? text(latest?.product_id))}
             </p>
             {alerts.length > 1 && (
               <p className="sw-alerts-watch-more">+{alerts.length - 1} more bulletin(s)</p>
@@ -84,29 +102,41 @@ export default function OperationalAlerts({
       {alerts.length > 0 && (
         <div className="sw-alerts-bulletin-list">
           <p className="sw-supporting-text">
-            Full recent bulletins — issue time does not establish whether an alert is still active.
+            Recent NOAA products in this feed
+            {codes.length ? `: ${codes.join(", ")}` : ""}. Issue time does not establish whether a
+            warning is still in force. These are the bureau’s bulletins, not messages written here.
           </p>
           {alerts.map((alert, index) => {
             const message = text(alert.message) ?? "Bulletin text unavailable.";
-            const severity =
-              text(alert.severity) ??
-              message.match(/\b[GRS][1-5]\s*\([^\n)]+\)/i)?.[0] ??
-              "Not specified";
-            const validity = text(alert.valid_until) ?? text(alert.expiration_time);
+            const bulletin = bulletinOf(alert);
+            const code = text(bulletin.code) ?? text(alert.product_id) ?? "NOAA bulletin";
+            const headline = text(bulletin.headline) ?? code;
+            const scale = text(bulletin.noaa_scale);
+            const validTo = text(bulletin.valid_to);
+            const validFrom = text(bulletin.valid_from);
+            const serialNote = [
+              bulletin.continuation_of ? `continues serial ${bulletin.continuation_of}` : "",
+              bulletin.extension_to ? `extends serial ${bulletin.extension_to}` : "",
+            ].filter(Boolean).join("; ");
             return (
               <details
                 className="sw-alert-bulletin"
-                key={`${text(alert.product_id) ?? "alert"}-${text(alert.issue_datetime) ?? index}`}
+                key={`${code}-${text(bulletin.serial) ?? text(alert.issue_datetime) ?? index}`}
                 open={index === 0}
               >
                 <summary>
-                  {text(alert.product_id) ?? "NOAA bulletin"} · Issued{" "}
-                  {observationTime(text(alert.issue_datetime))}
+                  {code}
+                  {bulletin.serial ? ` #${bulletin.serial}` : ""} · {headline}
                 </summary>
                 <p>
-                  Severity: {severity} · Validity:{" "}
-                  {validity ? observationTime(validity) : "See bulletin text"}
+                  {scale ? `NOAA scale: ${scale}. ` : ""}
+                  {validFrom ? `Valid from ${validFrom}. ` : ""}
+                  {validTo ? `Valid to ${validTo}. ` : ""}
+                  {bulletin.condition ? `${bulletin.condition}. ` : ""}
+                  {serialNote}
                 </p>
+                <p>{zimbabweBulletinNote(code)}</p>
+                {text(bulletin.impacts) && <p>{bulletin.impacts}</p>}
                 <pre>{message}</pre>
               </details>
             );

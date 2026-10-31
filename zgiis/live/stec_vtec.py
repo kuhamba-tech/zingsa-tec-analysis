@@ -19,11 +19,12 @@ import numpy as np
 import pandas as pd
 
 from tec_core import _C_LIGHT, _F1, _F2, _mapping_function
+from zgiis.processing.elevation_mask import ELEVATION_MIN_DEG
 
 log = logging.getLogger(__name__)
 
 _IPP_KM     = 350.0          # Ionospheric Pierce Point height (default)
-_ELEV_MASK  = 30.0           # Elevation mask (degrees)
+_ELEV_MASK  = ELEVATION_MIN_DEG
 
 # Pair timeout: if we don't see a second signal within this many seconds,
 # discard the buffered first signal to avoid stale pairings.

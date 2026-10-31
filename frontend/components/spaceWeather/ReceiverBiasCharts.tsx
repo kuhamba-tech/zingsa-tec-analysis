@@ -290,28 +290,39 @@ export default function ReceiverBiasCharts() {
   const [stations, setStations] = useState<ReceiverBiasStation[]>([]);
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
-    const load = () => {
-      getReceiverBias(120)
-        .then((payload) => {
-          if (cancelled) return;
-          setStations(payload.stations);
-          setNote(payload.note);
-          setError(null);
-        })
-        .catch(() => {
-          if (!cancelled) setError("Receiver bias log could not be loaded.");
-        });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const load = async () => {
+      let delay = 15_000;
+      try {
+        const payload = await getReceiverBias(120);
+        if (cancelled) return;
+        const ready = !payload.status || payload.status === "ready" || payload.status === "stale";
+        if (ready) setStations(payload.stations);
+        setNote(ready && !payload.stations.length
+          ? "No daily receiver-bias estimates have been archived for this period. A station needs enough multi-satellite observations to identify its bias."
+          : payload.message || payload.note);
+        setLoading(payload.status === "loading");
+        setError(payload.status === "unavailable" || payload.status === "stale" ? payload.message || "The archive is temporarily unavailable." : null);
+        delay = Math.max(3, payload.retry_after_seconds ?? 60) * 1000;
+      } catch {
+        if (!cancelled) {
+          setLoading(false);
+          setError("Receiver-bias archive temporarily unavailable. Retrying automatically.");
+        }
+      }
+      if (!cancelled) timer = setTimeout(load, delay);
     };
-    load();
-    const timer = window.setInterval(load, 180_000);
+    void load();
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      clearTimeout(timer);
     };
-  }, []);
+  }, [retry]);
 
   return (
     <section className="matamba-figures">
@@ -328,10 +339,13 @@ export default function ReceiverBiasCharts() {
       </div>
       {!stations.length && !error && (
         <div className="banner banner-info" role="status">
-          {note || "Logging daily receiver bias from the live code TEC…"}
+          {note || (loading ? "Loading archived receiver-bias estimates…" : "No archived estimates are available.")}
         </div>
       )}
-      {error && !stations.length && <div className="banner banner-warn">{error}</div>}
+      {error && <div className="banner banner-warn" role="status">
+        {error} {stations.length > 0 && "Showing the last successfully loaded archive; it may be out of date."}{" "}
+        <button className="btn" onClick={() => setRetry(value => value + 1)}>Retry receiver-bias archive</button>
+      </div>}
       {stations.length > 0 && (
         <div className="matamba-bias-grid">
           {stations.map((station) => (

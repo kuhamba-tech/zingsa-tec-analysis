@@ -6,11 +6,13 @@ import hashlib
 import math
 import os
 import threading
+import time
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 import pandas as pd
 
+from zgiis.processing.elevation_mask import ELEVATION_MIN_DEG
 from zgiis.db.config import (
     DatabaseUnavailable,
     checkout,
@@ -342,6 +344,12 @@ class TecDB:
         if constellation:
             clauses.append("constellation = ?")
             params.append(constellation)
+        # DLR global TEC has no satellite elevation. Every other product
+        # must clear the 30° mask so low-elevation multipath stays out.
+        like = "dlr_%%" if self._is_pg else "dlr_%"
+        clauses.append(
+            f"(tec_method LIKE '{like}' OR elevation_deg >= {ELEVATION_MIN_DEG:g})"
+        )
 
         where = " AND ".join(clauses)
         if limit is not None and int(limit) > 0:
@@ -363,6 +371,81 @@ class TecDB:
             log.warning("query_recent failed (%s)", exc)
             return pd.DataFrame()
 
+    def query_recent_per_station(
+        self,
+        hours: float,
+        stations: list[str],
+        per_station_limit: int,
+    ) -> pd.DataFrame:
+        """Newest live rows for each requested station.
+
+        Uses its own short-lived session so a slow comparison cannot hold the
+        connection the map and metric cards are already using.
+        """
+        codes = [str(code).strip().lower().rstrip("_") for code in stations if str(code).strip()]
+        codes = list(dict.fromkeys(codes))
+        cap = max(1, int(per_station_limit))
+        if not codes:
+            return pd.DataFrame()
+        if not self._is_pg:
+            frames = [self.query_recent(hours=hours, station=code, limit=cap) for code in codes]
+            frames = [frame for frame in frames if frame is not None and not frame.empty]
+            return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+        since = (datetime.now(tz=timezone.utc) - timedelta(hours=hours)).isoformat()
+        # Newest code-live rows, then a few per receiver. A full lateral read
+        # and a multi-thousand-row calibration both held the API until the map
+        # reported it unreachable.
+        per_station = min(48, cap)
+        sql = (
+            "SELECT time, station, constellation, prn, stec_tecu, vtec_tecu, "
+            "elevation_deg, tec_method, bias_method FROM ("
+            "SELECT recent.*, row_number() OVER ("
+            "PARTITION BY station ORDER BY time DESC"
+            ") AS rn FROM ("
+            "SELECT time, station, constellation, prn, stec_tecu, vtec_tecu, "
+            "elevation_deg, tec_method, bias_method "
+            "FROM vtec_obs "
+            "WHERE time >= %s AND station = ANY(%s) "
+            "AND vtec_tecu > 0 AND vtec_tecu < 200 "
+            "AND tec_method LIKE '%%code_live%%' "
+            f"AND elevation_deg >= {ELEVATION_MIN_DEG:g} "
+            "ORDER BY time DESC LIMIT 3000"
+            ") AS recent"
+            ") AS ranked WHERE rn <= %s ORDER BY time"
+        )
+        started = time.perf_counter()
+        conn = None
+        try:
+            import psycopg2
+            from zgiis.db.config import database_dsn
+
+            dsn = database_dsn()
+            if not dsn:
+                return pd.DataFrame()
+            conn = psycopg2.connect(dsn, connect_timeout=4)
+            conn.autocommit = True
+            with conn.cursor() as cur:
+                cur.execute("SET statement_timeout = 4000")
+                cur.execute(sql, (since, codes, per_station))
+                rows = cur.fetchall()
+                columns = [desc[0] for desc in cur.description] if cur.description else []
+            log.info(
+                "live comparison read %s rows in %.2fs",
+                len(rows),
+                time.perf_counter() - started,
+            )
+            if not rows:
+                return pd.DataFrame()
+            frame = pd.DataFrame(rows, columns=columns)
+            return frame.sort_values("time")
+        except Exception as exc:
+            message = str(exc).splitlines()[0]
+            log.warning("query_recent_per_station failed (%s)", message[:240])
+            return pd.DataFrame()
+        finally:
+            if conn is not None:
+                conn.close()
+
     def query_prn_observations(
         self,
         hours: float = 168.0,
@@ -383,7 +466,7 @@ class TecDB:
             clauses.append("UPPER(constellation) = UPPER(?)")
             params.append(constellation)
         if elev_min > 0:
-            clauses.append("(elevation_deg IS NULL OR elevation_deg >= ?)")
+            clauses.append("elevation_deg >= ?")
             params.append(elev_min)
         if prns:
             placeholders = ", ".join(["?"] * len(prns))
@@ -619,8 +702,8 @@ class TecDB:
         """
         since = (datetime.now(tz=timezone.utc) - timedelta(hours=hours)).isoformat()
         step = max(1, int(resample_minutes))
-        # Matamba and Danskin keep elevation of at least 20° and TEC from 0 to 50.
         # Absolute code TEC from the live NTRIP pipeline (not DLR/archive).
+        # Elevation must be at least 30° — the same mask as live GOPI and Gg.
         # Postgres uses %s params — escape LIKE wildcards as %%.
         if self._is_pg:
             method_clause = (
@@ -639,7 +722,7 @@ class TecDB:
               AND vtec_tecu IS NOT NULL
               AND vtec_tecu > 0
               AND vtec_tecu <= 50
-              AND elevation_deg >= 20
+              AND elevation_deg >= {ELEVATION_MIN_DEG:g}
               AND (tec_method IS NULL OR tec_method NOT LIKE 'dlr_%%')
               {method_clause}
             GROUP BY station, bucket
@@ -678,12 +761,13 @@ class TecDB:
         """
         since = (datetime.now(tz=timezone.utc) - timedelta(hours=hours)).isoformat()
         row = self._fetchone(
-            """
+            f"""
             SELECT COUNT(*) FROM vtec_obs
             WHERE time >= %s
               AND tec_method LIKE %s
               AND vtec_tecu > 0
               AND vtec_tecu < 200
+              AND elevation_deg >= {ELEVATION_MIN_DEG:g}
             """,
             (since, "%code_live%"),
         )
@@ -696,12 +780,13 @@ class TecDB:
             self._ensure_conn()
             with self._conn.cursor() as cur:
                 cur.execute(
-                    """
+                    f"""
                     SELECT DISTINCT station FROM vtec_obs
                     WHERE time >= %s
                       AND tec_method LIKE %s
                       AND vtec_tecu > 0
                       AND vtec_tecu < 200
+                      AND elevation_deg >= {ELEVATION_MIN_DEG:g}
                     """,
                     (since, "%code_live%"),
                 )

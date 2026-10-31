@@ -12,6 +12,8 @@ from datetime import date, datetime, timedelta, timezone
 
 import pandas as pd
 
+from zgiis.processing.elevation_mask import ELEVATION_MIN_DEG
+
 log = logging.getLogger(__name__)
 
 _MIN_EPOCHS = 8
@@ -55,7 +57,7 @@ def _day_frame(day: date) -> pd.DataFrame:
     try:
         with conn.cursor() as cur:
             cur.execute(
-                """
+                f"""
                 SELECT lower(rtrim(station, '_')) AS station,
                        date_bin('3 minutes', time, TIMESTAMPTZ '2000-01-01') AS timestamp,
                        prn,
@@ -64,7 +66,7 @@ def _day_frame(day: date) -> pd.DataFrame:
                 FROM vtec_obs
                 WHERE time >= %s AND time < %s
                   AND tec_method LIKE '%%code_live%%'
-                  AND elevation_deg >= 30
+                  AND elevation_deg >= {ELEVATION_MIN_DEG:g}
                   AND stec_tecu IS NOT NULL
                   AND stec_tecu BETWEEN -80 AND 500
                 GROUP BY 1, 2, 3

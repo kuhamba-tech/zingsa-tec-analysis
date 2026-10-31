@@ -8,6 +8,7 @@ import PrnConstellationPanel from "@/components/prnExplorer/PrnConstellationPane
 import PrnFilters from "@/components/prnExplorer/PrnFilters";
 import PrnSkyPlot from "@/components/prnExplorer/PrnSkyPlot";
 import { getPrnConstellations, getPrnExplorer } from "@/lib/api";
+import { ELEVATION_MIN_DEG } from "@/lib/elevationMask";
 import { analyzePrnVtec } from "@/lib/prnChartAnalysis";
 import type { ChartAnalysisBlock } from "@/lib/multiSourceChartAnalysis";
 import type {
@@ -218,7 +219,7 @@ export default function PrnExplorerPage() {
   const [station, setStation] = useState("");
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
-  const [elevMin, setElevMin] = useState(20);
+  const [elevMin, setElevMin] = useState(ELEVATION_MIN_DEG);
   const [selectedPrns, setSelectedPrns] = useState<string[]>([]);
   const [qualThreshold, setQualThreshold] = useState(70);
 

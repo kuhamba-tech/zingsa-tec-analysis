@@ -117,11 +117,14 @@ def _load_persisted_snapshot() -> Any:
         if not dsn:
             log.error("SUPABASE_DATABASE_URL is not configured")
             return None
+        import psycopg2
         from psycopg2.extras import RealDictCursor
 
-        from zgiis.db.config import get_conn
-
-        with get_conn(dsn) as conn:
+        conn = psycopg2.connect(dsn, connect_timeout=4)
+        try:
+            conn.autocommit = True
+            with conn.cursor() as setup:
+                setup.execute("SET statement_timeout = '4000'")
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute(
                     """SELECT time, kp, kp_condition, dst, f107, plasma_speed, s4,
@@ -131,6 +134,8 @@ def _load_persisted_snapshot() -> Any:
                        ORDER BY time DESC LIMIT 1"""
                 )
                 row = cur.fetchone()
+        finally:
+            conn.close()
         if row is None:
             return None
         data = dict(row)

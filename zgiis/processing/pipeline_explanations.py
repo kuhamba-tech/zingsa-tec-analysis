@@ -207,7 +207,7 @@ PIPELINE_EXPLANATIONS: dict[str, StageExplanation] = {
             "differences; phase TEC (TECP) uses carrier-phase differences. Phase data are "
             "more precise but need leveling to the code solution. For each continuous arc, "
             "the baseline offset between TECG and slip-corrected TECP is estimated at "
-            "elevations > 20° (outliers removed at 2σ) and added to TECP to obtain "
+            "elevations ≥ 30° (outliers removed at 2σ) and added to TECP to obtain "
             "leveled slant TEC (TECR/STEC)."
         ),
         "key_relations": [

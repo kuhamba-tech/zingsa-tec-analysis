@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import SwSectionBanner from "./SwSectionBanner";
-import { getLivePipelineStatus, getLiveStationReadings, getTecHeatmap } from "@/lib/api";
+import { getLivePipelineStatus, getLiveStationReadings } from "@/lib/api";
+import { peekTecHeatmap, subscribeTecHeatmap } from "@/lib/tecHeatmapStore";
 import type { LivePipelineStatus, LiveStationVtecSeries, TecHeatmapResponse } from "@/lib/types";
 import { measuredLiveTec } from "@/lib/measuredLiveTec";
 import { isSurveyorGeneral, ZINGSA_STATION_TOTAL } from "@/lib/liveStationStatus";
@@ -38,61 +39,46 @@ export default function LocalIonosphereObservations({ now }: { now: number }) {
   const [refreshFailed, setRefreshFailed] = useState(false);
   useEffect(() => {
     let cancelled = false;
-    const load = () => {
-      let showed = false;
-      let readingsDone = false;
-      let heatDone = false;
-      const finishFail = () => {
-        if (cancelled || showed || !readingsDone || !heatDone) return;
-        setRefreshFailed(true);
-        setLoading(false);
-      };
-      getTecHeatmap()
-        .then((heatmap) => {
-          if (cancelled) return;
-          heatDone = true;
-          const rows = seriesFromHeatmap(heatmap);
-          if (!rows.length) {
-            finishFail();
-            return;
-          }
-          if (showed) return;
-          showed = true;
-          setStations(rows);
-          setRefreshFailed(false);
-          setLoading(false);
-        })
-        .catch(() => {
-          if (cancelled) return;
-          heatDone = true;
-          finishFail();
-        });
+    let receivedFresh = false;
+    const apply = (rows: LiveStationVtecSeries[]) => {
+      if (cancelled || !hasFreshGopi(rows)) return;
+      receivedFresh = true;
+      setStations(rows);
+      setRefreshFailed(false);
+      setLoading(false);
+    };
+    const cachedHeat = peekTecHeatmap();
+    if (cachedHeat) apply(seriesFromHeatmap(cachedHeat));
+    const unsubscribe = subscribeTecHeatmap((heatmap) => {
+      apply(seriesFromHeatmap(heatmap));
+    });
+    const loadReadings = () => {
       getLiveStationReadings()
         .then((rows) => {
           if (cancelled) return;
-          readingsDone = true;
-          const list = Array.isArray(rows) ? rows : [];
-          if (!hasFreshGopi(list)) {
-            finishFail();
-            return;
-          }
-          showed = true;
-          setStations(list);
+          if (!Array.isArray(rows)) return;
           setRefreshFailed(false);
-          setLoading(false);
+          apply(rows);
         })
         .catch(() => {
           if (cancelled) return;
-          readingsDone = true;
-          finishFail();
+          setRefreshFailed(true);
+          setLoading(false);
         });
     };
-    load();
+    loadReadings();
+    // The map starts the shared heatmap. Don't open a second copy here.
+    const failTimer = window.setTimeout(() => {
+      if (cancelled || receivedFresh) return;
+      setLoading(false);
+    }, 8_000);
     const timer = window.setInterval(() => {
-      if (!document.hidden) load();
+      if (!document.hidden) loadReadings();
     }, 60_000);
     return () => {
       cancelled = true;
+      unsubscribe();
+      window.clearTimeout(failTimer);
       window.clearInterval(timer);
     };
   }, []);

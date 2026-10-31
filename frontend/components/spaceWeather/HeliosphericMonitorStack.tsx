@@ -106,7 +106,13 @@ function PanelShell({
       <div style={{ fontSize: "0.72rem", color: "var(--accent)", marginTop: "0.45rem", fontWeight: 700 }}>
         {selected ? "Click panel to hide scientific explanation" : "Click panel for scientific explanation"}
       </div>
-      {selected && <ChartAnalysisBox block={analysis} title="Scientific interpretation" />}
+      {selected && (
+        <ChartAnalysisBox
+          block={analysis}
+          title="What this graph shows"
+          afterLeadTitle="Scientific interpretation"
+        />
+      )}
     </div>
   );
 }
@@ -252,9 +258,9 @@ export default function HeliosphericMonitorStack() {
           }
         />
         <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", lineHeight: 1.5, marginTop: "0.55rem" }}>
-          KNMI-style stack: GOES proton flux, IMF at Sun–Earth L1, solar-wind speed, and NOAA Kp
-          observed / forecast — live NOAA SWPC only. Click any panel (or this title) for the scientific
-          explanation of how it links Sun → solar wind → IMF → magnetosphere → Zimbabwe TEC/GNSS.
+          GOES protons, IMF and solar wind at L1, then NOAA Kp — live SWPC only. Click a panel
+          for the scientist's reading: Earth-facing flare, then CME direction, then speed and Bz,
+          then Kp, then what that means for Zimbabwe TEC.
         </div>
         {overviewOpen && <ChartAnalysisBox block={overview} title="How to read this timeline stack" />}
       </div>

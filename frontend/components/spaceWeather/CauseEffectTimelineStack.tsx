@@ -18,6 +18,7 @@ import {
   utcTimeAxisProps,
 } from "@/lib/chartTimeAxis";
 import type { ChartAnalysisBlock } from "@/lib/multiSourceChartAnalysis";
+import { BZ_BEAT, DST_BEAT, FLARE_BEAT, KP_BEAT, TEC_BEAT, WIND_BEAT, ZIMBABWE_TRANSLATION } from "@/lib/scientistBulletin";
 import { xrayFluxColor } from "@/lib/solarEventColors";
 import type {
   HeliosphericMonitorResponse,
@@ -272,7 +273,9 @@ export default function CauseEffectTimelineStack({
   const showLocal = variant === "full" || variant === "local" || variant === "liveMetric";
   const showChrome = variant === "full" || variant === "overview";
   const showTimelineSection = variant !== "overview";
-  const fetchVtec = showLocal || showChrome;
+  // Overview shows the readings strip and map. It does not draw the VTEC
+  // history charts, so it must not start that database read.
+  const fetchVtec = showTimelineSection && (showLocal || showChrome);
   const isLiveMetric = variant === "liveMetric";
   // Live Metric chronological numbers: 1 X-ray · 2 F10.7 · 3 wind · 4 IMF · 5 geo · 6 VTEC · 7 CORS · 8 GNSS
   const nWind = isLiveMetric ? 3 : 2;
@@ -290,7 +293,9 @@ export default function CauseEffectTimelineStack({
   const [syncHoverMs, setSyncHoverMs] = useState<number | null>(null);
   const [geoTab, setGeoTab] = useState<GeoTab>("kp");
   const loadProfile = useMemo(() => getLoadProfile(), []);
-  const [rangeHours, setRangeHours] = useState<6 | 24 | 72 | 168>(loadProfile.defaultRangeHours);
+  const [rangeHours, setRangeHours] = useState<6 | 24 | 72 | 168>(
+    variant === "local" ? 24 : loadProfile.defaultRangeHours,
+  );
   // Chart history. The readings strip uses a separate 30-minute request so
   // "stations contributing" paints before this longer bin returns.
   const vtecHours = showChrome && !showLocal ? Math.min(rangeHours, 6) : rangeHours;
@@ -357,53 +362,58 @@ export default function CauseEffectTimelineStack({
         feedCount += 1;
         if (!cancelled) setVtecLoading(true);
         tasks.push(
-          getLiveVtecByStation(readingsHours, readingsResample, 45_000)
-            .then((v) => {
-              if (cancelled) return false;
-              setVtec(Array.isArray(v) ? v : []);
-              setVtecRefreshFailed(false);
-              markPainted();
-              return true;
-            })
-            .catch(() => {
-              failures += 1;
-              return false;
-            })
-            .finally(() => {
+          (async () => {
+            let painted = false;
+            let readingsFailed = false;
+            const chartHasPoints = (v: LiveStationVtecSeries[] | undefined) =>
+              Array.isArray(v) && v.some((station) => station.points?.length);
+            try {
+              const readings = await getLiveVtecByStation(readingsHours, readingsResample, 45_000);
+              if (cancelled) return;
+              if (chartHasPoints(readings)) {
+                setVtec(readings);
+                setVtecRefreshFailed(false);
+                markPainted();
+                painted = true;
+              }
+            } catch {
+              readingsFailed = true;
+            } finally {
               if (!cancelled) setVtecLoading(false);
-            })
-            .then((painted) => {
-              // One database connection serves this process. The chart window
-              // waits until the readings query has finished. A failed chart
-              // request must not wipe readings that already arrived.
-              if (cancelled || !showLocal || vtecHours <= readingsHours) {
-                if (!cancelled && !painted) setVtecRefreshFailed(true);
+            }
+            // The chart window waits until the short readings query has settled.
+            // A failed chart request must not wipe readings that already arrived,
+            // and a chart that does arrive clears the feed failure.
+            if (cancelled || !showLocal || vtecHours <= readingsHours) {
+              if (!cancelled && readingsFailed && !painted) {
+                failures += 1;
+                setVtecRefreshFailed(true);
+              }
+              return;
+            }
+            const chartTimeout = vtecHours >= 6 ? 90_000 : 45_000;
+            const loadChartWindow = () =>
+              getLiveVtecByStation(vtecHours, vtecResample, chartTimeout).then((v) => {
+                if (chartHasPoints(v)) return v;
+                return getLiveVtecByStation(vtecHours, vtecResample, chartTimeout);
+              });
+            let chartFailed = false;
+            try {
+              const chart = await loadChartWindow().catch(() => loadChartWindow());
+              if (cancelled) return;
+              if (chartHasPoints(chart)) {
+                setVtec(chart);
+                setVtecRefreshFailed(false);
                 return;
               }
-              const chartTimeout = vtecHours >= 6 ? 90_000 : 45_000;
-              const chartHasPoints = (v: LiveStationVtecSeries[] | undefined) =>
-                Array.isArray(v) && v.some((station) => station.points?.length);
-              const loadChartWindow = () =>
-                getLiveVtecByStation(vtecHours, vtecResample, chartTimeout).then((v) => {
-                  if (chartHasPoints(v)) return v;
-                  return getLiveVtecByStation(vtecHours, vtecResample, chartTimeout);
-                });
-              return loadChartWindow()
-                .catch(() => loadChartWindow())
-                .then((v) => {
-                  if (cancelled) return;
-                  if (chartHasPoints(v)) {
-                    setVtec(v);
-                    setVtecRefreshFailed(false);
-                    return;
-                  }
-                  if (!painted) setVtecRefreshFailed(true);
-                })
-                .catch(() => {
-                  if (!cancelled && !painted) setVtecRefreshFailed(true);
-                });
-            })
-            .then(() => undefined),
+            } catch {
+              chartFailed = true;
+            }
+            if (!cancelled && readingsFailed && chartFailed && !painted) {
+              failures += 1;
+              setVtecRefreshFailed(true);
+            }
+          })(),
         );
       } else if (!cancelled) {
         setVtecLoading(false);
@@ -591,48 +601,41 @@ export default function CauseEffectTimelineStack({
 
   const analyses: Record<string, ChartAnalysisBlock> = {
     xray: {
-      lead: "GOES X-ray flux identifies solar flares (A/B/C/M/X). Flare X-rays reach Earth in ~8 minutes and can disturb the dayside ionosphere.",
+      lead: "GOES X-ray flux. This is the flare beat of the bulletin, about 8 minutes from the Sun.",
       bullets: [
-        "Horizontal lines mark C (10⁻⁶), M (10⁻⁵) and X (10⁻⁴) W/m² thresholds.",
-        "If Zimbabwe TEC jumps at the same UTC minute as an X-ray peak, investigate a flare response before assuming a geomagnetic storm.",
+        FLARE_BEAT,
+        "Horizontal lines mark C (10⁻⁶), M (10⁻⁵) and X (10⁻⁴) W/m². If Zimbabwe TEC jumps in the same UTC minute, write a dayside flare response, not a geomagnetic storm.",
       ],
     },
     wind: {
-      lead: "Solar-wind speed, density and proton temperature at L1 show arriving streams/shocks that can precede IMF and geomagnetic changes.",
+      lead: "Solar wind at L1. Name the driver, then read Bz.",
       bullets: [
-        "Sudden jumps (e.g. 380→620 km/s with density rising and temperature changing) often mark a shock/CME arrival.",
-        "Speed or temperature alone does not make a storm — always read with IMF Bz and Kp/Dst.",
+        WIND_BEAT,
+        "A jump such as 380 to 620 km/s, with density and temperature rising together, is the shock or CME-sheath sentence.",
       ],
     },
     imf: {
-      lead: "IMF Bz controls magnetospheric coupling. Sustained southward (negative) Bz is the key storm driver.",
-      bullets: [
-        "Bz > 0 (northward) usually weak coupling; Bz < 0 (southward) favours reconnection.",
-        "Sustained Bz ≈ −12 to −18 nT for hours is far more important than a momentary spike.",
-      ],
+      lead: "IMF Bz at L1. Duration matters more than a single negative spike.",
+      bullets: [BZ_BEAT],
     },
     geo: {
-      lead: "Kp summarises global geomagnetic activity; Dst/SYM-H tracks the ring-current storm intensity.",
-      bullets: [
-        "Kp ≥ 5 = G1+ storm conditions. More negative Dst = stronger storm.",
-        "Compare these global indices with Zimbabwe VTEC and GNSS quality in the panels below.",
-      ],
+      lead: "Kp is the planetary summary. Dst is the ring current. Write both, then look at Zimbabwe.",
+      bullets: [KP_BEAT, DST_BEAT, ZIMBABWE_TRANSLATION],
     },
     vtec: {
-      lead: "TEC is the line integral of electron density Ne along the GNSS path (1 TECU = 10¹⁶ el/m²). Zimbabwe CORS VTEC is the local ionospheric response after Sun→Earth drivers.",
+      lead: "Zimbabwe CORS VTEC. This is the local sentence after the solar and geomagnetic beats.",
       bullets: [
-        "Typical quiet values: night 1–10 TECU, day 10–40 TECU; high solar activity 50–100 TECU; extreme storms can exceed 200 TECU.",
-        "Selected operational stations are plotted together on the same UTC axis.",
-        "Daytime TEC rise can be quiet-time EUV behaviour. Storm evidence needs supporting Bz/Kp/Dst plus TEC departure from baseline (ΔTEC / ROTI under development).",
-        "Full quiet-day vs disturbed ΔTEC envelopes remain on the Anomaly Detection page.",
+        TEC_BEAT,
+        "Night is often 1–10 TECU and a quiet day 10–40 TECU. Near the 2024 maximum, quiet days reached 50–100 TECU. Above about 200 TECU is extreme.",
+        "Stations share one UTC axis. A rise after sunrise that repeats every day is the EUV curve. A rise that lines up with southward Bz and Kp ≥ 5 is the storm departure.",
       ],
     },
     gnss: {
-      lead: "Scintillation observations and estimated GNSS risk provide context; they do not verify local positioning performance.",
+      lead: "S4 and the GNSS risk label are the local quality line. They do not, by themselves, prove a positioning outage.",
       bullets: [
-        "S4 is amplitude scintillation (when observed). GNSS risk is a provisional estimate from indices, not a receiver accuracy measurement.",
-        "Live station-mean ROTI timelines are not yet ingested; PRN Explorer provides archive ROTI for research events.",
-        "Investigate timing and propagation delays alongside local observations. Correlated signals do not establish causation or a positioning outage.",
+        "S4 above about 0.5 is strong fading on the GNSS link. At Zimbabwe's latitude that is the scintillation sentence, read next to TEC, Bz and Kp.",
+        ZIMBABWE_TRANSLATION,
+        "The risk score is provisional. Live station-mean ROTI is not on this panel; PRN Explorer holds archive ROTI for research events.",
       ],
     },
   };

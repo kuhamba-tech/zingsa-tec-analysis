@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent } from "react";
-import { getSpaceWeather, getSolarActivity, getTimelines, refreshSpaceWeather, getStations, getEkfStatus, getHeliosphericMonitor, getTecMethodComparison, getLiveStationReadings, getCorsConnected } from "@/lib/api";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
+import { getSpaceWeather, getSolarActivity, getTimelines, refreshSpaceWeather, getStations, getEkfStatus, getHeliosphericMonitor, getLiveStationReadings, getCorsConnected } from "@/lib/api";
 import { peekSpaceWeather, publishSpaceWeather, subscribeSpaceWeather } from "@/lib/spaceWeatherStore";
 import { absorbInlineBootPayload, bootSpaceWeather } from "@/lib/bootSpaceWeather";
 import { bootSolarActivity } from "@/lib/bootSolarActivity";
@@ -14,7 +14,7 @@ import {
   absorbInlineSolarBootPayload,
 } from "@/lib/solarActivityStore";
 import { peekStations, subscribeStations } from "@/lib/stationsStore";
-import { ensureLiveTecHeatmap } from "@/lib/tecHeatmapStore";
+import ScientificSpaceWeatherUpdates from "@/components/spaceWeather/ScientificSpaceWeatherUpdates";
 import ClickableMetricGrid from "@/components/spaceWeather/ClickableMetricGrid";
 import DeferredMount from "@/components/spaceWeather/DeferredMount";
 import SwSectionBanner from "@/components/spaceWeather/SwSectionBanner";
@@ -34,6 +34,11 @@ import {
 } from "@/lib/dashboardChartAnalysis";
 import { analyzeGoesXrayExplanation } from "@/lib/heliosphericChartAnalysis";
 import {
+  FLARE_BEAT,
+  WIND_BEAT,
+  ZIMBABWE_TRANSLATION,
+} from "@/lib/scientistBulletin";
+import {
   ONE_H_MS,
   SIX_H_MS,
   alignTimeDomain,
@@ -50,7 +55,6 @@ import { connectedStreamCount, countSpiderLiveStationStatuses, isSurveyorGeneral
 import type { EkfPoint, EkfStatus, SpaceWeatherCurrent, SolarActivityFull, SpaceWeatherTimelines, TimelinePoint } from "@/lib/types";
 import { DashboardHeaderClocks } from "@/components/dashboard/DashboardClocks";
 import SpaceWeatherTitleIcon from "@/components/spaceWeather/SpaceWeatherTitleIcon";
-
 /** Quiet placeholder — avoid a wall of "Loading section…" on first paint. */
 const sectionFallback = (
   <div
@@ -181,7 +185,7 @@ function interpretFlareClass(cls: string): string | null {
   };
   const range = band[letter];
   if (!range) return null;
-  return `Right now: ${cls.toUpperCase()} is a GOES soft X-ray flare class (${range}, 0.1–0.8 nm) with multiplier ${multiplier} within that class. This is not a geomagnetic storm rating — a flare does not necessarily produce a geomagnetic storm.`;
+  return `Right now: ${cls.toUpperCase()} is the GOES 0.1–0.8 nm class (${range}), multiplier ${multiplier} inside that letter. The class is not a geomagnetic storm.`;
 }
 
 function safePoints(points: TimelinePoint[] | undefined) {
@@ -223,16 +227,6 @@ function snapshotTimelines(sw: SpaceWeatherCurrent): SpaceWeatherTimelines {
 }
 
 // ── KP scale bands ────────────────────────────────────────────────────────────
-const KP_BANDS = [
-  { range: "0–2", label: "Quiet",          color: "#22c55e" },
-  { range: "3",   label: "Unsettled",      color: "#84cc16" },
-  { range: "4",   label: "Active",         color: "#eab308" },
-  { range: "5",   label: "Minor Storm",    color: "#f97316" },
-  { range: "6",   label: "Moderate G2",    color: "#ef4444" },
-  { range: "7",   label: "Strong G3",      color: "#dc2626" },
-  { range: "8",   label: "Severe G4",      color: "#991b1b" },
-  { range: "9",   label: "Extreme G5",     color: "#a855f7" },
-];
 
 type SolarInfoKey =
   | "summary"
@@ -477,7 +471,7 @@ export default function SpaceWeatherClient({
     try {
       const params = new URLSearchParams(window.location.search);
       const raw = (params.get("tab") || "").toLowerCase();
-      // Zimbabwe is tab index 2 (after Solar Activity; Kp Scale follows it).
+      // Zimbabwe is tab index 2, after Solar Activity.
       // Accept legacy ?tab=3 bookmarks that previously pointed here.
       if (raw === "2" || raw === "3" || raw === "zimbabwe" || raw === "ionosphere" || raw === "iono" || raw === "local") {
         setTab(2);
@@ -487,21 +481,6 @@ export default function SpaceWeatherClient({
     }
   }, []);
 
-  useEffect(() => {
-    // Measured live TEC is a short request, so it starts with the cards.
-    // OpenLayers loads with the CORS map when that section nears the viewport.
-    // The Gg comparison waits until after paint, and only on a fast desktop.
-    ensureLiveTecHeatmap();
-    const profile = getLoadProfile();
-    const stopGg = profile.lightPayload
-      ? () => undefined
-      : afterNextPaint(() => {
-          void getTecMethodComparison(2, undefined, 300, 60_000).catch(() => null);
-        }, 1200);
-    return () => {
-      stopGg();
-    };
-  }, []);
   const [refreshing, setRefreshing] = useState(false);
   // Seed from boot snapshot times (identical on server + first client paint).
   // Never use Date.now() here — that flips LIVE/DELAYED badges and breaks hydration.
@@ -521,9 +500,35 @@ export default function SpaceWeatherClient({
   const [liveStationCounts, setLiveStationCounts] = useState<LiveStationCounts | null>(null);
   const [liveMeanVtec, setLiveMeanVtec] = useState<number | null>(null);
   const [selectedSolarInfo, setSelectedSolarInfo] = useState<SolarInfoKey>("summary");
+  const [conditionNoteOpen, setConditionNoteOpen] = useState(true);
+  const conditionNoteRef = useRef<HTMLDivElement | null>(null);
   const [selectedGraph, setSelectedGraph] = useState<string | null>(null);
   const [timelineSyncMs, setTimelineSyncMs] = useState<number | null>(null);
   const toggleGraph = (graphId: string) => setSelectedGraph((current) => current === graphId ? null : graphId);
+
+  useEffect(() => {
+    let node: HTMLElement | null = conditionNoteRef.current?.parentElement ?? document.body;
+    let scroller: HTMLElement | null = null;
+    while (node) {
+      const style = getComputedStyle(node);
+      if ((style.overflowY === "auto" || style.overflowY === "scroll") && node.scrollHeight > node.clientHeight + 8) {
+        scroller = node;
+        break;
+      }
+      node = node.parentElement;
+    }
+    const target: HTMLElement | Window = scroller ?? window;
+    const read = () => (scroller ? scroller.scrollTop : window.scrollY);
+    let last = read();
+    const onScroll = () => {
+      const y = read();
+      if (y > last + 16) setConditionNoteOpen(false);
+      else if (y <= 12) setConditionNoteOpen(true);
+      last = y;
+    };
+    target.addEventListener("scroll", onScroll, { passive: true });
+    return () => target.removeEventListener("scroll", onScroll);
+  }, []);
 
   // Seed stores during render so later effects never see an empty peek and
   // flash Connecting/Updating over SSR-painted cards.
@@ -996,52 +1001,55 @@ export default function SpaceWeatherClient({
       title: "Solar Activity",
       summary: `Current solar activity level: ${actLabel}. Current flare class: ${flareClass}. SWPC bulletins: ${sa?.feed_status?.swpc_alerts?.reachable ? alertCount : "unavailable"}.`,
       detail: [
-        "This card summarises the Sun's present activity for GNSS operations. \"Low\" means background flare levels (A/B class) and a quiet solar wind; \"Moderate\" means C-class flares or elevated solar wind are present; \"High\"/\"Severe\" mean M/X-class flares or active geomagnetic conditions that can raise TEC, scintillation, and radio disturbance risk.",
-        `Right now the level is "${actLabel}", driven by a ${flareClass} flare class${alertCount > 0 ? ` and ${alertCount} active NOAA alert(s)` : ""}.`,
+        `Earth-facing level is "${actLabel}", GOES class ${flareClass}${alertCount > 0 ? `, ${alertCount} SWPC bulletin(s)` : ""}.`,
+        "Separate the instantaneous GOES class from the maximum in a stated observation window. Use coronagraph/model guidance for CME trajectory and arrival, and observed indices for geospace conditions. A catalogue count is not an activity classification or local-impact assessment.",
+        "Against Solar Cycle 25, 2020 was the quiet minimum, 2024 the X-flare and G5 maximum (10–11 May), and M-class flares with G1–G2 intervals are still ordinary through October 2026. For Zimbabwe, confirm TEC and scintillation on the CORS network.",
       ].join(" "),
     },
     flare: {
       title: "Solar Flare - GOES X-Ray",
       summary: `Current flare class: ${flareClass}${fluxLabel ? `, flux ${fluxLabel}` : ""}.`,
       detail: [
-        "GOES X-ray class describes flare strength on a logarithmic scale: A and B are background, C is moderate, M is major, and X is extreme — each letter step is roughly 10× the peak X-ray flux of the one before it. The number after the letter (e.g. the \"4.3\" in B4.3) is a linear multiplier within that class, not a separate scale, so B4.3 sits about 43% of the way through the B range. Strong (M/X) flares can disturb HF radio and may affect GNSS signal tracking on the sunlit side of Earth.",
+        FLARE_BEAT,
+        "Each letter step is about ten times the peak X-ray flux of the one before it. The number after the letter is the multiplier inside that class, so B4.3 sits part-way through the B range and is still background.",
         interpretFlareClass(flareClass),
       ].filter(Boolean).join(" "),
     },
     xray: {
       title: "GOES X-Ray Flux",
       summary: xraySlice.length > 0 ? `${xraySlice.length} recent X-ray samples are loaded.` : "X-ray flux data is unavailable.",
-      detail: "The X-ray chart shows short-term solar flare energy from NOAA GOES in the 0.1–0.8 nm band, scaled ×10⁻⁷ W/m² for readability (so a chart value of \"4.3\" is the same B4.3 flux shown in the flare card). Rising spikes indicate flare activity; flat low values (below ~1, i.e. A-class) mean the flare environment is quiet.",
+      detail: `${FLARE_BEAT} The trace is NOAA GOES 0.1–0.8 nm flux, scaled ×10⁻⁷ W/m², so a chart value of 4.3 is the same B4.3 class as the flare card. The A/B boundary is 10?? W/m? (chart value 1); values below it include both A-class flux and still lower background.`,
     },
     wind: {
       title: "Solar Wind",
       summary: `Speed: ${sa?.solar_wind?.speed != null ? `${sa.solar_wind.speed.toFixed(0)} km/s` : "feed unavailable"}; IMF Bz: ${sa?.solar_wind?.bz != null ? `${sa.solar_wind.bz.toFixed(1)} nT` : "feed unavailable"}.`,
       detail: [
-        "Solar wind carries charged particles from the Sun to Earth. Typical quiet-time speed is 300-500 km/s; above ~500 km/s is considered fast (often from a coronal hole or CME). IMF Bz is the north-south component of the interplanetary magnetic field: negative (southward) Bz links up with Earth's own field and drives geomagnetic activity, raising Kp and disturbing GNSS positioning, while positive (northward) Bz is generally quiet.",
+        WIND_BEAT,
+        ZIMBABWE_TRANSLATION,
         sa?.solar_wind?.speed != null && sa?.solar_wind?.bz != null
-          ? `Right now: speed ${sa.solar_wind.speed.toFixed(0)} km/s (${sa.solar_wind.speed >= 500 ? "fast" : "typical"}), IMF Bz ${sa.solar_wind.bz.toFixed(1)} nT (${sa.solar_wind.bz < 0 ? "southward — more geoeffective" : "northward — quiet"}).`
+          ? `Right now: ${sa.solar_wind.speed.toFixed(0)} km/s (${sa.solar_wind.speed >= 500 ? "fast stream" : "quiet to moderate stream"}), Bz ${sa.solar_wind.bz.toFixed(1)} nT (${sa.solar_wind.bz < 0 ? "southward" : "northward or near zero"}).`
           : null,
       ].filter(Boolean).join(" "),
     },
     alerts: {
       title: "NOAA Alerts / Watches / Warnings",
       summary: alertMsg ? `Latest alert: ${alertMsg.length > 120 ? `${alertMsg.slice(0, 120)}...` : alertMsg}` : sa?.feed_status?.swpc_alerts?.reachable ? "No bulletins returned by NOAA." : "NOAA alert status unavailable.",
-      detail: "NOAA SWPC alerts are operational warnings for solar radiation storms (S-scale), radio blackouts (R-scale), and geomagnetic storms (G-scale) — each scale runs 1 (minor) to 5 (extreme). These warnings help decide when to monitor GNSS quality more closely; an \"Electron flux exceeded\" alert like the one shown is a radiation-belt enhancement watch, not itself a confirmed storm.",
+      detail: "SWPC bulletins use three separate scales, each from 1 to 5: R for the flare radio blackout, S for the proton radiation storm, and G for the geomagnetic storm. Keep them in different sentences. An electron-flux bulletin is a radiation-belt note, not a confirmed G-scale storm. G levels describe global geomagnetic activity and possible system effects; Zimbabwe impacts require local evidence.",
     },
     flareEvents: {
       title: "Solar Flares",
       summary: `${donkiFlares.length} flare event(s) in the selected 7-day window.`,
-      detail: `This count comes from DONKI flare events over the past 7 days. A higher count means more recent solar eruptive activity, but storm impact at Earth still depends on direction, timing, and associated CME or solar-wind conditions. ${donkiFlares.length === 0 ? "Zero here means no cataloged flare events in this window — a calm period." : "Check each event's class (A-X) for how strong it was."}`,
+      detail: `DONKI flare count for the past 7 days. Each flare needs a class and UTC peak; any associated CME needs its own trajectory analysis. ${donkiFlares.length === 0 ? "Zero means no cataloged flares in this window." : "A higher count is a more active disk, not yet a storm at Earth."}`,
     },
     cme: {
       title: "Coronal Mass Ejections",
       summary: `${donkiCmes.length} CME event(s) in the selected 7-day window.`,
-      detail: `A CME is a large eruption of solar plasma and magnetic field. If Earth-directed, it can arrive 1-3 days later and cause a geomagnetic storm affecting GNSS, power grids, and HF radio. ${donkiCmes.length === 0 ? "Zero here means no cataloged eruptions in this window." : "Not every CME is Earth-directed — only halo/partial-halo events aimed at Earth typically matter operationally."}`,
+      detail: `Sort each CME as Earth-directed, a glancing edge, or directed away from the limb or the farside. Earth-directed plasma can arrive in 1–3 days and, if Bz turns south, can raise Kp. ${donkiCmes.length === 0 ? "Zero means no cataloged eruption in this window." : "A count alone does not say the cloud is geoeffective."}`,
     },
     storms: {
       title: "Geomagnetic Storms",
       summary: `${donkiStorms.length} geomagnetic storm event(s) in the selected 7-day window.`,
-      detail: `Geomagnetic storm events show Earth-side magnetic disturbance (measured via Kp/Dst), and are more directly linked to GNSS degradation than solar flare or CME counts alone. ${donkiStorms.length === 0 ? "Zero here means Earth's magnetic field has stayed quiet over this window." : "Higher Kp during these events means larger positioning error and possible RTK/PPP convergence delay."}`,
+      detail: `These are Earth-side storms. Write Kp, Dst and the sign of Bz, then look at Zimbabwe TEC and S4. ${donkiStorms.length === 0 ? "Zero means no cataloged geomagnetic storm in this window." : "A G1 or G2 interval is ordinary in the active years of this cycle and is not, by itself, a positioning failure over Zimbabwe."} ${ZIMBABWE_TRANSLATION}`,
     },
     impact: {
       title: "Estimated operational context (provisional)",
@@ -1054,11 +1062,15 @@ export default function SpaceWeatherClient({
   const solarCardClickProps = (key: SolarInfoKey, style: CSSProperties = {}) => ({
     role: "button",
     tabIndex: 0,
-    onClick: () => setSelectedSolarInfo(key),
+    onClick: () => {
+      setSelectedSolarInfo(key);
+      setConditionNoteOpen(true);
+    },
     onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => {
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
         setSelectedSolarInfo(key);
+        setConditionNoteOpen(true);
       }
     },
     style: {
@@ -1147,7 +1159,7 @@ export default function SpaceWeatherClient({
       />
 
       {/* ── Condition banner ── */}
-      <div className={`banner banner-${conditionVariant}`}>
+      {conditionNoteOpen && <div ref={conditionNoteRef} className={`banner banner-${conditionVariant}`}>
         <strong>{selectedInfo.title}: {selectedInfo.summary}</strong>
         <div style={{ marginTop: "0.35rem", fontSize: "0.85rem", lineHeight: 1.45 }}>
           {selectedInfo.detail}
@@ -1165,7 +1177,7 @@ export default function SpaceWeatherClient({
             No live CORS connection count is available here. Check the station observations and network status before drawing conclusions about service availability.
           </div>
         )}
-      </div>
+      </div>}
 
       {/* NOAA bulletins live on Alerts (/storm-watch); keep a short pointer here. */}
       <section className="card sw-noaa-shortcut" aria-label="NOAA alerts shortcut">
@@ -1205,7 +1217,7 @@ export default function SpaceWeatherClient({
 
       {/* ── Tabs ── */}
       <div className="tabs sw-space-tabs" role="tablist" aria-label="Space weather views">
-        {["Live Metric Timelines", "Solar Activity", "Zimbabwe Ionospheric Response", "Kp Scale"].map((t, i) => (
+        {["Live Metric Timelines", "Solar Activity", "Zimbabwe Ionospheric Response"].map((t, i) => (
           <button
             key={t}
             type="button"
@@ -1327,6 +1339,8 @@ export default function SpaceWeatherClient({
       {tab === 1 && (
         <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
 
+          <ScientificSpaceWeatherUpdates solar={sa} />
+
           {/* NOAA SWPC status bar */}
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.5rem 0.8rem", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "0.85rem", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase" }}>
             <span className={`dot ${solarFeedLive ? "dot-ok" : "dot-warn"}`} style={{ width: "7px", height: "7px" }} />
@@ -1357,8 +1371,7 @@ export default function SpaceWeatherClient({
 
           <p style={{ fontSize: "0.82rem", color: "var(--text-muted)", margin: 0 }}>
             Geomagnetic Kp forecast bars belong with the Heliospheric Monitor above.
-            Open the <strong>Zimbabwe Ionospheric Response</strong> tab for local CORS VTEC,
-            and the <strong>Kp Scale</strong> tab for the Kp 0–9 colour reference.
+            Open the <strong>Zimbabwe Ionospheric Response</strong> tab for local CORS VTEC.
           </p>
 
           {/* Active Regions + CME table side by side */}
@@ -1373,10 +1386,10 @@ export default function SpaceWeatherClient({
                   })}
                   <circle cx="16" cy="16" r="8" fill="#f97316" />
                 </svg>
-                <div className="metric-label">Active Regions</div>
+                <div className="metric-label">Flare-associated sources ? catalogue</div>
               </div>
               <DataTable
-                headers={["REGION", "CLASS", "MAG.TYPE", "SPOTS"]}
+                headers={["SOURCE / EVENT", "LARGEST FLARE", "MAG. CLASS", "CATALOGUED FLARES"]}
                 rows={activeRegionRows}
                 emptyMsg={donkiLive ? "No flare regions in the last 7 days." : eventFeedUnavailableMsg}
               />
@@ -1390,7 +1403,7 @@ export default function SpaceWeatherClient({
             <div className="card">
               <div className="metric-label" style={{ marginBottom: "0.7rem" }}>Coronal Mass Ejections (CME)</div>
               <DataTable
-                headers={["DATE (UTC)", "SPEED (KM/S)", "WIDTH", "HALO", "IMPACT"]}
+                headers={["DATE (UTC)", "SPEED (KM/S)", "CONE HALF-ANGLE", "HALO", "EARTH IMPACT"]}
                 rows={cmeTableRows}
                 emptyMsg={donkiLive ? "No CME events in the last 7 days." : eventFeedUnavailableMsg}
               />
@@ -1404,11 +1417,11 @@ export default function SpaceWeatherClient({
 
           {/* Solar Radio Bursts */}
           <div className="card">
-            <div className="metric-label" style={{ marginBottom: "0.7rem" }}>Solar Radio Bursts (Last 24H)</div>
+            <div className="metric-label" style={{ marginBottom: "0.7rem" }}>Solar radio observations</div>
             <DataTable
               headers={["TIME (UTC)", "TYPE", "FREQUENCY", "INTENSITY", "LOCATION"]}
               rows={radioBurstRows}
-              emptyMsg={donkiLive ? "No flare-derived radio burst proxies in the last 7 days." : eventFeedUnavailableMsg}
+              emptyMsg="A measured radio-burst feed is not connected. GOES flare classes do not establish radio-burst type, frequency or intensity."
             />
             <div style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>
               NOAA GOES X-ray · proxy from {donkiLive ? eventFeedName : "solar flare events"}
@@ -1481,11 +1494,11 @@ export default function SpaceWeatherClient({
             <div className="metric-label" style={{ marginBottom: "0.7rem" }}>Solar Activity Levels</div>
             <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap" }}>
               {[
-                { label: "Low",      color: "#22c55e", desc: "Minimal impact" },
-                { label: "Moderate", color: "#eab308", desc: "Minor impact" },
-                { label: "High",     color: "#f97316", desc: "Strong impact" },
-                { label: "Severe",   color: "#ef4444", desc: "Major impact" },
-                { label: "Extreme",  color: "#a855f7", desc: "Extreme impact" },
+                { label: "Low",      color: "#22c55e", desc: "A/B/C flares, quiet wind" },
+                { label: "Moderate", color: "#eab308", desc: "M-class or fast wind" },
+                { label: "High",     color: "#f97316", desc: "X-class flare" },
+                { label: "Severe",   color: "#ef4444", desc: "G3–G4 at Earth" },
+                { label: "Extreme",  color: "#a855f7", desc: "G5, as in May 2024" },
               ].map(({ label, color, desc }) => (
                 <div key={label} style={{ display: "flex", alignItems: "center", gap: "0.5rem", background: "#0a1929", borderRadius: "8px", padding: "0.45rem 0.8rem", flex: "1 1 100px" }}>
                   <span style={{ display: "inline-block", width: "10px", height: "10px", borderRadius: "50%", background: color, flexShrink: 0 }} />
@@ -1508,7 +1521,6 @@ export default function SpaceWeatherClient({
             Zimbabwe-only ionosphere content: diurnal and seasonal GPS-TEC, Dst and Kp beside
             the RMSE of the TEC maps, live CORS VTEC, STEC/VTEC teaching, GOPI vs Gg = Cesaroni
             comparison, North–South spatial TEC research, and scintillation / GNSS risk context.
-            Geomagnetic Kp colour bands live on the separate <strong>Kp Scale</strong> tab.
           </p>
           <LiveTecMultiDayChart />
           <ZimbabweMeanDiurnalTec />
@@ -1617,29 +1629,6 @@ export default function SpaceWeatherClient({
           </DeferredMount>
             </>
           )}
-        </div>
-      )}
-
-      {/* ── Tab 3: Kp Scale ── */}
-      {tab === 3 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-          <p style={{ fontSize: "0.82rem", color: "var(--text-muted)", margin: 0 }}>
-            Planetary Kp is a global geomagnetic activity index (0–9), not a Zimbabwe TEC
-            measurement. Live Kp forecast bars are on <strong>Solar Activity</strong>; local
-            CORS VTEC is on <strong>Zimbabwe Ionospheric Response</strong>.
-          </p>
-          <div className="card">
-            <div className="metric-label" style={{ marginBottom: "0.8rem" }}>Kp Geomagnetic Scale Reference</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
-              {KP_BANDS.map(({ range, label, color }) => (
-                <div key={range} style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
-                  <div style={{ width: "60px", height: "24px", background: color, borderRadius: "4px", flexShrink: 0 }} />
-                  <span style={{ fontWeight: 700, width: "40px", flexShrink: 0 }}>{range}</span>
-                  <span>{label}</span>
-                </div>
-              ))}
-            </div>
-          </div>
         </div>
       )}
 

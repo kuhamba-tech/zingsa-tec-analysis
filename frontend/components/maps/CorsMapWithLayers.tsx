@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import CorsMap from "./CorsMap";
-import LiveTecMethodComparePanel from "./LiveTecMethodComparePanel";
+import DeferredMount from "@/components/spaceWeather/DeferredMount";
 import NetworkDistancesPanel from "./NetworkDistancesPanel";
 import { TecMapColorbar } from "./TecHeatMapLegend";
 import { getTecMethodComparison, getTrigNet } from "@/lib/api";
@@ -18,6 +18,10 @@ import { getLiveStationStatus, isSurveyorGeneral, type LiveStationCounts } from 
 
 const StationVtecTimePlots = dynamic(
   () => import("@/components/charts/StationVtecTimePlots"),
+  { ssr: false },
+);
+const LiveTecMethodComparePanel = dynamic(
+  () => import("./LiveTecMethodComparePanel"),
   { ssr: false },
 );
 export type MapLayer =
@@ -94,12 +98,6 @@ function zimbabweLiveGopi(station: Station, heatmap: TecHeatmapResponse | null):
     return measuredLiveTec({ vtec: station.current_tec, source: "live_ntrip", obs_count: 1 });
   }
   return null;
-}
-
-function riskColor(level: string): string {
-  if (level === "High") return "#ff4444";
-  if (level === "Moderate") return "#ff8c00";
-  return "#00ff88";
 }
 
 function GeomagneticCorsTable({
@@ -193,7 +191,6 @@ function GeomagneticCorsTable({
 export default function CorsMapWithLayers({
   stations,
   height = 480,
-  riskLevel = "N/A",
   liveCounts,
   ntripProbedAt = null,
   stationsLoading = false,
@@ -323,7 +320,7 @@ export default function CorsMapWithLayers({
     if (!tecLayerActive && !trignetActive) return;
     let cancelled = false;
     const load = () => {
-      getTecMethodComparison(2, undefined, 300, 60_000)
+      getTecMethodComparison(2, undefined, 300, 45_000)
         .then((res) => {
           if (cancelled) return;
           const map: Record<string, number> = {};
@@ -346,10 +343,12 @@ export default function CorsMapWithLayers({
           if (!cancelled) setMeasuredGg({});
         });
     };
-    load();
+    // Gg labels are extra. Let station markers and the TEC grid use the API first.
+    const start = window.setTimeout(load, 5_000);
     const id = window.setInterval(load, 90_000);
     return () => {
       cancelled = true;
+      window.clearTimeout(start);
       window.clearInterval(id);
     };
   }, [tecLayerActive, trignetActive]);
@@ -500,7 +499,7 @@ export default function CorsMapWithLayers({
           <div className="home-map-toolbar-summary">
             {trignetActive
               ? `${trignet?.station_count ?? "…"} TrigNet · ${stations.length} Zimbabwe · G ${trignetHeatmap?.station_count ?? 0} · Gg ${Object.keys(trignetGgCombined).length}${trignet?.rinex_day ? ` · RINEX ${trignet.rinex_day}` : ""}`
-              : `${liveCounts.total} stations · ${liveLabel} · ${riskLevel} GNSS risk`}
+              : `${liveCounts.total} stations · ${liveLabel} · GNSS performance not verified`}
             {tecLayerActive && (
               <p className="home-map-tec-note">
                 The Zimbabwe CORS Network&apos;s local TEC maps provide information about vertical TEC (VTEC) derived from ground-based GNSS measurements with a latency of not more than 5 minutes and an update rate of 15 minutes.
@@ -533,9 +532,9 @@ export default function CorsMapWithLayers({
               ✈ ICAO {icaoTecLevel(maxVtec).toUpperCase()}
             </span>
           )}
-          <span className="home-map-risk-label">Risk Level</span>
-          <span className="home-map-risk-value" style={{ color: riskColor(riskLevel) }}>
-            {riskLevel.toUpperCase()}
+          <span className="home-map-risk-label">GNSS performance</span>
+          <span className="home-map-risk-value" style={{ color: "#c4d0df" }} title="TEC alone does not verify GNSS accuracy. Measured positioning checks are required.">
+            {"NOT VERIFIED"}
           </span>
         </div>
       </div>
@@ -750,9 +749,17 @@ export default function CorsMapWithLayers({
         </div>
       )}
 
-      {tecLayerActive && <LiveTecMethodComparePanel stations={surfaceSites} />}
+      {tecLayerActive && (
+        <DeferredMount minHeight={160} rootMargin="0px" minDelayMs={4000}>
+          <LiveTecMethodComparePanel stations={surfaceSites} />
+        </DeferredMount>
+      )}
 
-      {tecLayerActive && <StationVtecTimePlots className="home-station-vtec-plots" />}
+      {tecLayerActive && (
+        <DeferredMount minHeight={220} rootMargin="0px" minDelayMs={5000}>
+          <StationVtecTimePlots className="home-station-vtec-plots" />
+        </DeferredMount>
+      )}
     </div>
   );
 }

@@ -14,6 +14,7 @@ import { Scatter, Line } from "react-chartjs-2";
 import LineChart from "@/components/charts/LineChart";
 import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
 import { getLiveVtec, getLiveVtecByStation, getStations, getTecMethodComparison } from "@/lib/api";
+import { ELEVATION_MIN_DEG } from "@/lib/elevationMask";
 import { getTecMethodCmpParams } from "@/lib/tecMethodCompareParams";
 import { getLoadProfile } from "@/lib/loadBudget";
 import { isSurveyorGeneral } from "@/lib/liveStationStatus";
@@ -116,7 +117,7 @@ const GRAPH_EXPLANATIONS: Record<GraphId, ChartAnalysisBlock> = {
     bullets: [
       "Each coloured trace is one live CORS station on a shared Universal Time (UT) axis.",
       "Quiet-day VTEC usually rises after sunrise, peaks near local noon–afternoon, and falls at night.",
-      "Sudden jumps shared across stations can mark a flare, storm, or data gap — always check observation times and supporting solar/geomagnetic drivers.",
+      "A jump shared by several stations at the same UTC minute, lining up with an X-ray peak, is a dayside flare response. A jump hours later, with southward Bz and Kp at or above 5, is the storm departure. A gap at one station is a data gap, not the ionosphere.",
       "Typical quiet values: night ~1–10 TECU, day ~10–40 TECU; high solar activity can reach 50–100 TECU.",
     ],
   },
@@ -171,7 +172,7 @@ const GRAPH_EXPLANATIONS: Record<GraphId, ChartAnalysisBlock> = {
       "Bands follow CORS station latitude: north of −18.2°, central (−18.2° to −20.2°), south of −20.2°.",
       "GOPI graph: hourly mean VTEC from live station series in each band.",
       "Gg graph: Cesaroni-calibrated VTEC (or measured Gg−GOPI station offsets applied to the same diurnal when Gg hour coverage is still filling in).",
-      "Magnitudes and which band is highest must come from observations — northern Zimbabwe is not assumed highest a priori.",
+      "Which band is highest has to come from the measurements. Do not assume the north is always higher. A difference that repeats every quiet day is latitude structure. A difference that appears only on a Kp ≥ 5 day is the storm response.",
     ],
   },
 };
@@ -194,35 +195,42 @@ function Section({
   return (
     <section
       className="card"
-      role="button"
-      tabIndex={0}
-      aria-expanded={open}
-      aria-label={`${title}. Click for scientific explanation.`}
-      onClick={onToggle}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onToggle();
-        }
-      }}
+      aria-label={title}
       style={{
         display: "flex",
         flexDirection: "column",
         gap: "0.75rem",
-        cursor: "pointer",
-        borderColor: open ? "var(--accent)" : undefined,
-        background: open ? "rgba(22, 139, 210, 0.08)" : undefined,
       }}
     >
       <div>
         <div className="metric-label" style={{ marginBottom: 4 }}>{title}</div>
         <p className="sw-supporting-text" style={{ margin: 0 }}>{subtitle}</p>
-        <p className="sw-supporting-text" style={{ margin: "0.35rem 0 0", fontSize: "0.75rem" }}>
-          {open ? "Click again to hide scientific explanation" : "Click for scientific explanation"}
-        </p>
       </div>
-      <div onClick={(e) => e.stopPropagation()}>{children}</div>
-      {open && <ChartAnalysisBox block={analysis} title="Scientific interpretation" />}
+      <div>{children}</div>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        style={{
+          background: "transparent",
+          border: 0,
+          padding: 0,
+          color: "var(--accent)",
+          fontSize: "0.72rem",
+          fontWeight: 700,
+          cursor: "pointer",
+          textAlign: "left",
+        }}
+      >
+        {open ? "Hide what this graph means" : "What this graph means"}
+      </button>
+      {open && (
+        <ChartAnalysisBox
+          block={analysis}
+          title="What this graph means"
+          afterLeadTitle="Scientific explanation"
+        />
+      )}
     </section>
   );
 }
@@ -233,6 +241,8 @@ export default function ZimbabweTecTeachingLab() {
   const [catalog, setCatalog] = useState<Station[]>([]);
   const [methodCmp, setMethodCmp] = useState<TecMethodComparisonResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [obsSettled, setObsSettled] = useState(false);
+  const [cmpSettled, setCmpSettled] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [openGraph, setOpenGraph] = useState<GraphId | null>(null);
@@ -248,33 +258,37 @@ export default function ZimbabweTecTeachingLab() {
       // Station bins cover the last day. A short lookback was blank whenever the
       // newest hours were a gap, even though earlier code-live samples were stored.
       const stationHours = 24;
-      const dayHours = profile.constrained
-        ? Math.min(8, Math.max(3, Math.ceil(hoursSinceUtcMidnight()) + 0.5))
-        : Math.min(12, Math.max(6, Math.ceil(hoursSinceUtcMidnight() * 2) / 2 + 0.5));
-      const liveLimit = profile.slowNetwork ? 400 : profile.constrained ? 600 : 800;
-      const liveHours = Math.min(6, dayHours);
+      // The observation query scans the live table. A 25-second cutoff returns
+      // before those rows, which leaves the IPP map and both fans empty.
+      const dayHours = Math.min(24, Math.max(6, Math.ceil(hoursSinceUtcMidnight())));
+      const liveLimit = profile.slowNetwork ? 600 : 1200;
       const resampleMin = profile.constrained ? 20 : 15;
 
-      const stP = getLiveVtecByStation(stationHours, resampleMin, profile.constrained ? 60_000 : 90_000).then((rows) => {
+      const stP = getLiveVtecByStation(stationHours, resampleMin, 90_000).then((rows) => {
         if (!cancelled) setStations(Array.isArray(rows) ? rows : []);
         return rows;
       });
-      const liveP = getLiveVtec(liveHours, undefined, profile.constrained ? 18_000 : 25_000, liveLimit).then((rows) => {
+      const liveP = getLiveVtec(dayHours, undefined, 90_000, liveLimit).then((rows) => {
         if (!cancelled) setObs(Array.isArray(rows) ? rows : []);
         return rows;
+      }).finally(() => {
+        if (!cancelled) setObsSettled(true);
       });
       const catP = getStations(false).then((rows) => {
         if (!cancelled && Array.isArray(rows) && rows.length) setCatalog(rows);
         return rows;
       });
-      // Shared params with TecMethodComparisonLab so both hit one cached API call.
+      // Cover the current UTC day so the calibrated fans include this morning.
       const cmp = getTecMethodCmpParams();
-      getTecMethodComparison(cmp.hours, undefined, cmp.limit, cmp.timeoutMs)
+      getTecMethodComparison(Math.max(cmp.hours, dayHours), undefined, Math.max(cmp.limit, liveLimit), 90_000)
         .then((payload) => {
           if (!cancelled) setMethodCmp(payload);
         })
         .catch(() => {
           /* Comparison is optional for GOPI-only diurnal fallback. */
+        })
+        .finally(() => {
+          if (!cancelled) setCmpSettled(true);
         });
 
       Promise.allSettled([stP, liveP, catP]).then(([st, live, cat]) => {
@@ -291,14 +305,11 @@ export default function ZimbabweTecTeachingLab() {
       });
     };
     load();
-    const unlock = window.setTimeout(() => {
-      if (!cancelled) setLoading(false);
-    }, 20000);
-    // Keep the UTC-day chart live
-    const refresh = window.setInterval(load, getLoadProfile().constrained ? 180_000 : 120_000);
+    // Keep the UTC-day chart live. Do not clear the loading flag on a timer:
+    // that painted the empty banners while the observation query was still running.
+    const refresh = window.setInterval(load, 120_000);
     return () => {
       cancelled = true;
-      window.clearTimeout(unlock);
       window.clearInterval(refresh);
     };
   }, []);
@@ -346,7 +357,7 @@ export default function ZimbabweTecTeachingLab() {
     const allVtec: number[] = [];
     for (const o of obs) {
       const el = o.elevation_deg;
-      if (el == null || el < 15) continue;
+      if (el == null || el < ELEVATION_MIN_DEG) continue;
       const key = (o.constellation || "?").charAt(0).toUpperCase();
       if (o.stec_tecu != null && Number.isFinite(o.stec_tecu)) {
         (stecByConst[key] ??= []).push({ x: el, y: o.stec_tecu });
@@ -379,7 +390,10 @@ export default function ZimbabweTecTeachingLab() {
     };
   }, [obs]);
 
-  const elRange = useMemo(() => Array.from({ length: 71 }, (_, i) => 20 + i), []);
+  const elRange = useMemo(
+    () => Array.from({ length: 91 - ELEVATION_MIN_DEG }, (_, i) => ELEVATION_MIN_DEG + i),
+    [],
+  );
   const flatRef = elevScatter.medianVtec != null
     ? elRange.map((el) => ({ x: el, y: flatLayerStec(elevScatter.medianVtec!, el) }))
     : [];
@@ -391,7 +405,7 @@ export default function ZimbabweTecTeachingLab() {
       const az = o.azimuth_deg;
       if (el == null || az == null || !Number.isFinite(el) || !Number.isFinite(az)) continue;
       if (o.vtec_tecu == null || !Number.isFinite(o.vtec_tecu)) continue;
-      if (el < 0 || el > 90) continue;
+      if (el < ELEVATION_MIN_DEG || el > 90) continue;
       pts.push({
         az,
         el,
@@ -415,6 +429,7 @@ export default function ZimbabweTecTeachingLab() {
       const el = o.elevation_deg;
       const az = o.azimuth_deg;
       if (el == null || az == null || !Number.isFinite(el) || !Number.isFinite(az)) continue;
+      if (el < ELEVATION_MIN_DEG || el > 90) continue;
       if (o.vtec_tecu == null || !Number.isFinite(o.vtec_tecu)) continue;
       const key = o.station.toLowerCase().replace(/_+$/, "");
       const meta = byCode.get(key) ?? byCode.get(o.station.toLowerCase());
@@ -431,8 +446,13 @@ export default function ZimbabweTecTeachingLab() {
 
   const calibratedFans = useMemo(() => {
     const dayStart = utcDayStart;
-    const gopiRows: LiveObservation[] =
-      (methodCmp?.gopi?.length ?? 0) >= 8 ? (methodCmp?.gopi ?? []) : obs;
+    const onDay = (rows: LiveObservation[]) =>
+      rows.filter((row) => isUtcCalendarDay(row.time, dayStart) && row.vtec_tecu != null && row.vtec_tecu > 0 && row.vtec_tecu <= 100);
+    const gopiFromCompare = onDay(methodCmp?.gopi ?? []);
+    const gopiFromLive = onDay(obs);
+    const gopiRows: LiveObservation[] = gopiFromCompare.length >= gopiFromLive.length && gopiFromCompare.length >= 8
+      ? (methodCmp?.gopi ?? [])
+      : obs;
     const ggRows: LiveObservation[] = methodCmp?.gg ?? [];
     return {
       gopi: buildCalibratedFan(gopiRows, dayStart, utcDayTitle, "GOPI / Seemala"),
@@ -440,6 +460,67 @@ export default function ZimbabweTecTeachingLab() {
     };
   }, [obs, methodCmp, utcDayStart, utcDayTitle]);
 
+  const analyses = useMemo(() => {
+    const withReading = (id: GraphId, reading: string | null): ChartAnalysisBlock => {
+      const base = GRAPH_EXPLANATIONS[id];
+      return {
+        lead: base.lead,
+        bullets: reading ? [reading, ...base.bullets] : base.bullets,
+      };
+    };
+    const latests = stationSeries
+      .map((series) => series.latest)
+      .filter((value): value is number => value != null && Number.isFinite(value));
+    const ippVtec = ippTracks.map((point) => point.vtec);
+    const ippHours = ippTracks.map((point) => point.hour);
+    const clock = (hour: number) => {
+      const h = Math.floor(hour);
+      const m = Math.round((hour - h) * 60);
+      return `${String(h).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+    };
+    const fanReading = (fan: CalibratedFan | null, waiting: string | null) => {
+      if (!fan) return waiting;
+      const veq = fan.veq.filter((value): value is number => value != null);
+      const zenith = veq.length ? ` The station-zenith line has ${veq.length} half-hour medians.` : "";
+      return `${fan.dayLabel} has ${fan.validVtec.toLocaleString()} VTEC samples on ${fan.svCount} satellites.${zenith}`;
+    };
+    return {
+      "vtec-series": withReading(
+        "vtec-series",
+        stationSeries.length
+          ? `${stationSeries.length} station traces are drawn${latests.length ? `, and the newest station value is ${Math.max(...latests).toFixed(1)} TECU` : ""}.`
+          : null,
+      ),
+      "elev-scatter": withReading(
+        "elev-scatter",
+        elevScatter.stecCount
+          ? `${elevScatter.stecCount.toLocaleString()} slant samples are plotted${elevScatter.medianVtec != null ? `, and the median VTEC in this window is ${elevScatter.medianVtec.toFixed(1)} TECU` : ""}.`
+          : null,
+      ),
+      skyplot: withReading(
+        "skyplot",
+        skyplotPoints.length ? `${skyplotPoints.length.toLocaleString()} satellite look directions are coloured by VTEC.` : null,
+      ),
+      ipp: withReading(
+        "ipp",
+        ippTracks.length
+          ? `${ippTracks.length.toLocaleString()} pierce points are drawn. VTEC on them runs from ${Math.min(...ippVtec).toFixed(1)} to ${Math.max(...ippVtec).toFixed(1)} TECU, from ${clock(Math.min(...ippHours))} to ${clock(Math.max(...ippHours))} UT.`
+          : null,
+      ),
+      "diurnal-gopi": withReading(
+        "diurnal-gopi",
+        fanReading(calibratedFans.gopi, obsSettled ? "Today’s GOPI fan has fewer than 8 VTEC samples, so the arcs stay off." : null),
+      ),
+      "diurnal-gg": withReading(
+        "diurnal-gg",
+        fanReading(calibratedFans.gg, cmpSettled ? "Today’s Gg fan has fewer than 8 calibrated samples, so the arcs stay off." : null),
+      ),
+      "latband-ncs": withReading(
+        "latband-ncs",
+        stationSeries.length ? `${stationSeries.length} live stations feed the latitude-band means on this plot.` : null,
+      ),
+    };
+  }, [stationSeries, elevScatter, skyplotPoints, ippTracks, calibratedFans, obsSettled, cmpSettled]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
@@ -449,7 +530,7 @@ export default function ZimbabweTecTeachingLab() {
           Zimbabwe CORS NTRIP VTEC / STEC from the live pipeline — VTEC time series, STEC/VTEC versus
           elevation, satellite skyplot coloured by VTEC, IPP ground tracks, calibrated VTEC fans for
           Method 1 (GOPI) and Method 2 (Gg), and northern / central / southern Zimbabwe diurnal
-          comparisons for both methods. Click any graph for its scientific explanation.
+          comparisons for both methods. Each graph has “What this graph means”, then the scientific explanation for the samples on that graph.
         </p>
         {loading && <div className="banner banner-info" style={{ marginTop: "0.75rem" }}>Loading live CORS VTEC…</div>}
         {error && <div className="banner banner-warn" style={{ marginTop: "0.75rem" }}>{error}</div>}
@@ -465,7 +546,7 @@ export default function ZimbabweTecTeachingLab() {
         subtitle="Vertical Total Electron Content (VTEC) versus Universal Time (UT)."
         open={openGraph === "vtec-series"}
         onToggle={() => toggleGraph("vtec-series")}
-        analysis={GRAPH_EXPLANATIONS["vtec-series"]}
+        analysis={analyses["vtec-series"]}
       >
         {stationSeries.length > 0 ? (
           <LineChart
@@ -496,7 +577,7 @@ export default function ZimbabweTecTeachingLab() {
         subtitle="Two panels: STEC versus elevation and VTEC versus elevation."
         open={openGraph === "elev-scatter"}
         onToggle={() => toggleGraph("elev-scatter")}
-        analysis={GRAPH_EXPLANATIONS["elev-scatter"]}
+        analysis={analyses["elev-scatter"]}
       >
         {elevScatter.stecCount > 0 ? (
           <div className="sw-double-grid">
@@ -558,7 +639,7 @@ export default function ZimbabweTecTeachingLab() {
         subtitle="Satellite azimuth and elevation, with colour representing VTEC."
         open={openGraph === "skyplot"}
         onToggle={() => toggleGraph("skyplot")}
-        analysis={GRAPH_EXPLANATIONS.skyplot}
+        analysis={analyses.skyplot}
       >
         {skyplotPoints.length > 0 ? (
           <SkyplotByVtec points={skyplotPoints} />
@@ -576,15 +657,15 @@ export default function ZimbabweTecTeachingLab() {
         subtitle="Two panels: IPP locations coloured by VTEC and by observation time."
         open={openGraph === "ipp"}
         onToggle={() => toggleGraph("ipp")}
-        analysis={GRAPH_EXPLANATIONS.ipp}
+        analysis={analyses.ipp}
       >
         {ippTracks.length > 0 ? (
           <IppGroundTracks points={ippTracks} />
         ) : (
           <div className="banner banner-info">
-            {loading
-              ? "Waiting for station coordinates and azimuth/elevation geometry…"
-              : "No IPP tracks yet — need station catalog plus elevation and azimuth on live observations."}
+            {obsSettled
+              ? "No IPP tracks yet — the samples need a station position plus elevation and azimuth."
+              : "Waiting for station coordinates and azimuth/elevation geometry…"}
           </div>
         )}
       </Section>
@@ -594,13 +675,13 @@ export default function ZimbabweTecTeachingLab() {
         subtitle="Calibrated fan: per-satellite arcs by constellation + station-zenith VEq (Seemala / GOPI)."
         open={openGraph === "diurnal-gopi"}
         onToggle={() => toggleGraph("diurnal-gopi")}
-        analysis={GRAPH_EXPLANATIONS["diurnal-gopi"]}
+        analysis={analyses["diurnal-gopi"]}
       >
         {calibratedFans.gopi ? (
           <CalibratedVtecFanChart fan={calibratedFans.gopi} />
         ) : (
           <div className="banner banner-info">
-            {loading ? "Waiting for today’s GOPI samples…" : "Not enough Method 1 (GOPI) VTEC points yet for today’s UTC day."}
+            {obsSettled ? "Not enough Method 1 (GOPI) VTEC points yet for today’s UTC day." : "Waiting for today’s GOPI samples…"}
           </div>
         )}
       </Section>
@@ -610,15 +691,15 @@ export default function ZimbabweTecTeachingLab() {
         subtitle="Same fan layout for Gg = Cesaroni calibration (elev ≥ 30°, IPP 350 km)."
         open={openGraph === "diurnal-gg"}
         onToggle={() => toggleGraph("diurnal-gg")}
-        analysis={GRAPH_EXPLANATIONS["diurnal-gg"]}
+        analysis={analyses["diurnal-gg"]}
       >
         {calibratedFans.gg ? (
           <CalibratedVtecFanChart fan={calibratedFans.gg} />
         ) : (
           <div className="banner banner-info">
-            {loading
-              ? "Waiting for Gg calibration on live samples…"
-              : "Not enough Method 2 (Gg) VTEC points yet — comparison samples still accumulating."}
+            {cmpSettled
+              ? "Not enough Method 2 (Gg) VTEC points yet — comparison samples are still accumulating."
+              : "Waiting for Gg calibration on live samples…"}
           </div>
         )}
       </Section>
@@ -628,7 +709,7 @@ export default function ZimbabweTecTeachingLab() {
         subtitle="Measured latitudinal diurnal VTEC comparison (same layout as the illustrative ZINGSA graph)."
         open={openGraph === "latband-ncs"}
         onToggle={() => toggleGraph("latband-ncs")}
-        analysis={GRAPH_EXPLANATIONS["latband-ncs"]}
+        analysis={analyses["latband-ncs"]}
       >
         <ZimbabweLatBandTecCharts
           stationSeries={stations}
@@ -689,6 +770,7 @@ function buildCalibratedFan(
 
   for (const o of dayRows) {
     if (o.vtec_tecu == null || !Number.isFinite(o.vtec_tecu)) continue;
+    if (o.elevation_deg != null && o.elevation_deg < ELEVATION_MIN_DEG) continue;
     if (o.vtec_tecu <= 0 || o.vtec_tecu > 100) continue;
     const h = hourOfDayUtc(o.time);
     if (h == null) continue;

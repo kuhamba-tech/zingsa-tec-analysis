@@ -276,7 +276,8 @@ function AudienceNewsCard({
 export default function GnssIntelligencePage() {
   const [bundle, setBundle] = useState<GnssForecastBundle | null>(null);
   const [sw, setSw] = useState<SpaceWeatherCurrent | null>(() => peekSpaceWeather());
-  const [loading, setLoading] = useState(() => !peekSpaceWeather() && peekStations().length === 0);
+  // Match the server's initial loading markup before reading browser caches.
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const swRef = useRef<SpaceWeatherCurrent | null>(peekSpaceWeather());
   swRef.current = sw;
@@ -389,7 +390,7 @@ export default function GnssIntelligencePage() {
       )}
 
       <section className="gnwi-section">
-        <h2 className="gnwi-section-title">Navigation News — space weather &amp; you</h2>
+        <h2 id="navigation-news" className="gnwi-section-title" style={{ scrollMarginTop: "4rem" }}>Navigation News — space weather &amp; you</h2>
         <p className="gnwi-section-lead">
           Space weather is not only for scientists. When the Sun stirs the ionosphere, maps drift,
           tractors lose RTK fix, and taxis miss pickup points. Each brief explains what is happening

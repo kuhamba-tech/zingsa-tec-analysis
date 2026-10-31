@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Literal
 
 from zgiis.navigation.gnss_forecast import ForecastStatus, GnssForecastCity
@@ -33,6 +33,9 @@ class NavigationNewsBrief:
     broadcast_script: str
     social_script: str
     channels: list[str]
+    data_observed_at: str | None = None
+    brief_generated_at: str | None = None
+    data_checked_at: str | None = None
 
 
 @dataclass
@@ -910,11 +913,12 @@ def build_audience_news(
     forecasts: list[GnssForecastCity],
     computed_at: str,
     sw: dict[str, Any] | None = None,
+    *, local_tec=None, city: str | None = None,
 ) -> list[NavigationNewsBrief]:
     cities = _by_city(forecasts)
     tone = _effective_navigation_tone(forecasts, sw)
 
-    return [
+    briefs = [
         _citizen_brief(forecasts, tone, sw, computed_at),
         _farmer_brief(cities.get("HARARE"), tone, sw, computed_at),
         _surveyor_brief(cities.get("MUTARE"), cities.get("HARARE"), tone, sw, computed_at),
@@ -922,6 +926,12 @@ def build_audience_news(
         _driver_brief(forecasts, tone, sw, computed_at),
         _scientist_brief(forecasts, tone, sw, computed_at),
     ]
+    from zgiis.navigation.plain_news import plain_news_fields
+
+    return [replace(brief, **plain_news_fields(
+        brief.id, _space_weather_floor(sw), computed_at, sw,
+        forecasts=forecasts, local_tec=local_tec, city=city,
+    )) for brief in briefs]
 
 
 def get_audience_brief(

@@ -331,6 +331,33 @@ def xray_class(flux: float) -> str:
     return f"A{max(value / 1e-8, 0.1):.1f}"
 
 
+def _recent_swpc_alerts(alerts: Any) -> list[dict]:
+    """Newest NOAA bulletins, with the message code and validity parsed out.
+
+    The feed is the bureau's own text. The newest forty cover the current
+    K-index warnings, G-scale watches, electron-flux alerts, and radio-burst
+    summaries without holding the whole archive.
+    """
+    from zgiis.space_weather.swpc_bulletins import parse_swpc_bulletin
+
+    if not isinstance(alerts, list):
+        return []
+    prepared: list[dict] = []
+    for item in alerts:
+        if not isinstance(item, dict):
+            continue
+        row = dict(item)
+        row["bulletin"] = parse_swpc_bulletin(
+            str(item.get("message") or ""),
+            str(item.get("product_id") or "") or None,
+        )
+        prepared.append(row)
+    # alerts.json is newest-first today, but sort so a feed-order change cannot
+    # surface the oldest 40 and hide the current warning.
+    prepared.sort(key=lambda row: str(row.get("issue_datetime") or ""), reverse=True)
+    return prepared[:40]
+
+
 def activity_level(flare_class: str, alert_count: int) -> Dict[str, str]:
     letter = (flare_class or "A")[0]
     if letter == "X":
@@ -463,89 +490,44 @@ def build_donki_cme_rows(cmes: List[Dict]) -> List[Dict]:
         analyses = cme.get("cmeAnalyses") or []
         analysis = next((a for a in analyses if a.get("isMostAccurate")), analyses[0] if analyses else {})
         half_angle = float(analysis.get("halfAngle") or 0)
-        if half_angle >= 360:
-            halo = "Yes"
-        elif half_angle >= 120:
-            halo = "Partial"
-        else:
-            halo = "No"
-        linked = bool(cme.get("linkedEvents"))
+        # Cone width and event associations do not establish an Earth impact.
+        halo = "Not established"
         rows.append({
             "date": format_utc_short(cme.get("startTime")),
             "speed": round(float(analysis.get("speed"))) if analysis.get("speed") else "—",
             "width": f"{half_angle}°" if half_angle else "—",
             "halo": halo,
-            "impact": "Possible" if linked or half_angle >= 120 else "Unlikely",
+            "impact": "Not assessed",
             "id": cme.get("activityID") or cme.get("catalog") or "CME",
         })
     return rows
 
 
 def build_donki_active_regions(flares: List[Dict]) -> List[Dict]:
-    if not flares:
-        return []
-    noaa_goes = all(
-        str(f.get("flrID", "")).startswith("NOAA-") or str(f.get("sourceLocation") or "") == "GOES"
-        for f in flares
-    )
-    if noaa_goes:
-        rows: List[Dict] = []
-        ordered = sorted(
-            flares,
-            key=lambda f: str(f.get("peakTime") or f.get("beginTime") or ""),
-            reverse=True,
-        )
-        for flare in ordered[:6]:
-            cls_type = str(flare.get("classType") or "A")
-            letter = cls_type[0]
-            cls = "Beta-Gamma" if letter in ("X", "M") else "Beta" if letter == "C" else "Alpha"
-            mag = "BGD" if letter in ("X", "M") else "B" if letter == "C" else "A"
-            when = format_utc_short(flare.get("beginTime") or flare.get("peakTime"))
-            rows.append(
-                {
-                    "id": f"{cls_type} · {when}",
-                    "cls": cls,
-                    "mag": mag,
-                    "spots": 1,
-                    "latest": cls_type,
-                }
-            )
-        return rows
-
-    region_map: Dict[str, Dict] = {}
-    for flare in flares or []:
-        rid = (
-            f"AR {flare['activeRegionNum']}"
-            if flare.get("activeRegionNum")
-            else f"AR {flare['sourceLocation']}"
-            if flare.get("sourceLocation")
-            else flare.get("flrID")
-        )
-        if not rid:
-            continue
-        letter = str(flare.get("classType") or "A")[0]
-        cls = "Beta-Gamma" if letter in ("X", "M") else "Beta" if letter == "C" else "Alpha"
-        mag = "BGD" if letter in ("X", "M") else "B" if letter == "C" else "A"
-        current = region_map.get(rid, {"id": rid, "cls": cls, "mag": mag, "spots": 0, "latest": flare.get("classType")})
-        current["spots"] += 1
-        if flare.get("classType") and str(flare["classType"])[0] >= str(current.get("latest") or "A")[0]:
-            current["latest"] = flare["classType"]
-        region_map[rid] = current
-    return list(region_map.values())[:6]
+    """Flare-associated sources; magnetic class and sunspots need a real SRS feed."""
+    groups: Dict[str, Dict] = {}
+    def strength(label):
+        try:
+            return {"A":1e-8,"B":1e-7,"C":1e-6,"M":1e-5,"X":1e-4}[label[0]] * float(label[1:])
+        except (KeyError, ValueError, TypeError, IndexError):
+            return -1
+    ordered = sorted(flares or [],key=lambda f:str(f.get("peakTime") or f.get("beginTime") or ""),reverse=True)
+    for flare in ordered:
+        label = str(flare.get("classType") or "Unavailable")
+        region = flare.get("activeRegionNum")
+        key = f"AR {region}" if region else str(flare.get("flrID") or flare.get("peakTime") or flare.get("beginTime") or "Unknown source")
+        display = key if region else f"{label} ? {format_utc_short(flare.get('peakTime') or flare.get('beginTime'))}"
+        entry = groups.setdefault(key, {"id":display,"cls":"Unavailable","mag":"Unavailable",
+                                        "spots":None,"flare_count":0,"latest":label})
+        entry["flare_count"] += 1
+        if strength(label) > strength(entry["latest"]):
+            entry["latest"] = label
+    return list(groups.values())[:6]
 
 
 def build_donki_radio_bursts(flares: List[Dict]) -> List[Dict]:
-    rows = []
-    for flare in (flares or [])[:6]:
-        letter = str(flare.get("classType") or "A")[0]
-        rows.append({
-            "time": format_utc_short(flare.get("beginTime") or flare.get("peakTime")),
-            "type": "Type II" if letter in ("M", "X") else "Type III",
-            "freq": "410 MHz" if letter == "X" else "245 MHz" if letter == "M" else "150 MHz",
-            "intensity": "Strong" if letter == "X" else "Moderate" if letter == "M" else "Weak",
-            "loc": flare.get("sourceLocation") or "—",
-        })
-    return rows
+    # Flare class cannot supply radio-burst type, frequency or intensity.
+    return []
 
 
 def get_unavailable_solar_activity(error: str) -> Dict[str, Any]:
@@ -659,7 +641,7 @@ def fetch_solar_activity() -> Dict[str, Any]:
         speed_for_pdyn = speed if plasma_latest is not None else None
         dynamic_pressure = _dynamic_pressure_npa(density_for_pdyn, speed_for_pdyn)
 
-        alert_list = list(reversed(alerts[-5:])) if isinstance(alerts, list) else []
+        alert_list = _recent_swpc_alerts(alerts)
 
         xray_time = xray_latest.get("time_tag") if xray_latest else None
         plasma_time = plasma_latest.get("time_tag") if isinstance(plasma_latest, dict) else None

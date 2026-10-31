@@ -10,6 +10,8 @@ from typing import Any
 
 import pandas as pd
 
+from zgiis.processing.elevation_mask import ELEVATION_MIN_DEG
+
 log = logging.getLogger(__name__)
 
 _CONST_PREFIX = {
@@ -203,7 +205,7 @@ def add_ionosphere_indicators(df: pd.DataFrame) -> pd.DataFrame:
     elevation = pd.to_numeric(work["elevation_deg"], errors="coerce").fillna(45.0) if "elevation_deg" in work.columns else pd.Series(45.0, index=work.index)
 
     work["scintillation_proxy"] = ((s4 * 100.0) + (cnr_std * 8.0)).clip(lower=0.0, upper=100.0)
-    low_elevation_penalty = (25.0 - elevation).clip(lower=0.0) * 0.5
+    low_elevation_penalty = (ELEVATION_MIN_DEG - elevation).clip(lower=0.0) * 0.5
     work["gnss_integrity_score"] = (
         100.0
         - (roti * 30.0).clip(upper=40.0)
@@ -273,7 +275,7 @@ def load_cmn_prn_observations(
     station: str | None = None,
     constellation: str | None = None,
     prns: list[str] | None = None,
-    elev_min: float = 0.0,
+    elev_min: float = ELEVATION_MIN_DEG,
     limit: int = 10000,
 ) -> pd.DataFrame:
     """Load per-PRN rows from processed .Cmn files on disk."""
@@ -329,7 +331,7 @@ def load_live_prn_observations(
     station: str | None = None,
     constellation: str | None = None,
     prns: list[str] | None = None,
-    elev_min: float = 0.0,
+    elev_min: float = ELEVATION_MIN_DEG,
     limit: int = 10000,
 ) -> pd.DataFrame:
     try:
@@ -396,7 +398,7 @@ def load_prn_observations(
     station: str | None = None,
     constellation: str | None = None,
     prns: list[str] | None = None,
-    elev_min: float = 20.0,
+    elev_min: float = ELEVATION_MIN_DEG,
     start: str | None = None,
     end: str | None = None,
     limit: int = 10000,
@@ -437,6 +439,8 @@ def load_prn_observations(
         end=end,
         limit=limit,
     )
+    if not archive.empty and "elevation_deg" in archive.columns:
+        archive = archive[pd.to_numeric(archive["elevation_deg"], errors="coerce") >= elev_min]
     if not archive.empty:
         meta = _build_meta(archive, "archive")
         return archive, meta
