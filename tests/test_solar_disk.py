@@ -30,6 +30,10 @@ def test_limb_region_is_omitted_and_eastern_regions_sit_on_the_left():
     assert by_number[4564]["x"] < 0.5
     assert by_number[4565]["y"] < by_number[4564]["y"]
     assert by_number[4563]["on_disk"] is False
+    assert by_number[4563]["draw_x"] > 0.85
+    assert parsed["plages"][0]["number"] == 4562
+    assert parsed["plages"][0]["spot_count"] is None
+    assert parsed["plages"][0]["on_disk"] is True
 
 
 def test_newest_browse_frame_is_the_latest_continuum():

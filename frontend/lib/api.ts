@@ -312,6 +312,83 @@ export type SolarDiskResponse = {
 export const getSolarDisk = () =>
   get<SolarDiskResponse>("/space-weather/solar-disk", { _ts: Date.now() }, 20_000);
 
+export type SolarBriefRegionChance = {
+  number: number;
+  c_percent: number;
+  m_percent: number;
+  x_percent: number;
+};
+
+export type SolarBriefFlareDay = {
+  date: string;
+  c_count: number;
+  m_count: number;
+  x_count: number;
+  label: string;
+};
+
+export type SolarBriefImage = {
+  key: string;
+  title: string;
+  url: string;
+  fallback_url: string;
+  credit: string;
+  image_time?: string | null;
+};
+
+export type SolarMonitorRegion = {
+  number: number;
+  kind: string;
+  latitude: string;
+  longitude: string;
+  central_meridian_deg: number;
+  spot_count: number | null;
+  area_millionths: number | null;
+  magnetic_class: string | null;
+  limb: boolean;
+  draw_x: number | null;
+  draw_y: number | null;
+  label_x: number | null;
+  label_y: number | null;
+  flare_today: string | null;
+  flare_yesterday: string | null;
+};
+
+export type SolarBriefResponse = {
+  mode: string;
+  issued: string | null;
+  source: string;
+  source_url: string;
+  solarham_url: string;
+  region_count: number | null;
+  earth_facing_region_count: number | null;
+  sunspot_number: number | null;
+  c_percent: number | null;
+  m_percent: number | null;
+  x_percent: number | null;
+  regions: SolarBriefRegionChance[];
+  flares_today: SolarBriefFlareDay | null;
+  flares_yesterday: SolarBriefFlareDay | null;
+  earth_directed_cme: boolean | null;
+  coronal_hole_stream: boolean | null;
+  stream_polarity: string | null;
+  expected_kp: number | null;
+  expected_kp_scale: string | null;
+  expected_kp_window: string | null;
+  storm_window: string | null;
+  spotted_region_count: number | null;
+  plage_count: number | null;
+  monitor_issued: string | null;
+  monitor_images: SolarBriefImage[];
+  monitor_regions: SolarMonitorRegion[];
+  images: SolarBriefImage[];
+  updated_utc: string | null;
+  error: string | null;
+};
+
+export const getSolarBrief = () =>
+  get<SolarBriefResponse>("/space-weather/solar-brief", { _ts: Date.now() }, 70_000);
+
 export const getSolarActivity = (forceRefresh = false, requireNetwork = false) => {
   const cached = peekSolarActivity();
   if (!forceRefresh && !requireNetwork && cached) {

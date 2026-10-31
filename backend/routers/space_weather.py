@@ -20,6 +20,7 @@ from backend.schemas import (
     StormAlertStatus,
     SolarActivityFull,
     SolarCycleIndicesResponse,
+    SolarBriefResponse,
     SolarDiskResponse,
     SolarWindDetail,
     SpaceWeatherCorrelationResponse,
@@ -804,6 +805,15 @@ async def solar_disk(force_refresh: bool = Query(False), _=Depends(require_api_k
 
     payload = await asyncio.to_thread(build_solar_disk, force_refresh=force_refresh)
     return SolarDiskResponse(**payload)
+
+
+@router.get("/solar-brief", response_model=SolarBriefResponse)
+async def solar_brief(force_refresh: bool = Query(False), _=Depends(require_api_key)):
+    """Earth-facing sunspot count, NOAA C/M/X chances, and SolarHam's daily pictures."""
+    from zgiis.space_weather.solar_brief import build_solar_brief
+
+    payload = await asyncio.to_thread(build_solar_brief, force_refresh=force_refresh)
+    return SolarBriefResponse(**payload)
 
 
 @router.get("/solar-cycle-indices", response_model=SolarCycleIndicesResponse)

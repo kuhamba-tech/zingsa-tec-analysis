@@ -14,6 +14,7 @@ import {
   absorbInlineSolarBootPayload,
 } from "@/lib/solarActivityStore";
 import { peekStations, subscribeStations } from "@/lib/stationsStore";
+import EarthsideSolarNews from "@/components/spaceWeather/EarthsideSolarNews";
 import ScientificSpaceWeatherUpdates from "@/components/spaceWeather/ScientificSpaceWeatherUpdates";
 import ClickableMetricGrid from "@/components/spaceWeather/ClickableMetricGrid";
 import DeferredMount from "@/components/spaceWeather/DeferredMount";
@@ -1338,6 +1339,8 @@ export default function SpaceWeatherClient({
       {/* ── Tab 1: Solar Activity (detailed) ── */}
       {tab === 1 && (
         <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+
+          <EarthsideSolarNews solar={sa} kp={sw?.kp ?? null} />
 
           <ScientificSpaceWeatherUpdates solar={sa} />
 

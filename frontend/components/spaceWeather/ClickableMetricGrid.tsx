@@ -16,6 +16,7 @@ import {
   type MetricKey,
 } from "@/lib/spaceWeatherMetrics";
 import TecPrimerBlock from "./TecPrimerBlock";
+import EarthsideSolarNews from "./EarthsideSolarNews";
 import VisibleSolarDisk from "./VisibleSolarDisk";
 import { MetricCardIcon, MetricDetailIcon } from "./MetricCardIcons";
 
@@ -343,6 +344,7 @@ function ExplanationPanel({
         </p>
       )}
       {metricKey === "solar_activity" && <VisibleSolarDisk embedded />}
+      {metricKey === "solar_activity" && <EarthsideSolarNews solar={solar ?? null} kp={sw?.kp ?? null} />}
       {metricKey === "solar_activity" && solar && (
         <div className="sw-metric-explain-body" style={{ marginTop: "0.65rem" }}>
           <div className="sw-metric-explain-heading">Expanded details</div>

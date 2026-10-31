@@ -34,6 +34,16 @@ _REGION = re.compile(
     r"(?P<lo>\d+)\s+(?P<area>\d+)\s+(?P<zurich>\S+)\s+"
     r"(?P<extent>\d+)\s+(?P<spots>\d+)\s+(?P<mag>\S+)"
 )
+_PLAGE = re.compile(
+    r"^(?P<number>\d{4})\s+"
+    r"(?P<ns>[NS])(?P<lat>\d{2})(?P<ew>[EW])(?P<cmd>\d{2})"
+    r"(?:\s+(?P<lo>\d+))?"
+)
+_PRODUCTS = (
+    ("aia193", "0193", "https://sdo.gsfc.nasa.gov/assets/img/latest/latest_1024_0193.jpg", "AIA 193 Å"),
+    ("continuum", "HMIIF", DISK_IMAGE_URL, "HMI continuum"),
+    ("magnetogram", "HMIB", "https://sdo.gsfc.nasa.gov/assets/img/latest/latest_1024_HMIB.jpg", "HMI magnetogram"),
+)
 _ISSUED = re.compile(r":Issued:\s*(.+)", re.IGNORECASE)
 
 _LOCK = threading.Lock()
@@ -62,53 +72,78 @@ def parse_solar_region_summary(text: str) -> dict[str, Any]:
     if found:
         issued = found.group(1).strip()
     regions: list[dict[str, Any]] = []
-    in_spots = False
+    plages: list[dict[str, Any]] = []
+    section = ""
     for raw in (text or "").splitlines():
         line = raw.strip()
+        if line.startswith("IA."):
+            section = "plage"
+            continue
+        if line.startswith("II."):
+            section = ""
+            continue
         if line.startswith("I."):
-            in_spots = True
+            section = "spot"
             continue
-        if line.startswith("IA.") or line.startswith("II."):
-            in_spots = False
-            continue
-        if not in_spots:
-            continue
-        match = _REGION.match(line)
-        if not match:
-            continue
-        lat = float(match.group("lat"))
-        if match.group("ns") == "S":
-            lat = -lat
-        cmd = float(match.group("cmd"))
-        if match.group("ew") == "E":
-            cmd = -cmd
-        spots = int(match.group("spots"))
-        placed = _place(lat, cmd)
-        regions.append(
-            {
-                "number": int(match.group("number")),
-                "location": f"{match.group('ns')}{match.group('lat')}{match.group('ew')}{match.group('cmd')}",
-                "latitude_deg": lat,
-                "central_meridian_deg": cmd,
-                "area_millionths": int(match.group("area")),
-                "spot_count": spots,
-                "magnetic_class": match.group("mag"),
-                "on_disk": placed is not None,
-                "x": None if placed is None else placed[0],
-                "y": None if placed is None else placed[1],
-                "label_x": None if placed is None else placed[2],
-                "label_y": None if placed is None else placed[3],
-            }
-        )
+        if section == "spot":
+            match = _REGION.match(line)
+            if match:
+                regions.append(_region_row(match, kind="spot"))
+        elif section == "plage":
+            match = _PLAGE.match(line)
+            if match:
+                plages.append(_region_row(match, kind="plage"))
     visible = [row for row in regions if row["on_disk"]]
     spots = sum(int(row["spot_count"]) for row in visible)
     groups = len(visible)
     return {
         "issued": issued,
         "regions": regions,
+        "plages": plages,
         "active_region_count": groups,
         "sunspot_number": 10 * groups + spots,
     }
+
+
+def _region_row(match: re.Match[str], *, kind: str) -> dict[str, Any]:
+    lat = float(match.group("lat"))
+    if match.group("ns") == "S":
+        lat = -lat
+    cmd = float(match.group("cmd"))
+    if match.group("ew") == "E":
+        cmd = -cmd
+    placed = _place(lat, cmd)
+    drawn = placed if placed is not None else _draw_near_limb(lat, cmd)
+    spots = int(match.group("spots")) if kind == "spot" else None
+    area = int(match.group("area")) if kind == "spot" else None
+    magnetic = match.group("mag") if kind == "spot" else None
+    return {
+        "number": int(match.group("number")),
+        "kind": kind,
+        "location": f"{match.group('ns')}{match.group('lat')}{match.group('ew')}{match.group('cmd')}",
+        "latitude_deg": lat,
+        "central_meridian_deg": cmd,
+        "area_millionths": area,
+        "spot_count": spots,
+        "magnetic_class": magnetic,
+        "on_disk": placed is not None,
+        "x": None if placed is None else placed[0],
+        "y": None if placed is None else placed[1],
+        "label_x": None if placed is None else placed[2],
+        "label_y": None if placed is None else placed[3],
+        "draw_x": None if drawn is None else drawn[0],
+        "draw_y": None if drawn is None else drawn[1],
+        "draw_label_x": None if drawn is None else drawn[2],
+        "draw_label_y": None if drawn is None else drawn[3],
+    }
+
+
+def _draw_near_limb(lat_deg: float, cmd_deg: float) -> tuple[float, float, float, float] | None:
+    """Keep a region whose center is just past the limb on the disk edge."""
+    if abs(cmd_deg) > 100 or abs(lat_deg) > 90:
+        return None
+    clamped = math.copysign(min(abs(cmd_deg), 89.0), cmd_deg)
+    return _place(lat_deg, clamped)
 
 
 def _place(lat_deg: float, cmd_deg: float) -> tuple[float, float, float, float] | None:
@@ -139,6 +174,61 @@ def _place(lat_deg: float, cmd_deg: float) -> tuple[float, float, float, float] 
         round(min(0.97, max(0.03, label_x)), 4),
         round(min(0.97, max(0.03, label_y)), 4),
     )
+
+
+def newest_product_frame(listing: str, suffix: str) -> tuple[str, str] | None:
+    """Newest 1024 frame of one SDO product in a browse-day listing."""
+    found = re.findall(rf"(\d{{8}})_(\d{{6}})_1024_{suffix}\.jpg", listing or "")
+    if not found:
+        return None
+    day, clock = max(found)
+    name = f"{day}_{clock}_1024_{suffix}.jpg"
+    label = f"{day[:4]}-{day[4:6]}-{day[6:8]} {clock[:2]}:{clock[2:4]} UTC"
+    return name, label
+
+
+def latest_labeled_frames(get_text) -> list[dict[str, Any]]:
+    """Newest AIA 193, HMI continuum, and HMI magnetogram from the SDO browse day."""
+    now = datetime.now(timezone.utc)
+    listing = ""
+    for day in (now, now - timedelta(days=1)):
+        url = f"{BROWSE_ROOT}/{day.strftime('%Y/%m/%d')}/"
+        try:
+            text = get_text(url) or ""
+        except Exception:
+            text = ""
+        if "1024_0193" in text or "1024_HMIIF" in text:
+            listing = text
+            break
+    frames: list[dict[str, Any]] = []
+    for key, suffix, fallback, title in _PRODUCTS:
+        found = newest_product_frame(listing, suffix)
+        if found:
+            name, label = found
+            day = name[:8]
+            url = f"{BROWSE_ROOT}/{day[:4]}/{day[4:6]}/{day[6:8]}/{name}"
+            frames.append(
+                {
+                    "key": key,
+                    "title": title,
+                    "url": url,
+                    "fallback_url": fallback,
+                    "image_time": label,
+                    "credit": "SDO",
+                }
+            )
+        else:
+            frames.append(
+                {
+                    "key": key,
+                    "title": title,
+                    "url": fallback,
+                    "fallback_url": fallback,
+                    "image_time": None,
+                    "credit": "SDO",
+                }
+            )
+    return frames
 
 
 def newest_continuum_frame(listing: str) -> tuple[str, str] | None:

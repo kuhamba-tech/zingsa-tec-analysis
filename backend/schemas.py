@@ -76,6 +76,80 @@ class SolarDiskResponse(BaseModel):
     error: str | None = None
 
 
+class SolarBriefRegionChance(BaseModel):
+    number: int
+    c_percent: int
+    m_percent: int
+    x_percent: int
+
+
+class SolarBriefFlareDay(BaseModel):
+    date: str
+    c_count: int = 0
+    m_count: int = 0
+    x_count: int = 0
+    label: str = ""
+
+
+class SolarBriefImage(BaseModel):
+    key: str
+    title: str
+    url: str
+    fallback_url: str
+    credit: str = "SolarHam"
+    image_time: str | None = None
+
+
+class SolarMonitorRegion(BaseModel):
+    number: int
+    kind: str = "spot"
+    latitude: str = ""
+    longitude: str = ""
+    central_meridian_deg: float = 0
+    spot_count: int | None = None
+    area_millionths: int | None = None
+    magnetic_class: str | None = None
+    limb: bool = False
+    draw_x: float | None = None
+    draw_y: float | None = None
+    label_x: float | None = None
+    label_y: float | None = None
+    flare_today: str | None = None
+    flare_yesterday: str | None = None
+
+
+class SolarBriefResponse(BaseModel):
+    mode: str = "unavailable"
+    issued: str | None = None
+    source: str = ""
+    source_url: str = ""
+    solarham_url: str = "https://solarham.com/"
+    region_count: int | None = None
+    earth_facing_region_count: int | None = None
+    sunspot_number: int | None = None
+    c_percent: int | None = None
+    m_percent: int | None = None
+    x_percent: int | None = None
+    regions: list[SolarBriefRegionChance] = []
+    flares_today: SolarBriefFlareDay | None = None
+    flares_yesterday: SolarBriefFlareDay | None = None
+    earth_directed_cme: bool | None = None
+    coronal_hole_stream: bool | None = None
+    stream_polarity: str | None = None
+    expected_kp: float | None = None
+    expected_kp_scale: str | None = None
+    expected_kp_window: str | None = None
+    storm_window: str | None = None
+    spotted_region_count: int | None = None
+    plage_count: int | None = None
+    monitor_issued: str | None = None
+    monitor_images: list[SolarBriefImage] = []
+    monitor_regions: list[SolarMonitorRegion] = []
+    images: list[SolarBriefImage] = []
+    updated_utc: str | None = None
+    error: str | None = None
+
+
 class HeliosphericSeriesPoint(BaseModel):
     """Generic labeled timeline payload used by heliospheric monitor panels."""
 
