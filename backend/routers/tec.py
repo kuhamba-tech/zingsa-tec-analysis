@@ -307,7 +307,7 @@ async def receiver_bias(
     """Logged daily receiver biases for the near-real-time TEC maps."""
     from zgiis.processing.receiver_bias_service import chart_response
 
-    return chart_response(days)
+    return await asyncio.to_thread(chart_response, days, wait_seconds=10)
 
 
 @router.get("/trignet")

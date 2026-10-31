@@ -54,6 +54,38 @@ def test_empty_success_is_distinct_from_outage(monkeypatch):
     assert service.chart_response()["status"]=="ready"
 
 
+def test_serverless_request_can_collect_finished_read_before_returning(monkeypatch):
+    service,future,calls=setup_service(monkeypatch)
+    future.set_result({"stations":[{"station":"masv"}],"note":"Real archive"})
+    response=service.chart_response(wait_seconds=1)
+    assert response["status"]=="ready" and response["stations"]==[{"station":"masv"}]
+    assert len(calls)==1
+
+
+def test_pooler_connection_failure_retries_configured_session_endpoint(monkeypatch):
+    import psycopg2
+    from zgiis.db import receiver_bias_db as db, config
+    calls=[];closed=[]
+    class Cursor:
+        def __enter__(self): return self
+        def __exit__(self,*args): pass
+        def execute(self,*args): pass
+        def fetchall(self): return []
+    class Connection:
+        def cursor(self): return Cursor()
+        def close(self): closed.append(True)
+    def connect(dsn,**kwargs):
+        calls.append(dsn)
+        assert kwargs["connect_timeout"]==4
+        if dsn=="test-pooler": raise psycopg2.OperationalError("authentication timeout")
+        return Connection()
+    monkeypatch.setattr(config,"pooled_database_dsn",lambda:"test-pooler")
+    monkeypatch.setattr(config,"_session_dsn",lambda:"test-session")
+    monkeypatch.setattr(psycopg2,"connect",connect)
+    assert db.read_series()==[]
+    assert calls==["test-pooler","test-session"] and closed==[True]
+
+
 def test_archive_read_avoids_exhausted_general_pool_and_request_ddl(monkeypatch):
     import psycopg2
     from zgiis.db import receiver_bias_db as db, config

@@ -102,32 +102,42 @@ def upsert_days(rows: list[tuple]) -> int:
 
 def read_series(days: int = 120) -> list[dict]:
     import psycopg2
-    from zgiis.db.config import pooled_database_dsn
+    from zgiis.db.config import pooled_database_dsn, _session_dsn
 
     end = datetime.now(timezone.utc).date()
     start = end - timedelta(days=max(1, int(days)) - 1)
     # This archive read must not compete with long-lived processing connections
     # in the general pool. The chart service coalesces it to one worker/read.
-    dsn = pooled_database_dsn()
-    if not dsn:
+    dsns = list(dict.fromkeys(dsn for dsn in (pooled_database_dsn(), _session_dsn()) if dsn))
+    if not dsns:
         raise RuntimeError("Receiver-bias database is not configured")
-    conn = psycopg2.connect(dsn, connect_timeout=3)
-    try:
-        conn.autocommit = True
-        with conn.cursor() as cur:
-            cur.execute("SET statement_timeout = '5000'")
-            cur.execute(
+    def fetch(dsn):
+        conn = psycopg2.connect(dsn, connect_timeout=4)
+        try:
+            conn.autocommit = True
+            with conn.cursor() as cur:
+                cur.execute("SET statement_timeout = '5000'")
+                cur.execute(
                 """
                 SELECT station, day, bias_tecu, n_epochs, bias_method
                 FROM receiver_bias_day
                 WHERE day >= %s AND day <= %s
                 ORDER BY station, day
                 """,
-                (start, end),
-            )
-            fetched = cur.fetchall()
-    finally:
-        conn.close()
+                    (start, end),
+                )
+                return cur.fetchall()
+        finally:
+            conn.close()
+    # Supavisor transaction-pooler authentication can time out independently of
+    # the configured session endpoint. Retry only transport/connection failures.
+    for index, dsn in enumerate(dsns):
+        try:
+            fetched = fetch(dsn)
+            break
+        except (psycopg2.OperationalError, psycopg2.InterfaceError):
+            if index == len(dsns)-1:
+                raise
     grouped: dict[str, list[dict]] = {}
     for station, day, bias, n_epochs, method in fetched:
         grouped.setdefault(str(station), []).append(
