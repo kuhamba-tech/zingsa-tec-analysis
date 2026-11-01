@@ -98,7 +98,7 @@ function countBands(points: TimelinePoint[] | null | undefined, current: WindBan
 function fastEpisodes(points: TimelinePoint[] | null | undefined): WindEpisode[] {
   const samples = (points ?? [])
     .map((point) => ({ t: Date.parse(point.t), v: point.v }))
-    .filter((point) => Number.isFinite(point.t) && finite(point.v) && point.v > 0)
+    .filter((point): point is { t: number; v: number } => Number.isFinite(point.t) && finite(point.v) && point.v > 0)
     .sort((a, b) => a.t - b.t);
   const episodes: WindEpisode[] = [];
   let open: { speed: number; time: number } | null = null;

@@ -91,7 +91,7 @@ function countBands(points: TimelinePoint[] | null | undefined, current: BzBandI
 function couplingEpisodes(points: TimelinePoint[] | null | undefined): BzEpisode[] {
   const samples = (points ?? [])
     .map((point) => ({ t: Date.parse(point.t), v: point.v }))
-    .filter((point) => Number.isFinite(point.t) && finite(point.v))
+    .filter((point): point is { t: number; v: number } => Number.isFinite(point.t) && finite(point.v))
     .sort((a, b) => a.t - b.t);
   const episodes: BzEpisode[] = [];
   let open: { bz: number; time: number } | null = null;

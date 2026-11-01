@@ -84,7 +84,7 @@ function countBands(
 function watchEpisodes(points: TimelinePoint[] | null | undefined): KpEpisode[] {
   const samples = (points ?? [])
     .map((point) => ({ t: Date.parse(point.t), v: point.v }))
-    .filter((point) => Number.isFinite(point.t) && finite(point.v))
+    .filter((point): point is { t: number; v: number } => Number.isFinite(point.t) && finite(point.v))
     .sort((a, b) => a.t - b.t);
   const episodes: KpEpisode[] = [];
   let open: { kp: number; time: number } | null = null;
