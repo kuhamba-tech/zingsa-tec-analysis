@@ -159,7 +159,7 @@ export default function ZimbabweIonoTecMaps({
       )}
       {waiting && <p>Placing pierce points for yesterday night, morning, and noon.</p>}
       {pair && !pair.available && pair.message && <p role="status">{pair.message}</p>}
-      <div className="tec-gradient-map-row">
+      <div className="tec-gradient-map-row tec-gradient-map-row-wide">
         <TecMap
           field={pair?.night}
           fallbackTitle="Yesterday night"
@@ -179,7 +179,7 @@ export default function ZimbabweIonoTecMaps({
           waiting={waiting}
         />
       </div>
-      <div className="tec-gradient-map-row" style={{ marginTop: "1rem" }}>
+      <div className="tec-gradient-map-row tec-gradient-map-row-single">
         <TecMap
           field={pair?.current}
           fallbackTitle="Current TEC"
