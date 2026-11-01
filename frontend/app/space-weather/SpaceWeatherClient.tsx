@@ -14,9 +14,8 @@ import {
   absorbInlineSolarBootPayload,
 } from "@/lib/solarActivityStore";
 import { peekStations, subscribeStations } from "@/lib/stationsStore";
-import EarthsideSolarNews from "@/components/spaceWeather/EarthsideSolarNews";
-import ScientificSpaceWeatherUpdates from "@/components/spaceWeather/ScientificSpaceWeatherUpdates";
 import ClickableMetricGrid from "@/components/spaceWeather/ClickableMetricGrid";
+import FlareClassMonitor from "@/components/spaceWeather/FlareClassMonitor";
 import DeferredMount from "@/components/spaceWeather/DeferredMount";
 import SwSectionBanner from "@/components/spaceWeather/SwSectionBanner";
 import { monitoringFreshness, observationTime } from "@/lib/monitoringStatus";
@@ -66,6 +65,14 @@ const sectionFallback = (
   />
 );
 
+const EarthsideSolarNews = dynamic(
+  () => import("@/components/spaceWeather/EarthsideSolarNews"),
+  { ssr: false, loading: () => sectionFallback },
+);
+const ScientificSpaceWeatherUpdates = dynamic(
+  () => import("@/components/spaceWeather/ScientificSpaceWeatherUpdates"),
+  { ssr: false, loading: () => sectionFallback },
+);
 const CauseEffectTimelineStack = dynamic(
   () =>
     import("@/lib/loadCauseEffectTimeline").then(({ loadCauseEffectTimelineStack }) =>
@@ -726,11 +733,12 @@ export default function SpaceWeatherClient({
       });
       setSaLoading(false);
     }, 7_000);
+    const bootStillRunning = () => Boolean(window.__ZGIIS_SW_BOOT_PROMISE);
     const retry1 = window.setTimeout(() => {
-      if (!peekSpaceWeather()) fetchAll(false);
+      if (!peekSpaceWeather() && !bootStillRunning()) fetchAll(false);
     }, 2_500);
     const retry2 = window.setTimeout(() => {
-      if (!peekSpaceWeather()) fetchAll(false);
+      if (!peekSpaceWeather() && !bootStillRunning()) fetchAll(false);
     }, 5_500);
     return () => {
       window.clearInterval(id);
@@ -771,8 +779,7 @@ export default function SpaceWeatherClient({
         await new Promise((resolve) => window.setTimeout(resolve, 1500));
       }
     };
-    const load = () => {
-      void loadConnected();
+    const loadReadings = () => {
       getLiveStationReadings()
         .then((rows) => {
           if (cancelled || !Array.isArray(rows)) return;
@@ -790,12 +797,17 @@ export default function SpaceWeatherClient({
         })
         .catch(() => null);
     };
-    load();
+    void loadConnected();
+    const readingsTimer = window.setTimeout(loadReadings, getLoadProfile().stationsDeferMs + 700);
     const timer = window.setInterval(() => {
-      if (!document.hidden) load();
+      if (!document.hidden) {
+        void loadConnected();
+        loadReadings();
+      }
     }, 60_000);
     return () => {
       cancelled = true;
+      window.clearTimeout(readingsTimer);
       window.clearInterval(timer);
     };
   }, []);
@@ -1159,6 +1171,8 @@ export default function SpaceWeatherClient({
         loading={feedStatus === "pending" && !sw}
       />
 
+      <FlareClassMonitor solar={sa} now={now} />
+
       {/* ── Condition banner ── */}
       {conditionNoteOpen && <div ref={conditionNoteRef} className={`banner banner-${conditionVariant}`}>
         <strong>{selectedInfo.title}: {selectedInfo.summary}</strong>
@@ -1305,32 +1319,43 @@ export default function SpaceWeatherClient({
             <CauseEffectTimelineStack
               variant="local"
               localStartNumber={4}
-              afterVtec={(sync) =>
-                stationsOnlinePoints.length > 0 ? (
-                  <TimelineCard
-                    graphId="cors-online"
-                    title="5 · Live CORS Stations Online Timeline"
-                    pts={stationsOnlinePoints}
-                    color="#00ff88"
-                    yLabel="Stations online"
-                    yMin={0}
-                    yMax={ZINGSA_STATION_TOTAL}
-                    source="ZINGSA CORS network — 19 stations, Surveyor General sites excluded"
-                    analysis={timelineAnalyses.stations}
-                    expanded={selectedGraph === "cors-online"}
-                    onToggle={toggleGraph}
-                    ekfPoints={ekf?.series.stations_online?.points}
-                    ekfColor="#86efac"
-                    emptyMsg="Live CORS telemetry unavailable."
-                    {...sync}
-                  />
-                ) : (
-                  <div className="card">
-                    <div className="metric-label" style={{ marginBottom: "0.6rem" }}>5 · Live CORS Stations Online Timeline</div>
-                    <div className="banner banner-info">Live CORS telemetry is unavailable — no station count timeline.</div>
-                  </div>
-                )
-              }
+              afterVtec={(sync) => (
+                <>
+                  {stationsOnlinePoints.length > 0 ? (
+                    <TimelineCard
+                      graphId="cors-online"
+                      title="5 · Live CORS Stations Online Timeline"
+                      pts={stationsOnlinePoints}
+                      color="#00ff88"
+                      yLabel="Stations online"
+                      yMin={0}
+                      yMax={ZINGSA_STATION_TOTAL}
+                      source="ZINGSA CORS network — 19 stations, Surveyor General sites excluded"
+                      analysis={timelineAnalyses.stations}
+                      expanded={selectedGraph === "cors-online"}
+                      onToggle={toggleGraph}
+                      ekfPoints={ekf?.series.stations_online?.points}
+                      ekfColor="#86efac"
+                      emptyMsg="Live CORS telemetry unavailable."
+                      {...sync}
+                    />
+                  ) : (
+                    <div className="card">
+                      <div className="metric-label" style={{ marginBottom: "0.6rem" }}>5 · Live CORS Stations Online Timeline</div>
+                      <div className="banner banner-info">Live CORS telemetry is unavailable — no station count timeline.</div>
+                    </div>
+                  )}
+                  <DeferredMount
+                    minHeight={180}
+                    rootMargin="0px 0px"
+                    minDelayMs={Math.max(loadProfile.heavyMountDelayMs, loadProfile.lightPayload ? 1400 : 700)}
+                    fallback={sectionFallback}
+                  >
+                    <TecGradientMaps />
+                    <ZimbabweMeanDiurnalTec />
+                  </DeferredMount>
+                </>
+              )}
             />
           </DeferredMount>
         </div>

@@ -290,7 +290,7 @@ export default function TecMapRmseChart() {
       <div className="matamba-figures-title">RMSE of TEC maps</div>
       <div className="matamba-figures-note">
         Matamba and Danskin (2022), Figure 6: each point is the RMSE of one TEC map. The colour key
-        under the graph says what each series is. Click a graph for the full explanation.
+        under the graph says what each series is. Use the graph explanation button for details.
       </div>
       {!data && !error && (
         <div className="banner banner-info" role="status">Calculating TEC map RMSE…</div>

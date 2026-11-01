@@ -1526,7 +1526,7 @@ export default function ProcessingPage() {
                 onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setShowTecInterpretation((s) => !s); }}
                 style={{ cursor: "pointer" }}
                 aria-expanded={showTecInterpretation}
-                title="Click the graph for an interpretation of this result"
+                title="What does this graph mean?"
               >
                 <LineChart
                   labels={tecMeanLabels}

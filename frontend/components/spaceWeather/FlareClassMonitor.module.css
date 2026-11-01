@@ -1,0 +1,85 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.title {
+  margin: 0;
+  font-size: 0.95rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.now,
+.quiet,
+.body {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+.scale {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.35rem;
+}
+
+.step {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.35rem 0.2rem;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.stepOn {
+  box-shadow: inset 0 0 0 1px currentColor;
+}
+
+.letter {
+  display: block;
+  font-weight: 800;
+  font-size: 1rem;
+}
+
+.count {
+  display: block;
+  font-weight: 700;
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+.desc {
+  display: block;
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.alert {
+  margin: 0;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.85rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.2rem;
+}
+
+.listClass {
+  font-weight: 800;
+}

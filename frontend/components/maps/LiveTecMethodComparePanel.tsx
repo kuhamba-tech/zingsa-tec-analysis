@@ -71,6 +71,7 @@ export default function LiveTecMethodComparePanel({
   const [globalEpoch, setGlobalEpoch] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showResults, setShowResults] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -303,7 +304,18 @@ export default function LiveTecMethodComparePanel({
         <div className="live-tec-method-compare-status live-tec-method-compare-status--err">{error}</div>
       )}
 
-      {rows.length > 0 && (
+      {(rows.length > 0 || periods) && (
+        <button
+          type="button"
+          className="live-tec-method-compare-more"
+          aria-expanded={showResults}
+          onClick={() => setShowResults((open) => !open)}
+        >
+          {showResults ? "Show less" : "Read more"}
+        </button>
+      )}
+
+      {showResults && rows.length > 0 && (
         <div className="live-tec-method-compare-table-wrap">
           <table className="live-tec-method-compare-table">
             <thead>
@@ -346,7 +358,7 @@ export default function LiveTecMethodComparePanel({
         </div>
       )}
 
-      {data?.summary && (
+      {showResults && data?.summary && (
         <div className="live-tec-method-compare-foot">
           <span>
             Stations: <strong>{rows.length}</strong>
@@ -376,7 +388,7 @@ export default function LiveTecMethodComparePanel({
         </div>
       )}
 
-      {periods && (
+      {showResults && periods && (
         <div className="live-tec-method-periods">
           <div>
             <div className="live-tec-method-compare-title">Morning, afternoon, and night</div>

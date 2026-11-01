@@ -222,12 +222,12 @@ function Section({
           textAlign: "left",
         }}
       >
-        {open ? "Hide what this graph means" : "What this graph means"}
+        {open ? "Hide explanation" : "What does this graph mean?"}
       </button>
       {open && (
         <ChartAnalysisBox
           block={analysis}
-          title="What this graph means"
+          title="What does this graph mean?"
           afterLeadTitle="Scientific explanation"
         />
       )}
@@ -530,7 +530,7 @@ export default function ZimbabweTecTeachingLab() {
           Zimbabwe CORS NTRIP VTEC / STEC from the live pipeline — VTEC time series, STEC/VTEC versus
           elevation, satellite skyplot coloured by VTEC, IPP ground tracks, calibrated VTEC fans for
           Method 1 (GOPI) and Method 2 (Gg), and northern / central / southern Zimbabwe diurnal
-          comparisons for both methods. Each graph has “What this graph means”, then the scientific explanation for the samples on that graph.
+          comparisons for both methods. Each graph has “What does this graph mean?”, then the scientific explanation for the samples on that graph.
         </p>
         {loading && <div className="banner banner-info" style={{ marginTop: "0.75rem" }}>Loading live CORS VTEC…</div>}
         {error && <div className="banner banner-warn" style={{ marginTop: "0.75rem" }}>{error}</div>}

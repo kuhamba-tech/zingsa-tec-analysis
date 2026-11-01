@@ -28,13 +28,13 @@ export default function MatambaChartPanel({
       role="button"
       tabIndex={0}
       aria-expanded={open}
-      aria-label={`${label}. ${open ? "Hide" : "Show"} the Matamba and Danskin explanation.`}
+      aria-label={`${label}. ${open ? "Hide explanation" : "What does this graph mean?"}`}
       onClick={toggle}
       onKeyDown={onKeyDown}
     >
       {children}
       <div className="matamba-chart-panel-hint">
-        {open ? "Hide Matamba explanation" : "Click the graph for the Matamba explanation"}
+        {open ? "Hide explanation" : "What does this graph mean?"}
       </div>
       {open && (
         <div onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>

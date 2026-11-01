@@ -1006,12 +1006,12 @@ export default function StationVtecTimePlots({
             </div>
           )}
           <div style={{ fontSize: "0.72rem", color: "var(--accent)", marginTop: "0.45rem", fontWeight: 700 }}>
-            {meanExplainOpen ? "Click the graph to hide the explanation" : "Click the graph for what it means"}
+            {meanExplainOpen ? "Hide explanation" : "What does this graph mean?"}
           </div>
           {meanExplainOpen && (
             <ChartAnalysisBox
               block={networkMeanAnalysis}
-              title="What this graph means"
+              title="What does this graph mean?"
               afterLeadTitle="Scientific explanation"
             />
           )}
@@ -1070,12 +1070,12 @@ export default function StationVtecTimePlots({
             compact
           />
           <div style={{ fontSize: "0.72rem", color: "var(--accent)", marginTop: "0.45rem", fontWeight: 700 }}>
-            {compareExplainOpen ? "Click the graph to hide the explanation" : "Click the graph for what it means"}
+            {compareExplainOpen ? "Hide explanation" : "What does this graph mean?"}
           </div>
           {compareExplainOpen && (
             <ChartAnalysisBox
               block={methodCompareAnalysis}
-              title="What this graph means"
+              title="What does this graph mean?"
               afterLeadTitle="Scientific explanation"
             />
           )}

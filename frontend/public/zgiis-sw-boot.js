@@ -95,7 +95,9 @@
     if (cursorCloud) {
       base = origin + "/api/zgiis";
     } else if (port === "3000" || port === "3001" || port === "3100" || port === "43128") {
-      base = origin + "/backend";
+      // Same choice as lib/clientApiBase.ts: local pages talk to FastAPI
+      // directly. The Next /backend proxy was a second, slower copy of this fetch.
+      base = local ? "http://127.0.0.1:8000" : origin + "/backend";
     } else if (local && port === "8000") {
       base = origin;
     } else if (local || !vercel) {
@@ -116,7 +118,7 @@
           } catch (e) {}
         }, 5000)
       : null;
-    fetch(url + (url.indexOf("?") >= 0 ? "&" : "?") + "_ts=" + Date.now(), {
+    var pending = fetch(url + (url.indexOf("?") >= 0 ? "&" : "?") + "_ts=" + Date.now(), {
       cache: "no-store",
       signal: ctrl ? ctrl.signal : undefined,
     })
@@ -133,12 +135,26 @@
             d.stations_online != null)
         ) {
           window.__ZGIIS_SW_BOOT = d;
+          return d;
         }
+        return null;
       })
-      .catch(function () {})
-      .then(function () {
+      .catch(function () {
+        return null;
+      })
+      .then(function (d) {
         if (timer) clearTimeout(timer);
+        if (!window.__ZGIIS_SW_BOOT) {
+          try {
+            delete window.__ZGIIS_SW_BOOT_PROMISE;
+          } catch (e) {
+            window.__ZGIIS_SW_BOOT_PROMISE = undefined;
+          }
+        }
+        return d;
       });
+    // Later boot helpers must reuse this request instead of starting another.
+    window.__ZGIIS_SW_BOOT_PROMISE = pending;
 
     // Warm solar-activity in parallel — flare/wind cards need it for first paint.
     try {

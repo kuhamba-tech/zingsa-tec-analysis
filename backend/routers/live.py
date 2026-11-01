@@ -54,6 +54,7 @@ log = logging.getLogger(__name__)
 
 _VTEC_BY_STATION_CACHE: dict[tuple[float, int], tuple[float, list[LiveStationVtecSeries]]] = {}
 _VTEC_BY_STATION_CACHE_TTL_S = 90.0
+_VTEC_BY_STATION_INFLIGHT: dict[tuple[float, int], asyncio.Task[list[LiveStationVtecSeries]]] = {}
 _VTEC_LATEST_CACHE: tuple[float, list[LiveStationVtecSeries]] | None = None
 _VTEC_LATEST_CACHE_TTL_S = 20.0
 # Chart queries fill the default thread pool. This card must still run.
@@ -730,24 +731,49 @@ async def live_vtec_by_station(
     if cached and (now - cached[0]) < cache_ttl:
         return cached[1]
 
-    result = await asyncio.get_running_loop().run_in_executor(
-        _HISTORY_EXECUTOR if hours >= 48 else _CHART_EXECUTOR,
-        lambda h=hours, step=resample_minutes: _build_live_vtec_by_station(
-            hours=h,
-            resample_minutes=step,
-        ),
-    )
-    # [] is a failed connection. A completed read returns the station catalog,
-    # including a day that truly has no bins. Caching [] made the chart say
-    # "No measured GOPI" until the TTL expired and the next connect also failed.
-    if result:
-        _VTEC_BY_STATION_CACHE[cache_key] = (time.time(), result)
-        return result
-    previous = _VTEC_BY_STATION_CACHE.get(cache_key)
-    if previous is not None and any(row.points for row in previous[1]):
-        log.info("live vtec-by-station serving the last successful series after a failed read")
-        return previous[1]
-    return result
+    inflight = _VTEC_BY_STATION_INFLIGHT.get(cache_key)
+    if inflight is None or inflight.done():
+        async def _build_and_cache() -> list[LiveStationVtecSeries]:
+            try:
+                result = await asyncio.get_running_loop().run_in_executor(
+                    _HISTORY_EXECUTOR if hours >= 48 else _CHART_EXECUTOR,
+                    lambda h=hours, step=resample_minutes: _build_live_vtec_by_station(
+                        hours=h,
+                        resample_minutes=step,
+                    ),
+                )
+            except Exception:
+                log.warning("live vtec-by-station build failed", exc_info=True)
+                result = []
+            finally:
+                if _VTEC_BY_STATION_INFLIGHT.get(cache_key) is asyncio.current_task():
+                    _VTEC_BY_STATION_INFLIGHT.pop(cache_key, None)
+            # [] is a failed connection. A completed read returns the station catalog,
+            # including a day that truly has no bins. Caching [] made the chart say
+            # "No measured GOPI" until the TTL expired and the next connect also failed.
+            if result:
+                _VTEC_BY_STATION_CACHE[cache_key] = (time.time(), result)
+                return result
+            previous = _VTEC_BY_STATION_CACHE.get(cache_key)
+            if previous is not None and any(row.points for row in previous[1]):
+                log.info("live vtec-by-station serving the last successful series after a failed read")
+                return previous[1]
+            return result
+
+        inflight = asyncio.create_task(_build_and_cache())
+        _VTEC_BY_STATION_INFLIGHT[cache_key] = inflight
+
+    # The page retries. This wait lets a finished build fill the cache even if
+    # the first browser call has already moved on.
+    wait_s = 40.0 if hours >= 48 else 22.0
+    try:
+        return await asyncio.wait_for(asyncio.shield(inflight), timeout=wait_s)
+    except asyncio.TimeoutError:
+        previous = _VTEC_BY_STATION_CACHE.get(cache_key)
+        if previous is not None and any(row.points for row in previous[1]):
+            return previous[1]
+        log.info("live vtec-by-station still reading; the chart will retry")
+        return []
 
 
 def _build_live_vtec_latest() -> list[LiveStationVtecSeries]:

@@ -3627,8 +3627,12 @@ a.home-map-layer-btn {
 .sw-metric-g-scale .sw-metric-flare-scale-desc {
   display: none;
 }
+.sw-metric-flare-scale-item.is-active .sw-metric-flare-scale-letter,
 .sw-metric-g-scale .sw-metric-flare-scale-item.is-active .sw-metric-flare-scale-letter {
   text-shadow: 0 0 8px currentColor;
+}
+.sw-metric-card-flare .sw-metric-flare-scale-item.is-active .sw-metric-flare-scale-bar {
+  height: 4px;
 }
 .sw-metric-card-gstorm .sw-metric-subtitle {
   font-size: 0.78rem;
@@ -4092,6 +4096,22 @@ a.home-map-layer-btn {
 
 .live-tec-method-compare-link:hover {
   text-decoration: underline;
+}
+
+.live-tec-method-compare-more {
+  align-self: flex-start;
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  background: transparent;
+  color: #38bdf8;
+  border-radius: 6px;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.live-tec-method-compare-more:hover {
+  background: rgba(56, 189, 248, 0.12);
 }
 
 .live-tec-method-compare-methods {

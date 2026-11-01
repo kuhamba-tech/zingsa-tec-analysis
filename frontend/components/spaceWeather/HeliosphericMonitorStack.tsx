@@ -104,12 +104,12 @@ function PanelShell({
       </div>
       {children}
       <div style={{ fontSize: "0.72rem", color: "var(--accent)", marginTop: "0.45rem", fontWeight: 700 }}>
-        {selected ? "Click panel to hide scientific explanation" : "Click panel for scientific explanation"}
+        {selected ? "Hide explanation" : "What does this graph mean?"}
       </div>
       {selected && (
         <ChartAnalysisBox
           block={analysis}
-          title="What this graph shows"
+          title="What does this graph mean?"
           afterLeadTitle="Scientific interpretation"
         />
       )}

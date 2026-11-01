@@ -168,7 +168,7 @@ function ClickableGraph({
       role="button"
       tabIndex={0}
       aria-expanded={open}
-      aria-label={`${title}. Click the graph for the explanation.`}
+      aria-label={`${title}. What does this graph mean?`}
       onClick={(event) => {
         const target = event.target as HTMLElement | null;
         if (target?.closest("a, input, button, label, .chart-analysis")) return;
@@ -184,7 +184,7 @@ function ClickableGraph({
     >
       <div style={{ fontWeight: 700, marginBottom: "0.35rem" }}>{title}</div>
       <p style={{ margin: "0 0 0.55rem", fontSize: "0.75rem", color: "var(--text-muted)" }}>
-        {open ? "Click the graph again to hide the explanation" : "Click the graph for the explanation"}
+        {open ? "Hide explanation" : "What does this graph mean?"}
       </p>
       {children}
       {open && (

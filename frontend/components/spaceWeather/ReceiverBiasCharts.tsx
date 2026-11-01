@@ -335,7 +335,7 @@ export default function ReceiverBiasCharts() {
         is the bias held for the map product. The title is the mean and standard deviation. A day is
         logged only when several multi-satellite epochs identify the minimum, and the current UTC day
         is replaced as new code TEC arrives. Surveyor General sites are not included.
-        Click a graph for the Matamba and Danskin explanation.
+        Use the graph explanation button for details.
       </div>
       {!stations.length && !error && (
         <div className="banner banner-info" role="status">

@@ -346,9 +346,14 @@ def _logged_mean_vtec() -> float | None:
         return None
 
 
-_CURRENT_CACHE_TTL_S = 2.0
+# Fresh responses are reused. A slightly older snapshot is returned at once
+# while one background build runs, so a page load does not start three builds.
+_CURRENT_FRESH_S = 8.0
+_CURRENT_STALE_S = 45.0
+_CURRENT_CACHE_TTL_S = _CURRENT_FRESH_S
 _CURRENT_CACHE: dict[str, object] = {"ts": 0.0, "payload": None}
 _CURRENT_CACHE_LOCK = threading.Lock()
+_current_inflight: asyncio.Task[SpaceWeatherCurrent] | None = None
 
 _TIMELINES_CACHE_TTL_S = 60.0
 _TIMELINES_CACHE: dict[str, object] = {}
@@ -497,22 +502,33 @@ def _build_current_payload() -> SpaceWeatherCurrent:
     )
 
 
-@router.get("/current", response_model=SpaceWeatherCurrent)
-async def current(_=Depends(require_api_key)):
-    """Dashboard snapshot with a short coalescing cache and hard timeout.
-
-    Some Supabase-backed fallbacks can stall under connection-pool pressure.
-    This route must never hold a request open while a slow Postgres read keeps
-    retrying. Falling back to the last cached payload is preferable to a page
-    stuck on "Unavailable".
-    """
-    now = time.monotonic()
+def _current_snapshot(now: float) -> tuple[SpaceWeatherCurrent | None, float]:
     with _CURRENT_CACHE_LOCK:
         cached = _CURRENT_CACHE.get("payload")
         ts = float(_CURRENT_CACHE.get("ts") or 0.0)
-        if cached is not None and (now - ts) < _CURRENT_CACHE_TTL_S:
-            return cached  # type: ignore[return-value]
+    if isinstance(cached, SpaceWeatherCurrent):
+        return cached, now - ts
+    return None, 1e9
 
+
+def _store_current(payload: SpaceWeatherCurrent) -> None:
+    """Keep the last snapshot that actually carries indices."""
+    with _CURRENT_CACHE_LOCK:
+        previous = _CURRENT_CACHE.get("payload")
+        if (
+            isinstance(previous, SpaceWeatherCurrent)
+            and previous.updated_utc
+            and not payload.updated_utc
+            and payload.kp is None
+            and payload.dst is None
+        ):
+            return
+        _CURRENT_CACHE["payload"] = payload
+        _CURRENT_CACHE["ts"] = time.monotonic()
+
+
+async def _refresh_current_payload() -> SpaceWeatherCurrent:
+    cached, _age = _current_snapshot(time.monotonic())
     try:
         payload = await asyncio.wait_for(asyncio.to_thread(_build_current_payload), timeout=3.5)
     except (asyncio.TimeoutError, Exception):
@@ -527,11 +543,44 @@ async def current(_=Depends(require_api_key)):
             mean_vtec=None,
             updated_utc=None,
         )
+    _store_current(payload)
+    stored, _age = _current_snapshot(time.monotonic())
+    return stored or payload
+
+
+def _start_current_refresh() -> asyncio.Task[SpaceWeatherCurrent]:
+    global _current_inflight
+
+    def _clear(done: asyncio.Task[SpaceWeatherCurrent]) -> None:
+        global _current_inflight
+        if _current_inflight is done:
+            _current_inflight = None
 
     with _CURRENT_CACHE_LOCK:
-        _CURRENT_CACHE["payload"] = payload
-        _CURRENT_CACHE["ts"] = time.monotonic()
-    return payload
+        if _current_inflight is not None and not _current_inflight.done():
+            return _current_inflight
+        task = asyncio.create_task(_refresh_current_payload())
+        _current_inflight = task
+    task.add_done_callback(_clear)
+    return task
+
+
+@router.get("/current", response_model=SpaceWeatherCurrent)
+async def current(_=Depends(require_api_key)):
+    """Dashboard snapshot. One build serves every caller that arrives together.
+
+    A snapshot from the last few seconds is returned immediately. A snapshot
+    up to about a minute old is also returned immediately, and one refresh
+    runs behind it. A cold start waits for that single build.
+    """
+    now = time.monotonic()
+    cached, age = _current_snapshot(now)
+    if cached is not None and age < _CURRENT_FRESH_S:
+        return cached
+    if cached is not None and age < _CURRENT_STALE_S:
+        _start_current_refresh()
+        return cached
+    return await _start_current_refresh()
 
 
 @router.get("/scientific-updates")

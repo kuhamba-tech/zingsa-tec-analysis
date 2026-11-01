@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import type { SolarActivityFull, SpaceWeatherCurrent } from "@/lib/types";
 import type { LiveStationCounts } from "@/lib/liveStationStatus";
 import { FLARE_SCALE } from "@/lib/solarEventColors";
+import { buildFlareWatch, flareGuideParagraphs, flareLetterOf } from "@/lib/flareEruption";
 import {
   METRIC_EXPLANATIONS,
   NOAA_G_SCALE,
@@ -67,12 +68,12 @@ function DetailRows({ rows }: { rows: MetricDetailRow[] }) {
   );
 }
 
-function FlareScaleLegend() {
+function FlareScaleLegend({ activeLetter }: { activeLetter?: string | null }) {
   return (
     <div className="sw-metric-flare-scale" aria-label="GOES flare class scale (NOAA)">
       {FLARE_SCALE.map((f) => (
         <div
-          className="sw-metric-flare-scale-item"
+          className={`sw-metric-flare-scale-item${activeLetter === f.cls ? " is-active" : ""}`}
           key={f.cls}
           title={`${f.label}: ${f.desc} solar X-ray (${f.flux})`}
         >
@@ -229,7 +230,7 @@ function MetricCardButton({
       onClick={onClick}
       disabled={disabled}
       aria-pressed={selected}
-      aria-label={`${label}: ${value}. Click for explanation.`}
+      aria-label={`${label}: ${value}. What does this graph mean?.`}
     >
       <span className="sw-metric-icon" aria-hidden>
         <MetricCardIcon metricKey={metricKey} />
@@ -241,7 +242,7 @@ function MetricCardButton({
       </div>
       {subtitle ? <div className="sw-metric-subtitle">{subtitle}</div> : null}
       {detailRows?.length ? <DetailRows rows={detailRows} /> : null}
-      {showFlareScale ? <FlareScaleLegend /> : null}
+      {showFlareScale ? <FlareScaleLegend activeLetter={flareLetterOf(value)} /> : null}
       {showGScale ? <GScaleLegend activeCode={activeGCode ?? null} /> : null}
       {showTecScale ? <TecScaleLegend activeCode={activeTecCode} /> : null}
       {note ? <div className="sw-metric-note">{note}</div> : null}
@@ -365,6 +366,12 @@ function ExplanationPanel({
       )}
       {metricKey === "solar_flare" && solar && (
         <div className="sw-metric-explain-body" style={{ marginTop: "0.65rem" }}>
+          <div className="sw-metric-explain-heading">Eruption guide</div>
+          {flareGuideParagraphs(buildFlareWatch(solar)).map((paragraph) => (
+            <p key={paragraph.slice(0, 40)} className="sw-metric-explain-body">
+              {paragraph}
+            </p>
+          ))}
           <div className="sw-metric-explain-heading">Expanded details</div>
           <ul style={{ margin: "0.35rem 0 0", paddingLeft: "1.1rem" }}>
             <li>Current class: {solar.flare_class?.trim() || "Unavailable"}</li>

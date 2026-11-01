@@ -258,6 +258,19 @@ function refreshSpaceWeatherNetwork(): Promise<SpaceWeatherCurrent> {
   });
 }
 
+function joinEarlySpaceWeatherBoot(): Promise<SpaceWeatherCurrent> | null {
+  if (typeof window === "undefined") return null;
+  const pending = window.__ZGIIS_SW_BOOT_PROMISE;
+  if (!pending || peekSpaceWeather()) return null;
+  return pending.then((boot) => {
+    if (boot) {
+      noteSpaceWeatherNetworkOk();
+      return publishSpaceWeather(boot);
+    }
+    return refreshSpaceWeatherNetwork();
+  });
+}
+
 /** Instant last-good snapshot when available; network refresh stays in the background. */
 export const getSpaceWeather = (requireNetwork = false) => {
   if (requireNetwork) {
@@ -274,6 +287,14 @@ export const getSpaceWeather = (requireNetwork = false) => {
     spaceWeatherFetchedRecently(LIVE_REFRESH_MIN_MS) ||
     (cached != null && Date.now() - getSpaceWeatherNetworkAt() < LIVE_REFRESH_MIN_MS);
   if (cached && recentlyFetched) return Promise.resolve(cached);
+  const early = joinEarlySpaceWeatherBoot();
+  if (early) {
+    if (cached) {
+      void early;
+      return Promise.resolve(cached);
+    }
+    return early;
+  }
   const pending = refreshSpaceWeatherNetwork();
   if (cached) {
     void pending;

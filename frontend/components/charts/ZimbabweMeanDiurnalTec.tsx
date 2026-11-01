@@ -218,6 +218,37 @@ function bandDatasets(
   return datasets;
 }
 
+function seriesHasSamples(rows: LiveStationVtecSeries[]): boolean {
+  return rows.some((row) => (row.points?.length ?? 0) > 0);
+}
+
+/** Seven days first, then a shorter window. One refused read must not leave the chart blank. */
+async function loadRegionalDailyRows(
+  isCancelled: () => boolean,
+): Promise<LiveStationVtecSeries[] | null> {
+  const windows: Array<[number, number, number]> = [
+    [168, 30, 45_000],
+    [168, 30, 45_000],
+    [48, 60, 40_000],
+  ];
+  let lastRows: LiveStationVtecSeries[] = [];
+  for (const [hours, step, timeoutMs] of windows) {
+    if (isCancelled()) return null;
+    try {
+      const payload = await getLiveVtecByStation(hours, step, timeoutMs);
+      if (Array.isArray(payload)) {
+        lastRows = payload;
+        if (seriesHasSamples(payload)) return payload;
+      }
+    } catch {
+      // A busy 7-day read is retried, then a 2-day read still draws today's curve.
+    }
+    if (isCancelled()) return null;
+    await new Promise((resolve) => window.setTimeout(resolve, 800));
+  }
+  return lastRows;
+}
+
 export default function ZimbabweMeanDiurnalTec() {
   const [rows, setRows] = useState<LiveStationVtecSeries[] | null>(null);
   const [globalRows, setGlobalRows] = useState<LiveStationVtecSeries[] | null>(null);
@@ -228,12 +259,11 @@ export default function ZimbabweMeanDiurnalTec() {
 
   useEffect(() => {
     let cancelled = false;
-    getLiveVtecByStation(168, 30, 120_000)
+    loadRegionalDailyRows(() => cancelled)
       .then((payload) => {
-        if (!cancelled) {
-          setRows(Array.isArray(payload) ? payload : []);
-          setFailed(false);
-        }
+        if (cancelled || payload == null) return;
+        setRows(payload);
+        setFailed(payload.length === 0);
       })
       .catch(() => {
         if (!cancelled) setFailed(true);
@@ -549,12 +579,12 @@ export default function ZimbabweMeanDiurnalTec() {
               textAlign: "left",
             }}
           >
-            {explainOpen ? "Hide what this graph means" : "What this graph means"}
+            {explainOpen ? "Hide explanation" : "What does this graph mean?"}
           </button>
           {explainOpen && (
             <ChartAnalysisBox
               block={analysis}
-              title="What this graph means"
+              title="What does this graph mean?"
               afterLeadTitle="Scientific explanation"
             />
           )}

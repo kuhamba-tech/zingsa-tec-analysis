@@ -121,7 +121,7 @@ function Section({
         <div className="metric-label" style={{ marginBottom: 4 }}>{title}</div>
         <p className="sw-supporting-text" style={{ margin: 0 }}>{subtitle}</p>
         <p className="sw-supporting-text" style={{ margin: "0.35rem 0 0", fontSize: "0.75rem" }}>
-          {open ? "Click again to hide scientific explanation" : "Click for scientific explanation"}
+          {open ? "Hide explanation" : "What does this graph mean?"}
         </p>
       </div>
       <div onClick={(e) => e.stopPropagation()}>{children}</div>
@@ -284,7 +284,7 @@ export default function TecMethodComparisonLab() {
           {" "}(live operational) versus{" "}
           <span style={{ color: GG_COLOR, fontWeight: 700 }}>Gg = Cesaroni</span>
           {" "}calibration. Cyan–amber offsets are mostly bias handling, not a different ionosphere.
-          Click any graph for the scientific explanation.
+          Use the graph explanation button for details.
         </p>
         <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", marginTop: "0.75rem", alignItems: "center" }}>
           <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: "0.82rem" }}>

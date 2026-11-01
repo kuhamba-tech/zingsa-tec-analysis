@@ -405,8 +405,11 @@ async def cors_connected(_=Depends(require_api_key)):
     """
     start_fresh_cors_refresh()
     fresh = _cached_fresh_connections()
+    # The count is filled by a background query. Hold the request only briefly
+    # so a slow database read cannot sit on the first paint for several seconds.
+    # Callers retry; a later request reads the cache once the query finishes.
     if fresh is None:
-        for _ in range(60):
+        for _ in range(12):
             await asyncio.sleep(0.1)
             fresh = _cached_fresh_connections()
             if fresh is not None:

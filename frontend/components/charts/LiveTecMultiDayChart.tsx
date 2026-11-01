@@ -225,12 +225,12 @@ export default function LiveTecMultiDayChart() {
               textAlign: "left",
             }}
           >
-            {explainOpen ? "Hide what this graph means" : "What this graph means"}
+            {explainOpen ? "Hide explanation" : "What does this graph mean?"}
           </button>
           {explainOpen && (
             <ChartAnalysisBox
               block={analysis}
-              title="What this graph means"
+              title="What does this graph mean?"
               afterLeadTitle="Scientific explanation"
             />
           )}

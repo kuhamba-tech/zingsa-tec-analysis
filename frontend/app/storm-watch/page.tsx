@@ -5,6 +5,7 @@ import StormWatchLog from "@/components/spaceWeather/StormWatchLog";
 import StormWatchSummary from "@/components/spaceWeather/StormWatchSummary";
 import StormWatchGuidePanel from "@/components/spaceWeather/StormWatchGuidePanel";
 import OperationalAlerts from "@/components/spaceWeather/OperationalAlerts";
+import ZimbabweIndexAlerts from "@/components/spaceWeather/ZimbabweIndexAlerts";
 import { useStormWatchFeed } from "@/lib/useStormWatchFeed";
 
 export default function StormWatchPage() {
@@ -25,11 +26,12 @@ export default function StormWatchPage() {
       <div className="dashboard-header-copy">
         <h1 className="page-title">Alerts</h1>
         <p className="page-subtitle">
-          NOAA SWPC alerts, watches and warnings, plus operational geomagnetic storm watches for
-          Zimbabwe and the ionospheric disturbance log.
+          Zimbabwe codes when a measured index passes its limit, then NOAA SWPC bulletins and the
+          ionospheric disturbance log.
         </p>
       </div>
 
+      <ZimbabweIndexAlerts sw={sw} solar={solar} now={now} />
       <OperationalAlerts solar={solar} now={now} refreshFailed={solarError} />
 
       <StormWatchGuidePanel />
