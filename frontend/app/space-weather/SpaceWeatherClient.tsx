@@ -1187,6 +1187,7 @@ export default function SpaceWeatherClient({
         imfPoints={imfPoints}
         dstPoints={tl?.dst}
         kpPoints={tl?.kp}
+        gnssPoints={tl?.gnss_risk}
       />
 
       {/* ── Condition banner ── */}

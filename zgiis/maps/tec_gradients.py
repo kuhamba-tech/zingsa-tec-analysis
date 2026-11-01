@@ -394,7 +394,7 @@ def _cached_placed(now: datetime) -> list[tuple[datetime, float, float, float]]:
     ]
 
 
-def _query_rows(now: datetime) -> list[tuple]:
+def _query_rows(now: datetime, *, since: datetime | None = None) -> list[tuple]:
     import psycopg2
 
     from zgiis.cors.stations import is_surveyor_general
@@ -403,7 +403,7 @@ def _query_rows(now: datetime) -> list[tuple]:
     dsn = pooled_database_dsn()
     if not dsn:
         return []
-    since = (now - timedelta(minutes=WINDOW_MINUTES + 1)).isoformat()
+    start = since or (now - timedelta(minutes=WINDOW_MINUTES + 1))
     conn = None
     try:
         conn = psycopg2.connect(dsn, connect_timeout=5)
@@ -419,6 +419,7 @@ def _query_rows(now: datetime) -> list[tuple]:
                        AVG(elevation_deg) AS elevation_deg
                 FROM vtec_obs
                 WHERE time >= %s
+                  AND time <= %s
                   AND vtec_tecu >= 0
                   AND vtec_tecu <= 50
                   AND elevation_deg >= {ELEVATION_MIN_DEG:g}
@@ -426,7 +427,7 @@ def _query_rows(now: datetime) -> list[tuple]:
                   AND tec_method NOT LIKE 'dlr_%%'
                 GROUP BY 1, 2, 3
                 """,
-                (since, "%code_live%"),
+                (start.isoformat(), now.isoformat(), "%code_live%"),
             )
             fetched = cur.fetchall()
     except Exception as exc:
@@ -528,3 +529,158 @@ def build_tec_gradient_maps(*, now: datetime | None = None) -> dict[str, Any]:
         moment, WINDOW_MINUTES,
         "Gradient maps are being calculated in the background. This panel refreshes automatically.",
     )
+
+
+def _window_label(start: datetime, end: datetime) -> str:
+    start_day = start.strftime("%Y-%m-%d")
+    end_day = end.strftime("%Y-%m-%d")
+    span = f"{start.strftime('%H:%M')}–{end.strftime('%H:%M')} UTC"
+    if start_day == end_day:
+        return f"{start_day} · {span}"
+    return f"{start_day} {start.strftime('%H:%M')}–{end_day} {end.strftime('%H:%M')} UTC"
+
+
+def _vtec_field(
+    points: list[tuple[datetime, float, float, float]],
+    start: datetime,
+    end: datetime,
+    *,
+    label: str | None = None,
+) -> dict[str, Any]:
+    """Median code TEC on the 1° Zimbabwe grid for one window."""
+    kept = []
+    for stamp, lat, lon, tec in points:
+        if stamp.tzinfo is None:
+            stamp = stamp.replace(tzinfo=timezone.utc)
+        else:
+            stamp = stamp.astimezone(timezone.utc)
+        if start < stamp <= end and _screen(lat, lon, tec):
+            kept.append((stamp, lat, lon, tec))
+    label = label or _window_label(start, end)
+    empty: dict[str, Any] = {
+        "available": False,
+        "label": label,
+        "grid": [],
+        "lat0": None,
+        "lon0": None,
+        "min_tecu": None,
+        "max_tecu": None,
+        "mean_tecu": None,
+        "pierce_points": len(kept),
+        "message": "Fewer than 8 pierce points in this 15-minute window.",
+    }
+    if len(kept) < MIN_IPPS:
+        return empty
+    lat = np.array([item[1] for item in kept], dtype=float)
+    lon = np.array([item[2] for item in kept], dtype=float)
+    tec = np.array([item[3] for item in kept], dtype=float)
+    bounds = _country_bounds()
+    full, _occupied = _filtered(lat, lon, tec, bounds)
+    inside = _zimbabwe_cells(full.shape, bounds)
+    grid = _json_grid(full, inside)
+    high, low, mean = _finite_stats(grid)
+    if high is None:
+        empty["message"] = "Pierce points did not fall inside the Zimbabwe outline."
+        return empty
+    return {
+        "available": True,
+        "label": label,
+        "grid": grid,
+        "lat0": bounds[0],
+        "lon0": bounds[2],
+        "min_tecu": low,
+        "max_tecu": high,
+        "mean_tecu": mean,
+        "pierce_points": len(kept),
+        "message": "",
+    }
+
+
+_pair_cache: tuple[float, dict[str, Any]] | None = None
+_pair_lock = threading.Lock()
+
+
+_CAT = timezone(timedelta(hours=2))
+# Matamba and Danskin (2022), https://doi.org/10.1029/2021SW003013
+# Figure 2 nighttime map is 01:45 UT, so the 15-minute window ends then.
+# They call 07:00–11:00 UT morning in South Africa; 09:00 UT is the middle of that range.
+# Figure 2 daytime map is 10:40 UT. Local time in the paper is UT+2, the same offset as CAT.
+_YESTERDAY_PERIODS = (
+    ("night", "Night", 1, 30),
+    ("morning", "Morning", 8, 45),
+    ("noon", "Noon", 10, 25),
+)
+
+
+def _period_window(moment: datetime, hour: int, minute: int) -> tuple[datetime, datetime, str]:
+    """A 15-minute UT window on yesterday's Zimbabwe local date."""
+    local_day = moment.astimezone(_CAT).date() - timedelta(days=1)
+    start = datetime(local_day.year, local_day.month, local_day.day, hour, minute, tzinfo=timezone.utc)
+    end = start + timedelta(minutes=WINDOW_MINUTES)
+    start_local = start.astimezone(_CAT)
+    end_local = end.astimezone(_CAT)
+    label = (
+        f"{start_local.strftime('%Y-%m-%d')} · {start_local.strftime('%H:%M')}–{end_local.strftime('%H:%M')} CAT"
+        f" ({start.strftime('%H:%M')}–{end.strftime('%H:%M')} UT)"
+    )
+    return start, end, label
+
+
+def build_iono_vtec_pair(*, now: datetime | None = None) -> dict[str, Any]:
+    """Current TEC map plus yesterday morning, noon, and night."""
+    global _pair_cache
+    moment = now or datetime.now(timezone.utc)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    else:
+        moment = moment.astimezone(timezone.utc)
+    with _pair_lock:
+        if _pair_cache is not None and (time.time() - _pair_cache[0]) < _CACHE_S:
+            return _pair_cache[1]
+
+    window = timedelta(minutes=WINDOW_MINUTES)
+    current_start = moment - window
+    periods = {
+        key: _period_window(moment, hour, minute)
+        for key, _title, hour, minute in _YESTERDAY_PERIODS
+    }
+    current_rows = _query_rows(moment, since=current_start)
+    period_rows = [
+        _query_rows(end, since=start)
+        for start, end, _label in periods.values()
+    ]
+    rows = current_rows + [row for batch in period_rows for row in batch]
+
+    def fields(points: list[tuple[datetime, float, float, float]]) -> dict[str, Any]:
+        built = {
+            key: _vtec_field(points, start, end, label=f"{title} · {label}")
+            for key, title, _hour, _minute in _YESTERDAY_PERIODS
+            for start, end, label in (periods[key],)
+        }
+        built["current"] = _vtec_field(points, current_start, moment)
+        return built
+
+    if not rows:
+        payload = {
+            "available": False,
+            "message": "No code TEC with elevation in these 15-minute windows.",
+            **fields([]),
+        }
+    else:
+        placed = _place(rows)
+        if placed is None:
+            payload = {
+                "available": False,
+                "message": "Waiting for GPS broadcast ephemeris before placing pierce points.",
+                **fields([]),
+            }
+        else:
+            built = fields(placed)
+            payload = {
+                "available": any(item["available"] for item in built.values()),
+                "message": "",
+                **built,
+            }
+    with _pair_lock:
+        _pair_cache = (time.time(), payload)
+    return payload

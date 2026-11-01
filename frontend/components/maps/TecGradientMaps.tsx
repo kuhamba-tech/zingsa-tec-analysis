@@ -91,7 +91,7 @@ function meanOf(cells: PaintedCell[]): number | null {
   return cells.reduce((sum, cell) => sum + cell.value, 0) / cells.length;
 }
 
-function GradientHybridMap({
+export function GradientHybridMap({
   title,
   unit,
   grid,
@@ -99,6 +99,7 @@ function GradientHybridMap({
   lon0,
   diverging,
   emptyMessage,
+  scaleMax,
 }: {
   title: string;
   unit: string;
@@ -107,6 +108,7 @@ function GradientHybridMap({
   lon0: number;
   diverging: boolean;
   emptyMessage?: string;
+  scaleMax?: number | null;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const masked = useMemo(() => grid.map((row, i) =>
@@ -115,9 +117,12 @@ function GradientHybridMap({
     ),
   ), [grid, lat0, lon0]);
   const values = masked.flat().filter((cell): cell is number => cell != null && Number.isFinite(cell));
-  const limit = diverging
+  const ownLimit = diverging
     ? Math.max(...values.map((value) => Math.abs(value)), 0)
     : Math.max(...values, 0);
+  const limit = scaleMax != null && Number.isFinite(scaleMax) && scaleMax > 0
+    ? Math.max(scaleMax, ownLimit)
+    : ownLimit;
   const nlat = masked.length;
   const nlon = masked[0]?.length ?? 0;
   const contourLevels = limit > 0

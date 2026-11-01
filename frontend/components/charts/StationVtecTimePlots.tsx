@@ -583,12 +583,17 @@ export default function StationVtecTimePlots({
   const [meanExplainOpen, setMeanExplainOpen] = useState(false);
   const [compareExplainOpen, setCompareExplainOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [retry, setRetry] = useState(0);
   const seriesRef = useRef<LiveStationVtecSeries[]>([]);
   seriesRef.current = series;
 
   useEffect(() => {
     let cancelled = false;
+    let inFlight = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
     const load = async (background = false) => {
+      if (cancelled || inFlight) return;
+      inFlight = true;
       if (!background) setStatus("pending");
       try {
         const lookback = fetchHoursFor(hours, selectedDay);
@@ -689,12 +694,12 @@ export default function StationVtecTimePlots({
         setStatus("ok");
       } catch (err) {
         if (cancelled) return;
-        if (!background) {
-          // Keep previous charts visible when a refresh times out.
-          const hadSeries = seriesRef.current.length > 0;
-          setStatus(hadSeries ? "ok" : "down");
-          setError(err instanceof Error ? err.message : "Failed to load live VTEC series");
-        }
+        const hadSeries = seriesRef.current.some(row => row.points.length > 0);
+        setStatus(hadSeries ? "ok" : "down");
+        setError("Station TEC observations are temporarily unavailable. Retrying automatically.");
+        retryTimer = setTimeout(() => void load(true), 10_000);
+      } finally {
+        inFlight = false;
       }
     };
     void load(false);
@@ -702,8 +707,9 @@ export default function StationVtecTimePlots({
     return () => {
       cancelled = true;
       window.clearInterval(id);
+      clearTimeout(retryTimer);
     };
-  }, [hours, selectedDay]);
+  }, [hours, selectedDay, retry]);
 
   const loadingSlow = status === "pending" && hours >= 12;
   const networkMean = useMemo(
@@ -907,6 +913,7 @@ export default function StationVtecTimePlots({
           {series.length
             ? `Refresh issue: ${error}. Showing last successful charts.`
             : error}
+          {" "}<button className="btn" type="button" onClick={() => setRetry(value => value + 1)}>Retry station graphs</button>
         </div>
       )}
       {status === "ok" && (

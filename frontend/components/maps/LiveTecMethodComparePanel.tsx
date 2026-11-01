@@ -72,11 +72,16 @@ export default function LiveTecMethodComparePanel({
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [showResults, setShowResults] = useState(false);
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     let retryTimer: number | null = null;
+    let inFlight = false;
     const loadComparison = () => {
+      if (cancelled || inFlight) return;
+      inFlight = true;
+      if (retryTimer != null) window.clearTimeout(retryTimer);
       retryTimer = null;
       getTecMethodComparison(2, undefined, 300, 60_000)
         .then((res) => {
@@ -89,9 +94,11 @@ export default function LiveTecMethodComparePanel({
         })
         .catch((err) => {
           if (cancelled) return;
-          setError(err instanceof Error ? err.message : "Comparison unavailable");
+          setError("TEC method comparison is temporarily unavailable. Retrying automatically.");
+          retryTimer = window.setTimeout(loadComparison, 10_000);
         })
         .finally(() => {
+          inFlight = false;
           if (!cancelled) setLoading(false);
         });
     };
@@ -130,7 +137,7 @@ export default function LiveTecMethodComparePanel({
       window.clearInterval(id);
       if (retryTimer != null) window.clearTimeout(retryTimer);
     };
-  }, []);
+  }, [retry]);
 
   useEffect(() => {
     let cancelled = false;
@@ -300,8 +307,11 @@ export default function LiveTecMethodComparePanel({
           No fresh live GOPI samples are available to compare. Results will appear when new observations reach the backend.
         </div>
       )}
-      {error && !data && (
-        <div className="live-tec-method-compare-status live-tec-method-compare-status--err">{error}</div>
+      {error && (
+        <div className="live-tec-method-compare-status live-tec-method-compare-status--err" role="status">
+          {error} {data?.available && "Showing the last successful comparison."}{" "}
+          <button className="btn" type="button" onClick={() => setRetry(value => value + 1)}>Retry comparison</button>
+        </div>
       )}
 
       {(rows.length > 0 || periods) && (

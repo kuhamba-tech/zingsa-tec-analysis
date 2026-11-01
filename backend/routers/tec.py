@@ -283,6 +283,17 @@ async def tec_gradients(_=Depends(require_api_key)):
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
+@router.get("/vtec-compare")
+async def tec_vtec_compare(_=Depends(require_api_key)):
+    """Current 15-minute Zimbabwe TEC map beside the same window yesterday."""
+    from zgiis.maps.tec_gradients import build_iono_vtec_pair
+
+    try:
+        return await asyncio.to_thread(build_iono_vtec_pair)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
 @router.get("/iono-response-figures")
 async def iono_response_figures(
     days: int = Query(180, ge=14, le=366),

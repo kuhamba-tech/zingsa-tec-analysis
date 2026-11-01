@@ -30,6 +30,7 @@ import type {
   IntermagnetLatestResponse,
   IonoResponseFigures,
   ReceiverBiasResponse,
+  IonoVtecPairResponse,
   TecGradientMapsResponse,
   TrigNetResponse,
   LiveObservation,
@@ -97,6 +98,7 @@ import {
   noteSpaceWeatherNetworkOk,
   resolveClientApiBase,
   resolveClientApiUrl,
+  localApiFallbackUrl,
   spaceWeatherFetchedRecently,
 } from "./clientApiBase";
 
@@ -204,6 +206,14 @@ async function get<T>(
     }
     return res.json();
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const fallback = /Failed to fetch|NetworkError|unreachable/i.test(message)
+      ? localApiFallbackUrl(url.toString()) : null;
+    if (fallback) {
+      const response = await fetchWithTimeout(fallback, { headers: KEY ? { "X-API-Key": KEY } : {} }, timeoutMs);
+      if (!response.ok) throw new Error(`The data service returned ${response.status}. Please retry shortly.`);
+      return response.json();
+    }
     throw friendlyFetchError(err, path);
   }
 }
@@ -1092,6 +1102,10 @@ export const getReceiverBias = (days = 120) =>
 export const getTecGradients = () =>
   dedupeGet("tec/gradients", () =>
     getWithRetry<TecGradientMapsResponse>("/tec/gradients", { _ts: Date.now() }, 60_000));
+
+export const getIonoVtecPair = () =>
+  dedupeGet("tec/vtec-compare", () =>
+    getWithRetry<IonoVtecPairResponse>("/tec/vtec-compare", { _ts: Date.now() }, 60_000));
 
 export const getGfzKpAnalysis = (start: string, end: string, station?: string) =>
   get<GfzKpAnalysisResponse>("/tec/gfz-kp-analysis", { start, end, station, _ts: Date.now() }, ANALYSIS_TIMEOUT_MS);

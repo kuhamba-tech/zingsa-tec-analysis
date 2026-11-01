@@ -1701,6 +1701,28 @@ export interface TheoryStep {
   ipp_detail?: boolean;
 }
 
+export interface IonoVtecField {
+  available: boolean;
+  label: string;
+  grid: Array<Array<number | null>>;
+  lat0: number | null;
+  lon0: number | null;
+  min_tecu: number | null;
+  max_tecu: number | null;
+  mean_tecu: number | null;
+  pierce_points: number;
+  message: string;
+}
+
+export interface IonoVtecPairResponse {
+  available: boolean;
+  message: string;
+  morning: IonoVtecField;
+  noon: IonoVtecField;
+  night: IonoVtecField;
+  current: IonoVtecField;
+}
+
 export interface TecGradientMapsResponse {
   available: boolean;
   generated_at: string;

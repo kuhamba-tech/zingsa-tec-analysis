@@ -115,6 +115,18 @@ export function resolveClientApiUrl(path: string): string {
   return url;
 }
 
+/** Retry a failed cross-port local GET through the existing Next.js proxy. */
+export function localApiFallbackUrl(value: string): string | null {
+  if (typeof window === "undefined") return null;
+  const local = (host: string) => ["localhost", "127.0.0.1", "[::1]", "0.0.0.0"].includes(host);
+  try {
+    const target = new URL(value);
+    if (!local(window.location.hostname) || !local(target.hostname)
+        || target.origin === window.location.origin || target.pathname.startsWith("/api/zgiis/")) return null;
+    return `${window.location.origin}/api/zgiis${target.pathname}${target.search}`;
+  } catch { return null; }
+}
+
 /** Tiny shared clock so boot + getSpaceWeather share “recently fetched”. */
 let lastSpaceWeatherNetworkAt = 0;
 

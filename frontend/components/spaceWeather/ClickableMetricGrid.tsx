@@ -13,6 +13,7 @@ import ImfBzClassMonitor from "./ImfBzClassMonitor";
 import DstClassMonitor from "./DstClassMonitor";
 import KpGeomagneticClassMonitor from "./KpGeomagneticClassMonitor";
 import GeomagneticStormClassMonitor from "./GeomagneticStormClassMonitor";
+import GnssRiskClassMonitor from "./GnssRiskClassMonitor";
 import {
   METRIC_EXPLANATIONS,
   NOAA_G_SCALE,
@@ -24,11 +25,12 @@ import {
   type MetricKey,
 } from "@/lib/spaceWeatherMetrics";
 import TecPrimerBlock from "./TecPrimerBlock";
+import ZimbabweIonoTecMaps, { zimbabweIonoMeasuredText } from "./ZimbabweIonoTecMaps";
 import EarthsideSolarNews from "./EarthsideSolarNews";
 import VisibleSolarDisk from "./VisibleSolarDisk";
 import { MetricCardIcon, MetricDetailIcon } from "./MetricCardIcons";
 import CorsConnectedDetail from "./CorsConnectedDetail";
-import type { EkfPoint, TimelinePoint } from "@/lib/types";
+import type { EkfPoint, IonoVtecPairResponse, TimelinePoint } from "@/lib/types";
 
 interface Props {
   sw: SpaceWeatherCurrent | null;
@@ -48,6 +50,7 @@ interface Props {
   imfPoints?: TimelinePoint[] | null;
   dstPoints?: TimelinePoint[] | null;
   kpPoints?: TimelinePoint[] | null;
+  gnssPoints?: TimelinePoint[] | null;
 }
 
 function freshnessClass(freshness: MetricCardSpec["freshness"]): string {
@@ -318,6 +321,7 @@ function ExplanationPanel({
   imfPoints,
   dstPoints,
   kpPoints,
+  gnssPoints,
   panelRef,
 }: {
   label: string;
@@ -334,8 +338,12 @@ function ExplanationPanel({
   imfPoints?: TimelinePoint[] | null;
   dstPoints?: TimelinePoint[] | null;
   kpPoints?: TimelinePoint[] | null;
+  gnssPoints?: TimelinePoint[] | null;
   panelRef?: RefObject<HTMLDivElement | null>;
 }) {
+  const [ionoPair, setIonoPair] = useState<IonoVtecPairResponse | null>(null);
+  const [ionoFailed, setIonoFailed] = useState(false);
+  const networkVtec = sw?.mean_vtec ?? liveMeanVtec ?? null;
   return (
     <div className="sw-metric-explain" ref={panelRef}>
       <div className="sw-metric-explain-title">{label}</div>
@@ -360,8 +368,27 @@ function ExplanationPanel({
           <GeomagneticStormClassMonitor solar={solar ?? null} sw={sw} now={now} />
         </div>
       )}
+      {metricKey === "gnss_risk" && (
+        <div style={{ marginTop: "0.85rem" }}>
+          <GnssRiskClassMonitor sw={sw} points={gnssPoints} />
+        </div>
+      )}
+      {metricKey === "zimbabwe_iono" && (
+        <div style={{ marginTop: "0.85rem" }}>
+          <ZimbabweIonoTecMaps
+            onPair={(pair, failed) => {
+              setIonoPair(pair);
+              setIonoFailed(failed);
+            }}
+          />
+        </div>
+      )}
       <div className="sw-metric-explain-heading">Explanation</div>
-      <p className="sw-metric-explain-body">{METRIC_EXPLANATIONS[metricKey]}</p>
+      <p className="sw-metric-explain-body">
+        {metricKey === "zimbabwe_iono"
+          ? zimbabweIonoMeasuredText(networkVtec, sw?.updated_utc ?? null, ionoPair, ionoFailed)
+          : METRIC_EXPLANATIONS[metricKey]}
+      </p>
       {metricKey === "donki_flares" && (
         <>
           <div className="sw-metric-explain-heading">26 August 2026 · M2.2 flare, R1</div>
@@ -564,6 +591,7 @@ export default function ClickableMetricGrid({
   imfPoints = null,
   dstPoints = null,
   kpPoints = null,
+  gnssPoints = null,
 }: Props) {
   const [selected, setSelected] = useState<MetricKey | null>(null);
   const explainRef = useRef<HTMLDivElement | null>(null);
@@ -655,6 +683,7 @@ export default function ClickableMetricGrid({
           imfPoints={imfPoints}
           dstPoints={dstPoints}
           kpPoints={kpPoints}
+          gnssPoints={gnssPoints}
           panelRef={explainRef}
         />
       )}

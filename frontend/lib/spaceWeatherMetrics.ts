@@ -16,7 +16,6 @@ import {
   FLARE_BEAT,
   HOW_BULLETINS_ARE_WRITTEN,
   KP_BEAT,
-  TEC_BEAT,
   WIND_BEAT,
   ZIMBABWE_TRANSLATION,
 } from "./scientistBulletin";
@@ -97,7 +96,7 @@ export const METRIC_EXPLANATIONS: Record<MetricKey, string> = {
   imf_bz: `${BZ_BEAT} Southward Bz favours reconnection. A brief negative spike is reported as a fluctuation, not as a storm.`,
   geomagnetic_storm: `${KP_BEAT} ${ZIMBABWE_TRANSLATION}`,
   dst: `${DST_BEAT} Do not convert a Dst value into a NOAA G1–G5 label.`,
-  zimbabwe_iono: `${TEC_BEAT} ${ZIMBABWE_TRANSLATION} Network VTEC is the line integral of electron density (1 TECU = 10¹⁶ el/m²). The colour strip is magnitude — Low below 10, Typical 10–40, High 40–100, Storm 100–200, Extreme above 200 TECU — not the local time of day. ΔTEC and ROTI stay unpublished until a quiet-day reference is validated.`,
+  zimbabwe_iono: "Network VTEC is the measured vertical electron content over the Zimbabwe CORS network, in TECU. The colour strip is the magnitude band: Low below 10, Typical 10–40, High 40–100, Storm 100–200, Extreme above 200. ΔTEC and ROTI stay unpublished until a quiet-day reference is validated.",
   gnss_risk:
     "Write this label as a provisional operations line, not as proof that a receiver has failed. Name the driver (dayside flare, CME arrival, or coronal-hole stream), the Kp or G-scale, and whether Zimbabwe TEC or S4 has actually moved. Until local ΔTEC, ROTI and RTK rules are validated, the score is context from Kp, the scintillation archive and related indices.",
   stations:
@@ -1004,7 +1003,7 @@ export function interpretMetric(
       {
         const level = tecScaleFromVtec(vtec);
         const context = tecTypicalContext(vtec);
-        return `Network VTEC ${formatVtecDisplay(vtec)} — ${level.title} (${level.range} TECU). ${context} Separate the ordinary daytime EUV rise from a storm departure. ΔTEC and ROTI stay unpublished until a quiet-day reference is validated. Do not call this a disturbance from Kp alone.`;
+        return `Network VTEC ${formatVtecDisplay(vtec)} — ${level.title} (${level.range} TECU). ${context} ΔTEC and ROTI stay unpublished until a quiet-day reference is validated.`;
       }
 
     case "gnss_risk": {
