@@ -98,9 +98,12 @@ function chanceDetail(brief: SolarBriefResponse): string {
 export default function EarthsideSolarNews({
   solar,
   kp,
+  includeGeomagnetics = true,
 }: {
   solar: SolarActivityFull | null;
   kp: number | null;
+  /** Solar Activity tab keeps Kp and solar wind. A metric-card click stays on the Sun. */
+  includeGeomagnetics?: boolean;
 }) {
   const [brief, setBrief] = useState<SolarBriefResponse | null>(null);
   const [failed, setFailed] = useState(false);
@@ -160,25 +163,27 @@ export default function EarthsideSolarNews({
       {failed && <p className={styles.kicker}>The solar brief could not be loaded.</p>}
       {!failed && brief == null && <p className={styles.kicker}>Loading the Earth-facing solar brief.</p>}
 
-      <div className={styles.block}>
-        <h4>Geomagnetics</h4>
-        <div className={styles.facts}>
-          <Fact label="Kp" value={kp == null ? "—" : `${kp} · ${kpWords(kp)}`} />
-          <Fact
-            label="Solar wind speed"
-            value={speed == null ? "—" : `${Math.round(speed)} km/s · ${windWords(speed)}`}
-          />
-          <Fact
-            label="Solar wind density"
-            value={density == null ? "—" : `${density.toFixed(1)} /cm³ · ${densityWords(density)}`}
-          />
-          <Fact label="IMF strength" value={bt == null ? "—" : `${bt.toFixed(1)} nT · ${fieldWords(bt)}`} />
-          <Fact
-            label="IMF orientation"
-            value={bz == null ? "—" : `${orientation(bz)} · Bz ${bz.toFixed(1)} nT`}
-          />
+      {includeGeomagnetics && (
+        <div className={styles.block}>
+          <h4>Geomagnetics</h4>
+          <div className={styles.facts}>
+            <Fact label="Kp" value={kp == null ? "—" : `${kp} · ${kpWords(kp)}`} />
+            <Fact
+              label="Solar wind speed"
+              value={speed == null ? "—" : `${Math.round(speed)} km/s · ${windWords(speed)}`}
+            />
+            <Fact
+              label="Solar wind density"
+              value={density == null ? "—" : `${density.toFixed(1)} /cm³ · ${densityWords(density)}`}
+            />
+            <Fact label="IMF strength" value={bt == null ? "—" : `${bt.toFixed(1)} nT · ${fieldWords(bt)}`} />
+            <Fact
+              label="IMF orientation"
+              value={bz == null ? "—" : `${orientation(bz)} · Bz ${bz.toFixed(1)} nT`}
+            />
+          </div>
         </div>
-      </div>
+      )}
 
       <div className={styles.block}>
         <h4>Solar activity</h4>

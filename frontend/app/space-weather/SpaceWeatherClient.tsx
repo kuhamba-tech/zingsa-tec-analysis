@@ -14,8 +14,9 @@ import {
   absorbInlineSolarBootPayload,
 } from "@/lib/solarActivityStore";
 import { peekStations, subscribeStations } from "@/lib/stationsStore";
+import { peekHeliosphericMonitor } from "@/lib/heliosphericStore";
+import { imfSeriesPoints } from "@/lib/imfBzWatch";
 import ClickableMetricGrid from "@/components/spaceWeather/ClickableMetricGrid";
-import FlareClassMonitor from "@/components/spaceWeather/FlareClassMonitor";
 import DeferredMount from "@/components/spaceWeather/DeferredMount";
 import SwSectionBanner from "@/components/spaceWeather/SwSectionBanner";
 import { monitoringFreshness, observationTime } from "@/lib/monitoringStatus";
@@ -471,6 +472,7 @@ export default function SpaceWeatherClient({
     initialSw ? snapshotTimelines(initialSw) : null,
   );
   const [ekf, setEkf]       = useState<EkfStatus | null>(null);
+  const [imfPoints, setImfPoints] = useState<TimelinePoint[] | null>(null);
   // Always start at 0 so SSR HTML matches the first client paint; URL ?tab= is applied in useEffect.
   const [tab, setTab] = useState(0);
   const [xrayRange, setXrayRange] = useState<"6H" | "24H">("24H");
@@ -832,13 +834,23 @@ export default function SpaceWeatherClient({
     return afterNextPaint(() => setMobileHeavyLabs(true), 1800);
   }, []);
 
+  useEffect(() => {
+    const points = imfSeriesPoints(peekHeliosphericMonitor()?.imf);
+    if (points.length) setImfPoints(points);
+  }, []);
+
   // When the user opens Live Metric / Solar, warm chart APIs after paint —
   // never compete with metric-card hydration on Cursor CVM previews.
   useEffect(() => {
     if (!loadProfile.deferSecondaryApis) return;
     if (tab !== 0 && tab !== 1) return;
     return scheduleSecondary(() => {
-      void getHeliosphericMonitor(false, false).catch(() => null);
+      void getHeliosphericMonitor(false, false)
+        .then((data) => {
+          const points = imfSeriesPoints(data?.imf);
+          if (points.length) setImfPoints(points);
+        })
+        .catch(() => null);
       getTimelines(loadProfile.timelineMaxPoints).then(setTl).catch(() => null);
       getEkfStatus().then(setEkf).catch(() => null);
     }, loadProfile);
@@ -1169,9 +1181,13 @@ export default function SpaceWeatherClient({
         refreshFailed={feedStatus === "down"}
         solarRefreshFailed={Boolean(saError)}
         loading={feedStatus === "pending" && !sw}
+        corsPoints={stationsOnlinePoints}
+        corsEkfPoints={ekf?.series.stations_online?.points}
+        windPoints={tl?.solar_wind}
+        imfPoints={imfPoints}
+        dstPoints={tl?.dst}
+        kpPoints={tl?.kp}
       />
-
-      <FlareClassMonitor solar={sa} now={now} />
 
       {/* ── Condition banner ── */}
       {conditionNoteOpen && <div ref={conditionNoteRef} className={`banner banner-${conditionVariant}`}>

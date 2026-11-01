@@ -892,8 +892,10 @@ export function interpretMetric(
   const kp = sw?.kp ?? null;
   const dst = sw?.dst ?? null;
   const wind = sw?.plasma_speed ?? opts?.solar?.solar_wind?.speed ?? null;
-  const online = sw?.stations_online;
-  const total = sw?.stations_total;
+  const liveCounts = opts?.liveStationCounts;
+  const liveOnline = liveCounts && liveCounts.online + liveCounts.offline > 0 ? liveCounts.online : null;
+  const online = liveOnline ?? sw?.stations_online;
+  const total = liveOnline != null ? liveCounts!.total : sw?.stations_total;
   const sa = opts?.solar;
   const bz = sa?.solar_wind?.bz ?? null;
   const vtec = sw?.mean_vtec ?? opts?.liveMeanVtec ?? null;

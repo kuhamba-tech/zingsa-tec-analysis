@@ -5,7 +5,14 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import type { SolarActivityFull, SpaceWeatherCurrent } from "@/lib/types";
 import type { LiveStationCounts } from "@/lib/liveStationStatus";
 import { FLARE_SCALE } from "@/lib/solarEventColors";
-import { buildFlareWatch, flareGuideParagraphs, flareLetterOf } from "@/lib/flareEruption";
+import { flareLetterOf } from "@/lib/flareEruption";
+import FlareClassMonitor from "./FlareClassMonitor";
+import CmeClassMonitor from "./CmeClassMonitor";
+import SolarWindClassMonitor from "./SolarWindClassMonitor";
+import ImfBzClassMonitor from "./ImfBzClassMonitor";
+import DstClassMonitor from "./DstClassMonitor";
+import KpGeomagneticClassMonitor from "./KpGeomagneticClassMonitor";
+import GeomagneticStormClassMonitor from "./GeomagneticStormClassMonitor";
 import {
   METRIC_EXPLANATIONS,
   NOAA_G_SCALE,
@@ -20,6 +27,8 @@ import TecPrimerBlock from "./TecPrimerBlock";
 import EarthsideSolarNews from "./EarthsideSolarNews";
 import VisibleSolarDisk from "./VisibleSolarDisk";
 import { MetricCardIcon, MetricDetailIcon } from "./MetricCardIcons";
+import CorsConnectedDetail from "./CorsConnectedDetail";
+import type { EkfPoint, TimelinePoint } from "@/lib/types";
 
 interface Props {
   sw: SpaceWeatherCurrent | null;
@@ -33,6 +42,12 @@ interface Props {
   now?: number;
   refreshFailed?: boolean;
   solarRefreshFailed?: boolean;
+  corsPoints?: TimelinePoint[] | null;
+  corsEkfPoints?: EkfPoint[] | null;
+  windPoints?: TimelinePoint[] | null;
+  imfPoints?: TimelinePoint[] | null;
+  dstPoints?: TimelinePoint[] | null;
+  kpPoints?: TimelinePoint[] | null;
 }
 
 function freshnessClass(freshness: MetricCardSpec["freshness"]): string {
@@ -257,6 +272,37 @@ function MetricCardButton({
   );
 }
 
+function CatalogWindow({
+  status,
+  start,
+  end,
+  label,
+  count,
+}: {
+  status?: string | null;
+  start?: string | null;
+  end?: string | null;
+  label: string;
+  count: number | null;
+}) {
+  return (
+    <div className="sw-metric-explain-body" style={{ marginTop: "0.65rem" }}>
+      <div className="sw-metric-explain-heading">Expanded details</div>
+      <ul style={{ margin: "0.35rem 0 0", paddingLeft: "1.1rem" }}>
+        <li>Feed: NASA DONKI ({status || "unknown"})</li>
+        {start && end ? (
+          <li>
+            Window: {start} – {end}
+          </li>
+        ) : null}
+        <li>
+          {label}: {count == null ? "—" : count}
+        </li>
+      </ul>
+    </div>
+  );
+}
+
 function ExplanationPanel({
   label,
   value,
@@ -264,6 +310,14 @@ function ExplanationPanel({
   sw,
   solar,
   liveMeanVtec,
+  corsPoints,
+  corsEkfPoints,
+  counts,
+  now,
+  windPoints,
+  imfPoints,
+  dstPoints,
+  kpPoints,
   panelRef,
 }: {
   label: string;
@@ -272,12 +326,40 @@ function ExplanationPanel({
   sw: SpaceWeatherCurrent | null;
   solar?: SolarActivityFull | null;
   liveMeanVtec?: number | null;
+  corsPoints?: TimelinePoint[] | null;
+  corsEkfPoints?: EkfPoint[] | null;
+  counts?: LiveStationCounts | null;
+  now?: number;
+  windPoints?: TimelinePoint[] | null;
+  imfPoints?: TimelinePoint[] | null;
+  dstPoints?: TimelinePoint[] | null;
+  kpPoints?: TimelinePoint[] | null;
   panelRef?: RefObject<HTMLDivElement | null>;
 }) {
   return (
     <div className="sw-metric-explain" ref={panelRef}>
       <div className="sw-metric-explain-title">{label}</div>
       <div className="sw-metric-explain-current">Current value: {value}</div>
+      {metricKey === "dst" && (
+        <div style={{ marginTop: "0.85rem" }}>
+          <DstClassMonitor sw={sw} points={dstPoints} />
+        </div>
+      )}
+      {metricKey === "imf_bz" && (
+        <div style={{ marginTop: "0.85rem" }}>
+          <ImfBzClassMonitor solar={solar ?? null} points={imfPoints} />
+        </div>
+      )}
+      {metricKey === "donki_cmes" && (
+        <div style={{ marginTop: "0.85rem" }}>
+          <CmeClassMonitor solar={solar ?? null} now={now} />
+        </div>
+      )}
+      {metricKey === "donki_storms" && (
+        <div style={{ marginTop: "0.85rem" }}>
+          <GeomagneticStormClassMonitor solar={solar ?? null} sw={sw} now={now} />
+        </div>
+      )}
       <div className="sw-metric-explain-heading">Explanation</div>
       <p className="sw-metric-explain-body">{METRIC_EXPLANATIONS[metricKey]}</p>
       {metricKey === "donki_flares" && (
@@ -333,25 +415,33 @@ function ExplanationPanel({
       )}
       <div className="sw-metric-explain-heading">Current Metric Interpretation</div>
       <p className="sw-metric-explain-body">
-        {interpretMetric(sw, metricKey, { solar, liveMeanVtec })}
+        {interpretMetric(sw, metricKey, { solar, liveMeanVtec, liveStationCounts: counts })}
       </p>
       {metricKey === "stations" && (
-        <p className="sw-metric-explain-body" style={{ marginTop: "0.65rem" }}>
-          <Link href="/#cors-network" className="link-inline">
-            View Network — open Zimbabwe CORS map
-          </Link>
-          . Online status, GNSS observation availability, and TEC processing are not always the same
-          state.
-        </p>
+        <>
+          <CorsConnectedDetail
+            points={corsPoints ?? []}
+            ekfPoints={corsEkfPoints}
+            counts={counts}
+          />
+          <p className="sw-metric-explain-body" style={{ marginTop: "0.65rem" }}>
+            <Link href="/#cors-network" className="link-inline">
+              View Network — open Zimbabwe CORS map
+            </Link>
+            . Online status, GNSS observation availability, and TEC processing are not always the same
+            state.
+          </p>
+        </>
       )}
       {metricKey === "solar_activity" && <VisibleSolarDisk embedded />}
-      {metricKey === "solar_activity" && <EarthsideSolarNews solar={solar ?? null} kp={sw?.kp ?? null} />}
+      {metricKey === "solar_activity" && (
+        <EarthsideSolarNews solar={solar ?? null} kp={sw?.kp ?? null} includeGeomagnetics={false} />
+      )}
       {metricKey === "solar_activity" && solar && (
         <div className="sw-metric-explain-body" style={{ marginTop: "0.65rem" }}>
           <div className="sw-metric-explain-heading">Expanded details</div>
           <ul style={{ margin: "0.35rem 0 0", paddingLeft: "1.1rem" }}>
             <li>Solar activity: {solar.activity_label?.trim() || "Unavailable"}</li>
-            <li>Current flare: {solar.flare_class?.trim() || "Unavailable"}</li>
             <li>
               SWPC alerts:{" "}
               {Array.isArray(solar.alerts) ? solar.alerts.length : "Unavailable"}
@@ -364,14 +454,13 @@ function ExplanationPanel({
           </ul>
         </div>
       )}
+      {(metricKey === "solar_flare" || metricKey === "donki_flares") && (
+        <div style={{ marginTop: "0.85rem" }}>
+          <FlareClassMonitor solar={solar ?? null} now={now} />
+        </div>
+      )}
       {metricKey === "solar_flare" && solar && (
         <div className="sw-metric-explain-body" style={{ marginTop: "0.65rem" }}>
-          <div className="sw-metric-explain-heading">Eruption guide</div>
-          {flareGuideParagraphs(buildFlareWatch(solar)).map((paragraph) => (
-            <p key={paragraph.slice(0, 40)} className="sw-metric-explain-body">
-              {paragraph}
-            </p>
-          ))}
           <div className="sw-metric-explain-heading">Expanded details</div>
           <ul style={{ margin: "0.35rem 0 0", paddingLeft: "1.1rem" }}>
             <li>Current class: {solar.flare_class?.trim() || "Unavailable"}</li>
@@ -383,6 +472,11 @@ function ExplanationPanel({
             </li>
             <li>Band: GOES soft X-ray 0.1–0.8 nm</li>
           </ul>
+        </div>
+      )}
+      {metricKey === "solar_wind" && (
+        <div style={{ marginTop: "0.85rem" }}>
+          <SolarWindClassMonitor solar={solar ?? null} points={windPoints} />
         </div>
       )}
       {metricKey === "solar_wind" && solar?.solar_wind && (
@@ -408,18 +502,6 @@ function ExplanationPanel({
                 : "Updating…"}
             </li>
             <li>
-              IMF Bz:{" "}
-              {solar.solar_wind.bz != null
-                ? `${solar.solar_wind.bz >= 0 ? "+" : ""}${solar.solar_wind.bz.toFixed(1)} nT`
-                : "Updating…"}
-            </li>
-            <li>
-              IMF Bt:{" "}
-              {solar.solar_wind.bt != null
-                ? `${solar.solar_wind.bt.toFixed(1)} nT`
-                : "Updating…"}
-            </li>
-            <li>
               Dynamic pressure:{" "}
               {solar.solar_wind.dynamic_pressure != null
                 ? `${solar.solar_wind.dynamic_pressure.toFixed(1)} nPa`
@@ -428,33 +510,38 @@ function ExplanationPanel({
           </ul>
         </div>
       )}
-      {(metricKey === "donki_flares" ||
-        metricKey === "donki_cmes" ||
-        metricKey === "donki_storms") &&
-        solar && (
-          <div className="sw-metric-explain-body" style={{ marginTop: "0.65rem" }}>
-            <div className="sw-metric-explain-heading">Expanded details</div>
-            <ul style={{ margin: "0.35rem 0 0", paddingLeft: "1.1rem" }}>
-              <li>Feed: NASA DONKI ({solar.donki_status || "unknown"})</li>
-              {solar.donki_date_start && solar.donki_date_end ? (
-                <li>
-                  Window: {solar.donki_date_start} – {solar.donki_date_end}
-                </li>
-              ) : null}
-              <li>
-                Flare events:{" "}
-                {Array.isArray(solar.donki_flares) ? solar.donki_flares.length : "—"}
-              </li>
-              <li>
-                CME events: {Array.isArray(solar.donki_cmes) ? solar.donki_cmes.length : "—"}
-              </li>
-              <li>
-                Geomagnetic storm events:{" "}
-                {Array.isArray(solar.donki_storms) ? solar.donki_storms.length : "—"}
-              </li>
-            </ul>
-          </div>
-        )}
+      {metricKey === "geomagnetic_storm" && (
+        <div style={{ marginTop: "0.85rem" }}>
+          <KpGeomagneticClassMonitor sw={sw} points={kpPoints} />
+        </div>
+      )}
+      {metricKey === "donki_flares" && solar && (
+        <CatalogWindow
+          status={solar.donki_status}
+          start={solar.donki_date_start}
+          end={solar.donki_date_end}
+          label="Flare events"
+          count={Array.isArray(solar.donki_flares) ? solar.donki_flares.length : null}
+        />
+      )}
+      {metricKey === "donki_cmes" && solar && (
+        <CatalogWindow
+          status={solar.donki_status}
+          start={solar.donki_date_start}
+          end={solar.donki_date_end}
+          label="CME events"
+          count={Array.isArray(solar.donki_cmes) ? solar.donki_cmes.length : null}
+        />
+      )}
+      {metricKey === "donki_storms" && solar && (
+        <CatalogWindow
+          status={solar.donki_status}
+          start={solar.donki_date_start}
+          end={solar.donki_date_end}
+          label="Geomagnetic storm events"
+          count={Array.isArray(solar.donki_storms) ? solar.donki_storms.length : null}
+        />
+      )}
     </div>
   );
 }
@@ -471,6 +558,12 @@ export default function ClickableMetricGrid({
   now,
   refreshFailed = false,
   solarRefreshFailed = false,
+  corsPoints = null,
+  corsEkfPoints = null,
+  windPoints = null,
+  imfPoints = null,
+  dstPoints = null,
+  kpPoints = null,
 }: Props) {
   const [selected, setSelected] = useState<MetricKey | null>(null);
   const explainRef = useRef<HTMLDivElement | null>(null);
@@ -554,6 +647,14 @@ export default function ClickableMetricGrid({
           sw={sw}
           solar={solar}
           liveMeanVtec={liveMeanVtec}
+          corsPoints={corsPoints}
+          corsEkfPoints={corsEkfPoints}
+          counts={liveStationCounts}
+          now={now}
+          windPoints={windPoints}
+          imfPoints={imfPoints}
+          dstPoints={dstPoints}
+          kpPoints={kpPoints}
           panelRef={explainRef}
         />
       )}

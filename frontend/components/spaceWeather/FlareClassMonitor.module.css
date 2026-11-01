@@ -25,6 +25,16 @@
   gap: 0.35rem;
 }
 
+.scaleKp {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+@media (min-width: 900px) {
+  .scaleKp {
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+  }
+}
+
 .step {
   border: 1px solid var(--border);
   border-radius: 8px;
