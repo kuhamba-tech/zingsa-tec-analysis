@@ -21,11 +21,13 @@ points. Empty inputs stay empty.
 """
 from __future__ import annotations
 
+import json
 import logging
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -394,51 +396,8 @@ def _cached_placed(now: datetime) -> list[tuple[datetime, float, float, float]]:
     ]
 
 
-def _query_rows(now: datetime, *, since: datetime | None = None) -> list[tuple]:
-    import psycopg2
-
+def _obs_rows(fetched: list[tuple]) -> list[tuple]:
     from zgiis.cors.stations import is_surveyor_general
-    from zgiis.db.config import pooled_database_dsn
-
-    dsn = pooled_database_dsn()
-    if not dsn:
-        return []
-    start = since or (now - timedelta(minutes=WINDOW_MINUTES + 1))
-    conn = None
-    try:
-        conn = psycopg2.connect(dsn, connect_timeout=5)
-        conn.autocommit = True
-        with conn.cursor() as cur:
-            cur.execute("SET statement_timeout = '15000'")
-            cur.execute(
-                f"""
-                SELECT date_trunc('minute', time) AT TIME ZONE 'UTC' AS minute,
-                       LOWER(RTRIM(station, '_')) AS station,
-                       prn,
-                       AVG(vtec_tecu) AS vtec_tecu,
-                       AVG(elevation_deg) AS elevation_deg
-                FROM vtec_obs
-                WHERE time >= %s
-                  AND time <= %s
-                  AND vtec_tecu >= 0
-                  AND vtec_tecu <= 50
-                  AND elevation_deg >= {ELEVATION_MIN_DEG:g}
-                  AND tec_method LIKE %s
-                  AND tec_method NOT LIKE 'dlr_%%'
-                GROUP BY 1, 2, 3
-                """,
-                (start.isoformat(), now.isoformat(), "%code_live%"),
-            )
-            fetched = cur.fetchall()
-    except Exception as exc:
-        message = str(exc).splitlines()[0]
-        if "://" in message or "@" in message:
-            message = type(exc).__name__
-        log.warning("TEC gradient read failed: %s", message[:240])
-        raise RuntimeError("The TEC database could not be reached. Please retry shortly.") from exc
-    finally:
-        if conn is not None:
-            conn.close()
 
     rows: list[tuple] = []
     for minute, station, prn, tec, elev in fetched:
@@ -455,6 +414,74 @@ def _query_rows(now: datetime, *, since: datetime | None = None) -> list[tuple]:
     return rows
 
 
+def _query_windows(
+    windows: list[tuple[str, datetime, datetime]],
+    *,
+    statement_ms: int = 12000,
+) -> dict[str, list[tuple]]:
+    """One pooled read for every 15-minute window. Keys with no rows stay empty."""
+    found = {key: [] for key, _start, _end in windows}
+    if not windows:
+        return found
+    from zgiis.db.config import checkout, pooled_database_dsn, release
+
+    dsn = pooled_database_dsn()
+    if not dsn:
+        return found
+    arms: list[str] = []
+    params: list[Any] = []
+    for key, start, end in windows:
+        arms.append(
+            f"""
+            SELECT %s AS window_key,
+                   date_trunc('minute', time) AT TIME ZONE 'UTC' AS minute,
+                   LOWER(RTRIM(station, '_')) AS station,
+                   prn,
+                   AVG(vtec_tecu) AS vtec_tecu,
+                   AVG(elevation_deg) AS elevation_deg
+            FROM vtec_obs
+            WHERE time >= %s
+              AND time <= %s
+              AND vtec_tecu >= 0
+              AND vtec_tecu <= 50
+              AND elevation_deg >= {ELEVATION_MIN_DEG:g}
+              AND tec_method LIKE %s
+              AND tec_method NOT LIKE 'dlr_%%'
+            GROUP BY 2, 3, 4
+            """
+        )
+        params.extend((key, start.isoformat(), end.isoformat(), "%code_live%"))
+    conn = None
+    try:
+        conn = checkout(dsn)
+        with conn.cursor() as cur:
+            cur.execute(f"SET statement_timeout = {int(statement_ms)}")
+            cur.execute(" UNION ALL ".join(arms), params)
+            for key, minute, station, prn, tec, elev in cur.fetchall():
+                found.setdefault(str(key), []).append((minute, station, prn, tec, elev))
+    except Exception as exc:
+        message = str(exc).splitlines()[0]
+        if "://" in message or "@" in message:
+            message = type(exc).__name__
+        log.warning("TEC gradient read failed: %s", message[:240])
+        raise RuntimeError("The TEC database could not be reached. Please retry shortly.") from exc
+    finally:
+        if conn is not None:
+            try:
+                if not getattr(conn, "closed", 1):
+                    with conn.cursor() as cur:
+                        cur.execute("SET statement_timeout = 0")
+                release(conn)
+            except Exception:
+                release(conn, close=True)
+    return {key: _obs_rows(rows) for key, rows in found.items()}
+
+
+def _query_rows(now: datetime, *, since: datetime | None = None) -> list[tuple]:
+    start = since or (now - timedelta(minutes=WINDOW_MINUTES + 1))
+    return _query_windows([("window", start, now)]).get("window", [])
+
+
 def _place(rows: list[tuple]) -> list[tuple[datetime, float, float, float]] | None:
     from zgiis.space_weather.iono_response_figures import _place_rows
 
@@ -462,11 +489,16 @@ def _place(rows: list[tuple]) -> list[tuple[datetime, float, float, float]] | No
     for stamp, station, prn, tec, elev in rows:
         grouped.setdefault(stamp.date(), []).append((stamp, station, prn, tec, elev))
     placed: list[tuple[datetime, float, float, float]] = []
+    missing = False
     for day, day_rows in grouped.items():
-        result = _place_rows(day_rows, day)
+        hours = {int(item[0].hour) for item in day_rows}
+        result = _place_rows(day_rows, day, hours)
         if result is None:
-            return None
+            missing = True
+            continue
         placed.extend(item for item in result if _screen(item[1], item[2], item[3]))
+    if not placed and missing:
+        return None
     return placed
 
 
@@ -598,6 +630,10 @@ def _vtec_field(
 
 _pair_cache: tuple[float, dict[str, Any]] | None = None
 _pair_lock = threading.Lock()
+_pair_compute_lock = threading.Lock()
+_pair_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="iono-vtec-pair")
+_pair_job = None
+_pair_job_lock = threading.Lock()
 
 
 _CAT = timezone(timedelta(hours=2))
@@ -626,61 +662,186 @@ def _period_window(moment: datetime, hour: int, minute: int) -> tuple[datetime, 
     return start, end, label
 
 
-def build_iono_vtec_pair(*, now: datetime | None = None) -> dict[str, Any]:
-    """Current TEC map plus yesterday morning, noon, and night."""
-    global _pair_cache
-    moment = now or datetime.now(timezone.utc)
-    if moment.tzinfo is None:
-        moment = moment.replace(tzinfo=timezone.utc)
-    else:
-        moment = moment.astimezone(timezone.utc)
-    with _pair_lock:
-        if _pair_cache is not None and (time.time() - _pair_cache[0]) < _CACHE_S:
-            return _pair_cache[1]
+def _yesterday_disk() -> Path:
+    return Path(__file__).resolve().parents[2] / "static" / "data" / "iono_vtec_yesterday.json"
 
+
+def _read_yesterday_disk() -> dict[str, Any]:
+    path = _yesterday_disk()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _cached_yesterday_fields(
+    moment: datetime,
+    periods: dict[str, tuple[datetime, datetime, str]],
+) -> dict[str, dict[str, Any]]:
+    """Yesterday's three maps are fixed for the local day, so reuse the last good grids."""
+    data = _read_yesterday_disk()
+    day = (moment.astimezone(_CAT).date() - timedelta(days=1)).isoformat()
+    if data.get("day") != day:
+        return {}
+    windows = data.get("windows") if isinstance(data.get("windows"), dict) else {}
+    fields = data.get("fields") if isinstance(data.get("fields"), dict) else {}
+    kept: dict[str, dict[str, Any]] = {}
+    for key, title, _hour, _minute in _YESTERDAY_PERIODS:
+        _start, _end, label = periods[key]
+        field = fields.get(key)
+        if (
+            isinstance(field, dict)
+            and field.get("available")
+            and field.get("grid")
+            and windows.get(key) == label
+            and field.get("label") == f"{title} · {label}"
+        ):
+            kept[key] = field
+    return kept
+
+
+def _store_yesterday_fields(
+    moment: datetime,
+    periods: dict[str, tuple[datetime, datetime, str]],
+    built: dict[str, Any],
+) -> None:
+    day = (moment.astimezone(_CAT).date() - timedelta(days=1)).isoformat()
+    previous = _read_yesterday_disk()
+    if previous.get("day") == day:
+        windows = dict(previous.get("windows") or {})
+        fields = dict(previous.get("fields") or {})
+    else:
+        windows, fields = {}, {}
+    changed = False
+    for key, title, _hour, _minute in _YESTERDAY_PERIODS:
+        _start, _end, label = periods[key]
+        field = built.get(key)
+        if not isinstance(field, dict) or not field.get("available") or not field.get("grid"):
+            continue
+        if windows.get(key) == label and fields.get(key) == field:
+            continue
+        windows[key] = label
+        fields[key] = field
+        changed = True
+    if not changed:
+        return
+    path = _yesterday_disk()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"day": day, "windows": windows, "fields": fields}
+    temporary = path.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(payload), encoding="utf-8")
+    temporary.replace(path)
+
+
+def _compute_iono_vtec_pair(moment: datetime) -> dict[str, Any]:
+    """Read the live window, and yesterday only when those three grids are not saved."""
     window = timedelta(minutes=WINDOW_MINUTES)
     current_start = moment - window
     periods = {
         key: _period_window(moment, hour, minute)
         for key, _title, hour, minute in _YESTERDAY_PERIODS
     }
-    current_rows = _query_rows(moment, since=current_start)
-    period_rows = [
-        _query_rows(end, since=start)
-        for start, end, _label in periods.values()
-    ]
-    rows = current_rows + [row for batch in period_rows for row in batch]
+    saved = _cached_yesterday_fields(moment, periods)
+    needed: list[tuple[str, datetime, datetime]] = [("current", current_start, moment)]
+    for key, (start, end, _label) in periods.items():
+        if key not in saved:
+            needed.append((key, start, end))
 
-    def fields(points: list[tuple[datetime, float, float, float]]) -> dict[str, Any]:
+    def empty_fields() -> dict[str, Any]:
         built = {
-            key: _vtec_field(points, start, end, label=f"{title} · {label}")
+            key: saved.get(key) or _vtec_field([], start, end, label=f"{title} · {label}")
             for key, title, _hour, _minute in _YESTERDAY_PERIODS
             for start, end, label in (periods[key],)
         }
-        built["current"] = _vtec_field(points, current_start, moment)
+        built["current"] = _vtec_field([], current_start, moment)
         return built
 
-    if not rows:
-        payload = {
+    try:
+        queried = _query_windows(needed)
+    except RuntimeError as exc:
+        if not saved:
+            raise
+        built = empty_fields()
+        return {
+            "available": True,
+            "message": str(exc),
+            **built,
+        }
+
+    rows = [row for batch in queried.values() for row in batch]
+    if not rows and not saved:
+        built = empty_fields()
+        return {
             "available": False,
             "message": "No code TEC with elevation in these 15-minute windows.",
-            **fields([]),
+            **built,
         }
-    else:
-        placed = _place(rows)
-        if placed is None:
-            payload = {
-                "available": False,
-                "message": "Waiting for GPS broadcast ephemeris before placing pierce points.",
-                **fields([]),
-            }
+
+    placed = _place(rows) if rows else []
+    if placed is None and not saved:
+        return {
+            "available": False,
+            "message": "Waiting for GPS broadcast ephemeris before placing pierce points.",
+            **empty_fields(),
+        }
+    points = placed or []
+    built: dict[str, Any] = {}
+    for key, title, _hour, _minute in _YESTERDAY_PERIODS:
+        start, end, label = periods[key]
+        if key in saved:
+            built[key] = saved[key]
         else:
-            built = fields(placed)
-            payload = {
-                "available": any(item["available"] for item in built.values()),
-                "message": "",
-                **built,
-            }
+            built[key] = _vtec_field(points, start, end, label=f"{title} · {label}")
+    built["current"] = _vtec_field(points, current_start, moment)
+    _store_yesterday_fields(moment, periods, built)
+    message = ""
+    if placed is None:
+        message = "Waiting for GPS broadcast ephemeris before placing pierce points."
+    return {
+        "available": any(item.get("available") for item in built.values()),
+        "message": message,
+        **built,
+    }
+
+
+def _store_pair(payload: dict[str, Any]) -> dict[str, Any]:
+    global _pair_cache
     with _pair_lock:
         _pair_cache = (time.time(), payload)
     return payload
+
+
+def _refresh_pair(moment: datetime) -> None:
+    try:
+        _store_pair(_compute_iono_vtec_pair(moment))
+    except Exception:
+        log.warning("Zimbabwe TEC map refresh failed", exc_info=True)
+
+
+def build_iono_vtec_pair(*, now: datetime | None = None) -> dict[str, Any]:
+    """Current TEC map plus yesterday morning, noon, and night."""
+    global _pair_job
+    moment = now or datetime.now(timezone.utc)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    else:
+        moment = moment.astimezone(timezone.utc)
+    if now is not None:
+        return _compute_iono_vtec_pair(moment)
+    with _pair_lock:
+        cached = _pair_cache
+    if cached is not None:
+        ttl = _CACHE_S if cached[1].get("available") else _FAIL_CACHE_S
+        if time.time() - cached[0] < ttl:
+            return cached[1]
+        with _pair_job_lock:
+            if _pair_job is None or _pair_job.done():
+                _pair_job = _pair_pool.submit(_refresh_pair, moment)
+        return cached[1]
+    with _pair_compute_lock:
+        with _pair_lock:
+            cached = _pair_cache
+        if cached is not None and (time.time() - cached[0]) < _CACHE_S:
+            return cached[1]
+        return _store_pair(_compute_iono_vtec_pair(moment))

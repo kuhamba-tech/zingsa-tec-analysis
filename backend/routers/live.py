@@ -1152,7 +1152,9 @@ def _build_north_south_tec_research(*, hours: float, resample_minutes: int) -> d
 
 
 @router.get("/stations", response_model=list[StationLiveStatus])
-async def live_stations(_=Depends(require_api_key)):
+def live_stations(_=Depends(require_api_key)):
+    # FastAPI runs synchronous routes in its worker pool. These database reads
+    # must not block the event loop used by comparison refreshes and health.
     from backend.live_manager import status as live_status
     from zgiis.cors.stations import stations_for_map_live
     live = live_status()
@@ -1248,7 +1250,8 @@ async def live_vtec_health(_=Depends(require_api_key)):
 
 
 @router.get("/pipeline-status", response_model=LivePipelineStatus)
-async def pipeline_status(_=Depends(require_api_key)):
+def pipeline_status(_=Depends(require_api_key)):
+    # This status read can wait on the database; keep that wait off the event loop.
     import os
 
     from backend.live_manager import status as live_status

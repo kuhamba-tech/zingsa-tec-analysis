@@ -1103,9 +1103,29 @@ export const getTecGradients = () =>
   dedupeGet("tec/gradients", () =>
     getWithRetry<TecGradientMapsResponse>("/tec/gradients", { _ts: Date.now() }, 60_000));
 
-export const getIonoVtecPair = () =>
-  dedupeGet("tec/vtec-compare", () =>
-    getWithRetry<IonoVtecPairResponse>("/tec/vtec-compare", { _ts: Date.now() }, 60_000));
+const IONO_PAIR_FRESH_MS = 90_000;
+let ionoPairMemory: { at: number; data: IonoVtecPairResponse } | null = null;
+
+export function peekIonoVtecPair(): IonoVtecPairResponse | null {
+  if (!ionoPairMemory) return null;
+  if (Date.now() - ionoPairMemory.at > IONO_PAIR_FRESH_MS) return null;
+  return ionoPairMemory.data;
+}
+
+export function getIonoVtecPair(force = false): Promise<IonoVtecPairResponse> {
+  if (!force) {
+    const cached = peekIonoVtecPair();
+    if (cached) return Promise.resolve(cached);
+  } else {
+    ionoPairMemory = null;
+  }
+  const key = force ? `tec/vtec-compare:${Date.now()}` : "tec/vtec-compare";
+  return dedupeGet(key, () =>
+    get<IonoVtecPairResponse>("/tec/vtec-compare", { _ts: Date.now() }, 20_000).then((data) => {
+      ionoPairMemory = { at: Date.now(), data };
+      return data;
+    }));
+}
 
 export const getGfzKpAnalysis = (start: string, end: string, station?: string) =>
   get<GfzKpAnalysisResponse>("/tec/gfz-kp-analysis", { start, end, station, _ts: Date.now() }, ANALYSIS_TIMEOUT_MS);

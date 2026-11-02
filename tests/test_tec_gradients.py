@@ -115,7 +115,7 @@ def test_database_failure_is_not_reported_as_no_observations(monkeypatch):
     def offline(*args, **kwargs):
         raise psycopg2.OperationalError("connection timed out")
 
-    monkeypatch.setattr(psycopg2, "connect", offline)
+    monkeypatch.setattr(config, "checkout", offline)
     with pytest.raises(RuntimeError, match="TEC database could not be reached"):
         _query_rows(datetime.now(timezone.utc))
 

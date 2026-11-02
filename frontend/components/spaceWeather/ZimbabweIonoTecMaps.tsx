@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { GradientHybridMap } from "@/components/maps/TecGradientMaps";
-import { getIonoVtecPair } from "@/lib/api";
+import { getIonoVtecPair, peekIonoVtecPair } from "@/lib/api";
 import { tecScaleFromVtec } from "@/lib/spaceWeatherMetrics";
 import type { IonoVtecField, IonoVtecPairResponse } from "@/lib/types";
 
@@ -106,7 +106,7 @@ export default function ZimbabweIonoTecMaps({
 }: {
   onPair?: (pair: IonoVtecPairResponse | null, failed: boolean) => void;
 }) {
-  const [pair, setPair] = useState<IonoVtecPairResponse | null>(null);
+  const [pair, setPair] = useState<IonoVtecPairResponse | null>(() => peekIonoVtecPair());
   const [failed, setFailed] = useState(false);
   const [retry, setRetry] = useState(0);
   const onPairRef = useRef(onPair);
@@ -118,8 +118,10 @@ export default function ZimbabweIonoTecMaps({
 
   useEffect(() => {
     let cancelled = false;
+    const cached = peekIonoVtecPair();
+    if (cached) setPair(cached);
     setFailed(false);
-    getIonoVtecPair()
+    getIonoVtecPair(retry > 0)
       .then((payload) => {
         if (cancelled) return;
         setPair(payload);

@@ -425,22 +425,35 @@ export default function CorsMapWithLayers({
     };
   }, [trignetStations, trignetGgCombined]);
 
-  const dualStationLines = useMemo(() => {
-    if (!heatmap?.stations?.length) return [];
-    return heatmap.stations.filter((s) => !isSurveyorGeneral(s.code)).map((s) => {
-      const code = s.code.toUpperCase();
-      const key = s.code.toLowerCase().replace(/_+$/, "");
-      const gopi = typeof s.vtec === "number" && Number.isFinite(s.vtec) ? s.vtec : null;
+  const connectedTec = useMemo(() => {
+    const bySample = new Map(
+      (heatmap?.stations ?? []).map((sample) => [sample.code.toLowerCase().replace(/_+$/, ""), sample]),
+    );
+    const lines: string[] = [];
+    const values: number[] = [];
+    for (const station of stations) {
+      if (getLiveStationStatus(station) !== "online") continue;
+      const key = station.code.toLowerCase().replace(/_+$/, "");
+      const sample = bySample.get(key);
+      const measured = measuredLiveTec(sample);
+      const cardTec =
+        typeof station.current_tec === "number" && Number.isFinite(station.current_tec) && station.current_tec > 0
+          ? station.current_tec
+          : null;
+      const gopi = measured ?? cardTec;
+      if (gopi == null) continue;
+      values.push(gopi);
       const gg = ggByStation[key];
-      const ggVal = typeof gg === "number" && Number.isFinite(gg) ? gg : null;
-      if (gopi != null && ggVal != null) {
-        return `${code} G ${gopi.toFixed(1)} / Gg ${ggVal.toFixed(1)}`;
-      }
-      if (gopi != null) return `${code} G ${gopi.toFixed(1)}`;
-      if (ggVal != null) return `${code} Gg ${ggVal.toFixed(1)}`;
-      return code;
-    });
-  }, [heatmap, ggByStation]);
+      const ggVal = typeof gg === "number" && Number.isFinite(gg) && gg > 0 ? gg : null;
+      const code = station.code.toUpperCase();
+      lines.push(ggVal != null ? `${code} G ${gopi.toFixed(1)} / Gg ${ggVal.toFixed(1)}` : `${code} G ${gopi.toFixed(1)}`);
+    }
+    return {
+      lines,
+      min: values.length ? Math.min(...values) : null,
+      max: values.length ? Math.max(...values) : null,
+    };
+  }, [heatmap, ggByStation, stations]);
 
   const ggRange = useMemo(() => {
     const vals = Object.values(ggByStation).filter(
@@ -712,16 +725,16 @@ export default function CorsMapWithLayers({
       {tecLayerActive && (
         <div className="home-live-tec-below" aria-live="polite">
           <div className="home-live-tec-below-label">
-            Live TEC · G = GOPI (NTRIP, operational) · Gg = Cesaroni (research calibration)
+            Connected stations · G = measured GOPI · Gg = Cesaroni
           </div>
           {heatmap?.available ? (
             <>
               <div className="home-live-tec-below-range">
                 <span style={{ color: "#38bdf8" }}>
                   G{" "}
-                  {heatmap.tec_min != null && heatmap.tec_max != null
-                    ? `${heatmap.tec_min.toFixed(1)}–${heatmap.tec_max.toFixed(1)}`
-                    : `${heatmap.station_count}`}
+                  {connectedTec.min != null && connectedTec.max != null
+                    ? `${connectedTec.min.toFixed(1)}–${connectedTec.max.toFixed(1)}`
+                    : "—"}
                 </span>
                 {ggRange && (
                   <span style={{ color: "#f59e0b", marginLeft: "0.85rem" }}>
@@ -730,9 +743,9 @@ export default function CorsMapWithLayers({
                 )}
               </div>
               <div className="home-live-tec-below-stations">
-                {dualStationLines.length > 0
-                  ? dualStationLines.join(" · ")
-                  : `TECU from ${heatmap.station_count} live station${heatmap.station_count === 1 ? "" : "s"}`}
+                {connectedTec.lines.length > 0
+                  ? connectedTec.lines.join(" · ")
+                  : "No connected station has a measured code TEC sample in this window."}
               </div>
               {heatmap.updated_at && (
                 <div className="home-live-tec-below-updated">{heatmap.updated_at}</div>

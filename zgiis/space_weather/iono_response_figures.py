@@ -579,14 +579,28 @@ def _hourly_nav(frame, day: date) -> list[dict[int, dict]]:
     return hourly
 
 
-def _place_rows(rows: list[tuple], day: date) -> list[tuple[datetime, float, float, float]] | None:
+def _place_rows(
+    rows: list[tuple],
+    day: date,
+    hours: set[int] | None = None,
+) -> list[tuple[datetime, float, float, float]] | None:
     """Pierce points for one UTC day. None means the broadcast ephemeris is missing."""
     if not rows:
         return []
     nav = _nav_frame(day)
     if nav is None:
         return None
-    hourly = _hourly_nav(nav, day)
+    if hours is None:
+        hourly = _hourly_nav(nav, day)
+    else:
+        from zgiis.live.broadcast_ephemeris import _latest_per_sv
+
+        hourly = [{} for _ in range(24)]
+        for hour in hours:
+            if not 0 <= int(hour) <= 23:
+                continue
+            moment = datetime(day.year, day.month, day.day, int(hour), 59, 30, tzinfo=timezone.utc)
+            hourly[int(hour)] = _latest_per_sv(nav, moment)
     if not any(hourly):
         return None
     from zgiis.cors.stations import get_station

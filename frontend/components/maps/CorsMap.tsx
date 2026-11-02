@@ -10,7 +10,6 @@ import { isValidProposedCorsSite } from "@/lib/zimbabweBoundary";
 import { icaoTecColor, icaoTecDistanceLabel, icaoTecLabel } from "@/lib/icaoTecAdvisory";
 import { liveVtecSourceFromHeatmap, liveVtecSourceLabel } from "@/lib/liveVtecLabels";
 import { measuredLiveTec } from "@/lib/measuredLiveTec";
-import { idwFillByStation, type LatLonSite } from "@/lib/idwSurface";
 import { fetchGlobalTecForecastObjectUrl } from "@/lib/api";
 import { vtecToRgba } from "@/lib/tecHeatmapColors";
 import { loadOpenLayers } from "@/lib/loadOpenLayers";
@@ -181,43 +180,14 @@ function stationTecValue(station: Station, heatmap: TecHeatmapResponse | null | 
   }
 
   const liveStatus = getLiveStationStatus(station);
+  if (liveStatus !== "online") return null;
+  const measured = measuredLiveTec(heatStation);
+  if (measured != null) return measured;
   const cardTec =
     typeof station.current_tec === "number" && Number.isFinite(station.current_tec) && station.current_tec > 0
       ? station.current_tec
       : null;
-  const ntripLive =
-    station.ntrip_verdict === "msm_streaming" ||
-    station.status_source === "ntrip";
-
-  if (cardTec != null && ntripLive && liveStatus !== "offline") {
-    return measuredLiveTec({ vtec: cardTec, source: "live_ntrip", obs_count: 1 });
-  }
-
-  return measuredLiveTec(heatStation);
-}
-
-function surfaceTec(
-  stations: Station[],
-  heatmap: TecHeatmapResponse | null | undefined,
-  ggByStation: Record<string, number | null> | null | undefined,
-) {
-  const sites: LatLonSite[] = [];
-  const measuredGopi: Record<string, number> = {};
-  const measuredGg: Record<string, number> = {};
-  for (const station of stations) {
-    if (getLiveStationStatus(station) === "surveyor_general") continue;
-    if (!Number.isFinite(station.lat) || !Number.isFinite(station.lon)) continue;
-    const key = stationKey(station.code);
-    sites.push({ code: station.code, lat: station.lat, lon: station.lon });
-    const gopi = stationTecValue(station, heatmap);
-    if (gopi != null) measuredGopi[key] = gopi;
-    const gg = stationGgValue(station, ggByStation);
-    if (gg != null) measuredGg[key] = gg;
-  }
-  return {
-    gopi: idwFillByStation(sites, measuredGopi),
-    gg: idwFillByStation(sites, measuredGg),
-  };
+  return cardTec;
 }
 
 function stationGgValue(
@@ -385,16 +355,14 @@ export default function CorsMap({
     const trigNet = layerRef.current === "TrigNet";
     const networkMode = layerRef.current === "Network Distances";
     const highlight = stationKey(highlightCodeRef.current || "");
-    const surface = showTecLabels && !trigNet && !networkMode
-      ? surfaceTec(list, heatmapRef.current, ggByStationRef.current)
-      : null;
     return list.map((s) => {
       const f = new Feature({ geometry: new Point(fromLonLat([s.lon, s.lat])), station: s });
-      const key = stationKey(s.code);
-      const measuredTec = stationTecValue(s, heatmapRef.current);
-      const measuredGg = stationGgValue(s, ggByStationRef.current);
-      const tecValue = measuredTec ?? (surface ? surface.gopi.values[key] ?? null : null);
-      const ggValue = measuredGg ?? (surface ? surface.gg.values[key] ?? null : null);
+      const liveStatus = getLiveStationStatus(s);
+      const connected = liveStatus === "online";
+      const measuredTec = connected ? stationTecValue(s, heatmapRef.current) : null;
+      const measuredGg = connected ? stationGgValue(s, ggByStationRef.current) : null;
+      const tecValue = measuredTec;
+      const ggValue = measuredGg;
       const trigTec =
         trigNet && typeof s.current_tec === "number" && Number.isFinite(s.current_tec) && s.current_tec > 0
           ? s.current_tec
@@ -403,7 +371,6 @@ export default function CorsMap({
       const labelGg = geomagnetic ? null : trigNet ? ggValue : showTecLabels ? ggValue : null;
       const isRef = networkMode && isReferenceCorsStation(s);
       const isHighlight = Boolean(highlight) && stationKey(s.code) === highlight;
-      const liveStatus = getLiveStationStatus(s);
       const markerColor = liveStatus === "surveyor_general"
         ? STATUS_COLOR.surveyor_general
         : trigNet
@@ -1026,16 +993,11 @@ export default function CorsMap({
             typeof s.current_tec === "number" && Number.isFinite(s.current_tec) && s.current_tec > 0
               ? s.current_tec
               : null;
-          const surface = trigNetClick
-            ? null
-            : surfaceTec(stationsRef.current, heatmapRef.current, ggByStationRef.current);
-          const codeKey = stationKey(s.code);
-          const measuredTec = stationTecValue(s, heatmapRef.current);
-          const measuredGg = stationGgValue(s, ggByStationRef.current);
-          const tecInterpolated = measuredTec == null && Boolean(surface?.gopi.interpolated[codeKey]);
-          const ggInterpolated = measuredGg == null && Boolean(surface?.gg.interpolated[codeKey]);
-          const tecValue = trigNetClick ? cardTec : measuredTec ?? surface?.gopi.values[codeKey] ?? null;
-          const ggValue = measuredGg ?? surface?.gg.values[codeKey] ?? null;
+          const connected = getLiveStationStatus(s) === "online";
+          const measuredTec = connected ? stationTecValue(s, heatmapRef.current) : null;
+          const measuredGg = connected ? stationGgValue(s, ggByStationRef.current) : null;
+          const tecValue = trigNetClick ? cardTec : measuredTec;
+          const ggValue = measuredGg;
           const heatmapStation = heatmapStationFor(s, heatmapRef.current);
           setSelectedRef.current(s);
           onStationSelectRef.current?.(s);
@@ -1055,11 +1017,11 @@ export default function CorsMap({
               : "";
           const tecLine =
             tecValue != null
-              ? `<div style="color:#38bdf8;font-weight:800">GOPI ${tecValue.toFixed(1)} TECU${tecInterpolated ? " · interpolated" : ""}</div>`
+              ? `<div style="color:#38bdf8;font-weight:800">GOPI ${tecValue.toFixed(1)} TECU</div>`
               : "";
           const ggLine =
             ggValue != null
-              ? `<div style="color:#f59e0b;font-weight:800">Gg = Cesaroni ${ggValue.toFixed(1)} TECU${ggInterpolated ? " · interpolated" : ""}</div>`
+              ? `<div style="color:#f59e0b;font-weight:800">Gg = Cesaroni ${ggValue.toFixed(1)} TECU</div>`
               : "";
           const deltaLine =
             tecValue != null && ggValue != null

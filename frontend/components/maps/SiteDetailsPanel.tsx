@@ -32,6 +32,7 @@ function heatmapVtec(station: Station, heatmap?: TecHeatmapResponse | null): num
   if (heatStation && /processed_archive/i.test(heatStation.source ?? "")) {
     return null;
   }
+  if (getLiveStationStatus(station) !== "online") return null;
 
   // Streaming measured live NTRIP overrides any surface estimate.
   const measuredLive =
@@ -45,19 +46,6 @@ function heatmapVtec(station: Station, heatmap?: TecHeatmapResponse | null): num
     }
   }
 
-  // Non-streaming: allow interpolated live-surface VTEC on the card/map.
-  if (
-    heatStation &&
-    isInterpolatedSource(heatStation.source) &&
-    typeof heatStation.vtec === "number" &&
-    Number.isFinite(heatStation.vtec) &&
-    heatStation.vtec > 0
-  ) {
-    return heatStation.vtec;
-  }
-
-  const liveStatus = getLiveStationStatus(station);
-  if (liveStatus === "offline" || liveStatus === "unavailable") return null;
   return typeof station.current_tec === "number" && Number.isFinite(station.current_tec) && station.current_tec > 0
     ? station.current_tec
     : null;

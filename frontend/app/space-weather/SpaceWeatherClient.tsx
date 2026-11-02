@@ -3,7 +3,7 @@
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
-import { getSpaceWeather, getSolarActivity, getTimelines, refreshSpaceWeather, getStations, getEkfStatus, getHeliosphericMonitor, getLiveStationReadings, getCorsConnected } from "@/lib/api";
+import { getSpaceWeather, getSolarActivity, getTimelines, refreshSpaceWeather, getStations, getEkfStatus, getHeliosphericMonitor, getLiveStationReadings, getCorsConnected, getIonoVtecPair } from "@/lib/api";
 import { peekSpaceWeather, publishSpaceWeather, subscribeSpaceWeather } from "@/lib/spaceWeatherStore";
 import { absorbInlineBootPayload, bootSpaceWeather } from "@/lib/bootSpaceWeather";
 import { bootSolarActivity } from "@/lib/bootSolarActivity";
@@ -539,6 +539,10 @@ export default function SpaceWeatherClient({
     target.addEventListener("scroll", onScroll, { passive: true });
     return () => target.removeEventListener("scroll", onScroll);
   }, []);
+
+  useEffect(() => scheduleSecondary(() => {
+    void getIonoVtecPair().catch(() => undefined);
+  }), []);
 
   // Seed stores during render so later effects never see an empty peek and
   // flash Connecting/Updating over SSR-painted cards.
