@@ -1210,12 +1210,26 @@ async def status_activity(
 ):
     """Per-station receive/connecting strips, in the same shape as Spider Site Status."""
     from backend.station_status_logger import get_db
+    from zgiis.live.spider_site_status import get_cached_spider_site_statuses, spider_status_enabled
+
+    live_by_code: dict[str, str] = {}
+    try:
+        if spider_status_enabled():
+            payload_spider = get_cached_spider_site_statuses(refresh=False)
+            for code, row in (payload_spider.get("by_station") or {}).items():
+                key = str(code or "").lower().rstrip("_")
+                status = str((row or {}).get("status") or "").lower()
+                if key and status in {"online", "offline", "unknown"}:
+                    live_by_code[key] = status
+    except Exception as exc:
+        log.warning("activity live Spider tip skipped: %s", exc)
 
     payload = await asyncio.to_thread(
         get_db().uptime_activity,
         hours=hours,
         station_code=station,
         bucket_minutes=bucket_minutes,
+        live_by_code=live_by_code,
     )
     return StationActivityBoard(**payload)
 

@@ -1,9 +1,9 @@
 """
-Poll the live NTRIP pipeline's per-station connection state and log
-online / offline / unknown transitions.
+Poll station connection state and log online / offline / unknown transitions.
 
-Status is derived entirely from backend.live_manager.status() (real RTCM
-handshake + last-seen-data timestamps) — no third-party API is involved.
+Spider Site Status is the authoritative source for the archive (same ground
+truth as the CORS map). NTRIP stream health is the fallback when Spider is
+unavailable.
 """
 from __future__ import annotations
 
@@ -199,29 +199,45 @@ def log_status_map(current: dict[str, str], *, source: str, api_reachable: bool 
 
 
 def log_streams(streams: dict[str, dict], *, source: str = "collector") -> dict[str, Any]:
-    """
-    Log status derived from an externally-supplied NTRIP stream-status dict
-    (same shape as LiveNtripManager.status()).
+    """Archive one poll for the collector.
 
-    Used by the standalone persistent collector (scripts/live_ntrip_collector.py),
-    which runs its own LiveNtripManager in a separate process from the FastAPI
-    backend and therefore can't go through backend.live_manager. This is what
-    feeds station_status_snapshots for Vercel's serverless reads.
+    Prefer Spider Site Status so the Station Activity board matches the map.
+    Fall back to NTRIP stream health only when Spider has no online sites.
     """
+    spider_status = _status_from_spider()
+    spider_online = sum(1 for status in spider_status.values() if status == "online")
+    if spider_status and spider_online > 0:
+        return log_status_map(
+            spider_status,
+            source=f"{source}_spider",
+            api_reachable=True,
+        )
     current = _status_from_streams(streams)
+    online = sum(1 for status in current.values() if status == "online")
+    if not current or online == 0:
+        return {
+            "skipped": True,
+            "reason": "Spider unavailable and NTRIP has no online streams",
+            "stations": len(current),
+            **_counts(current),
+        }
     return log_status_map(current, source=source, api_reachable=True)
 
 
 def poll_and_log(*, source: str = "scheduler", force: bool = False) -> dict[str, Any]:
-    """
-    Read per-station connection state from the live NTRIP pipeline and update
-    the status archive. Returns summary dict with poll outcome.
-    """
+    """Update the status archive from Spider first, then NTRIP if needed."""
     global _last_poll_at
 
     now = time.monotonic()
     if not force and _last_poll_at is not None and (now - _last_poll_at) < _MIN_POLL_GAP_SEC:
         return {"skipped": True}
+
+    spider_status = _status_from_spider()
+    if spider_status:
+        online = sum(1 for status in spider_status.values() if status == "online")
+        if online > 0:
+            _last_poll_at = now
+            return log_status_map(spider_status, source=f"{source}_spider", api_reachable=True)
 
     pipeline_status: dict[str, Any] = {}
     try:
@@ -239,16 +255,11 @@ def poll_and_log(*, source: str = "scheduler", force: bool = False) -> dict[str,
         online = sum(1 for status in derived.values() if status == "online")
         if streams and online > 0:
             _last_poll_at = now
-            return log_streams(streams, source=source)
+            return log_status_map(derived, source=source, api_reachable=True)
         if not streams:
             return {"skipped": True, "reason": "live pipeline configured but no streams yet"}
 
-    spider_status = _status_from_spider()
     if spider_status:
-        online = sum(1 for status in spider_status.values() if status == "online")
-        if online > 0:
-            _last_poll_at = now
-            return log_status_map(spider_status, source=f"{source}_spider", api_reachable=True)
         return {"skipped": True, "reason": "Spider cache is all-offline; keep archive"}
 
     return {"skipped": True, "reason": "live pipeline and Spider status both unavailable"}

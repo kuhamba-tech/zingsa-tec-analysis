@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
-from zgiis.db.station_status_db import build_activity_strips
+from zgiis.db.station_status_db import apply_live_status_tip, build_activity_strips
 
 
 def test_receive_and_connecting_bars_follow_archived_status():
@@ -57,3 +57,28 @@ def test_status_holds_across_empty_buckets_and_does_not_paint_the_lead_in():
     tail = gutu["cells"].lstrip(".")
     assert tail and set(tail) == {"o"}
     assert "f" not in gutu["cells"]
+
+
+def test_live_spider_tip_overrides_stale_connecting_label():
+    now = datetime(2026, 11, 2, 12, 20, tzinfo=timezone.utc)
+    frame = pd.DataFrame(
+        [
+            {"time": "2026-11-02T12:00:00Z", "station_code": "chiv", "status": "online"},
+            {"time": "2026-11-02T12:18:00Z", "station_code": "chiv", "status": "offline"},
+            {"time": "2026-11-02T12:00:00Z", "station_code": "bing", "status": "offline"},
+        ]
+    )
+    board = build_activity_strips(frame, hours=0.5, bucket_minutes=5, now=now)
+    before = {row["station_code"]: row for row in board["stations"]}
+    assert before["chiv"]["activity"] == "connecting"
+    assert before["chiv"]["cells"].endswith("f")
+
+    apply_live_status_tip(
+        board,
+        {"chiv": "online", "bing": "offline"},
+    )
+    after = {row["station_code"]: row for row in board["stations"]}
+    assert after["chiv"]["activity"] == "receive data"
+    assert after["chiv"]["cells"].endswith("o")
+    assert after["bing"]["activity"] == "connecting"
+    assert after["chiv"]["station_code"] == board["stations"][0]["station_code"]

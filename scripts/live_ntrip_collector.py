@@ -440,7 +440,19 @@ def main() -> int:
             except Exception as exc:
                 log.warning("Graph logging failed to start: %s", exc)
             try:
-                station_status_logger.log_streams(status, source="collector")
+                # Same Spider-first map the dashboard and snapshot push use.
+                # NTRIP-only logging painted connected Spider sites as connecting.
+                snapshot_rows = _status_snapshot_rows(status)
+                status_map = {
+                    str(row["station_code"]): str(row["status"])
+                    for row in snapshot_rows
+                    if row.get("station_code") and row.get("status")
+                }
+                spider_n = sum(1 for row in snapshot_rows if row.get("source") == "spider_site_status")
+                archive_source = (
+                    "collector_spider" if spider_n > 0 else "collector_ntrip_fallback"
+                )
+                station_status_logger.log_status_map(status_map, source=archive_source)
             except Exception as exc:
                 log.warning("Station status archive write failed: %s", exc)
             try:

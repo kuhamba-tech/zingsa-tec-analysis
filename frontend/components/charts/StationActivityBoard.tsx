@@ -92,7 +92,7 @@ export default function StationActivityBoard({ board }: { board: Board }) {
         ))}
       </div>
       <p className={styles.note}>
-        Each row is one station. Green means the archive recorded data coming in. Red means the station was connecting. Times are CAT. Each block is {board.bucket_minutes} min.
+        Comm activity and the right-hand tip follow live Spider Site Status (same as the map). The rest of each bar is archived history. Times are CAT. Each block is {board.bucket_minutes} min.
       </p>
     </div>
   );

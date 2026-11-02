@@ -180,6 +180,48 @@ def build_activity_strips(
     }
 
 
+def apply_live_status_tip(
+    board: dict[str, Any],
+    live_by_code: dict[str, str],
+) -> dict[str, Any]:
+    """Paint the right-hand tip and Comm activity from live Spider Site Status.
+
+    The archive can lag or still carry NTRIP-only polls. The map uses Spider, so
+    the latest block and the activity label follow Spider when a live reading exists.
+    """
+    if not board or not live_by_code:
+        return board
+    stations = list(board.get("stations") or [])
+    for row in stations:
+        code = str(row.get("station_code") or "").lower().rstrip("_")
+        live = live_by_code.get(code)
+        if live not in VALID_STATUSES:
+            continue
+        tip = {"online": "o", "offline": "f", "unknown": "u"}.get(live, "u")
+        cells = list(str(row.get("cells") or ""))
+        if cells:
+            cells[-1] = tip
+            row["cells"] = "".join(cells)
+        elif tip:
+            row["cells"] = tip
+        if tip == "o":
+            row["activity"] = "receive data"
+        elif tip == "f":
+            row["activity"] = "connecting"
+        else:
+            row["activity"] = "unknown"
+    rank = {"receive data": 0, "connecting": 1, "unknown": 2, "no samples": 3}
+    stations.sort(
+        key=lambda row: (
+            rank.get(str(row.get("activity")), 9),
+            -float(row.get("online_pct") or 0.0),
+            str(row.get("station_name") or ""),
+        )
+    )
+    board["stations"] = stations
+    return board
+
+
 def _normalize_stored_status(status: str) -> str:
     s = (status or "").lower()
     if s in VALID_STATUSES:
@@ -778,11 +820,13 @@ class StationStatusDB:
         *,
         station_code: str | None = None,
         bucket_minutes: int | None = None,
+        live_by_code: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """Spider-style receive/connecting strips for the station uptime page.
 
         The database returns the latest status in each time block, so the page
-        does not have to download every poll.
+        does not have to download every poll. live_by_code (Spider) paints the
+        current tip so connected sites are not shown as connecting.
         """
         code = station_code.lower().rstrip("_") if station_code else None
         bucket = resolved_activity_bucket(hours, bucket_minutes)
@@ -819,13 +863,14 @@ class StationStatusDB:
         except Exception:
             log.warning("Activity strip aggregation failed; reading snapshots", exc_info=True)
             frame = self.query_snapshots(hours=hours, station_code=code)
-            return build_activity_strips(
+            board = build_activity_strips(
                 frame,
                 hours=hours,
                 bucket_minutes=bucket,
                 now=moment,
                 station_code=code,
             )
+            return self._with_live_spider_tip(board, live_by_code)
 
         records = [
             {
@@ -841,13 +886,50 @@ class StationStatusDB:
             if records
             else pd.DataFrame(columns=["time", "station_code", "status"])
         )
-        return build_activity_strips(
+        board = build_activity_strips(
             frame,
             hours=hours,
             bucket_minutes=bucket,
             now=moment,
             station_code=code,
         )
+        return self._with_live_spider_tip(board, live_by_code)
+
+    @staticmethod
+    def _with_live_spider_tip(
+        board: dict[str, Any],
+        live_by_code: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        """Match Comm activity and the latest block to live Spider Site Status."""
+        live = {
+            str(code).lower().rstrip("_"): status
+            for code, status in (live_by_code or {}).items()
+            if status in VALID_STATUSES
+        }
+        if live:
+            return apply_live_status_tip(board, live)
+        try:
+            from zgiis.live.spider_site_status import (
+                get_cached_spider_site_statuses,
+                spider_status_enabled,
+            )
+
+            if not spider_status_enabled():
+                return board
+            payload = get_cached_spider_site_statuses(refresh=False)
+            by_station = payload.get("by_station") or {}
+            if not by_station:
+                return board
+            live = {
+                str(code).lower().rstrip("_"): (
+                    "online" if (row or {}).get("status") == "online" else "offline"
+                )
+                for code, row in by_station.items()
+            }
+            return apply_live_status_tip(board, live)
+        except Exception:
+            log.warning("Live Spider tip for activity board skipped", exc_info=True)
+            return board
 
     def event_count(self) -> int:
         def _do() -> int:
