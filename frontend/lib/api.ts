@@ -76,6 +76,7 @@ import type {
   StationLiveStatus,
   StationStatusEvent,
   StationStatusLogStatus,
+  StationActivityBoard,
   StationUptimeAnalysis,
   StationUptimeRow,
   StationUptimeTimelinePoint,
@@ -801,6 +802,17 @@ export const getStationUptimeTimeline = (
     station,
     bucket_minutes,
   });
+export const getStationActivity = (
+  hours = 168,
+  station?: string,
+  bucket_minutes?: number,
+) =>
+  get<StationActivityBoard>("/cors/status/activity", {
+    hours,
+    station,
+    bucket_minutes,
+  }, ANALYSIS_TIMEOUT_MS);
+
 export const getStationUptimeAnalysis = (
   hours = 168,
   station?: string,

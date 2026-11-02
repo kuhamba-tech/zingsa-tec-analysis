@@ -31,6 +31,155 @@ VALID_STATUSES = frozenset({"online", "offline", "unknown"})
 _LEGACY_STATUSES = frozenset({"degraded", "linked", "connected"})  # folded into online
 
 
+def activity_bucket_minutes(hours: float) -> int:
+    """Fine enough to show receive/connecting changes, coarse enough for a year."""
+    if hours <= 6:
+        return 1
+    if hours <= 24:
+        return 5
+    if hours <= 168:
+        return 30
+    if hours <= 720:
+        return 180
+    return 720
+
+
+def resolved_activity_bucket(hours: float, bucket_minutes: int | None = None) -> int:
+    bucket = max(1, int(bucket_minutes or activity_bucket_minutes(hours)))
+    while hours * 60 / bucket > 240:
+        bucket *= 2
+    return bucket
+
+
+def build_activity_strips(
+    frame: pd.DataFrame,
+    *,
+    hours: float,
+    bucket_minutes: int | None = None,
+    now: datetime | None = None,
+    station_code: str | None = None,
+) -> dict[str, Any]:
+    """One Spider-style row per station. Green is receiving; red is connecting.
+
+    A bucket keeps the latest archived status. Empty buckets after the first
+    sample hold that status so the bar stays continuous. Buckets before the
+    first sample stay blank.
+    """
+    from zgiis.cors.stations import SURVEYOR_GENERAL_CODES, ZIMBABWE_CORS_STATIONS
+
+    moment = now or datetime.now(tz=timezone.utc)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    else:
+        moment = moment.astimezone(timezone.utc)
+    bucket_minutes = resolved_activity_bucket(hours, bucket_minutes)
+    step = timedelta(minutes=bucket_minutes)
+    start = moment - timedelta(hours=float(hours))
+    start = datetime.fromtimestamp(
+        start.timestamp() - (start.timestamp() % step.total_seconds()),
+        tz=timezone.utc,
+    )
+    end = datetime.fromtimestamp(
+        moment.timestamp() - (moment.timestamp() % step.total_seconds()),
+        tz=timezone.utc,
+    )
+    times: list[datetime] = []
+    cursor = start
+    while cursor <= end:
+        times.append(cursor)
+        cursor += step
+
+    code_filter = station_code.lower().rstrip("_") if station_code else None
+    catalog = [
+        station
+        for station in ZIMBABWE_CORS_STATIONS
+        if code_filter is None or station.code.lower().rstrip("_") == code_filter
+    ]
+    names = {station.code.lower().rstrip("_"): station.name for station in catalog}
+    by_station: dict[str, list[tuple[datetime, str]]] = {code: [] for code in names}
+
+    if frame is not None and not frame.empty and "time" in frame.columns:
+        work = frame.copy()
+        work["station_code"] = work["station_code"].map(
+            lambda code: str(code or "").lower().rstrip("_")
+        )
+        work["status"] = work["status"].map(lambda status: _normalize_stored_status(str(status or "")))
+        work["time"] = pd.to_datetime(work["time"], utc=True, errors="coerce")
+        work = work.dropna(subset=["time"])
+        if code_filter:
+            work = work[work["station_code"] == code_filter]
+        for code, group in work.groupby("station_code", sort=False):
+            key = str(code)
+            if key not in by_station:
+                by_station[key] = []
+                names.setdefault(key, key.upper())
+            rows = [
+                (stamp.to_pydatetime(), status)
+                for stamp, status in zip(group["time"], group["status"])
+            ]
+            rows.sort(key=lambda item: item[0])
+            by_station[key] = rows
+
+    stations: list[dict[str, Any]] = []
+    for code, samples in by_station.items():
+        cells: list[str] = []
+        held: str | None = None
+        index = 0
+        for bucket_start in times:
+            bucket_end = bucket_start + step
+            latest: str | None = None
+            while index < len(samples) and samples[index][0] < bucket_end:
+                if samples[index][0] >= bucket_start:
+                    latest = samples[index][1]
+                else:
+                    held = samples[index][1]
+                index += 1
+            if latest is not None:
+                held = latest
+            if held is None:
+                cells.append(".")
+            else:
+                cells.append({"online": "o", "offline": "f"}.get(held, "u"))
+        known = [cell for cell in cells if cell != "."]
+        online_n = sum(1 for cell in known if cell == "o")
+        online_pct = round(100.0 * online_n / len(known), 1) if known else 0.0
+        last = next((cell for cell in reversed(cells) if cell != "."), None)
+        if last == "o":
+            activity = "receive data"
+        elif last == "f":
+            activity = "connecting"
+        elif last == "u":
+            activity = "unknown"
+        else:
+            activity = "no samples"
+        stations.append(
+            {
+                "station_code": code,
+                "station_name": names.get(code, code.upper()),
+                "online_pct": online_pct,
+                "activity": activity,
+                "surveyor": code in SURVEYOR_GENERAL_CODES,
+                "cells": "".join(cells),
+            }
+        )
+
+    rank = {"receive data": 0, "connecting": 1, "unknown": 2, "no samples": 3}
+    stations.sort(
+        key=lambda row: (
+            rank.get(str(row["activity"]), 9),
+            -float(row["online_pct"]),
+            str(row["station_name"]),
+        )
+    )
+    return {
+        "hours": float(hours),
+        "bucket_minutes": bucket_minutes,
+        "start": start.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "end": end.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "stations": stations,
+    }
+
+
 def _normalize_stored_status(status: str) -> str:
     s = (status or "").lower()
     if s in VALID_STATUSES:
@@ -622,6 +771,83 @@ class StationStatusDB:
             "stations": stations,
             "timeline": timeline,
         }
+
+    def uptime_activity(
+        self,
+        hours: float = 24.0,
+        *,
+        station_code: str | None = None,
+        bucket_minutes: int | None = None,
+    ) -> dict[str, Any]:
+        """Spider-style receive/connecting strips for the station uptime page.
+
+        The database returns the latest status in each time block, so the page
+        does not have to download every poll.
+        """
+        code = station_code.lower().rstrip("_") if station_code else None
+        bucket = resolved_activity_bucket(hours, bucket_minutes)
+        moment = datetime.now(tz=timezone.utc)
+        step = bucket * 60
+        start = moment - timedelta(hours=float(hours))
+        start = datetime.fromtimestamp(
+            start.timestamp() - (start.timestamp() % step),
+            tz=timezone.utc,
+        )
+
+        def _do():
+            sql = """
+            SELECT lower(rtrim(station_code, '_')) AS station_code,
+                   (floor(extract(epoch from time) / ?) * ?) AS bucket_epoch,
+                   (array_agg(status ORDER BY time DESC))[1] AS status
+            FROM station_status_snapshots
+            WHERE time >= ? AND station_code IS NOT NULL
+            """
+            params: list[Any] = [step, step, start.isoformat()]
+            if code:
+                sql += " AND lower(rtrim(station_code, '_')) = ?"
+                params.append(code)
+            sql += " GROUP BY 1, 2"
+            cur = self._conn.cursor()
+            try:
+                cur.execute(sql.replace("?", "%s") if self._is_pg else sql, params)
+                return cur.fetchall()
+            finally:
+                cur.close()
+
+        try:
+            fetched = self._with_reconnect(_do)
+        except Exception:
+            log.warning("Activity strip aggregation failed; reading snapshots", exc_info=True)
+            frame = self.query_snapshots(hours=hours, station_code=code)
+            return build_activity_strips(
+                frame,
+                hours=hours,
+                bucket_minutes=bucket,
+                now=moment,
+                station_code=code,
+            )
+
+        records = [
+            {
+                "time": datetime.fromtimestamp(float(epoch), tz=timezone.utc).isoformat(),
+                "station_code": station,
+                "status": status,
+            }
+            for station, epoch, status in fetched
+            if station and epoch is not None
+        ]
+        frame = (
+            pd.DataFrame(records)
+            if records
+            else pd.DataFrame(columns=["time", "station_code", "status"])
+        )
+        return build_activity_strips(
+            frame,
+            hours=hours,
+            bucket_minutes=bucket,
+            now=moment,
+            station_code=code,
+        )
 
     def event_count(self) -> int:
         def _do() -> int:

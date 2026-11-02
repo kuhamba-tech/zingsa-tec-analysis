@@ -1,8 +1,5 @@
 // Local Chromium CDP check; no posting or deployment.
 import assert from "node:assert/strict";
-import { writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
 const target=await fetch("http://127.0.0.1:9222/json/new?about:blank",{method:"PUT"}).then(r=>r.json());
 const ws=new WebSocket(target.webSocketDebuggerUrl);
 await new Promise(r=>ws.addEventListener("open",r,{once:true}));
@@ -28,9 +25,15 @@ try {
  await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
  await send('Page.navigate',{url:'http://127.0.0.1:3000/space-weather/'});
  await until(`document.readyState==='complete'`);
- for(let i=0;i<70;i++){
+ await send('Page.bringToFront');
+ await delay(1500);
+ await ev(`document.querySelector('.sw-deferred-block')?.scrollIntoView()`);
+ await delay(7000);
+ await ev(`document.querySelector('#cors-network')?.scrollIntoView({block:'end'})`);
+ await delay(7000);
+ for(let i=0;i<8;i++){
   if(await ev(`!!document.querySelector('.home-station-vtec-plots')`))break;
-  await ev(`document.querySelector('#app-content').scrollBy(0,450)`);await delay(250);
+  await ev(`Array.from(document.querySelectorAll('#cors-network div')).filter(n=>n.style.minHeight).forEach(n=>n.scrollIntoView({block:'center'}))`);await delay(2000);
  }
  await until(`!!document.querySelector('.home-station-vtec-plots')`);
  await until(`!!document.querySelector('.home-station-vtec-plots .station-vtec-plots-meta')`);

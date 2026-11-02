@@ -15,6 +15,7 @@ from zgiis.processing.elevation_mask import ELEVATION_MIN_DEG
 from backend.schemas import (
     CorsHealthOut,
     RoverClientsOut,
+    StationActivityBoard,
     StationOut,
     StationStatusEventOut,
     StationStatusLogStatus,
@@ -1198,6 +1199,25 @@ async def status_timeline(
         hours=hours, station_code=station, bucket_minutes=bucket_minutes
     )
     return [StationUptimeTimelinePoint(**row) for row in rows]
+
+
+@router.get("/status/activity", response_model=StationActivityBoard)
+async def status_activity(
+    hours: float = 24.0,
+    station: str | None = Query(None, description="Station code; omit for every site"),
+    bucket_minutes: int | None = Query(None, ge=1, le=1440),
+    _=Depends(require_api_key),
+):
+    """Per-station receive/connecting strips, in the same shape as Spider Site Status."""
+    from backend.station_status_logger import get_db
+
+    payload = await asyncio.to_thread(
+        get_db().uptime_activity,
+        hours=hours,
+        station_code=station,
+        bucket_minutes=bucket_minutes,
+    )
+    return StationActivityBoard(**payload)
 
 
 @router.get("/status/analysis", response_model=StationUptimeAnalysis)

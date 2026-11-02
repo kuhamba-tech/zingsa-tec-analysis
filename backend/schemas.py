@@ -521,6 +521,23 @@ class StationOutageInterval(BaseModel):
     ongoing: bool = False
 
 
+class StationActivityStrip(BaseModel):
+    station_code: str
+    station_name: str
+    online_pct: float
+    activity: str
+    surveyor: bool = False
+    cells: str
+
+
+class StationActivityBoard(BaseModel):
+    hours: float
+    bucket_minutes: int
+    start: str
+    end: str
+    stations: list[StationActivityStrip]
+
+
 class StationUptimeAnalysis(BaseModel):
     hours: float
     bucket_minutes: int

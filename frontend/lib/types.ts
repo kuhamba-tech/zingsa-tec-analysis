@@ -469,6 +469,23 @@ export interface StationOutageInterval {
   ongoing: boolean;
 }
 
+export interface StationActivityStrip {
+  station_code: string;
+  station_name: string;
+  online_pct: number;
+  activity: string;
+  surveyor?: boolean;
+  cells: string;
+}
+
+export interface StationActivityBoard {
+  hours: number;
+  bucket_minutes: number;
+  start: string;
+  end: string;
+  stations: StationActivityStrip[];
+}
+
 export interface StationUptimeAnalysis {
   hours: number;
   bucket_minutes: number;

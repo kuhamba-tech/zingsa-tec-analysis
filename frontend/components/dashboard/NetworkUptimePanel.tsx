@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   getStations,
   getStationStatusEvents,
+  getStationActivity,
   getStationUptimeAnalysis,
   getSpaceWeather,
   getTecHeatmap,
@@ -12,6 +13,7 @@ import LineChart from "@/components/charts/LineChart";
 import UptimeMonitoringPanel from "./UptimeMonitoringPanel";
 import NetworkUpDownChart from "@/components/charts/NetworkUpDownChart";
 import SiteAvailabilityRibbon from "@/components/charts/SiteAvailabilityRibbon";
+import StationActivityBoard from "@/components/charts/StationActivityBoard";
 import StationStatusBarChart from "@/components/charts/StationStatusBarChart";
 import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
 import CorsMapWithLayers, { BASE_MAP_LAYERS } from "@/components/maps/CorsMapWithLayers";
@@ -22,6 +24,7 @@ import { peekStations } from "@/lib/stationsStore";
 import { mergeTecHeatmapWithStations } from "@/lib/tecHeatmapMerge";
 import type {
   Station,
+  StationActivityBoard as StationActivityPayload,
   StationStatusEvent,
   StationUptimeAnalysis,
   TecHeatmapResponse,
@@ -110,10 +113,12 @@ export default function NetworkUptimePanel({
   const [tecHeatmap, setTecHeatmap] = useState<TecHeatmapResponse | null>(null);
   const [riskLevel, setRiskLevel] = useState("N/A");
   const [analysis, setAnalysis] = useState<StationUptimeAnalysis | null>(null);
+  const [activity, setActivity] = useState<StationActivityPayload | null>(null);
   const [events, setEvents] = useState<StationStatusEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<UptimeTab>("overview");
+  const loadGeneration = useRef(0);
 
   useEffect(() => {
     setRangeIdx(uptimeRangeIndex(initialRangeKey));
@@ -152,22 +157,37 @@ export default function NetworkUptimePanel({
   }, []);
 
   const load = useCallback(async () => {
+    const generation = ++loadGeneration.current;
     setLoading(true);
     setError(null);
     const stationArg = station || undefined;
+    let activityOk = false;
     try {
-      const [analysisPayload, eventsPayload] = await Promise.all([
+      const board = await getStationActivity(range.hours, stationArg);
+      if (generation !== loadGeneration.current) return;
+      setActivity(board);
+      activityOk = true;
+    } catch (err) {
+      if (generation !== loadGeneration.current) return;
+      setActivity(null);
+      setError(err instanceof Error ? err.message : "Failed to load station activity");
+    } finally {
+      if (generation === loadGeneration.current) setLoading(false);
+    }
+    try {
+      const [analysisResult, eventsResult] = await Promise.allSettled([
         getStationUptimeAnalysis(range.hours, stationArg),
         getStationStatusEvents(range.hours, stationArg),
       ]);
-      setAnalysis(analysisPayload);
-      setEvents(eventsPayload.slice(-20).reverse());
-    } catch (err) {
-      setAnalysis(null);
-      setEvents([]);
-      setError(err instanceof Error ? err.message : "Failed to load uptime archive");
-    } finally {
-      setLoading(false);
+      if (generation !== loadGeneration.current) return;
+      setAnalysis(analysisResult.status === "fulfilled" ? analysisResult.value : null);
+      setEvents(eventsResult.status === "fulfilled" ? eventsResult.value.slice(-20).reverse() : []);
+      if (!activityOk && analysisResult.status === "rejected") {
+        const reason = analysisResult.reason;
+        setError(reason instanceof Error ? reason.message : "Failed to load uptime archive");
+      }
+    } catch {
+      /* The activity board is already on screen. */
     }
   }, [range.hours, station]);
 
@@ -277,7 +297,9 @@ export default function NetworkUptimePanel({
     await downloadUptimeReportPdf(analysis, scopeLabel);
   };
 
+  const activityHasSamples = activity?.stations.some((row) => row.activity !== "no samples") ?? false;
   const hasAnyData =
+    activityHasSamples ||
     (analysis?.samples ?? 0) > 0 ||
     (analysis?.timeline.length ?? 0) > 0 ||
     (analysis?.stations.some((r) => r.samples > 0) ?? false);
@@ -376,6 +398,15 @@ export default function NetworkUptimePanel({
           Save PDF
         </button>
       </div>
+
+      {activity && activity.stations.length > 0 && (activeTab === "overview" || activeTab === "details" || activeTab === "reports") && (
+        <div style={{ marginBottom: "1.25rem" }}>
+          <div className="operations-chart-title" style={{ marginBottom: "0.5rem" }}>
+            Station activity
+          </div>
+          <StationActivityBoard board={activity} />
+        </div>
+      )}
 
       {activeTab === "overview" && (
         <div className="uptime-tab-callout">

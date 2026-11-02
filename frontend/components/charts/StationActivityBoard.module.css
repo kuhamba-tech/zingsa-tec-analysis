@@ -1,0 +1,141 @@
+.board {
+  margin-bottom: 1.25rem;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.85rem;
+  margin-bottom: 0.45rem;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.legend i,
+.strip i {
+  display: block;
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 2px;
+}
+
+.scroll {
+  overflow-x: auto;
+  border: 1px solid rgba(36, 77, 115, 0.55);
+  border-radius: 8px;
+  background: rgba(6, 18, 32, 0.55);
+}
+
+.head,
+.row {
+  display: grid;
+  gap: 0.45rem;
+  align-items: center;
+  min-width: 46rem;
+  padding: 0.28rem 0.55rem;
+}
+
+.head {
+  position: sticky;
+  top: 0;
+  font-size: 0.68rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  border-bottom: 1px solid rgba(36, 77, 115, 0.55);
+}
+
+.row {
+  font-size: 0.78rem;
+  border-top: 1px solid rgba(36, 77, 115, 0.28);
+}
+
+.name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.name em {
+  margin-left: 0.35rem;
+  font-style: normal;
+  font-size: 0.62rem;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.code {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.activityOn {
+  color: #00ff88;
+}
+
+.activityOff {
+  color: #ff4444;
+}
+
+.activityQuiet {
+  color: var(--text-muted);
+}
+
+.pct {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.axis {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-width: 0;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 0.68rem;
+  white-space: nowrap;
+}
+
+.strip {
+  display: flex;
+  height: 14px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: #13283c;
+}
+
+.strip i {
+  flex: 1 1 0;
+  width: auto;
+  height: 100%;
+  border-radius: 0;
+}
+
+.receive {
+  background: #00ff88;
+}
+
+.connecting {
+  background: #ff4444;
+}
+
+.unknown {
+  background: #8aa0b5;
+}
+
+.empty {
+  background: #1c3348;
+}
+
+.note {
+  margin: 0.4rem 0 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
