@@ -23,6 +23,7 @@ const NAV_GROUPS: { section: string; items: NavItem[] }[] = [
   {
     section: "Dashboard",
     items: [
+      { href: "/display/", label: "Touchscreen Display", icon: "▣" },
       { href: "/", label: "National Dashboard", icon: "🇿🇼", excludeWhenHash: true },
       { href: "/#cors-network", label: "Live CORS", icon: "📡", matchHash: "#cors-network" },
       { href: "/storm-watch/", label: "Alerts", icon: "🔔" },
