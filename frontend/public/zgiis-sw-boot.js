@@ -4,6 +4,48 @@
  * URL rules must stay aligned with lib/clientApiBase.ts.
  */
 (function () {
+  // React 19 / Next App Router: HostHoistable deletion does
+  //   fiber.stateNode.parentNode.removeChild(...)
+  // after the browser moved <link>/<meta>/<style>/<title>/<script> into <head>.
+  // parentNode is then null → TypeError on client navigations. Patch before React.
+  try {
+    var HOIST = { TITLE: 1, LINK: 1, META: 1, STYLE: 1, SCRIPT: 1 };
+    var noopParent = {
+      removeChild: function (c) {
+        return c;
+      },
+      insertBefore: function (n) {
+        return n;
+      },
+      appendChild: function (n) {
+        return n;
+      },
+    };
+    var parentDesc = Object.getOwnPropertyDescriptor(Node.prototype, "parentNode");
+    if (parentDesc && parentDesc.get && !Node.prototype.__zgiisParentNodePatched) {
+      var originalParentGet = parentDesc.get;
+      Object.defineProperty(Node.prototype, "parentNode", {
+        configurable: true,
+        get: function () {
+          var parent = originalParentGet.call(this);
+          if (parent === null && this.nodeName && HOIST[this.nodeName]) return noopParent;
+          return parent;
+        },
+      });
+      Node.prototype.__zgiisParentNodePatched = true;
+    }
+    var origRemoveChild = Node.prototype.removeChild;
+    Node.prototype.removeChild = function (child) {
+      if (!child || child.parentNode !== this) return child;
+      return origRemoveChild.call(this, child);
+    };
+    var origInsertBefore = Node.prototype.insertBefore;
+    Node.prototype.insertBefore = function (node, ref) {
+      if (ref && ref.parentNode !== this) return node;
+      return origInsertBefore.call(this, node, ref);
+    };
+  } catch (e) {}
+
   // Embedded touchscreens can ship an old Chromium/WebView. Send them to a
   // server-rendered display before loading the modern dashboard libraries.
   try {
