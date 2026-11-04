@@ -4,6 +4,8 @@ import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { getSpaceWeather, getSolarActivity, getTimelines, refreshSpaceWeather, getStations, getEkfStatus, getHeliosphericMonitor, getLiveStationReadings, getCorsConnected, getIonoVtecPair } from "@/lib/api";
+import { loadCorsMapWithLayers } from "@/lib/loadCorsMapWithLayers";
+import { ensureLiveTecHeatmap } from "@/lib/tecHeatmapStore";
 import { peekSpaceWeather, publishSpaceWeather, subscribeSpaceWeather } from "@/lib/spaceWeatherStore";
 import { absorbInlineBootPayload, bootSpaceWeather } from "@/lib/bootSpaceWeather";
 import { bootSolarActivity } from "@/lib/bootSolarActivity";
@@ -541,8 +543,9 @@ export default function SpaceWeatherClient({
   }, []);
 
   useEffect(() => {
-    // CleverTouch / IFP: skip secondary iono warm so /current can finish first.
-    if (getLoadProfile().tv) return;
+    // Warm OpenLayers + heatmap so the overview CORS map paints like before.
+    void loadCorsMapWithLayers().catch(() => null);
+    void ensureLiveTecHeatmap();
     return scheduleSecondary(() => {
       void getIonoVtecPair().catch(() => undefined);
     });
@@ -1240,7 +1243,7 @@ export default function SpaceWeatherClient({
             minDelayMs={loadProfile.tv ? Math.min(loadProfile.heavyMountDelayMs, 600) : loadProfile.heavyMountDelayMs}
             fallback={sectionFallback}
           >
-            <CauseEffectTimelineStack variant="overview" includeChrome={false} />
+            <CauseEffectTimelineStack variant="overview" />
           </DeferredMount>
           <DeferredMount
             className="sw-deferred-block"
