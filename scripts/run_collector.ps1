@@ -11,3 +11,12 @@ $log = Join-Path $projectRoot "collector.log"
 $errLog = Join-Path $projectRoot "collector.err.log"
 
 & $venvPython $collectorScript 1>> $log 2>> $errLog
+
+# This is a persistent collector. Any exit needs Task Scheduler to restart it.
+# PowerShell otherwise reports success even when the native Python process fails,
+# so RestartCount/RestartInterval would never recover a crashed collector.
+$collectorExitCode = $LASTEXITCODE
+if ($null -eq $collectorExitCode -or $collectorExitCode -eq 0) {
+    exit 1
+}
+exit $collectorExitCode
