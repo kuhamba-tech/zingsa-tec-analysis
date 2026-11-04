@@ -229,22 +229,37 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const closeMobile = () => setMobileOpen(false);
 
   return (
-    <div className="app-shell">
-      <a className="app-skip-link" href="#app-content" onClick={(event) => {
-        event.preventDefault();
-        mainRef.current?.focus();
-      }}>Skip to content</a>
-      <header className="app-topbar">
+    // Cursor IDE / browser extensions inject attributes (e.g. data-cursor-ref)
+    // before hydration; suppress so those tooling attrs do not spam the overlay.
+    <div className="app-shell" suppressHydrationWarning>
+      <a
+        className="app-skip-link"
+        href="#app-content"
+        suppressHydrationWarning
+        onClick={(event) => {
+          event.preventDefault();
+          mainRef.current?.focus();
+        }}
+      >
+        Skip to content
+      </a>
+      <header className="app-topbar" suppressHydrationWarning>
         <button
           ref={menuRef}
           className="app-hamburger"
+          // Cursor IDE injects data-cursor-ref before hydration (extension-style mismatch).
+          suppressHydrationWarning
           onClick={() => setMobileOpen((open) => !open)}
           aria-label={mobileOpen ? "Close navigation" : "Open navigation"}
           aria-expanded={mobileOpen}
           aria-controls="app-navigation"
         >
-          <span className="app-hamburger-icon" aria-hidden="true">☰</span>
-          <span className="app-hamburger-label">{mobileOpen ? "Close" : "Menu"}</span>
+          <span className="app-hamburger-icon" aria-hidden="true" suppressHydrationWarning>
+            ☰
+          </span>
+          <span className="app-hamburger-label" suppressHydrationWarning>
+            {mobileOpen ? "Close" : "Menu"}
+          </span>
         </button>
         <span className="app-topbar-title">Space Weather &amp; Navigation</span>
       </header>
@@ -255,8 +270,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         ref={sidebarRef}
         id="app-navigation"
         aria-label="Main navigation"
-        inert={mobileViewport && !mobileOpen}
+        inert={mobileViewport && !mobileOpen ? true : undefined}
         className={`app-sidebar${collapsed ? " is-collapsed" : ""}${mobileOpen ? " is-mobile-open" : ""}`}
+        suppressHydrationWarning
       >
         <div className="app-sidebar-head">
           <span className="app-logo-text">Space Weather &amp; Navigation</span>
@@ -266,13 +282,14 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             aria-expanded={!collapsed}
+            suppressHydrationWarning
           >
             {collapsed ? "›" : "‹"}
           </button>
           <button className="app-mobile-close" onClick={closeMobile} aria-label="Close navigation">✕</button>
         </div>
 
-        <nav className="app-nav">
+        <nav className="app-nav" suppressHydrationWarning>
           {NAV_GROUPS.map(({ section, items }) => (
             <div key={section} className="app-nav-group">
               <div className="app-nav-section">{section}</div>
@@ -287,6 +304,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                     onClick={closeMobile}
                     aria-current={active ? "page" : undefined}
                     aria-label={collapsed ? item.label : undefined}
+                    suppressHydrationWarning
                   >
                     <div className={`app-nav-item${active ? " is-active" : ""}${item.matchHash ? " app-nav-item--sub" : ""}`}>
                       <span className="app-nav-icon">{item.icon}</span>
@@ -315,10 +333,19 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
 
-      <main ref={mainRef} id="app-content" className="app-main" tabIndex={-1} inert={mobileOpen}>
+      <main
+        ref={mainRef}
+        id="app-content"
+        className="app-main"
+        tabIndex={-1}
+        inert={mobileOpen ? true : undefined}
+        suppressHydrationWarning
+      >
         <PageErrorBoundary key={pathname}>{children}</PageErrorBoundary>
       </main>
-      <div inert={mobileOpen}><SiteTranslator /></div>
+      <div inert={mobileOpen ? true : undefined} suppressHydrationWarning>
+        <SiteTranslator />
+      </div>
     </div>
   );
 }

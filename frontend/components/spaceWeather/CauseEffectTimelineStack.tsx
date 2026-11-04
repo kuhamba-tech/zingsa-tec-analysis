@@ -260,6 +260,7 @@ export default function CauseEffectTimelineStack({
   afterSun = null,
   afterVtec = null,
   localStartNumber = 1,
+  includeChrome,
 }: {
   variant?: CauseEffectVariant;
   /** Inserted after GOES X-ray (e.g. F10.7 sun metric on Live Metric). */
@@ -268,10 +269,16 @@ export default function CauseEffectTimelineStack({
   afterVtec?: ReactNode | ((sync: TimelineSync) => ReactNode);
   /** First panel number for local VTEC/GNSS when drivers are omitted (default 1). */
   localStartNumber?: number;
+  /**
+   * When false, skip ionosphere strip + CORS map (caller mounts them earlier so
+   * the map does not wait behind Chart.js / timeline chunk compile).
+   */
+  includeChrome?: boolean;
 }) {
   const showDrivers = variant === "full" || variant === "drivers" || variant === "liveMetric";
   const showLocal = variant === "full" || variant === "local" || variant === "liveMetric";
-  const showChrome = variant === "full" || variant === "overview";
+  const showChrome =
+    (includeChrome ?? true) && (variant === "full" || variant === "overview");
   const showTimelineSection = variant !== "overview";
   // Overview shows the readings strip and map. It does not draw the VTEC
   // history charts, so it must not start that database read.

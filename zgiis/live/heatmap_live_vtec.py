@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
@@ -41,6 +42,8 @@ def _is_serverless_runtime() -> bool:
 
 _CACHE: dict[str, Any] | None = None
 _CACHE_TS: float = 0.0
+_BG_WARM_LOCK = threading.Lock()
+_BG_WARMING = False
 
 
 def live_ntrip_heatmap_enabled() -> bool:
@@ -135,10 +138,18 @@ def sample_live_ntrip_vtec(
         return _CACHE
 
     if not allow_blocking_refresh and not refresh:
-        if _CACHE is not None:
-            import threading
+        # Always kick a background sample when the request path must stay fast —
+        # including cold start with an empty cache — so the next poll can paint TEC.
+        global _BG_WARMING
+        start_bg = False
+        with _BG_WARM_LOCK:
+            if not _BG_WARMING:
+                _BG_WARMING = True
+                start_bg = True
 
+        if start_bg:
             def _bg() -> None:
+                global _BG_WARMING
                 try:
                     sample_live_ntrip_vtec(
                         refresh=True,
@@ -149,8 +160,13 @@ def sample_live_ntrip_vtec(
                     )
                 except Exception as exc:
                     log.warning("Background live NTRIP VTEC sample failed: %s", exc)
+                finally:
+                    with _BG_WARM_LOCK:
+                        _BG_WARMING = False
 
             threading.Thread(target=_bg, daemon=True, name="heatmap-live-vtec-bg").start()
+
+        if _CACHE is not None:
             return _CACHE
         return {
             "probed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { getStations } from "@/lib/api";
 import { ensureLiveTecHeatmap, peekTecHeatmap, subscribeTecHeatmap } from "@/lib/tecHeatmapStore";
+import { getLoadProfile, scheduleSecondary } from "@/lib/loadBudget";
 import { loadCorsMapWithLayers } from "@/lib/loadCorsMapWithLayers";
 import {
   countLiveStationStatuses,
@@ -95,11 +96,11 @@ export default function SpaceWeatherCorsMap({ height: preferredHeight = 440 }: {
         if (!cancelled) setStationsLoading(false);
       });
 
-    // Station markers use /cors/stations. Start the TEC grid after that request
-    // is on the wire so the two do not open together with the metric cards.
-    const heatTimer = window.setTimeout(() => {
+    // Station markers use /cors/stations. TEC grid is optional overlay — defer
+    // until after first paint so a slow heatmap cannot starve the map chunk.
+    const cancelHeat = scheduleSecondary(() => {
       if (!cancelled) ensureLiveTecHeatmap();
-    }, 800);
+    }, getLoadProfile());
     const unsubscribeHeatmap = subscribeTecHeatmap((next) => {
       if (!cancelled && next) setHeatmap(next);
     });
@@ -108,7 +109,7 @@ export default function SpaceWeatherCorsMap({ height: preferredHeight = 440 }: {
 
     return () => {
       cancelled = true;
-      window.clearTimeout(heatTimer);
+      cancelHeat();
       unsubscribeHeatmap();
     };
   }, []);

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import threading
 import time
 from datetime import date
@@ -9,6 +10,8 @@ from functools import lru_cache
 import numpy as np
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
+
+log = logging.getLogger(__name__)
 
 from backend.deps import require_api_key
 from zgiis.processing.elevation_mask import ELEVATION_MIN_DEG
@@ -47,9 +50,15 @@ router = APIRouter(prefix="/tec", tags=["tec"])
 
 # Live map polls share one build. A fresh sample is a short SQL read; repeating
 # it for every card on the page was queueing the rest of the API.
-_HEATMAP_CACHE_TTL_S = 15.0
+_HEATMAP_CACHE_TTL_S = 20.0
+# Cap the HTTP wait hard — markers paint from /cors/stations; TEC grid is optional.
+_HEATMAP_BUILD_TIMEOUT_S = 4.0
 _heatmap_cache: dict[tuple[float, bool], tuple[float, object]] = {}
 _heatmap_cache_lock = threading.Lock()
+_heatmap_inflight: dict[tuple[float, bool], asyncio.Future] = {}
+# Remote TecDB connect timeouts held every default executor slot and crashed
+# uvicorn with "connection pool exhausted". One rebuild at a time.
+_heatmap_rebuild_lock = threading.Lock()
 
 # DLR IMPC rewrites this fixed path in place; browsers/CDNs often keep a
 # multi-hour stale copy when the dashboard loads the URL directly.
@@ -602,32 +611,28 @@ def global_vtec_by_station(
     return refresh_and_query_global_tec(hours=hours, latest_only=latest_only)
 
 
-@router.get("/heatmap", response_model=TecHeatmapResponse)
-async def tec_heatmap(
-    response: Response,
-    hours: float = Query(0.05, ge=0.02, le=2.0, description="Lookback hours (station markers keep one caster rotation)"),
-    refresh_ntrip: bool = Query(False, description="Force a fresh live NTRIP VTEC sample when set"),
-    _=Depends(require_api_key),
-):
-    from zgiis.maps.heatmap_data import build_tec_heatmap
+def _empty_heatmap_timeout_model() -> TecHeatmapResponse:
+    from zgiis.maps.interpolation import ZW_LAT_MAX, ZW_LAT_MIN, ZW_LON_MAX, ZW_LON_MIN
 
-    # Station markers keep the last caster rotation inside build_tec_heatmap.
-    # A 3-minute cap left only the mount being read now, then copied it everywhere.
-    cache_key = (round(float(hours), 3), bool(refresh_ntrip))
-    if not refresh_ntrip:
-        with _heatmap_cache_lock:
-            hit = _heatmap_cache.get(cache_key)
-            if hit and (time.time() - hit[0]) < _HEATMAP_CACHE_TTL_S:
-                response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-                response.headers["X-ZGIIS-Cache"] = "hit"
-                return hit[1]
-
-    payload = await asyncio.to_thread(
-        build_tec_heatmap,
-        hours=float(hours),
-        refresh_ntrip=refresh_ntrip,
+    return TecHeatmapResponse(
+        available=False,
+        stations=[],
+        heat_points=[],
+        grid=None,
+        bounds=[ZW_LON_MIN, ZW_LAT_MIN, ZW_LON_MAX, ZW_LAT_MAX],
+        tec_min=None,
+        tec_max=None,
+        station_count=0,
+        updated_at=None,
+        message="Live TEC heatmap warming. Station markers still use Spider Site Status.",
+        data_quality="none",
+        icao_mod_tecu=125.0,
+        icao_sev_tecu=175.0,
+        diagnostics=None,
     )
 
+
+def _heatmap_model_from_payload(payload: dict) -> TecHeatmapResponse:
     # Final API guard: never return RINEX/CMN archive VTEC on this live endpoint.
     stations = [
         s
@@ -655,13 +660,8 @@ async def tec_heatmap(
     elif len(stations) != len(payload.get("stations") or []):
         payload = {**payload, "stations": stations, "station_count": len(stations)}
 
-    # Always defeat browser/CDN caches — live NTRIP must not look frozen.
-    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    response.headers["Pragma"] = "no-cache"
-    response.headers["Expires"] = "0"
-
     grid = payload.get("grid")
-    model = TecHeatmapResponse(
+    return TecHeatmapResponse(
         available=payload["available"],
         stations=[TecHeatmapStation(**s) for s in payload["stations"]],
         heat_points=[TecHeatmapPoint(**p) for p in payload["heat_points"]],
@@ -677,9 +677,132 @@ async def tec_heatmap(
         icao_sev_tecu=payload.get("icao_sev_tecu", 175.0),
         diagnostics=TecHeatmapDiagnostics(**payload["diagnostics"]) if payload.get("diagnostics") else None,
     )
+
+
+def _schedule_heatmap_rebuild(cache_key: tuple[float, bool], hours: float, refresh_ntrip: bool) -> None:
+    """Rebuild off the request path so a stuck remote TecDB cannot freeze the map."""
+    from zgiis.maps.heatmap_data import build_tec_heatmap
+
+    if cache_key in _heatmap_inflight:
+        return
+    if not _heatmap_rebuild_lock.acquire(blocking=False):
+        return
+
+    def _build() -> object:
+        try:
+            payload = build_tec_heatmap(hours=float(hours), refresh_ntrip=refresh_ntrip)
+            return _heatmap_model_from_payload(payload)
+        finally:
+            _heatmap_rebuild_lock.release()
+
+    async def _bg_rebuild() -> None:
+        try:
+            # No wait_for: cancelling to_thread leaves the worker holding a DB
+            # connection until TCP timeout, which exhausted the pool.
+            model = await asyncio.to_thread(_build)
+            # Never stick the map on an empty miss — keep rebuilding until live
+            # NTRIP VTEC lands (collector rotation may take a few minutes).
+            if getattr(model, "available", False) or int(getattr(model, "station_count", 0) or 0) > 0:
+                with _heatmap_cache_lock:
+                    _heatmap_cache[cache_key] = (time.time(), model)
+            else:
+                with _heatmap_cache_lock:
+                    _heatmap_cache.pop(cache_key, None)
+        except Exception as exc:
+            log.warning("background tec heatmap rebuild failed: %s", exc)
+        finally:
+            _heatmap_inflight.pop(cache_key, None)
+
+    _heatmap_inflight[cache_key] = asyncio.create_task(_bg_rebuild())  # type: ignore[assignment]
+
+
+def _cache_heatmap_model(cache_key: tuple[float, bool], model: TecHeatmapResponse) -> None:
+    if not (model.available or model.station_count > 0):
+        return
+    with _heatmap_cache_lock:
+        _heatmap_cache[cache_key] = (time.time(), model)
+
+
+@router.get("/heatmap", response_model=TecHeatmapResponse)
+async def tec_heatmap(
+    response: Response,
+    hours: float = Query(0.05, ge=0.02, le=2.0, description="Lookback hours (station markers keep one caster rotation)"),
+    refresh_ntrip: bool = Query(False, description="Force a fresh live NTRIP VTEC sample when set"),
+    _=Depends(require_api_key),
+):
+    from zgiis.maps.heatmap_data import build_tec_heatmap
+
+    # Station markers keep the last caster rotation inside build_tec_heatmap.
+    # A 3-minute cap left only the mount being read now, then copied it everywhere.
+    cache_key = (round(float(hours), 3), bool(refresh_ntrip))
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+
+    # Default dashboard polls never wait on TecDB/NTRIP. Remote Postgres connect
+    # timeouts were saturating the thread pool and freezing National Dashboard.
     if not refresh_ntrip:
         with _heatmap_cache_lock:
-            _heatmap_cache[cache_key] = (time.time(), model)
+            hit = _heatmap_cache.get(cache_key)
+            if hit:
+                age = time.time() - hit[0]
+                model = hit[1]
+                useful = bool(getattr(model, "available", False) or int(getattr(model, "station_count", 0) or 0) > 0)
+                if age < _HEATMAP_CACHE_TTL_S and useful:
+                    response.headers["X-ZGIIS-Cache"] = "hit"
+                    return model
+                stale_model = model if useful else None
+                if not useful:
+                    _heatmap_cache.pop(cache_key, None)
+            else:
+                stale_model = None
+
+        # Cold / empty: try a short sync read so a running collector paints ASAP.
+        if stale_model is None:
+            try:
+                payload = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        build_tec_heatmap,
+                        hours=float(hours),
+                        refresh_ntrip=False,
+                    ),
+                    timeout=_HEATMAP_BUILD_TIMEOUT_S,
+                )
+                model = _heatmap_model_from_payload(payload)
+                _cache_heatmap_model(cache_key, model)
+                if model.available or model.station_count > 0:
+                    response.headers["X-ZGIIS-Cache"] = "miss"
+                    return model
+            except asyncio.TimeoutError:
+                log.warning("tec heatmap quick build timed out (hours=%s)", hours)
+            except Exception as exc:
+                log.warning("tec heatmap quick build failed: %s", exc)
+
+        response.headers["X-ZGIIS-Cache"] = "stale" if stale_model is not None else "warming"
+        _schedule_heatmap_rebuild(cache_key, float(hours), False)
+        return stale_model if stale_model is not None else _empty_heatmap_timeout_model()
+
+    # Explicit refresh_ntrip may wait briefly; still capped.
+    try:
+        payload = await asyncio.wait_for(
+            asyncio.to_thread(
+                build_tec_heatmap,
+                hours=float(hours),
+                refresh_ntrip=True,
+            ),
+            timeout=max(_HEATMAP_BUILD_TIMEOUT_S * 2, 8.0),
+        )
+    except asyncio.TimeoutError:
+        log.warning("tec heatmap refresh timed out (hours=%s)", hours)
+        response.headers["X-ZGIIS-Cache"] = "timeout"
+        with _heatmap_cache_lock:
+            hit = _heatmap_cache.get(cache_key)
+        if hit and (hit[1].available or hit[1].station_count > 0):
+            return hit[1]
+        return _empty_heatmap_timeout_model()
+
+    model = _heatmap_model_from_payload(payload)
+    _cache_heatmap_model(cache_key, model)
     response.headers["X-ZGIIS-Cache"] = "miss"
     return model
 

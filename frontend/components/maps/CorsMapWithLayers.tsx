@@ -662,7 +662,13 @@ export default function CorsMapWithLayers({
               </>
             )}
             <div className="map-status-note" style={{ fontSize: "0.62rem", fontWeight: 400, color: "var(--text-muted)", marginTop: "0.15rem", maxWidth: "210px" }}>
-              Live from Spider Site Status (Status=3 online). Green = online, red = offline, grey = Surveyor General. Click a marker for Details.
+              Live from Spider Site Status
+              {liveCounts.online + liveCounts.offline > 0
+                ? ` (Status=${liveCounts.online} online)`
+                : ""}
+              . Green = online, red = offline, grey = Surveyor General. Click a marker for Details.
+              {" "}
+              Spider online ≠ NTRIP VTEC sample count — the TEC banner below counts mounts with a fresh decode in this window.
               {geomagneticLayerActive && (
                 <>
                   {" "}

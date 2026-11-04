@@ -73,12 +73,39 @@ function isConstrainedViewport(): boolean {
 }
 
 /**
- * Android TV, Fire TV, Google TV, and other leanback browsers.
+ * CleverTouch / IFP classroom panels and similar large interactive displays.
+ * Built-in Android browsers are 4K-wide but CPU-poor — Chart.js + OpenLayers
+ * on first paint leaves every metric card stuck on "Updating…".
+ */
+export function isInteractivePanelClient(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent || "";
+  if (
+    /CleverTouch|Clevershare|Clevertouch|IFP\b|ViewBoard|SmartBoard|Promethean|Newline|BenQ Board|RM Interactive|ActivPanel|SMART Board/i.test(
+      ua,
+    )
+  ) {
+    return true;
+  }
+  if (typeof window.matchMedia !== "function") return false;
+  // Large wall panel: wide viewport, coarse touch, no hover (not a touchscreen laptop).
+  const largeTouch =
+    window.matchMedia("(min-width: 1280px) and (pointer: coarse) and (hover: none)").matches;
+  // Android Chrome on a wide panel often reports as a tablet after UA reduction.
+  const androidWide =
+    /Android/i.test(ua) &&
+    window.matchMedia("(min-width: 1024px) and (pointer: coarse)").matches;
+  return largeTouch || androidWide;
+}
+
+/**
+ * Android TV, Fire TV, Google TV, CleverTouch IFPs, and other leanback browsers.
  * The viewport is 1080p or 4K, so a width check treats them as desktops and
  * pulls Chart.js plus OpenLayers onto the first screen. The CPU is closer to a phone.
  */
 export function isAndroidTvClient(): boolean {
   if (typeof navigator === "undefined") return false;
+  if (isInteractivePanelClient()) return true;
   const ua = navigator.userAgent || "";
   if (/Android TV|Google TV|Fire TV|BRAVIA|Leanback|\bAFT[A-Z0-9]+\b|SHIELD Android TV|MiBOX|Nexus Player/i.test(ua)) {
     return true;
@@ -125,18 +152,18 @@ export function getLoadProfile(): LoadProfile {
     // Both desktop and mobile: longer polls reduce background contention.
     pollIntervalMs: slowNetwork ? 180_000 : constrained ? 120_000 : 60_000,
     timelineMaxPoints: tv ? 24 : slowNetwork ? 32 : constrained ? 48 : 96,
-    // Cursor: short delay so shared Chart.js can prefetch, then graphs mount.
-    heavyMountDelayMs: tv ? 1600 : cursorPreview ? 550 : slowNetwork ? 700 : constrained ? 450 : 350,
+    // CleverTouch / TV: keep OpenLayers and Chart.js off the critical path longer.
+    heavyMountDelayMs: tv ? 4500 : cursorPreview ? 550 : slowNetwork ? 700 : constrained ? 450 : 350,
     // Always skip heliospheric/timeline warm on first paint — tabs warm on demand.
     deferSecondaryApis: true,
     // The CORS count card uses the small /cors/connected read. The full station
     // catalog and the latest-VTEC query wait until that first snapshot is painting.
-    stationsDeferMs: tv ? 2000 : cursorPreview ? 1600 : slowNetwork ? 1800 : constrained ? 1600 : 1400,
+    stationsDeferMs: tv ? 5000 : cursorPreview ? 1600 : slowNetwork ? 1800 : constrained ? 1600 : 1400,
     // Short first window everywhere; users can expand to 24h / 3d.
     defaultRangeHours: 6,
     vtecResampleMinutes: slowNetwork ? 15 : constrained ? 10 : 5,
     vtecHoursCap: tv ? 6 : slowNetwork ? 12 : constrained ? 18 : 24,
-    chartMaxPoints: tv ? 32 : cursorPreview ? 48 : slowNetwork ? 40 : constrained ? 64 : 120,
+    chartMaxPoints: tv ? 24 : cursorPreview ? 48 : slowNetwork ? 40 : constrained ? 64 : 120,
     chartAnimations: false,
   };
 }
@@ -184,7 +211,7 @@ export function scheduleSecondary(fn: () => void, profile?: LoadProfile): () => 
   const timeout = isCursorCloudPreview()
     ? 700
     : p.tv
-      ? 5000
+      ? 8000
       : p.slowNetwork
         ? 4200
         : p.constrained

@@ -475,6 +475,8 @@ export default function SpaceWeatherClient({
   const [imfPoints, setImfPoints] = useState<TimelinePoint[] | null>(null);
   // Always start at 0 so SSR HTML matches the first client paint; URL ?tab= is applied in useEffect.
   const [tab, setTab] = useState(0);
+  /** CleverTouch: keep Chart.js off until the operator taps Load. */
+  const [tvChartsUnlocked, setTvChartsUnlocked] = useState(false);
   const [xrayRange, setXrayRange] = useState<"6H" | "24H">("24H");
 
   useEffect(() => {
@@ -540,9 +542,13 @@ export default function SpaceWeatherClient({
     return () => target.removeEventListener("scroll", onScroll);
   }, []);
 
-  useEffect(() => scheduleSecondary(() => {
-    void getIonoVtecPair().catch(() => undefined);
-  }), []);
+  useEffect(() => {
+    // CleverTouch / IFP: skip secondary iono warm so /current can finish first.
+    if (getLoadProfile().tv) return;
+    return scheduleSecondary(() => {
+      void getIonoVtecPair().catch(() => undefined);
+    });
+  }, []);
 
   // Seed stores during render so later effects never see an empty peek and
   // flash Connecting/Updating over SSR-painted cards.
@@ -732,13 +738,14 @@ export default function SpaceWeatherClient({
       if (isDocumentVisible()) fetchAll(true);
     };
     document.addEventListener("visibilitychange", onVisibility);
+    const watchdogMs = profile.tv ? 3_500 : 7_000;
     const watchdog = window.setTimeout(() => {
       setFeedStatus((prev) => {
         if (prev !== "pending") return prev;
         return peekSpaceWeather() ? "stale" : "down";
       });
       setSaLoading(false);
-    }, 7_000);
+    }, watchdogMs);
     const bootStillRunning = () => Boolean(window.__ZGIIS_SW_BOOT_PROMISE);
     const retry1 = window.setTimeout(() => {
       if (!peekSpaceWeather() && !bootStillRunning()) fetchAll(false);
@@ -763,11 +770,15 @@ export default function SpaceWeatherClient({
     let cancelled = false;
     const applyCount = (online: number, total: number, mean: number | null) => {
       if (cancelled || online <= 0 || total <= 0) return;
-      setLiveStationCounts({
-        online,
-        offline: Math.max(0, total - online),
-        unavailable: 0,
-        total,
+      // Never replace a healthier Spider/map count with a smaller TEC-only tally.
+      setLiveStationCounts((prev) => {
+        if (prev && prev.online > online) return prev;
+        return {
+          online,
+          offline: Math.max(0, total - online),
+          unavailable: 0,
+          total,
+        };
       });
       if (mean != null && Number.isFinite(mean)) setLiveMeanVtec(Math.round(mean * 10) / 10);
     };
@@ -790,15 +801,10 @@ export default function SpaceWeatherClient({
         .then((rows) => {
           if (cancelled || !Array.isArray(rows)) return;
           const zingsa = rows.filter((row) => !isSurveyorGeneral(row.station));
-          const online = zingsa.filter((row) => typeof row.latest_vtec === "number" && row.latest_vtec > 0);
-          if (!online.length) return;
-          setLiveStationCounts({
-            online: online.length,
-            offline: Math.max(0, ZINGSA_STATION_TOTAL - online.length),
-            unavailable: 0,
-            total: ZINGSA_STATION_TOTAL,
-          });
-          const mean = online.reduce((sum, row) => sum + (row.latest_vtec ?? 0), 0) / online.length;
+          const withTec = zingsa.filter((row) => typeof row.latest_vtec === "number" && row.latest_vtec > 0);
+          if (!withTec.length) return;
+          // TEC samples feed the ionosphere mean only. Connected count stays Spider.
+          const mean = withTec.reduce((sum, row) => sum + (row.latest_vtec ?? 0), 0) / withTec.length;
           if (Number.isFinite(mean)) setLiveMeanVtec(Math.round(mean * 10) / 10);
         })
         .catch(() => null);
@@ -1227,8 +1233,15 @@ export default function SpaceWeatherClient({
         </p>
       </section>
 
-      {/* Overview stacks only on Live Metric — never compete with Zimbabwe / Solar tabs. */}
-      {tab === 0 && (
+      {/* Overview stacks only on Live Metric — never compete with Zimbabwe / Solar tabs.
+          CleverTouch / IFP: skip OpenLayers + Chart.js here so metric cards can paint. */}
+      {tab === 0 && loadProfile.tv && (
+        <div className="banner banner-info" role="status" style={{ fontSize: "0.85rem" }}>
+          Interactive display mode: showing live metric cards first. Open a tab below for
+          timelines, the CORS map, and detailed solar charts when the panel is ready.
+        </div>
+      )}
+      {tab === 0 && !loadProfile.tv && (
         <>
           <DeferredMount
             className="sw-deferred-block"
@@ -1236,7 +1249,7 @@ export default function SpaceWeatherClient({
             minDelayMs={loadProfile.heavyMountDelayMs}
             fallback={sectionFallback}
           >
-            <CauseEffectTimelineStack variant="overview" />
+            <CauseEffectTimelineStack variant="overview" includeChrome={false} />
           </DeferredMount>
           <DeferredMount
             className="sw-deferred-block"
@@ -1282,103 +1295,122 @@ export default function SpaceWeatherClient({
             <span>solar monitor-live data</span>
           </div>
 
+          {loadProfile.tv && !tvChartsUnlocked ? (
+            <div className="banner banner-info" style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", alignItems: "center" }}>
+              <span style={{ flex: "1 1 14rem", fontSize: "0.9rem" }}>
+                Interactive display: timelines stay off until you load them so metric cards stay responsive.
+              </span>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => setTvChartsUnlocked(true)}
+              >
+                Load timelines
+              </button>
+            </div>
+          ) : null}
+
           {/* Chart.js stays off the first download until this block nears the viewport. */}
-          <DeferredMount
-            className="sw-deferred-block"
-            minHeight={420}
-            minDelayMs={loadProfile.heavyMountDelayMs}
-            fallback={sectionFallback}
-          >
-          <GoesSolarXrayCard
-            title="1 · SOLAR X-RAY FLUX (GOES-16) · 0.1–0.8 nm"
-            xraySlice={xraySlice}
-            xrayLabels={xrayLabels}
-            xrayEpochs={xrayEpochs}
-            xrayAxis={xrayAxis}
-            xrayRange={xrayRange}
-            onRangeChange={setXrayRange}
-            explanationOpen={xrayExplanationOpen}
-            onToggle={() => toggleGraph("xray")}
-            analysis={xrayAnalysis}
-          />
+          {(!loadProfile.tv || tvChartsUnlocked) && (
+            <>
+              <DeferredMount
+                className="sw-deferred-block"
+                minHeight={420}
+                minDelayMs={loadProfile.heavyMountDelayMs}
+                fallback={sectionFallback}
+              >
+                <GoesSolarXrayCard
+                  title="1 · SOLAR X-RAY FLUX (GOES-16) · 0.1–0.8 nm"
+                  xraySlice={xraySlice}
+                  xrayLabels={xrayLabels}
+                  xrayEpochs={xrayEpochs}
+                  xrayAxis={xrayAxis}
+                  xrayRange={xrayRange}
+                  onRangeChange={setXrayRange}
+                  explanationOpen={xrayExplanationOpen}
+                  onToggle={() => toggleGraph("xray")}
+                  analysis={xrayAnalysis}
+                />
 
-          <TimelineCard
-            graphId="f107"
-            title="2 · Live NOAA F10.7 Solar Flux Timeline"
-            pts={f107Points}
-            color="#ffcc00"
-            yLabel="F10.7 (sfu)"
-            threshold={{ value: 150, label: "High activity (150 sfu)" }}
-            source="NOAA SWPC F10.7 cm flux feed"
-            analysis={timelineAnalyses.f107}
-            expanded={selectedGraph === "f107"}
-            onToggle={toggleGraph}
-            ekfPoints={ekf?.series.f107?.points}
-            ekfColor="#fde68a"
-            emptyMsg="Live NOAA F10.7 feed unavailable."
-            {...liveMetricSync}
-          />
-          </DeferredMount>
+                <TimelineCard
+                  graphId="f107"
+                  title="2 · Live NOAA F10.7 Solar Flux Timeline"
+                  pts={f107Points}
+                  color="#ffcc00"
+                  yLabel="F10.7 (sfu)"
+                  threshold={{ value: 150, label: "High activity (150 sfu)" }}
+                  source="NOAA SWPC F10.7 cm flux feed"
+                  analysis={timelineAnalyses.f107}
+                  expanded={selectedGraph === "f107"}
+                  onToggle={toggleGraph}
+                  ekfPoints={ekf?.series.f107?.points}
+                  ekfColor="#fde68a"
+                  emptyMsg="Live NOAA F10.7 feed unavailable."
+                  {...liveMetricSync}
+                />
+              </DeferredMount>
 
-          <DeferredMount
-            className="sw-deferred-block"
-            minHeight={280}
-            rootMargin="80px 0px"
-            minDelayMs={loadProfile.heavyMountDelayMs}
-            fallback={sectionFallback}
-          >
-            <HeliosphericMonitorStack />
-          </DeferredMount>
+              <DeferredMount
+                className="sw-deferred-block"
+                minHeight={280}
+                rootMargin="80px 0px"
+                minDelayMs={loadProfile.heavyMountDelayMs}
+                fallback={sectionFallback}
+              >
+                <HeliosphericMonitorStack />
+              </DeferredMount>
 
-          <DeferredMount
-            className="sw-deferred-block"
-            minHeight={320}
-            rootMargin="60px 0px"
-            minDelayMs={loadProfile.heavyMountDelayMs + 500}
-            fallback={sectionFallback}
-          >
-            <CauseEffectTimelineStack
-              variant="local"
-              localStartNumber={4}
-              afterVtec={(sync) => (
-                <>
-                  {stationsOnlinePoints.length > 0 ? (
-                    <TimelineCard
-                      graphId="cors-online"
-                      title="5 · Live CORS Stations Online Timeline"
-                      pts={stationsOnlinePoints}
-                      color="#00ff88"
-                      yLabel="Stations online"
-                      yMin={0}
-                      yMax={ZINGSA_STATION_TOTAL}
-                      source="ZINGSA CORS network — 19 stations, Surveyor General sites excluded"
-                      analysis={timelineAnalyses.stations}
-                      expanded={selectedGraph === "cors-online"}
-                      onToggle={toggleGraph}
-                      ekfPoints={ekf?.series.stations_online?.points}
-                      ekfColor="#86efac"
-                      emptyMsg="Live CORS telemetry unavailable."
-                      {...sync}
-                    />
-                  ) : (
-                    <div className="card">
-                      <div className="metric-label" style={{ marginBottom: "0.6rem" }}>5 · Live CORS Stations Online Timeline</div>
-                      <div className="banner banner-info">Live CORS telemetry is unavailable — no station count timeline.</div>
-                    </div>
+              <DeferredMount
+                className="sw-deferred-block"
+                minHeight={320}
+                rootMargin="60px 0px"
+                minDelayMs={loadProfile.heavyMountDelayMs + 500}
+                fallback={sectionFallback}
+              >
+                <CauseEffectTimelineStack
+                  variant="local"
+                  localStartNumber={4}
+                  afterVtec={(sync) => (
+                    <>
+                      {stationsOnlinePoints.length > 0 ? (
+                        <TimelineCard
+                          graphId="cors-online"
+                          title="5 · Live CORS Stations Online Timeline"
+                          pts={stationsOnlinePoints}
+                          color="#00ff88"
+                          yLabel="Stations online"
+                          yMin={0}
+                          yMax={ZINGSA_STATION_TOTAL}
+                          source="ZINGSA CORS network — 19 stations, Surveyor General sites excluded"
+                          analysis={timelineAnalyses.stations}
+                          expanded={selectedGraph === "cors-online"}
+                          onToggle={toggleGraph}
+                          ekfPoints={ekf?.series.stations_online?.points}
+                          ekfColor="#86efac"
+                          emptyMsg="Live CORS telemetry unavailable."
+                          {...sync}
+                        />
+                      ) : (
+                        <div className="card">
+                          <div className="metric-label" style={{ marginBottom: "0.6rem" }}>5 · Live CORS Stations Online Timeline</div>
+                          <div className="banner banner-info">Live CORS telemetry is unavailable — no station count timeline.</div>
+                        </div>
+                      )}
+                      <DeferredMount
+                        minHeight={180}
+                        rootMargin="0px 0px"
+                        minDelayMs={Math.max(loadProfile.heavyMountDelayMs, loadProfile.lightPayload ? 1400 : 700)}
+                        fallback={sectionFallback}
+                      >
+                        <TecGradientMaps />
+                        <ZimbabweMeanDiurnalTec />
+                      </DeferredMount>
+                    </>
                   )}
-                  <DeferredMount
-                    minHeight={180}
-                    rootMargin="0px 0px"
-                    minDelayMs={Math.max(loadProfile.heavyMountDelayMs, loadProfile.lightPayload ? 1400 : 700)}
-                    fallback={sectionFallback}
-                  >
-                    <TecGradientMaps />
-                    <ZimbabweMeanDiurnalTec />
-                  </DeferredMount>
-                </>
-              )}
-            />
-          </DeferredMount>
+                />
+              </DeferredMount>
+            </>
+          )}
         </div>
       )}
 

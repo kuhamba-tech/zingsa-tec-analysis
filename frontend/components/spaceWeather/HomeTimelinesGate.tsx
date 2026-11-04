@@ -10,19 +10,24 @@ const CauseEffectTimelineStack = dynamic(
     ssr: false,
     loading: () => (
       <div className="banner banner-info" role="status" style={{ margin: "0.75rem 0" }}>
-        Loading timelines and CORS map…
+        Loading timelines…
       </div>
     ),
   },
 );
 
+type Props = {
+  /** Skip ionosphere strip + CORS map when the home page mounts them earlier. */
+  includeChrome?: boolean;
+};
+
 type State = { error: Error | null; retry: number };
 
 /**
- * Isolates timeline/map chunk-load failures so a bad dynamic import cannot
- * leave the National Dashboard stuck on "Loading timelines and CORS map…".
+ * Isolates timeline chunk-load failures so a bad dynamic import cannot
+ * leave the National Dashboard stuck on a loading banner.
  */
-export default class HomeTimelinesGate extends Component<object, State> {
+export default class HomeTimelinesGate extends Component<Props, State> {
   state: State = { error: null, retry: 0 };
 
   static getDerivedStateFromError(error: Error): Partial<State> {
@@ -48,7 +53,7 @@ export default class HomeTimelinesGate extends Component<object, State> {
     if (this.state.error) {
       return (
         <div className="banner banner-warn" role="alert" style={{ margin: "0.75rem 0" }}>
-          Timelines and CORS map failed to load.
+          Timelines failed to load.
           <button
             type="button"
             className="btn"
@@ -67,6 +72,11 @@ export default class HomeTimelinesGate extends Component<object, State> {
         </div>
       );
     }
-    return <CauseEffectTimelineStack key={this.state.retry} />;
+    return (
+      <CauseEffectTimelineStack
+        key={this.state.retry}
+        includeChrome={this.props.includeChrome}
+      />
+    );
   }
 }

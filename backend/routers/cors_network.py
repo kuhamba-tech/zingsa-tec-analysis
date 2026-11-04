@@ -398,17 +398,51 @@ def start_fresh_cors_refresh() -> None:
     threading.Thread(target=_loop, daemon=True, name="zgiis-fresh-cors").start()
 
 
+def _spider_zingsa_online_total() -> tuple[int, int] | None:
+    """Spider Site Status online count for the 19 ZINGSA CORS sites.
+
+    Same ground truth as the map. Surveyor General sites are excluded.
+    """
+    try:
+        from zgiis.cors.stations import zingsa_cors_stations
+        from zgiis.live.spider_site_status import (
+            get_cached_spider_site_statuses,
+            spider_status_enabled,
+        )
+
+        if not spider_status_enabled():
+            return None
+        payload = get_cached_spider_site_statuses(refresh=False)
+        by_station = payload.get("by_station") or {}
+        if not by_station or payload.get("error"):
+            return None
+        codes = {station.code.lower().rstrip("_") for station in zingsa_cors_stations()}
+        online = sum(
+            1
+            for code in codes
+            if (by_station.get(code) or {}).get("status") == "online"
+        )
+        # An all-offline cache after a failed Spider scrape must not paint 0/19
+        # over a healthier TEC or archive reading.
+        if online <= 0:
+            return None
+        return online, len(codes)
+    except Exception:
+        log.warning("Spider ZINGSA online count unavailable", exc_info=True)
+        return None
+
+
 @router.get("/connected")
 async def cors_connected(_=Depends(require_api_key)):
-    """Online ZINGSA count for the two dashboard cards.
+    """Online ZINGSA count for the dashboard CORS Connected cards.
 
-    Reads memory only. Chart queries must not be able to stall this response.
+    Prefers Spider Site Status (same as the map). Fresh code-TEC samples only
+    supply mean VTEC and a fallback count when Spider is unavailable.
     """
     start_fresh_cors_refresh()
     fresh = _cached_fresh_connections()
-    # The count is filled by a background query. Hold the request only briefly
-    # so a slow database read cannot sit on the first paint for several seconds.
-    # Callers retry; a later request reads the cache once the query finishes.
+    # The TEC cache is filled by a background query. Hold briefly so the first
+    # paint can still get mean VTEC without waiting on a cold database.
     if fresh is None:
         for _ in range(12):
             await asyncio.sleep(0.1)
@@ -419,8 +453,12 @@ async def cors_connected(_=Depends(require_api_key)):
     from zgiis.cors.stations import zingsa_cors_stations
 
     total = len(zingsa_cors_stations())
-    online = len(found)
-    mean = round(sum(found.values()) / online, 2) if online else None
+    spider = _spider_zingsa_online_total()
+    if spider is not None:
+        online, total = spider
+    else:
+        online = len(found)
+    mean = round(sum(found.values()) / len(found), 2) if found else None
     return {
         "online": online,
         "offline": max(0, total - online),

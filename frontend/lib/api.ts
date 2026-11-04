@@ -102,6 +102,7 @@ import {
   localApiFallbackUrl,
   spaceWeatherFetchedRecently,
 } from "./clientApiBase";
+import { getLoadProfile } from "./loadBudget";
 
 function apiBase(): string {
   return resolveClientApiBase();
@@ -113,6 +114,11 @@ const ANALYSIS_TIMEOUT_MS = 120_000;
 /** First paint for /current — fail fast so UI leaves "Connecting". */
 const SW_BOOT_TIMEOUT_MS = 4_000;
 const SW_FAST_TIMEOUT_MS = 5_000;
+/** EKF rebuild can be heavy; home page must not wait on it. */
+const EKF_FAST_TIMEOUT_MS = 4_000;
+/** Manual refresh may wait on a live NTRIP sample; dashboard polls must stay snappy. */
+const TEC_HEATMAP_TIMEOUT_MS = 90_000;
+const TEC_HEATMAP_FAST_TIMEOUT_MS = 5_000;
 /** Solar monitor hits NOAA + NASA DONKI; allow cold-start headroom + one retry. */
 const SOLAR_TIMEOUT_MS = 35_000;
 /** Heliospheric monitor: allow cold NOAA + one retry before aborting. */
@@ -442,11 +448,17 @@ export const getSolarActivity = (forceRefresh = false, requireNetwork = false) =
     return Promise.resolve(cached);
   }
 
+  // CleverTouch / constrained panels cannot wait 35s on NOAA+DONKI — fail soft
+  // so metric cards leave "Updating…" and paint Unavailable or cached values.
+  const profile = getLoadProfile();
+  const coldSolarTimeout =
+    profile.tv || profile.lightPayload ? 8_000 : SOLAR_TIMEOUT_MS;
+
   return dedupeGet(`space-weather/solar-activity${forceRefresh ? ":refresh" : ""}${requireNetwork ? ":verified" : ""}`, () =>
     getWithRetry<SolarActivityFull>(
       "/space-weather/solar-activity",
       { _ts: Date.now(), ...(forceRefresh ? { force_refresh: "true" } : {}) },
-      forceRefresh ? SOLAR_TIMEOUT_MS : cached ? SW_FAST_TIMEOUT_MS : SOLAR_TIMEOUT_MS,
+      forceRefresh ? SOLAR_TIMEOUT_MS : cached ? SW_FAST_TIMEOUT_MS : coldSolarTimeout,
     )
       .then((data) => {
         lastSolarNetworkAt = Date.now();
@@ -550,10 +562,11 @@ export const getSpaceWeatherReport = (period: SpaceWeatherReportPeriod = "hourly
     { period, _ts: Date.now() },
     REPORT_TIMEOUT_MS,
   );
-export const getEkfStatus = () => get<EkfStatus>("/space-weather/ekf", { _ts: Date.now() });
+export const getEkfStatus = () =>
+  get<EkfStatus>("/space-weather/ekf", { _ts: Date.now() }, EKF_FAST_TIMEOUT_MS);
 /** Retried EKF fetch — use on manual refresh only; avoid blocking the 60s poll. */
 export const getEkfStatusWithRetry = () =>
-  getWithRetry<EkfStatus>("/space-weather/ekf", { _ts: Date.now() });
+  getWithRetry<EkfStatus>("/space-weather/ekf", { _ts: Date.now() }, EKF_FAST_TIMEOUT_MS);
 export const getStormAlertStatus = () => get<StormAlertStatus>("/space-weather/storm-alerts/status");
 export const getEkfAlertLog = (hours = 24) => get<EkfAlert[]>("/space-weather/ekf/alerts", { hours });
 export const ackEkfAlert = (alertId: string) =>
@@ -1008,9 +1021,6 @@ export const getAnomalies = (threshold_pct = 95, station?: string) =>
   get<AnomalyDay[]>("/tec/anomalies", { threshold_pct, station }, ANALYSIS_TIMEOUT_MS);
 export const getAnomalyAnalysis = (threshold_pct = 95, station?: string) =>
   get<AnomalyAnalysisResponse>("/tec/anomaly-analysis", { threshold_pct, station }, ANALYSIS_TIMEOUT_MS);
-/** Live NTRIP heat-map sampling can take ~30–55s on Vercel when the ingest DB is empty. */
-const TEC_HEATMAP_TIMEOUT_MS = 90_000;
-
 function rejectArchiveHeatmap(payload: TecHeatmapResponse): TecHeatmapResponse {
   const hasArchiveSource = (payload.stations ?? []).some((s) =>
     /processed_archive/i.test(s.source ?? ""),
@@ -1043,7 +1053,8 @@ export const getTecHeatmap = async (hours = 0.05, refreshNtrip = false) => {
       _ts: Date.now(),
       ...(refreshNtrip ? { refresh_ntrip: "true" } : {}),
     },
-    refreshNtrip ? TEC_HEATMAP_TIMEOUT_MS : Math.max(FETCH_TIMEOUT_MS, 45_000),
+    // Dashboard must not hold a connection for 45s waiting on NTRIP/SQLite.
+    refreshNtrip ? TEC_HEATMAP_TIMEOUT_MS : TEC_HEATMAP_FAST_TIMEOUT_MS,
   );
   return rejectArchiveHeatmap(payload);
 };

@@ -1008,12 +1008,24 @@ def _probe_sample_vtec_rows() -> list[dict[str, Any]]:
         return []
 
 
-def _live_ntrip_heatmap_rows(*, refresh: bool = False) -> list[dict[str, Any]]:
-    """Fresh on-demand NTRIP VTEC samples when the ingest DB has no recent rows."""
+def _live_ntrip_heatmap_rows(
+    *,
+    refresh: bool = False,
+    allow_blocking_refresh: bool = False,
+) -> list[dict[str, Any]]:
+    """On-demand NTRIP VTEC samples when the ingest DB has no recent rows.
+
+    Default is non-blocking: return cache (or empty) and warm in the background.
+    Only ``refresh=True`` with ``allow_blocking_refresh=True`` opens NTRIP sockets
+    on the request path — that path hung the National Dashboard for tens of seconds.
+    """
     try:
         from zgiis.live.heatmap_live_vtec import rows_by_station, sample_live_ntrip_vtec
 
-        payload = sample_live_ntrip_vtec(refresh=refresh)
+        payload = sample_live_ntrip_vtec(
+            refresh=refresh and allow_blocking_refresh,
+            allow_blocking_refresh=allow_blocking_refresh,
+        )
         if payload.get("error") and not any(
             float(row.get("mean_vtec_tecu") or 0) > 0 for row in (payload.get("stations") or [])
         ):
@@ -1074,8 +1086,8 @@ def _empty_heatmap_message() -> str:
 
         if with_vtec > 0:
             return (
-                f"{with_vtec} connected CORS site(s) sampled live VTEC — "
-                "refresh the map to load the latest probe decode."
+                f"{with_vtec} CORS site(s) have a measured NTRIP VTEC sample — "
+                "Spider may show more sites online; refresh for the latest decode."
             )
         if msm > 0:
             return (
@@ -1084,8 +1096,9 @@ def _empty_heatmap_message() -> str:
             )
         if connected > 0:
             return (
-                f"{connected} CORS site(s) NTRIP-connected — "
-                "awaiting MSM observation stream before live VTEC can be computed."
+                f"{connected} CORS site(s) reachable on NTRIP — "
+                "awaiting MSM observation stream before live VTEC can be computed "
+                "(Spider online count is separate)."
             )
     except Exception:
         pass
@@ -1400,10 +1413,16 @@ def build_tec_heatmap(*, hours: float = 2.0, refresh_ntrip: bool = False) -> dic
     # we already have fresh pipeline VTEC — that probe can be minutes stale.
     live_rows = _merge_station_rows(pipeline_rows, recent_rows, memory_rows)
     if not live_rows or refresh_ntrip:
+        # Never block the dashboard map on a live NTRIP socket round-trip when
+        # the pipeline DB is empty — that is what froze TEC Heat Map for ~12–45s.
+        # Explicit refresh_ntrip=True is the only path that may open sockets here.
         live_rows = _merge_station_rows(
             live_rows,
             _probe_sample_vtec_rows() if not live_rows else [],
-            _live_ntrip_heatmap_rows(refresh=refresh_ntrip or not live_rows),
+            _live_ntrip_heatmap_rows(
+                refresh=bool(refresh_ntrip),
+                allow_blocking_refresh=bool(refresh_ntrip),
+            ),
             memory_rows,
         )
     live_rows = _consensus_filter_control_rows(live_rows) if live_rows else []

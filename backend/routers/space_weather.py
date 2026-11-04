@@ -364,15 +364,26 @@ def _build_current_payload() -> SpaceWeatherCurrent:
     """Dashboard snapshot — keep this path free of Spider login stalls."""
     sw = dict(_sw())
     try:
-        from backend.routers.cors_network import _fresh_code_live_connections
+        from backend.routers.cors_network import (
+            _fresh_code_live_connections,
+            _spider_zingsa_online_total,
+        )
         from zgiis.cors.stations import zingsa_cors_stations
 
+        # Spider Site Status is the CORS Connected card ground truth (same as the map).
+        # Fresh code-TEC samples only fill mean VTEC and never shrink a Spider count.
+        spider = _spider_zingsa_online_total()
+        if spider is not None:
+            online, total = spider
+            sw["stations_online"] = online
+            sw["stations_total"] = total
         fresh = _fresh_code_live_connections()
         if fresh:
-            sw["stations_online"] = len(fresh)
-            sw["stations_total"] = len(zingsa_cors_stations())
             sw["mean_vtec"] = round(sum(fresh.values()) / len(fresh), 2)
             sw["vtec_tecu"] = sw["mean_vtec"]
+            if sw.get("stations_online") is None:
+                sw["stations_online"] = len(fresh)
+                sw["stations_total"] = len(zingsa_cors_stations())
     except Exception:
         log.exception("fresh CORS connection count failed")
     if sw.get("stations_online") is None:
@@ -792,24 +803,78 @@ def correlations(
     )
 
 
+_EKF_CACHE_TTL_S = 45.0
+_EKF_BUILD_TIMEOUT_S = 8.0
+_ekf_cache: dict[int, tuple[float, EkfStatusOut]] = {}
+_ekf_cache_lock = threading.Lock()
+_ekf_inflight: dict[int, asyncio.Task] = {}
+
+
+def _empty_ekf_status() -> EkfStatusOut:
+    return EkfStatusOut(
+        series={},
+        alerts=[],
+        banner=None,
+        active_alert_count=0,
+        kp_storm_level=None,
+        notification_channels={},
+    )
+
+
+_ekf_rebuild_lock = threading.Lock()
+
+
+def _schedule_ekf_rebuild(key: int, max_points: int) -> None:
+    from zgiis.space_weather.ekf_service import compute_ekf_status
+
+    if key in _ekf_inflight and not _ekf_inflight[key].done():
+        return
+    if not _ekf_rebuild_lock.acquire(blocking=False):
+        return
+
+    def _build() -> EkfStatusOut:
+        try:
+            return compute_ekf_status(
+                _sw(),
+                dispatch_notifications=False,
+                max_points=max_points,
+            )
+        finally:
+            _ekf_rebuild_lock.release()
+
+    async def _bg() -> None:
+        try:
+            # Do not wait_for+cancel: orphaned workers held Postgres pool slots.
+            result = await asyncio.to_thread(_build)
+            with _ekf_cache_lock:
+                _ekf_cache[key] = (time.time(), result)
+        except Exception as exc:
+            log.warning("background ekf rebuild failed: %s", exc)
+        finally:
+            _ekf_inflight.pop(key, None)
+
+    _ekf_inflight[key] = asyncio.create_task(_bg())
+
+
 @router.get("/ekf", response_model=EkfStatusOut)
-def ekf_status(
+async def ekf_status(
     max_points: int = Query(336, ge=24, le=2000),
     _=Depends(require_api_key),
 ):
     """EKF overlay for dashboard timelines. Alerts are persisted; notifications
     are dispatched only on manual refresh or the background logger — not on read.
 
-    Sync route: compute_ekf_status rebuilds timelines and must not block the
-    ASGI event loop (that queued heliospheric-monitor behind a 45s client abort).
+    Never blocks first paint — serve cache/empty and rebuild in the background.
     """
-    from zgiis.space_weather.ekf_service import compute_ekf_status
+    key = int(max_points)
+    with _ekf_cache_lock:
+        hit = _ekf_cache.get(key)
+        if hit and (time.time() - hit[0]) < _EKF_CACHE_TTL_S:
+            return hit[1]
+        stale = hit[1] if hit else None
 
-    return compute_ekf_status(
-        _sw(),
-        dispatch_notifications=False,
-        max_points=max_points,
-    )
+    _schedule_ekf_rebuild(key, max_points)
+    return stale if stale is not None else _empty_ekf_status()
 
 
 @router.get("/storm-alerts/status", response_model=StormAlertStatus)

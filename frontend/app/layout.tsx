@@ -24,7 +24,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* Static boot runs before app/layout.js — includes ChunkLoadError recovery */}
         <SpaceWeatherBootScript />
       </head>
-      <body>
+      <body suppressHydrationWarning>
         <ChunkLoadRecovery />
         <RouterFetchRecovery />
         <Suspense fallback={<div className="app-main">{children}</div>}>

@@ -337,21 +337,13 @@ export default function NetworkUptimePanel({
       {(activeTab === "overview" || activeTab === "events" || activeTab === "incidents") && (
         <UptimeMonitoringPanel hours={range.hours} station={station} />
       )}
-      <div
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          gap: "0.55rem",
-          alignItems: "center",
-          marginBottom: "0.9rem",
-        }}
-      >
-        <label style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>Station</label>
+      <div className="uptime-controls">
+        <label className="uptime-controls-label" htmlFor="uptime-station-select">Station</label>
         <select
-          className="form-select"
+          id="uptime-station-select"
+          className="form-select uptime-station-select"
           value={station}
           onChange={(e) => setStation(e.target.value)}
-          style={{ minWidth: "14rem" }}
         >
           <option value="">Whole network</option>
           {stationOptions.map((row) => (
@@ -360,43 +352,45 @@ export default function NetworkUptimePanel({
             </option>
           ))}
         </select>
-        {RANGES.map((r, i) => (
-          <button
-            key={r.key}
-            type="button"
-            className={`home-map-layer-btn${rangeIdx === i ? " is-active" : ""}`}
-            onClick={() => selectRange(i)}
-          >
-            {r.label}
+        <div className="uptime-controls-actions">
+          {RANGES.map((r, i) => (
+            <button
+              key={r.key}
+              type="button"
+              className={`home-map-layer-btn${rangeIdx === i ? " is-active" : ""}`}
+              onClick={() => selectRange(i)}
+            >
+              {r.label}
+            </button>
+          ))}
+          <button type="button" className="home-map-layer-btn" onClick={() => void load()} disabled={loading}>
+            Refresh
           </button>
-        ))}
-        <button type="button" className="home-map-layer-btn" onClick={() => void load()} disabled={loading}>
-          Refresh
-        </button>
-        <button
-          type="button"
-          className="home-map-layer-btn"
-          onClick={handleExportTimeline}
-          disabled={!analysis?.timeline.length}
-        >
-          Export timeline CSV
-        </button>
-        <button
-          type="button"
-          className="home-map-layer-btn"
-          onClick={handleExportStations}
-          disabled={!analysis?.stations.length}
-        >
-          Export stations CSV
-        </button>
-        <button
-          type="button"
-          className="home-map-layer-btn"
-          onClick={() => void handleExportPdf()}
-          disabled={!analysis || !hasAnyData}
-        >
-          Save PDF
-        </button>
+          <button
+            type="button"
+            className="home-map-layer-btn"
+            onClick={handleExportTimeline}
+            disabled={!analysis?.timeline.length}
+          >
+            Export timeline CSV
+          </button>
+          <button
+            type="button"
+            className="home-map-layer-btn"
+            onClick={handleExportStations}
+            disabled={!analysis?.stations.length}
+          >
+            Export stations CSV
+          </button>
+          <button
+            type="button"
+            className="home-map-layer-btn"
+            onClick={() => void handleExportPdf()}
+            disabled={!analysis || !hasAnyData}
+          >
+            Save PDF
+          </button>
+        </div>
       </div>
 
       {activity && activity.stations.length > 0 && (activeTab === "overview" || activeTab === "details" || activeTab === "reports") && (
@@ -546,6 +540,7 @@ export default function NetworkUptimePanel({
                 {" · "}
                 {new Set(analysis.outage_intervals!.map((r) => r.station_code)).size} sites
               </div>
+              <div className="uptime-report-table-scroll" role="region" aria-label="Outage durations" tabIndex={0}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.82rem", marginBottom: "1rem" }}>
                 <thead>
                   <tr style={{ borderBottom: "1px solid var(--border)" }}>
@@ -572,6 +567,7 @@ export default function NetworkUptimePanel({
                   ))}
                 </tbody>
               </table>
+              </div>
             </>
           )}
 
@@ -581,6 +577,7 @@ export default function NetworkUptimePanel({
                 Recent status events ({formatPeriodLabel(analysis.hours)}
                 {station ? ` · ${station.toUpperCase()}` : ""})
               </div>
+              <div className="uptime-report-table-scroll" role="region" aria-label="Recent status events" tabIndex={0}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.82rem" }}>
                 <thead>
                   <tr style={{ borderBottom: "1px solid var(--border)" }}>
@@ -612,6 +609,7 @@ export default function NetworkUptimePanel({
                   ))}
                 </tbody>
               </table>
+              </div>
             </>
           )}
         </>

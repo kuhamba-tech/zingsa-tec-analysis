@@ -1,0 +1,98 @@
+.section {
+  margin-top: 2rem;
+  padding: 1.5rem 1rem 1.25rem;
+  min-width: 0;
+  text-align: center;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+  border-radius: 8px;
+}
+
+.title {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--text, #f5f7fa);
+}
+
+.intro {
+  margin: 0.65rem auto 1.1rem;
+  max-width: 40rem;
+  color: var(--text-muted, #b8c0cc);
+  line-height: 1.55;
+}
+
+.list {
+  list-style: none;
+  margin: 0 auto;
+  padding: 0;
+  max-width: 44rem;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.list li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding-left: 1.1rem;
+  position: relative;
+}
+
+.list li::before {
+  content: "–";
+  position: absolute;
+  left: 0;
+  top: 0.05rem;
+  color: var(--accent, #168bd2);
+  font-weight: 700;
+}
+
+.list a {
+  color: var(--accent, #168bd2);
+  font-weight: 700;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+  text-underline-offset: 3px;
+}
+
+.list a:hover {
+  text-decoration: underline;
+}
+
+.list a:focus-visible {
+  outline: 2px solid var(--accent, #168bd2);
+  outline-offset: 3px;
+}
+
+.use {
+  color: var(--text-muted, #b8c0cc);
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+.external {
+  font-weight: 400;
+  opacity: 0.85;
+}
+
+.note {
+  margin: 1.35rem auto 0;
+  max-width: 40rem;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--text-muted, #b8c0cc);
+}
+
+@media (max-width: 700px) {
+  .section {
+    padding: 1.15rem 0.75rem 1rem;
+  }
+
+  .title {
+    font-size: 1.2rem;
+  }
+}

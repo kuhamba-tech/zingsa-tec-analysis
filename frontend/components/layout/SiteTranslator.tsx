@@ -1,5 +1,8 @@
 "use client";
 
+// @refresh reset
+// Reset development state when this widget's mount/translation lifecycle changes.
+
 import { useEffect, useMemo, useRef, useState } from "react";
 
 type TranslateWindow = Window & {
@@ -79,6 +82,7 @@ function currentLanguageIdFromStorage() {
 }
 
 export default function SiteTranslator() {
+  const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState("en");
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -88,11 +92,14 @@ export default function SiteTranslator() {
     LANGUAGES.find((language) => language.id === active || language.translateCode === active) ??
     LANGUAGES.find((language) => language.id === "en")!;
 
+  // Mount after hydration so Cursor/browser tooling attrs cannot mismatch SSR HTML.
   useEffect(() => {
+    setMounted(true);
     setActive(currentLanguageIdFromStorage());
   }, []);
 
   useEffect(() => {
+    if (!mounted) return;
     if (!open && active === "en") return;
 
     const w = window as TranslateWindow;
@@ -119,16 +126,17 @@ export default function SiteTranslator() {
       };
       document.body.appendChild(script);
     }
-  }, [active, includedLanguages, open]);
+  }, [active, includedLanguages, mounted, open]);
 
   useEffect(() => {
+    if (!mounted) return;
     const onPointerDown = (event: PointerEvent) => {
       if (panelRef.current?.contains(event.target as Node)) return;
       setOpen(false);
     };
     if (open) document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [open]);
+  }, [mounted, open]);
 
   const applyLanguage = (language: LanguageOption) => {
     setActive(language.id);
@@ -142,11 +150,17 @@ export default function SiteTranslator() {
     window.setTimeout(() => window.location.reload(), 150);
   };
 
+  // Keep this guard below every hook: the first render must register the same
+  // effects as the mounted render, even though it does not show the widget yet.
+  if (!mounted) return null;
+
   return (
     <div className={`site-translator${open ? " is-open" : ""}`} ref={panelRef}>
       <button
         type="button"
         className="site-translator-trigger"
+        // Browser automation may attach data-cursor-ref before hydration.
+        suppressHydrationWarning
         aria-label={open ? "Close translator" : "Translate this site"}
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}

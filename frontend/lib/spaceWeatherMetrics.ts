@@ -409,8 +409,13 @@ export function formatVtecDisplay(tec: number | null | undefined, loading = fals
   return `${tec.toFixed(1)} TECU`;
 }
 
-export function formatFlareClassDisplay(flareClass: string | null | undefined): string {
-  if (!flareClass || flareClass === "Unavailable") return "Updating…";
+export function formatFlareClassDisplay(
+  flareClass: string | null | undefined,
+  loading = false,
+): string {
+  if (!flareClass || flareClass === "Unavailable") {
+    return loading ? "Updating…" : "Unavailable";
+  }
   return flareClass.trim().toUpperCase();
 }
 
@@ -419,8 +424,8 @@ export function formatGoesFluxDisplay(flux: number | null | undefined): string |
   return `${flux.toExponential(2)} W/m²`;
 }
 
-export function formatS4Display(s4: number | null | undefined): string {
-  if (s4 == null || !Number.isFinite(s4)) return "Updating…";
+export function formatS4Display(s4: number | null | undefined, loading = false): string {
+  if (s4 == null || !Number.isFinite(s4)) return loading ? "Updating…" : "Unavailable";
   return s4.toFixed(2);
 }
 
@@ -759,7 +764,7 @@ export function buildMetricCards(
       value: stationsLabel,
       note: stationsNote,
       valueColor: "#168bd2",
-      source: "Spider / NTRIP",
+      source: "Spider Site Status",
       observedAt: swObserved ? `Snapshot ${swObserved}` : null,
       freshness: stationsOnlineCount != null ? indicesFresh : "UNAVAILABLE",
     },
@@ -842,28 +847,40 @@ export function buildAdvancedIndexRows(sw: SpaceWeatherCurrent | null, solar?: S
     {
       key: "bt" as const,
       label: "IMF Bt",
-      value: bt != null && Number.isFinite(bt) ? `${bt.toFixed(1)} nT` : "Updating…",
+      value:
+        bt != null && Number.isFinite(bt)
+          ? `${bt.toFixed(1)} nT`
+          : "Unavailable",
       note: "Total IMF magnitude",
       valueColor: "#f8fafc",
     },
     {
       key: "density" as const,
       label: "Solar-wind density",
-      value: density != null && Number.isFinite(density) ? `${density.toFixed(1)} p/cm³` : "Updating…",
+      value:
+        density != null && Number.isFinite(density)
+          ? `${density.toFixed(1)} p/cm³`
+          : "Unavailable",
       note: "Proton density",
       valueColor: "#38bdf8",
     },
     {
       key: "pdyn" as const,
       label: "Dynamic pressure",
-      value: pdyn != null && Number.isFinite(pdyn) ? `${pdyn.toFixed(1)} nPa` : "Updating…",
+      value:
+        pdyn != null && Number.isFinite(pdyn)
+          ? `${pdyn.toFixed(1)} nPa`
+          : "Unavailable",
       note: "From density × speed²",
       valueColor: "#94a3b8",
     },
     {
       key: "temp" as const,
       label: "Solar-wind temperature",
-      value: temp != null && Number.isFinite(temp) ? `${Math.round(temp).toLocaleString()} K` : "Updating…",
+      value:
+        temp != null && Number.isFinite(temp)
+          ? `${Math.round(temp).toLocaleString()} K`
+          : "Unavailable",
       note: "Proton temperature",
       valueColor: "#94a3b8",
     },

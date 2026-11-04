@@ -2354,6 +2354,8 @@ select option {
 }
 .uptime-events-table-wrap {
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  max-width: 100%;
 }
 .uptime-events-table {
   width: 100%;
@@ -2379,12 +2381,55 @@ select option {
   color: var(--text-muted);
   margin-bottom: 0;
 }
+.uptime-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  align-items: center;
+  margin-bottom: 0.9rem;
+  max-width: 100%;
+}
+.uptime-controls-label {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+.uptime-station-select {
+  min-width: min(14rem, 100%);
+  max-width: 100%;
+}
+.uptime-controls-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+  min-width: 0;
+}
 @media (max-width: 700px) {
   .uptime-kpi-grid {
     grid-template-columns: 1fr;
   }
+  .uptime-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .uptime-station-select {
+    width: 100%;
+    min-width: 0;
+  }
+  .uptime-controls-actions {
+    width: 100%;
+  }
+  .uptime-controls-actions .home-map-layer-btn {
+    flex: 1 1 auto;
+    min-height: 44px;
+  }
   .uptime-events-table {
-    min-width: 38rem;
+    min-width: 0;
+    font-size: 0.78rem;
+  }
+  .uptime-events-table th,
+  .uptime-events-table td {
+    padding: 0.5rem 0.4rem;
   }
 }
 a.home-map-layer-btn {
@@ -3100,6 +3145,9 @@ a.home-map-layer-btn {
 }
 .storm-log-table-wrap {
   max-height: min(70vh, 520px);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  max-width: 100%;
 }
 .storm-log-table {
   min-width: 720px;
@@ -3892,6 +3940,17 @@ a.home-map-layer-btn {
   gap: 0.75rem;
   align-items: end;
 }
+@media (max-width: 900px) {
+  .scale-row {
+    grid-template-columns: 1fr;
+    gap: 0.55rem;
+    align-items: stretch;
+  }
+  .scale-items {
+    grid-template-columns: repeat(auto-fit, minmax(4.5rem, 1fr));
+    gap: 0.5rem;
+  }
+}
 .scale-item {
   min-width: 0;
   text-align: center;
@@ -4168,6 +4227,8 @@ a.home-map-layer-btn {
 
 .live-tec-method-compare-table-wrap {
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  max-width: 100%;
   border: 1px solid var(--border);
   border-radius: 6px;
 }
@@ -4914,6 +4975,11 @@ a.home-map-layer-btn {
   font-size: 0.82rem;
   min-width: 620px;
   width: 100%;
+}
+.on2-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  max-width: 100%;
 }
 .on2-table th,
 .on2-table td {
@@ -5743,6 +5809,8 @@ a.home-map-layer-btn {
 }
 .table-scroll {
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  max-width: 100%;
 }
 .table-scroll.compact {
   max-height: 360px;
@@ -7110,6 +7178,11 @@ a.home-map-layer-btn {
   min-width: 560px;
   font-size: 0.8rem;
 }
+.gnwi-broadcast-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  max-width: 100%;
+}
 .gnwi-broadcast-toggle,
 .gnwi-broadcast-delete {
   background: none;
@@ -7560,6 +7633,8 @@ a.home-map-layer-btn {
 
 .kp-bar-figure {
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  max-width: 100%;
   border: 1px solid #d6d6d6;
   background: #ffffff;
 }
@@ -7569,6 +7644,12 @@ a.home-map-layer-btn {
   width: 100%;
   min-width: 720px;
   height: auto;
+}
+
+@media (max-width: 700px) {
+  .kp-bar-figure svg {
+    min-width: min(100%, 520px);
+  }
 }
 
 .kp-bar-axis-title,
@@ -8315,7 +8396,8 @@ a.home-map-layer-btn {
   }
 
   .space-weather-page .sw-metric-flare-scale-desc {
-    font-size: 0.42rem;
+    font-size: 0.68rem;
+    line-height: 1.35;
   }
 
   .cors-map-shell {
@@ -8563,10 +8645,47 @@ a.home-map-layer-btn {
   margin-top: 0;
 }
 
-:is(.table-scroll, .sw-table-scroll, .storm-log-table-wrap, .matamba-scroll) {
+:is(
+  .table-scroll,
+  .sw-table-scroll,
+  .storm-log-table-wrap,
+  .matamba-scroll,
+  .uptime-events-table-wrap,
+  .live-tec-method-compare-table-wrap,
+  .on2-table-wrap,
+  .gnwi-broadcast-table-wrap
+) {
   max-width: 100%;
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
   overscroll-behavior-inline: contain;
+}
+
+@media (max-width: 700px) {
+  .storm-log-table {
+    min-width: 32rem;
+    font-size: 0.76rem;
+  }
+  .dark-table {
+    min-width: 28rem;
+    font-size: 0.78rem;
+  }
+  .dark-table th,
+  .dark-table td {
+    padding: 0.45rem 0.5rem;
+  }
+  .on2-table {
+    min-width: 26rem;
+    font-size: 0.76rem;
+  }
+  .live-tec-method-compare-table {
+    min-width: 24rem;
+    font-size: 0.72rem;
+  }
+  .gnwi-broadcast-table {
+    min-width: 24rem;
+    font-size: 0.74rem;
+  }
 }
 
 @media (min-width: 769px) and (max-width: 1100px) {
@@ -8745,3 +8864,19 @@ a.home-map-layer-btn {
 }
 .gnwi-window-hint { font-size: 0.8rem; color: var(--text-muted); margin: 0 0 0.55rem; }
 
+/* Uptime workspace: keep controls and report tables usable at every width. */
+.uptime-workspace { min-width: 0; max-width: 100%; }
+.uptime-tabs { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0 0 1rem; }
+.uptime-tab { min-height: 44px; padding: 0.6rem 1rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card, #0b1928); color: var(--text); font: inherit; cursor: pointer; }
+.uptime-tab.is-active { border-color: var(--accent); background: #123451; color: #fff; }
+.uptime-tab:focus-visible, .uptime-report-table-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.uptime-tab-callout { display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 0.8rem; line-height: 1.5; }
+.uptime-report-table-scroll { max-width: 100%; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; margin-bottom: 1rem; }
+.uptime-report-table-scroll table { min-width: 35rem; }
+@media (max-width: 700px) {
+  .uptime-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .uptime-tab { padding: 0.6rem 0.4rem; font-size: 0.85rem; }
+  .uptime-controls-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .uptime-controls-actions .home-map-layer-btn { min-width: 0; padding: 0.5rem 0.3rem; overflow-wrap: anywhere; }
+  .uptime-workspace .banner { overflow-wrap: anywhere; }
+}

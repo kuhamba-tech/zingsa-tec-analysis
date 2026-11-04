@@ -376,7 +376,7 @@ export default function Cosmic2AnalysisPanel({
       <div className="card">
         <div style={{ fontWeight: 700, marginBottom: "0.65rem" }}>COSMIC-2 Level-2 ionPrf archive table</div>
         {cosmic2.series.length > 0 ? (
-          <div style={{ overflowX: "auto" }}>
+          <div className="on2-table-wrap">
             <table className="on2-table">
               <thead>
                 <tr>

@@ -123,8 +123,8 @@ export function mergeTecHeatmapWithStations(
       message:
         measuredCount > 0
           ? measuredCount === 1
-            ? "1 connected CORS site reporting live VTEC from NTRIP decode."
-            : `${measuredCount} connected CORS sites reporting live VTEC from NTRIP decode.`
+            ? "1 CORS site has a measured NTRIP VTEC sample in this window (Spider may show more sites online)."
+            : `${measuredCount} CORS sites have measured NTRIP VTEC samples in this window (Spider online can be higher).`
           : liveHeatmap.message,
     };
   }
@@ -167,8 +167,8 @@ export function mergeTecHeatmapWithStations(
     updated_at: null,
     message:
       reporting.length === 1
-        ? "1 connected CORS site reporting live VTEC from NTRIP decode."
-        : `${reporting.length} connected CORS sites reporting live VTEC from NTRIP decode.`,
+        ? "1 CORS site has a measured NTRIP VTEC sample in this window (Spider may show more sites online)."
+        : `${reporting.length} CORS sites have measured NTRIP VTEC samples in this window (Spider online can be higher).`,
     data_quality: "stations_only",
     icao_mod_tecu: 125,
     icao_sev_tecu: 175,

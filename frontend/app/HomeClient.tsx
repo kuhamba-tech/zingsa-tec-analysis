@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import DataSources from "@/components/dashboard/DataSources";
 import {
   getEkfStatus,
   getLivePipelineStatus,
@@ -40,6 +41,9 @@ import {
 import HomeStormAlertBanner from "@/components/layout/HomeStormAlertBanner";
 import DeferredMount from "@/components/spaceWeather/DeferredMount";
 import HomeTimelinesGate from "@/components/spaceWeather/HomeTimelinesGate";
+import LocalIonosphereObservations from "@/components/spaceWeather/LocalIonosphereObservations";
+import SpaceWeatherCorsMap from "@/components/spaceWeather/SpaceWeatherCorsMap";
+import { loadCorsMapWithLayers } from "@/lib/loadCorsMapWithLayers";
 import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
 import type {
   Station,
@@ -220,11 +224,30 @@ export default function HomeClient({ initialSw = null }: HomeClientProps) {
   );
   const [ntripRefreshing, setNtripRefreshing] = useState(false);
   const [gettingStartedOpen, setGettingStartedOpen] = useState(true);
+  const [ionosphereNow, setIonosphereNow] = useState(0);
+  const [loadProfile, setLoadProfile] = useState(() => getLoadProfile());
+  const [tvHeavyUnlocked, setTvHeavyUnlocked] = useState(false);
+  useEffect(() => {
+    setLoadProfile(getLoadProfile());
+  }, []);
 
   useEffect(() => {
     if (!initialSw) return;
     publishBoot(initialSw);
   }, [initialSw]);
+
+  // Kick OpenLayers/Leaflet compile after metrics hydrate — skip on CleverTouch
+  // until the operator unlocks map/timelines (4K IFP CPUs cannot parse OL early).
+  useEffect(() => {
+    if (getLoadProfile().tv && !tvHeavyUnlocked) return;
+    void loadCorsMapWithLayers().catch(() => null);
+  }, [tvHeavyUnlocked]);
+
+  useEffect(() => {
+    setIonosphereNow(Date.now());
+    const id = window.setInterval(() => setIonosphereNow(Date.now()), 30_000);
+    return () => window.clearInterval(id);
+  }, []);
 
   useEffect(() => {
     try {
@@ -538,17 +561,47 @@ export default function HomeClient({ initialSw = null }: HomeClientProps) {
         </section>
       </div>
 
-      <DeferredMount
-        className="sw-deferred-block"
-        minHeight={320}
-        fallback={
-          <div className="banner banner-info" role="status" style={{ margin: "0.75rem 0" }}>
-            Loading timelines and CORS map…
-          </div>
-        }
-      >
-        <HomeTimelinesGate />
-      </DeferredMount>
+      {loadProfile.tv && !tvHeavyUnlocked ? (
+        <div className="banner banner-info" style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", alignItems: "center", margin: "0.75rem 0" }}>
+          <span style={{ flex: "1 1 14rem", fontSize: "0.9rem" }}>
+            Interactive display mode: metric cards load first. Tap below when ready for the CORS map and timelines.
+          </span>
+          <button type="button" className="btn btn-primary" onClick={() => setTvHeavyUnlocked(true)}>
+            Load map &amp; timelines
+          </button>
+        </div>
+      ) : (
+        <>
+          <DeferredMount
+            className="sw-deferred-block"
+            minHeight={520}
+            minDelayMs={loadProfile.tv ? loadProfile.heavyMountDelayMs : 80}
+            rootMargin="200px 0px"
+            fallback={
+              <div className="home-map-loading" role="status" aria-live="polite">
+                <span className="home-map-loading-spinner" aria-hidden="true" />
+                <span>Loading CORS map…</span>
+              </div>
+            }
+          >
+            <LocalIonosphereObservations now={ionosphereNow || Date.now()} />
+            <SpaceWeatherCorsMap />
+          </DeferredMount>
+
+          <DeferredMount
+            className="sw-deferred-block"
+            minHeight={280}
+            minDelayMs={loadProfile.tv ? loadProfile.heavyMountDelayMs + 800 : 900}
+            fallback={
+              <div className="banner banner-info" role="status" style={{ margin: "0.75rem 0" }}>
+                Loading timelines…
+              </div>
+            }
+          >
+            <HomeTimelinesGate includeChrome={false} />
+          </DeferredMount>
+        </>
+      )}
 
       <section className="home-getting-started" aria-label="Getting started">
         <div className="home-getting-started-panel">
@@ -629,6 +682,7 @@ export default function HomeClient({ initialSw = null }: HomeClientProps) {
           ))}
         </div>
       </section>
+      <DataSources />
     </div>
   );
 }
