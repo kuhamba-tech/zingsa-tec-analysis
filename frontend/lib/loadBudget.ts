@@ -152,8 +152,8 @@ export function getLoadProfile(): LoadProfile {
     // Both desktop and mobile: longer polls reduce background contention.
     pollIntervalMs: slowNetwork ? 180_000 : constrained ? 120_000 : 60_000,
     timelineMaxPoints: tv ? 24 : slowNetwork ? 32 : constrained ? 48 : 96,
-    // CleverTouch / TV: keep OpenLayers and Chart.js off the critical path longer.
-    heavyMountDelayMs: tv ? 4500 : cursorPreview ? 550 : slowNetwork ? 700 : constrained ? 450 : 350,
+    // Touch panels on Chrome can mount maps promptly; keep only a short defer.
+    heavyMountDelayMs: tv ? 600 : cursorPreview ? 550 : slowNetwork ? 700 : constrained ? 450 : 350,
     // Always skip heliospheric/timeline warm on first paint — tabs warm on demand.
     deferSecondaryApis: true,
     // The CORS count card uses the small /cors/connected read. The full station

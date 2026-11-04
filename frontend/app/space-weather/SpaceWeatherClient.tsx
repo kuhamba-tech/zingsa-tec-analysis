@@ -475,8 +475,6 @@ export default function SpaceWeatherClient({
   const [imfPoints, setImfPoints] = useState<TimelinePoint[] | null>(null);
   // Always start at 0 so SSR HTML matches the first client paint; URL ?tab= is applied in useEffect.
   const [tab, setTab] = useState(0);
-  /** CleverTouch: keep Chart.js off until the operator taps Load. */
-  const [tvChartsUnlocked, setTvChartsUnlocked] = useState(false);
   const [xrayRange, setXrayRange] = useState<"6H" | "24H">("24H");
 
   useEffect(() => {
@@ -1233,20 +1231,13 @@ export default function SpaceWeatherClient({
         </p>
       </section>
 
-      {/* Overview stacks only on Live Metric — never compete with Zimbabwe / Solar tabs.
-          CleverTouch / IFP: skip OpenLayers + Chart.js here so metric cards can paint. */}
-      {tab === 0 && loadProfile.tv && (
-        <div className="banner banner-info" role="status" style={{ fontSize: "0.85rem" }}>
-          Interactive display mode: showing live metric cards first. Open a tab below for
-          timelines, the CORS map, and detailed solar charts when the panel is ready.
-        </div>
-      )}
-      {tab === 0 && !loadProfile.tv && (
+      {/* Overview stacks only on Live Metric — never compete with Zimbabwe / Solar tabs. */}
+      {tab === 0 && (
         <>
           <DeferredMount
             className="sw-deferred-block"
             minHeight={320}
-            minDelayMs={loadProfile.heavyMountDelayMs}
+            minDelayMs={loadProfile.tv ? Math.min(loadProfile.heavyMountDelayMs, 600) : loadProfile.heavyMountDelayMs}
             fallback={sectionFallback}
           >
             <CauseEffectTimelineStack variant="overview" includeChrome={false} />
@@ -1255,7 +1246,7 @@ export default function SpaceWeatherClient({
             className="sw-deferred-block"
             minHeight={120}
             rootMargin="40px 0px"
-            minDelayMs={loadProfile.heavyMountDelayMs + 1200}
+            minDelayMs={(loadProfile.tv ? Math.min(loadProfile.heavyMountDelayMs, 600) : loadProfile.heavyMountDelayMs) + 1200}
             fallback={sectionFallback}
           >
             <IndexScaleReference />
@@ -1295,28 +1286,12 @@ export default function SpaceWeatherClient({
             <span>solar monitor-live data</span>
           </div>
 
-          {loadProfile.tv && !tvChartsUnlocked ? (
-            <div className="banner banner-info" style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", alignItems: "center" }}>
-              <span style={{ flex: "1 1 14rem", fontSize: "0.9rem" }}>
-                Interactive display: timelines stay off until you load them so metric cards stay responsive.
-              </span>
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={() => setTvChartsUnlocked(true)}
-              >
-                Load timelines
-              </button>
-            </div>
-          ) : null}
-
           {/* Chart.js stays off the first download until this block nears the viewport. */}
-          {(!loadProfile.tv || tvChartsUnlocked) && (
             <>
               <DeferredMount
                 className="sw-deferred-block"
                 minHeight={420}
-                minDelayMs={loadProfile.heavyMountDelayMs}
+                minDelayMs={loadProfile.tv ? Math.min(loadProfile.heavyMountDelayMs, 600) : loadProfile.heavyMountDelayMs}
                 fallback={sectionFallback}
               >
                 <GoesSolarXrayCard
@@ -1410,7 +1385,6 @@ export default function SpaceWeatherClient({
                 />
               </DeferredMount>
             </>
-          )}
         </div>
       )}
 
