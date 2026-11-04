@@ -4,6 +4,18 @@
  * URL rules must stay aligned with lib/clientApiBase.ts.
  */
 (function () {
+  // Embedded touchscreens can ship an old Chromium/WebView. Send them to a
+  // server-rendered display before loading the modern dashboard libraries.
+  try {
+    var chromeVersion = /(?:Chrome|Chromium)\/(\d+)/.exec(navigator.userAgent || "");
+    var oldChromium = chromeVersion && Number(chromeVersion[1]) < 111;
+    var displayRequested = /(?:^|[?&])display=1(?:&|$)/.test(location.search);
+    var fullRequested = /(?:^|[?&])full=1(?:&|$)/.test(location.search);
+    if ((oldChromium || displayRequested) && !fullRequested && location.pathname.indexOf("/display") !== 0) {
+      location.replace("/display/");
+      return;
+    }
+  } catch (e) {}
   try {
     window.addEventListener("unhandledrejection", function (event) {
       try {
