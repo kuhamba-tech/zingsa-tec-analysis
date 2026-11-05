@@ -14,6 +14,7 @@ import DstClassMonitor from "./DstClassMonitor";
 import KpGeomagneticClassMonitor from "./KpGeomagneticClassMonitor";
 import GeomagneticStormClassMonitor from "./GeomagneticStormClassMonitor";
 import GnssRiskClassMonitor from "./GnssRiskClassMonitor";
+import { BARUAH_2024 } from "@/lib/scientistBulletin";
 import {
   METRIC_EXPLANATIONS,
   NOAA_G_SCALE,
@@ -250,6 +251,7 @@ function MetricCardButton({
       disabled={disabled}
       aria-pressed={selected}
       aria-label={`${label}: ${value}. What does this graph mean?.`}
+      suppressHydrationWarning
     >
       <span className="sw-metric-icon" aria-hidden>
         <MetricCardIcon metricKey={metricKey} />
@@ -391,6 +393,17 @@ function ExplanationPanel({
           ? zimbabweIonoMeasuredText(networkVtec, sw?.updated_utc ?? null, ionoPair, ionoFailed)
           : METRIC_EXPLANATIONS[metricKey]}
       </p>
+      {(metricKey === "geomagnetic_storm" ||
+        metricKey === "dst" ||
+        metricKey === "solar_wind" ||
+        metricKey === "imf_bz" ||
+        metricKey === "donki_cmes" ||
+        metricKey === "gnss_risk") && (
+        <>
+          <div className="sw-metric-explain-heading">3–4 February 2022 · a moderate storm</div>
+          <p className="sw-metric-explain-body">{BARUAH_2024}</p>
+        </>
+      )}
       {metricKey === "donki_flares" && (
         <>
           <div className="sw-metric-explain-heading">26 August 2026 · M2.2 flare, R1</div>
@@ -638,7 +651,7 @@ export default function ClickableMetricGrid({
   return (
     <div className="sw-metric-section">
       {showHint && (
-        <p className="sw-metric-hint">
+        <p className="sw-metric-hint" suppressHydrationWarning>
           What is happening now — click a card for the scientific explanation.{updatedNote}
           {bootstrapping ? " · Connecting to live feeds…" : ""}
         </p>

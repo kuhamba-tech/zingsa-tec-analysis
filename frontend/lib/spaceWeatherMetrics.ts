@@ -92,19 +92,19 @@ export interface MetricCardOptions {
 export const METRIC_EXPLANATIONS: Record<MetricKey, string> = {
   solar_activity: `${HOW_BULLETINS_ARE_WRITTEN} ${CYCLE_25_SCALE} The activity level on this card is that first beat: GOES flare context plus the SWPC bulletin count. It is not a geomagnetic storm rating.`,
   solar_flare: `${FLARE_BEAT} Classes A/B/C/M/X are the 0.1–0.8 nm X-ray flux. Each letter is about ten times the flux of the letter before it. The number is only the multiplier inside that class.`,
-  solar_wind: `${WIND_BEAT} The card value is bulk speed. Density, proton temperature, Bz and Bt are the fields that decide whether the stream is geoeffective.`,
-  imf_bz: `${BZ_BEAT} Southward Bz favours reconnection. A brief negative spike is reported as a fluctuation, not as a storm.`,
+  solar_wind: `${WIND_BEAT} The card value is bulk speed. Density, proton temperature, Bz and Bt decide whether the stream is geoeffective. A high-speed stream after a CME can keep the near-Earth environment disturbed for days.`,
+  imf_bz: `${BZ_BEAT} Southward Bz favours reconnection. A brief negative spike is reported as a fluctuation, not as a storm. The field structure at L1, not the flare class, identifies an arriving CME.`,
   geomagnetic_storm: `${KP_BEAT} ${ZIMBABWE_TRANSLATION}`,
-  dst: `${DST_BEAT} Do not convert a Dst value into a NOAA G1–G5 label.`,
+  dst: `${DST_BEAT} Do not convert a Dst value into a NOAA G1-G5 label.`,
   zimbabwe_iono: "Network VTEC is the measured vertical electron content over the Zimbabwe CORS network, in TECU. The colour strip is the magnitude band: Low below 10, Typical 10–40, High 40–100, Storm 100–200, Extreme above 200. ΔTEC and ROTI stay unpublished until a quiet-day reference is validated.",
   gnss_risk:
-    "Write this label as a provisional operations line, not as proof that a receiver has failed. Name the driver (dayside flare, CME arrival, or coronal-hole stream), the Kp or G-scale, and whether Zimbabwe TEC or S4 has actually moved. Until local ΔTEC, ROTI and RTK rules are validated, the score is context from Kp, the scintillation archive and related indices.",
+    "Write this label as a provisional operations line, not as proof that a receiver has failed. Name the driver (dayside flare, CME arrival, or coronal-hole stream), the Kp or G-scale, and whether Zimbabwe TEC or S4 has actually moved. A moderate storm can still matter, but Baruah et al. (2024) also show that the environment and the asset act together: do not treat Kp alone as a failed receiver. Until local ΔTEC, ROTI and RTK rules are validated, the score is context from Kp, the scintillation archive and related indices.",
   stations:
     "State how many of the 19 ZINGSA CORS stations are online. Online is not the same as a fresh TEC solution. A drop in the count can put a hole in the network-mean TEC and S4 graphs, so say so before treating a TEC change as ionospheric.",
   donki_flares:
     "This is the 7-day flare count. It is not the 26 August M2.2 event by itself. In a bulletin each flare still needs a class, a peak time in UTC, and whether it was eruptive. More flares mean a more active disk. They do not, by themselves, mean an Earth-directed ejection or a storm at Kp.",
   donki_cmes:
-    "This count is the CME catalogue for the selected 7 days. It is not the October or August watch by itself. Sort each ejection: Earth-directed plasma can arrive in 1–3 days, a glancing edge is weaker and less certain, and a limb or farside CME is directed away unless a later Earth-directed part is measured. Not every CME is geoeffective. The two watches below show how NOAA describes an ejection on its own, and an ejection that follows a coronal-hole stream.",
+    "This count is the CME catalogue for the selected 7 days. It is not the October or August watch by itself. Sort each ejection: Earth-directed plasma can arrive in 1-3 days, a glancing edge is weaker and less certain, and a limb or farside CME is directed away unless a later Earth-directed part is measured. Not every CME is geoeffective. Baruah et al. (2024) identified three Earth-directed CMEs whose arrivals overlapped a high-speed stream and still produced only a moderate storm. The watches below show how NOAA describes an ejection on its own, and an ejection that follows a coronal-hole stream.",
   donki_storms:
     "These are Earth-side geomagnetic storms in the 7-day window, closer to GNSS impact than a flare count. Still write Kp, Dst and Bz, then check the Zimbabwe TEC and S4 graphs before claiming a local effect.",
 };

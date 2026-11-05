@@ -40,7 +40,7 @@ export default function SwSectionBanner({
             {icon}
           </span>
         ) : null}
-        <HeadingTag id={titleId} className="sw-section-banner-title">
+        <HeadingTag id={titleId} className="sw-section-banner-title" suppressHydrationWarning>
           {title}
         </HeadingTag>
       </div>

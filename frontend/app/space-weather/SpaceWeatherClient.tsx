@@ -1121,24 +1121,25 @@ export default function SpaceWeatherClient({
     <div className="page-stack space-weather-page">
 
       {/* ── Title ── */}
-      <div className="dashboard-header">
-        <div className="dashboard-header-copy">
-          <h1 className="page-title">
-            <span className="sw-page-title-mark" aria-hidden>
+      <div className="dashboard-header" suppressHydrationWarning>
+        <div className="dashboard-header-copy" suppressHydrationWarning>
+          <h1 className="page-title" suppressHydrationWarning>
+            <span className="sw-page-title-mark" aria-hidden suppressHydrationWarning>
               <SpaceWeatherTitleIcon />
             </span>
-            <span className="sw-page-title-text">Space Weather Monitoring</span>
+            <span className="sw-page-title-text" suppressHydrationWarning>Space Weather Monitoring</span>
           </h1>
-          <p className="page-subtitle">Real-time monitoring of solar, geomagnetic, ionospheric, and Zimbabwe CORS network conditions.</p>
+          <p className="page-subtitle" suppressHydrationWarning>Real-time monitoring of solar, geomagnetic, ionospheric, and Zimbabwe CORS network conditions.</p>
         </div>
-        <div className="dashboard-header-aside">
-          <div className="page-header-clocks" aria-label="Live clocks">
+        <div className="dashboard-header-aside" suppressHydrationWarning>
+          <div className="page-header-clocks" aria-label="Live clocks" suppressHydrationWarning>
             <DashboardHeaderClocks />
           </div>
           <button
             className="btn dashboard-refresh-btn"
             onClick={handleRefresh}
             disabled={refreshing}
+            suppressHydrationWarning
           >
             {refreshing ? "Refreshing…" : "⟳ Refresh"}
           </button>
@@ -1223,11 +1224,11 @@ export default function SpaceWeatherClient({
       </div>}
 
       {/* NOAA bulletins live on Alerts (/storm-watch); keep a short pointer here. */}
-      <section className="card sw-noaa-shortcut" aria-label="NOAA alerts shortcut">
+      <section className="card sw-noaa-shortcut" aria-label="NOAA alerts shortcut" suppressHydrationWarning>
         <SwSectionBanner
           icon="🔔"
           title="NOAA alerts, watches and warnings"
-          meta={<Link href="/storm-watch/" prefetch={false}>Open Alerts →</Link>}
+          meta={<Link href="/storm-watch/" prefetch={false} suppressHydrationWarning>Open Alerts →</Link>}
         />
         <p className="sw-supporting-text sw-hide-on-narrow" style={{ margin: "0.75rem 0 0" }}>
           Recent SWPC bulletins and feed status are listed on the Alerts page with storm watches.
@@ -1259,7 +1260,7 @@ export default function SpaceWeatherClient({
       )}
 
       {/* ── Tabs ── */}
-      <div className="tabs sw-space-tabs" role="tablist" aria-label="Space weather views">
+      <div className="tabs sw-space-tabs" role="tablist" aria-label="Space weather views" suppressHydrationWarning>
         {["Live Metric Timelines", "Solar Activity", "Zimbabwe Ionospheric Response"].map((t, i) => (
           <button
             key={t}
@@ -1267,6 +1268,7 @@ export default function SpaceWeatherClient({
             role="tab"
             aria-selected={tab === i}
             className={`tab${tab === i ? " active" : ""}`}
+            suppressHydrationWarning
             onClick={() => {
               setTab(i);
               setSelectedGraph(null);
@@ -1279,8 +1281,8 @@ export default function SpaceWeatherClient({
 
       {/* ── Tab 0: Timelines ── */}
       {tab === 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-          <p style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }} suppressHydrationWarning>
+          <p suppressHydrationWarning style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>
             Chronological Sun→Earth→Zimbabwe order using the Solar Activity GOES X-ray and Heliospheric Monitor graphs, then local VTEC / CORS / GNSS
           </p>
 
