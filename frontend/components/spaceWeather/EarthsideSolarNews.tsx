@@ -387,13 +387,14 @@ function BriefImage({ image }: { image: SolarBriefImage }) {
     <figure>
       <img
         src={src}
-        alt={`${image.title} from SolarHam`}
+        alt={image.title}
         onError={() => {
           if (src !== image.fallback_url) setSrc(image.fallback_url);
         }}
       />
       <figcaption>
-        {image.title} · {src === image.url ? "SolarHam" : "NASA SDO"}
+        {image.title}
+        {image.image_time ? ` · ${image.image_time}` : ""}
       </figcaption>
     </figure>
   );
