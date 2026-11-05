@@ -2,9 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { getSpaceWeather, getStations } from "@/lib/api";
+import { getSolarActivity, getSpaceWeather, getStations } from "@/lib/api";
 import { peekSpaceWeather } from "@/lib/spaceWeatherStore";
 import { peekStations } from "@/lib/stationsStore";
+import { buildMeasuredAdvisory } from "@/lib/advisoryShare";
 import { buildGnssForecastBundle, type GnssForecastBundle } from "@/lib/gnssForecastEngine";
 import type { NavigationNewsBrief } from "@/lib/gnssAudienceNews";
 import {
@@ -20,6 +21,7 @@ import {
   DataFusionPipelineDiagram,
   NationalPlatformDiagram,
 } from "@/components/gnssIntelligence/GnssArchitectureDiagrams";
+import AdvisoryShareBar from "@/components/gnssIntelligence/AdvisoryShareBar";
 import BroadcastRecipientsPanel from "@/components/gnssIntelligence/BroadcastRecipientsPanel";
 import FacebookPostPanel from "@/components/gnssIntelligence/FacebookPostPanel";
 import NationalGnssStatusCard from "@/components/gnssIntelligence/NationalGnssStatusCard";
@@ -27,7 +29,7 @@ import { safeClipboardWrite } from "@/lib/safeClipboard";
 import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
 import { analyzeNavigationNewsBrief, analyzeNavigationNewsSection } from "@/lib/navigationNewsAnalysis";
 import { effectiveNavigationTone } from "@/lib/gnssAudienceNews";
-import type { SpaceWeatherCurrent, Station } from "@/lib/types";
+import type { SolarActivityFull, SpaceWeatherCurrent, Station } from "@/lib/types";
 import {
   ZINGSA_ADDRESS,
   ZINGSA_EMAIL,
@@ -194,12 +196,14 @@ function CopyScriptButton({ text, label }: { text: string; label: string }) {
 function AudienceNewsCard({
   brief,
   sw,
+  solar,
   forecasts,
   sourceTimestamp,
   generatedTimestamp,
 }: {
   brief: NavigationNewsBrief;
   sw: SpaceWeatherCurrent | null;
+  solar: SolarActivityFull | null;
   forecasts: GnssForecastCity[];
   sourceTimestamp: string | null;
   generatedTimestamp: string | null;
@@ -251,6 +255,7 @@ function AudienceNewsCard({
       <p className="gnwi-news-channels">
         <strong>Future channels:</strong> {brief.channels.join(" · ")}
       </p>
+      <AdvisoryShareBar card={buildMeasuredAdvisory(sw, solar, brief.id)} />
       <ChartAnalysisBox
         block={analyzeNavigationNewsBrief(brief, sw, forecasts)}
         title="Analysis — why this brief says what it says"
@@ -276,6 +281,7 @@ function AudienceNewsCard({
 export default function GnssIntelligencePage() {
   const [bundle, setBundle] = useState<GnssForecastBundle | null>(null);
   const [sw, setSw] = useState<SpaceWeatherCurrent | null>(() => peekSpaceWeather());
+  const [solar, setSolar] = useState<SolarActivityFull | null>(null);
   // Match the server's initial loading markup before reading browser caches.
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -295,6 +301,13 @@ export default function GnssIntelligencePage() {
           getSpaceWeather(),
           getStations(false),
         ]);
+        void getSolarActivity(false, false)
+          .then((value) => {
+            if (!cancelled) setSolar(value);
+          })
+          .catch(() => {
+            if (!cancelled) setSolar(null);
+          });
         if (cancelled) return;
 
         const nextSw: SpaceWeatherCurrent | null =
@@ -395,7 +408,7 @@ export default function GnssIntelligencePage() {
           Space weather is not only for scientists. When the Sun stirs the ionosphere, maps drift,
           tractors lose RTK fix, and taxis miss pickup points. Each brief explains what is happening
           in space today, what it means for your group, and what to do — in language anyone can
-          understand.
+          understand. Each card can be shared on WhatsApp or Facebook. The shared text uses measured indices and leaves missing values as unavailable.
         </p>
         {bundle && (
           <div className={`banner ${sourceIsStale ? "banner-alert" : "banner-info"} gnwi-news-freshness`}>
@@ -419,6 +432,7 @@ export default function GnssIntelligencePage() {
               key={brief.id}
               brief={brief}
               sw={sw}
+              solar={solar}
               forecasts={bundle?.forecasts ?? []}
               sourceTimestamp={sourceTimestamp}
               generatedTimestamp={bundle?.computedAt ?? null}

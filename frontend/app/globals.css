@@ -7121,6 +7121,77 @@ a.home-map-layer-btn {
 .gnwi-copy-btn:hover {
   background: rgba(22, 139, 210, 0.22);
 }
+.advisory-share {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin-top: 0.75rem;
+}
+.advisory-share-note,
+.advisory-share-notice,
+.advisory-subscribe p {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+.advisory-share-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.advisory-share-actions a {
+  text-decoration: none;
+}
+.advisory-subscribe {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.advisory-subscribe label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.78rem;
+}
+.advisory-subscribe input[type="tel"],
+.advisory-subscribe input:not([type="checkbox"]) {
+  font: inherit;
+  padding: 0.35rem 0.5rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: inherit;
+}
+.advisory-subscribe-consent {
+  flex-direction: row !important;
+  align-items: flex-start;
+  gap: 0.45rem !important;
+}
+.advisory-share-text {
+  width: 100%;
+  min-height: 7rem;
+  font: inherit;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  padding: 0.5rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: inherit;
+}
+.advisory-sheet h2 {
+  margin: 0.8rem 0 0.3rem;
+  font-size: 1rem;
+}
+.advisory-sheet ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  line-height: 1.45;
+}
 .gnwi-agent-api {
   margin-top: 1rem;
   border-left: 3px solid #168bd2;
