@@ -648,18 +648,132 @@ _YESTERDAY_PERIODS = (
 )
 
 
+def _window_caption(start: datetime) -> str:
+    """Local and UT span for one 15-minute map."""
+    if start.tzinfo is None:
+        start = start.replace(tzinfo=timezone.utc)
+    else:
+        start = start.astimezone(timezone.utc)
+    end = start + timedelta(minutes=WINDOW_MINUTES)
+    start_local = start.astimezone(_CAT)
+    end_local = end.astimezone(_CAT)
+    return (
+        f"{start_local.strftime('%Y-%m-%d')} · {start_local.strftime('%H:%M')}–{end_local.strftime('%H:%M')} CAT"
+        f" ({start.strftime('%H:%M')}–{end.strftime('%H:%M')} UT)"
+    )
+
+
 def _period_window(moment: datetime, hour: int, minute: int) -> tuple[datetime, datetime, str]:
     """A 15-minute UT window on yesterday's Zimbabwe local date."""
     local_day = moment.astimezone(_CAT).date() - timedelta(days=1)
     start = datetime(local_day.year, local_day.month, local_day.day, hour, minute, tzinfo=timezone.utc)
     end = start + timedelta(minutes=WINDOW_MINUTES)
-    start_local = start.astimezone(_CAT)
-    end_local = end.astimezone(_CAT)
-    label = (
-        f"{start_local.strftime('%Y-%m-%d')} · {start_local.strftime('%H:%M')}–{end_local.strftime('%H:%M')} CAT"
-        f" ({start.strftime('%H:%M')}–{end.strftime('%H:%M')} UT)"
-    )
-    return start, end, label
+    return start, end, _window_caption(start)
+
+
+# When the paper's 15-minute window has no pierce points, use the next measured
+# window on that same day. Four hours covers the midday gap seen on 2026-11-04.
+_FALLBACK_LOOKAHEAD = timedelta(hours=4)
+_FALLBACK_MIN_ROWS = 40
+_FALLBACK_TRIES = 3
+
+
+def _first_dense_windows(
+    counted: list[tuple[datetime, int]],
+    after: datetime,
+    *,
+    min_rows: int = _FALLBACK_MIN_ROWS,
+    limit: int = _FALLBACK_TRIES,
+) -> list[tuple[datetime, datetime]]:
+    """Earliest clock-aligned windows that start at or after ``after``."""
+    if after.tzinfo is None:
+        after = after.replace(tzinfo=timezone.utc)
+    else:
+        after = after.astimezone(timezone.utc)
+    horizon = after + _FALLBACK_LOOKAHEAD
+    chosen: list[tuple[datetime, datetime]] = []
+    for win, count in sorted(counted, key=lambda item: item[0]):
+        start = win if win.tzinfo else win.replace(tzinfo=timezone.utc)
+        start = start.astimezone(timezone.utc)
+        if start < after or start > horizon or count < min_rows:
+            continue
+        chosen.append((start, start + timedelta(minutes=WINDOW_MINUTES)))
+        if len(chosen) >= limit:
+            break
+    return chosen
+
+
+def _dense_window_counts(after: datetime, until: datetime) -> list[tuple[datetime, int]]:
+    """Raw code-TEC rows in each clock-aligned 15-minute bin, UTC."""
+    from zgiis.db.config import checkout, pooled_database_dsn, release
+
+    dsn = pooled_database_dsn()
+    if not dsn:
+        return []
+    conn = None
+    try:
+        conn = checkout(dsn)
+        with conn.cursor() as cur:
+            cur.execute("SET statement_timeout = 15000")
+            cur.execute(
+                f"""
+                SELECT date_trunc('hour', time AT TIME ZONE 'UTC')
+                       + (floor(extract(minute FROM (time AT TIME ZONE 'UTC')) / 15)
+                          * interval '15 minutes') AS win,
+                       COUNT(*) AS n
+                FROM vtec_obs
+                WHERE time > %s
+                  AND time <= %s
+                  AND vtec_tecu >= 0
+                  AND vtec_tecu <= 50
+                  AND elevation_deg >= {ELEVATION_MIN_DEG:g}
+                  AND tec_method LIKE %s
+                  AND tec_method NOT LIKE 'dlr_%%'
+                GROUP BY 1
+                HAVING COUNT(*) >= %s
+                ORDER BY 1
+                """,
+                (after.isoformat(), until.isoformat(), "%code_live%", _FALLBACK_MIN_ROWS),
+            )
+            found: list[tuple[datetime, int]] = []
+            for win, count in cur.fetchall():
+                if win is None:
+                    continue
+                stamp = win if getattr(win, "tzinfo", None) else win.replace(tzinfo=timezone.utc)
+                found.append((stamp, int(count)))
+            return found
+    except Exception as exc:
+        message = str(exc).splitlines()[0]
+        if "://" in message or "@" in message:
+            message = type(exc).__name__
+        log.warning("TEC fallback window read failed: %s", message[:240])
+        return []
+    finally:
+        if conn is not None:
+            try:
+                if not getattr(conn, "closed", 1):
+                    with conn.cursor() as cur:
+                        cur.execute("SET statement_timeout = 0")
+                release(conn)
+            except Exception:
+                release(conn, close=True)
+
+
+def _later_vtec_field(title: str, after: datetime) -> dict[str, Any] | None:
+    """Nearest later 15-minute map when the requested window has too few pierce points."""
+    counted = _dense_window_counts(after, after + _FALLBACK_LOOKAHEAD)
+    for start, end in _first_dense_windows(counted, after):
+        try:
+            rows = _query_windows([("fallback", start, end)]).get("fallback", [])
+        except RuntimeError:
+            return None
+        placed = _place(rows) if rows else []
+        if not placed:
+            continue
+        field = _vtec_field(placed, start, end, label=f"{title} · {_window_caption(start)}")
+        if field.get("available"):
+            return field
+    return None
 
 
 def _yesterday_disk() -> Path:
@@ -687,7 +801,7 @@ def _cached_yesterday_fields(
     windows = data.get("windows") if isinstance(data.get("windows"), dict) else {}
     fields = data.get("fields") if isinstance(data.get("fields"), dict) else {}
     kept: dict[str, dict[str, Any]] = {}
-    for key, title, _hour, _minute in _YESTERDAY_PERIODS:
+    for key, _title, _hour, _minute in _YESTERDAY_PERIODS:
         _start, _end, label = periods[key]
         field = fields.get(key)
         if (
@@ -695,7 +809,6 @@ def _cached_yesterday_fields(
             and field.get("available")
             and field.get("grid")
             and windows.get(key) == label
-            and field.get("label") == f"{title} · {label}"
         ):
             kept[key] = field
     return kept
@@ -727,11 +840,14 @@ def _store_yesterday_fields(
     if not changed:
         return
     path = _yesterday_disk()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {"day": day, "windows": windows, "fields": fields}
-    temporary = path.with_suffix(".json.tmp")
-    temporary.write_text(json.dumps(payload), encoding="utf-8")
-    temporary.replace(path)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {"day": day, "windows": windows, "fields": fields}
+        temporary = path.with_suffix(".json.tmp")
+        temporary.write_text(json.dumps(payload), encoding="utf-8")
+        temporary.replace(path)
+    except OSError:
+        log.warning("Could not save yesterday TEC maps", exc_info=True)
 
 
 def _compute_iono_vtec_pair(moment: datetime) -> dict[str, Any]:
@@ -792,7 +908,10 @@ def _compute_iono_vtec_pair(moment: datetime) -> dict[str, Any]:
         if key in saved:
             built[key] = saved[key]
         else:
-            built[key] = _vtec_field(points, start, end, label=f"{title} · {label}")
+            field = _vtec_field(points, start, end, label=f"{title} · {label}")
+            if not field.get("available"):
+                field = _later_vtec_field(title, end) or field
+            built[key] = field
     built["current"] = _vtec_field(points, current_start, moment)
     _store_yesterday_fields(moment, periods, built)
     message = ""

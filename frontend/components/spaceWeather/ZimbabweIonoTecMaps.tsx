@@ -145,7 +145,9 @@ export default function ZimbabweIonoTecMaps({
         Times follow Matamba and Danskin (2022): the nighttime map ends at 01:45 UT
         (03:30–03:45 CAT), morning is the middle of their 07:00–11:00 UT morning
         (08:45–09:00 UT, 10:45–11:00 CAT), and the daytime map ends at 10:40 UT
-        (12:25–12:40 CAT). Each map uses the past 15 minutes of code TEC. Filled
+        (12:25–12:40 CAT). If that window has fewer than 8 pierce points, the
+        daytime map uses the next measured 15 minutes on the same day. Each map
+        uses 15 minutes of code TEC. Filled
         colours are median vertical TEC in TECU on a 1° grid inside the red Zimbabwe
         boundary. The three maps share one colour maximum. The current window is
         shown under them. Elevation is at least 30°.

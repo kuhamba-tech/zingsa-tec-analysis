@@ -143,3 +143,21 @@ def test_gradient_requests_share_one_nonblocking_build(monkeypatch):
     ready = {"available": True, "spatial": [[1.0]]}
     future.set_result(ready)
     assert gradients.build_tec_gradient_maps() is ready
+
+
+def test_empty_noon_window_uses_the_next_dense_quarter_hour():
+    from zgiis.maps.tec_gradients import _first_dense_windows
+
+    after = datetime(2026, 11, 4, 10, 40, tzinfo=timezone.utc)
+    counted = [
+        (datetime(2026, 11, 4, 10, 30, tzinfo=timezone.utc), 900),
+        (datetime(2026, 11, 4, 12, 45, tzinfo=timezone.utc), 12),
+        (datetime(2026, 11, 4, 13, 0, tzinfo=timezone.utc), 1400),
+        (datetime(2026, 11, 4, 13, 15, tzinfo=timezone.utc), 1500),
+    ]
+    chosen = _first_dense_windows(counted, after)
+    assert chosen[0] == (
+        datetime(2026, 11, 4, 13, 0, tzinfo=timezone.utc),
+        datetime(2026, 11, 4, 13, 15, tzinfo=timezone.utc),
+    )
+    assert len(chosen) == 2

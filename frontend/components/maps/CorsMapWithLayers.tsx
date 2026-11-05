@@ -211,8 +211,8 @@ export default function CorsMapWithLayers({
     startingLayer === "Satellite" || startingLayer === "Street" ? startingLayer : "Hybrid",
   );
   const [proposedCorsSites, setProposedCorsSites] = useState<ProposedCorsSite[]>([]);
-  const [showTelone, setShowTelone] = useState(false);
-  const [showDemographics, setShowDemographics] = useState(false);
+  const [showTelone, setShowTelone] = useState(true);
+  const [showDemographics, setShowDemographics] = useState(true);
   const [measuredGg, setMeasuredGg] = useState<Record<string, number>>({});
   const [trignet, setTrignet] = useState<TrigNetResponse | null>(null);
 

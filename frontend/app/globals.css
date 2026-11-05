@@ -2473,15 +2473,21 @@ a.home-map-layer-btn {
   border-radius: 0;
 }
 
+.home-map-network-layout > div:first-child {
+  align-self: flex-start;
+  isolation: isolate;
+}
+
 .network-distances-side-panel {
   position: absolute;
-  left: 16px;
-  top: 42%;
-  z-index: 13;
+  left: 12px;
+  top: 22%;
+  z-index: 40;
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
   width: 210px;
+  pointer-events: none;
 }
 
 .network-distances-pick {

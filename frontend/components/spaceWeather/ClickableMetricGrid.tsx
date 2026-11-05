@@ -28,6 +28,7 @@ import TecPrimerBlock from "./TecPrimerBlock";
 import ZimbabweIonoTecMaps, { zimbabweIonoMeasuredText } from "./ZimbabweIonoTecMaps";
 import EarthsideSolarNews from "./EarthsideSolarNews";
 import VisibleSolarDisk from "./VisibleSolarDisk";
+import SunNowCarousel from "./SunNowCarousel";
 import { MetricCardIcon, MetricDetailIcon } from "./MetricCardIcons";
 import CorsConnectedDetail from "./CorsConnectedDetail";
 import type { EkfPoint, IonoVtecPairResponse, TimelinePoint } from "@/lib/types";
@@ -348,6 +349,7 @@ function ExplanationPanel({
     <div className="sw-metric-explain" ref={panelRef}>
       <div className="sw-metric-explain-title">{label}</div>
       <div className="sw-metric-explain-current">Current value: {value}</div>
+      {metricKey === "solar_activity" && <SunNowCarousel />}
       {metricKey === "dst" && (
         <div style={{ marginTop: "0.85rem" }}>
           <DstClassMonitor sw={sw} points={dstPoints} />

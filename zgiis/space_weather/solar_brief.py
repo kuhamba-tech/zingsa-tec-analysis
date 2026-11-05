@@ -380,9 +380,11 @@ def _load() -> dict[str, Any]:
 
     from concurrent.futures import ThreadPoolExecutor
 
-    from zgiis.space_weather.solar_disk import latest_labeled_frames
+    from zgiis.space_weather.solar_disk import stable_monitor_frames
 
-    with ThreadPoolExecutor(max_workers=8) as pool:
+    # NOAA text is the brief. SDO browse-day listings are large and were holding
+    # this response until the page gave up, so the disks use NASA's current files.
+    with ThreadPoolExecutor(max_workers=6) as pool:
         pending = {
             "daypre": pool.submit(get_text, DAYPRE_URL),
             "discussion": pool.submit(get_text, DISCUSSION_URL),
@@ -390,12 +392,6 @@ def _load() -> dict[str, Any]:
             "flares": pool.submit(get_json, FLARES_URL),
             "events": pool.submit(get_json, EVENTS_URL),
             "srs": pool.submit(get_text, SRS_URL),
-            "frames": pool.submit(latest_labeled_frames, lambda url: get_text(url) or ""),
-            "ham": pool.submit(
-                choose_solarham_images,
-                lambda url: requests.head(url, timeout=(3.0, 8.0), allow_redirects=True),
-                now,
-            ),
         }
         fetched = {name: job.result() for name, job in pending.items()}
     daypre = fetched["daypre"]
@@ -434,8 +430,8 @@ def _load() -> dict[str, Any]:
         counted = count_flare_days(flares, now)
         payload["flares_today"] = counted["today"]
         payload["flares_yesterday"] = counted["yesterday"]
-    payload["images"] = fetched["ham"]
-    payload["monitor_images"] = fetched["frames"]
+    payload["images"] = solarham_images(now)
+    payload["monitor_images"] = stable_monitor_frames()
     has_chances = payload["c_percent"] is not None or payload["m_percent"] is not None
     has_disk = payload["earth_facing_region_count"] is not None
     if has_chances and has_disk and payload["flares_today"] is not None:

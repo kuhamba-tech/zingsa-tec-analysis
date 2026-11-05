@@ -244,8 +244,8 @@ export default function CorsMap({
   heatmap = null,
   ggByStation = {},
   proposedCorsSites = [],
-  showTeloneCentres = false,
-  showDemographics = false,
+  showTeloneCentres = true,
+  showDemographics = true,
   highlightCode = null,
   onStationSelect,
 }: Props) {
@@ -1329,7 +1329,7 @@ export default function CorsMap({
   return (
     <div
       className="cors-map-shell"
-      style={{ position: "relative", width: "100%", height, display: "flex" }}
+      style={{ position: "relative", width: "100%", height, display: "flex", zIndex: 0 }}
     >
       <div style={{ flex: 1, position: "relative", minWidth: 0 }}>
         <div ref={mapRef} className="map-container" style={{ width: "100%", height: "100%" }} />

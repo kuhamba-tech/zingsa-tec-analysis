@@ -187,6 +187,23 @@ def newest_product_frame(listing: str, suffix: str) -> tuple[str, str] | None:
     return name, label
 
 
+def stable_monitor_frames() -> list[dict[str, Any]]:
+    """Current SDO quick-looks. These URLs are the files NASA keeps up to date."""
+    frames: list[dict[str, Any]] = []
+    for key, _suffix, fallback, title in _PRODUCTS:
+        frames.append(
+            {
+                "key": key,
+                "title": title,
+                "url": fallback,
+                "fallback_url": fallback,
+                "image_time": None,
+                "credit": "SDO",
+            }
+        )
+    return frames
+
+
 def latest_labeled_frames(get_text) -> list[dict[str, Any]]:
     """Newest AIA 193, HMI continuum, and HMI magnetogram from the SDO browse day."""
     now = datetime.now(timezone.utc)
@@ -299,18 +316,21 @@ def _load() -> dict[str, Any]:
     except ImportError:
         empty["error"] = "The solar-disk reader is unavailable."
         return empty
-    image_url, image_time = _latest_image(
-        lambda url: requests.head(url, timeout=(3.0, 8.0), allow_redirects=True)
-    )
-    empty["image_url"] = image_url
-    empty["image_time"] = image_time
     try:
-        response = requests.get(SRS_URL, timeout=(3.0, 8.0))
+        response = requests.get(SRS_URL, timeout=(4.0, 12.0))
         response.raise_for_status()
         parsed = parse_solar_region_summary(response.text)
     except Exception:
         empty["error"] = "The NOAA solar region summary could not be read."
         return empty
+    try:
+        image_url, image_time = _latest_image(
+            lambda url: requests.head(url, timeout=(2.0, 4.0), allow_redirects=True)
+        )
+    except Exception:
+        image_url, image_time = DISK_IMAGE_URL, None
+    empty["image_url"] = image_url
+    empty["image_time"] = image_time
     return {
         "mode": "live",
         "image_url": image_url,
