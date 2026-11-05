@@ -5,6 +5,7 @@ import {
   isValidProposedCorsSite,
   ZIMBABWE_BOUNDS,
 } from "@/lib/zimbabweBoundary";
+import { corsSitingContext, corsSitingFactor } from "@/lib/corsSitingFactors";
 
 export { ZIMBABWE_BOUNDS, isInsideZimbabwe, isValidProposedCorsSite };
 
@@ -51,6 +52,12 @@ export interface ProposedCorsSite {
   nearestExistingKm: number;
   nearestExistingCode: string;
   gapFillScore: number;
+  /** Nearest published TelOne shop (town/suburb pin). */
+  nearestTeloneName?: string;
+  nearestTeloneKm?: number;
+  /** Nearest 2022 census province centre. */
+  province?: string;
+  provincePopulation?: number;
 }
 
 export interface NetworkCoverageStats {
@@ -449,7 +456,13 @@ function gapBiasedSample(
         continue;
       }
       // Prefer cells that are currently poorly covered and still far from picks this round.
-      const w = Math.max(0.05, gap - usefulKm * 0.25) * Math.max(0.35, nearestProposed / usefulKm);
+      // TelOne proximity and 2022 provincial population steer the pick; they do not override a gap.
+      const p = candidatePool[i];
+      const siting = 0.55 + 0.9 * corsSitingFactor(p.lat, p.lon);
+      const w =
+        Math.max(0.05, gap - usefulKm * 0.25) *
+        Math.max(0.35, nearestProposed / usefulKm) *
+        siting;
       weights[i] = w * w;
       total += weights[i];
     }
@@ -543,13 +556,18 @@ function fitness(
     Number.isFinite(minPair) && minPair > 0
       ? Math.min(minSeparationKm, minPair) / minSeparationKm
       : 0;
+  let sitingSum = 0;
+  for (const site of proposed) sitingSum += corsSitingFactor(site.lat, site.lon);
+  const sitingBonus = proposed.length ? (sitingSum / proposed.length) * 22 : 0;
 
   // Nationwide optimisation: close many distinct gaps, stay spread, avoid clusters.
+  // A modest siting term prefers a TelOne town in a more populated province when gaps are similar.
   return (
     coverFrac * 110 +
     newCoverFrac * 220 +
     regionDiversity * 55 +
-    spreadBonus * 45 -
+    spreadBonus * 45 +
+    sitingBonus -
     mean * 0.45 -
     max * 0.7 -
     uncoveredPenalty -
@@ -751,6 +769,7 @@ export function optimizeCorsPlacement(
   const proposed: ProposedCorsSite[] = safePts.map((p, idx) => {
     const near = nearestExisting(p, existingStations);
     const gapFill = Math.max(0, near.km - usefulKm);
+    const siting = corsSitingContext(p.lat, p.lon);
     return {
       id: `ga-site-${idx + 1}`,
       lat: p.lat,
@@ -760,6 +779,10 @@ export function optimizeCorsPlacement(
       nearestExistingKm: Math.round(near.km * 10) / 10,
       nearestExistingCode: near.code || "—",
       gapFillScore: Math.round(gapFill * 10) / 10,
+      nearestTeloneName: siting?.teloneName,
+      nearestTeloneKm: siting?.teloneKm,
+      province: siting?.province,
+      provincePopulation: siting?.population,
     };
   });
 
@@ -798,6 +821,9 @@ export function optimizeCorsPlacement(
       `Proposed sites span ${regionCount} region bin(s); minimum spacing between new sites ≈ ${Math.round(minProposedPair)} km.`,
     );
   }
+  notes.push(
+    "Existing CORS stations already sit at TelOne centres, so new sites prefer a TelOne shop or data centre that does not yet have a CORS, and a higher ZIMSTAT 2022 provincial population. Coverage gaps still come first.",
+  );
 
   return {
     proposed,

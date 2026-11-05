@@ -110,17 +110,19 @@ const SOURCES: Source[] = [
 ];
 
 export default function DataSources() {
+  // Cursor/browser tooling decorates these SSR elements with data-cursor-ref.
+  // Suppression belongs on each decorated element; it does not inherit from a parent.
   return (
-    <section className={styles.section} aria-labelledby="data-sources-title">
-      <h2 id="data-sources-title" className={styles.title}>
+    <section suppressHydrationWarning className={styles.section} aria-labelledby="data-sources-title">
+      <h2 suppressHydrationWarning id="data-sources-title" className={styles.title}>
         Data Sources
       </h2>
-      <p className={styles.intro}>
+      <p suppressHydrationWarning className={styles.intro}>
         This website relays data and imagery from the following sources.
       </p>
       <ul className={styles.list}>
         {SOURCES.map((source) => (
-          <li key={source.name}>
+          <li suppressHydrationWarning key={source.name}>
             <a href={source.href} target="_blank" rel="noopener noreferrer">
               {source.name}
               <span className={styles.external} aria-hidden>
@@ -132,7 +134,7 @@ export default function DataSources() {
           </li>
         ))}
       </ul>
-      <p className={styles.note}>
+      <p suppressHydrationWarning className={styles.note}>
         Local VTEC maps and navigation advisories are calculated by this platform from Zimbabwe CORS
         observations. Each listed provider remains responsible for its original products.
       </p>

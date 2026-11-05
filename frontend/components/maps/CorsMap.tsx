@@ -7,6 +7,8 @@ import { getLiveStationStatus } from "@/lib/liveStationStatus";
 import { buildCorsNetworkEdges, isReferenceCorsStation } from "@/lib/corsNetworkDistances";
 import type { ProposedCorsSite } from "@/lib/corsGeneticOptimizer";
 import { isValidProposedCorsSite } from "@/lib/zimbabweBoundary";
+import { TELONE_CENTRES, teloneCentreHasCors } from "@/lib/teloneCentres";
+import { formatPopulation, PROVINCE_POPULATION_2022 } from "@/lib/zimbabweDemographics";
 import { icaoTecColor, icaoTecDistanceLabel, icaoTecLabel } from "@/lib/icaoTecAdvisory";
 import { liveVtecSourceFromHeatmap, liveVtecSourceLabel } from "@/lib/liveVtecLabels";
 import { measuredLiveTec } from "@/lib/measuredLiveTec";
@@ -20,10 +22,16 @@ interface Props {
   stations: Station[];
   height?: number;
   layer?: MapLayer;
+  /** Imagery under the stations. Independent of TEC / network overlays. */
+  basemap?: "Hybrid" | "Satellite" | "Street";
   heatmap?: TecHeatmapResponse | null;
   /** Station code → Gg / Cesaroni live VTEC (TECU) for dual labels on TEC Heat Map. */
   ggByStation?: Record<string, number | null>;
   proposedCorsSites?: ProposedCorsSite[];
+  /** TelOne shops and data centres, chosen on the Network Distances map. */
+  showTeloneCentres?: boolean;
+  /** ZIMSTAT 2022 provincial population, chosen on the Network Distances map. */
+  showDemographics?: boolean;
   /** Emphasize one station marker (e.g. uptime analysis selection). */
   highlightCode?: string | null;
   /** Fired when a CORS marker is clicked (or map background clears selection). */
@@ -33,8 +41,8 @@ interface Props {
 const STATUS_COLOR: Record<string, string> = {
   online: "#00ff88",
   offline: "#ff4444",
-  unavailable: "#666",
-  surveyor_general: "#c8c8c8",
+  unavailable: "#f8fafc",
+  surveyor_general: "#e2e8f0",
 };
 
 /** Operational focus for the national CORS map (lon, lat). */
@@ -67,19 +75,12 @@ const TRANSPORT_URL =
 /** DLR rewrites the same "latest" path; refresh via our no-store API proxy. */
 const GLOBAL_TEC_REFRESH_MS = 45_000;
 
-function baseTileUrl(layer: MapLayer): string {
-  return layer === "Street" ? STREET_URL : SATELLITE_URL;
+function baseTileUrl(basemap: "Hybrid" | "Satellite" | "Street"): string {
+  return basemap === "Street" ? STREET_URL : SATELLITE_URL;
 }
 
-function usesHybridOverlays(layer: MapLayer): boolean {
-  return (
-    layer === "Hybrid" ||
-    layer === "TEC Heat Map" ||
-    layer === "Geomagnetic" ||
-    layer === "Zimbabwe ROTI Map" ||
-    layer === "TrigNet" ||
-    layer === "Network Distances"
-  );
+function showStreetLabels(basemap: "Hybrid" | "Satellite" | "Street"): boolean {
+  return basemap === "Hybrid";
 }
 
 function heatOverlayOpacity(layer: MapLayer): number {
@@ -239,9 +240,12 @@ export default function CorsMap({
   stations,
   height = 420,
   layer = "Hybrid",
+  basemap = layer === "Satellite" || layer === "Street" ? layer : "Hybrid",
   heatmap = null,
   ggByStation = {},
   proposedCorsSites = [],
+  showTeloneCentres = false,
+  showDemographics = false,
   highlightCode = null,
   onStationSelect,
 }: Props) {
@@ -267,6 +271,8 @@ export default function CorsMap({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const proposedLayerRef = useRef<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const contextLayerRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const geomagneticLayerRef = useRef<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const vectorSourceRef = useRef<any>(null);
@@ -278,7 +284,10 @@ export default function CorsMap({
   const heatmapRef = useRef(heatmap);
   const ggByStationRef = useRef(ggByStation);
   const layerRef = useRef(layer);
+  const basemapRef = useRef(basemap);
   const proposedSitesRef = useRef(proposedCorsSites);
+  const showTeloneRef = useRef(showTeloneCentres);
+  const showDemographicsRef = useRef(showDemographics);
   const highlightCodeRef = useRef(highlightCode);
   const onStationSelectRef = useRef(onStationSelect);
   /** Tracks layer used for the last view animation — ignore heatmap-only updates. */
@@ -295,7 +304,10 @@ export default function CorsMap({
   heatmapRef.current = heatmap;
   ggByStationRef.current = ggByStation;
   layerRef.current = layer;
+  basemapRef.current = basemap;
   proposedSitesRef.current = proposedCorsSites;
+  showTeloneRef.current = showTeloneCentres;
+  showDemographicsRef.current = showDemographics;
   highlightCodeRef.current = highlightCode;
   onStationSelectRef.current = onStationSelect;
 
@@ -355,7 +367,8 @@ export default function CorsMap({
     const trigNet = layerRef.current === "TrigNet";
     const networkMode = layerRef.current === "Network Distances";
     const highlight = stationKey(highlightCodeRef.current || "");
-    return list.map((s) => {
+    return list.flatMap((s) => {
+      if (!Number.isFinite(s.lon) || !Number.isFinite(s.lat)) return [];
       const f = new Feature({ geometry: new Point(fromLonLat([s.lon, s.lat])), station: s });
       const liveStatus = getLiveStationStatus(s);
       const connected = liveStatus === "online";
@@ -431,7 +444,7 @@ export default function CorsMap({
           }),
         }),
       );
-      return f;
+      return [f];
     });
   };
 
@@ -567,6 +580,111 @@ export default function CorsMap({
     const layer = new VectorLayer({ source, zIndex: 5 });
     map.addLayer(layer);
     proposedLayerRef.current = layer;
+  };
+
+  const syncContextLayers = async () => {
+    const map = olMapRef.current;
+    if (!map) return;
+
+    if (contextLayerRef.current) {
+      map.removeLayer(contextLayerRef.current);
+      contextLayerRef.current = null;
+    }
+
+    const onNetwork = layerRef.current === "Network Distances";
+    const showTelone = onNetwork && showTeloneRef.current;
+    const showDemo = onNetwork && showDemographicsRef.current;
+    if (!showTelone && !showDemo) return;
+
+    const helpers = olHelpersRef.current;
+    if (!helpers) return;
+    const { fromLonLat, Feature, Point, Style, Circle, Fill, Stroke, Text, VectorSource, VectorLayer } =
+      helpers;
+
+    const source = new VectorSource();
+
+    if (showDemo) {
+      const maxPop = Math.max(...PROVINCE_POPULATION_2022.map((p) => p.population));
+      for (const province of PROVINCE_POPULATION_2022) {
+        const share = province.population / maxPop;
+        const radius = (onNetwork ? 11 : 16) + share * (onNetwork ? 10 : 14);
+        const feature = new Feature({
+          geometry: new Point(fromLonLat([province.lon, province.lat])),
+          province,
+        });
+        feature.setStyle(
+          new Style({
+            image: new Circle({
+              radius,
+              fill: new Fill({ color: `rgba(249, 115, 22, ${onNetwork ? 0.28 : 0.55})` }),
+              stroke: new Stroke({ color: "#ffedd5", width: 1.5 }),
+            }),
+            text: new Text({
+              text: onNetwork
+                ? province.name
+                : `${province.name}\n${formatPopulation(province.population)}`,
+              offsetY: onNetwork ? 0 : radius + 14,
+              fill: new Fill({ color: "#ffedd5" }),
+              stroke: new Stroke({ color: "#000", width: 3 }),
+              font: "bold 11px sans-serif",
+              textAlign: "center",
+            }),
+          }),
+        );
+        source.addFeature(feature);
+      }
+    }
+
+    if (showTelone) {
+      const teloneDrawOrder = [
+        ...TELONE_CENTRES.filter((centre) => centre.kind !== "data-centre"),
+        ...TELONE_CENTRES.filter((centre) => centre.kind === "data-centre"),
+      ];
+      for (const centre of teloneDrawOrder) {
+        const dataCentre = centre.kind === "data-centre";
+        const hasCors = teloneCentreHasCors(centre);
+        const feature = new Feature({
+          geometry: new Point(fromLonLat([centre.lon, centre.lat])),
+          telone: centre,
+        });
+        feature.setStyle(
+          new Style({
+            image: new Circle({
+              radius: dataCentre ? (onNetwork ? 8 : 10) : onNetwork ? 5 : 7,
+              fill: new Fill({
+                color: hasCors ? "rgba(0,0,0,0)" : dataCentre ? "#e879f9" : "#22d3ee",
+              }),
+              stroke: new Stroke({
+                color: dataCentre ? "#e879f9" : "#22d3ee",
+                width: hasCors ? 2.5 : 1.5,
+              }),
+            }),
+            text: new Text({
+              text:
+                onNetwork && hasCors
+                  ? ""
+                  : dataCentre
+                    ? onNetwork
+                      ? centre.name.replace(" Data Centre", " DC")
+                      : `${centre.name}\n${centre.town}`
+                    : onNetwork
+                      ? centre.name
+                      : `${centre.name}\n${hasCors ? "CORS installed" : centre.town}`,
+              offsetY: dataCentre ? (onNetwork ? -20 : -24) : onNetwork ? -12 : -16,
+              fill: new Fill({ color: dataCentre ? "#f5d0fe" : "#a5f3fc" }),
+              stroke: new Stroke({ color: "#000", width: 3 }),
+              font: "bold 10px sans-serif",
+              textAlign: "center",
+            }),
+          }),
+        );
+        source.addFeature(feature);
+      }
+    }
+
+    const layer = new VectorLayer({ source, zIndex: 3.5 });
+    map.addLayer(layer);
+    contextLayerRef.current = layer;
   };
 
   const syncGeomagneticLayer = async () => {
@@ -907,18 +1025,18 @@ export default function CorsMap({
       };
 
       const baseTile = new TileLayer({
-        source: new XYZ({ url: baseTileUrl(layerRef.current), attributions: "Esri" }),
+        source: new XYZ({ url: baseTileUrl(basemapRef.current), attributions: "Esri" }),
         zIndex: 0,
       });
       const labelTile = new TileLayer({
         source: new XYZ({ url: LABEL_URL, attributions: "Esri Reference" }),
-        visible: usesHybridOverlays(layerRef.current),
+        visible: showStreetLabels(basemapRef.current),
         zIndex: 2,
         opacity: 0.95,
       });
       const transportTile = new TileLayer({
         source: new XYZ({ url: TRANSPORT_URL, attributions: "Esri Reference" }),
-        visible: usesHybridOverlays(layerRef.current),
+        visible: showStreetLabels(basemapRef.current),
         zIndex: 2,
         opacity: 0.85,
       });
@@ -986,6 +1104,26 @@ export default function CorsMap({
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const f = map.forEachFeatureAtPixel(evt.pixel, (feat: any) => feat);
         if (f) {
+          const telone = f.get("telone");
+          const province = f.get("province");
+          if (telone && !f.get("station")) {
+            const corsNote = teloneCentreHasCors(telone)
+              ? "A CORS station is already installed at this TelOne centre."
+              : "No CORS station is installed at this TelOne centre yet.";
+            popupEl.innerHTML =
+              telone.kind === "data-centre"
+                ? `<b>TelOne ${telone.name}</b><div style="color:#f5d0fe">${telone.town}</div><div style="margin-top:0.2rem;color:#ffffff;font-size:0.72rem">${telone.address}</div><div style="margin-top:0.2rem;color:#94a3b8;font-size:0.68rem">${corsNote} Listed for TelOne data-centre services. Pin is the published address.</div>`
+                : `<b>TelOne ${telone.name}</b><div style="color:#a5f3fc">${telone.town}</div><div style="margin-top:0.2rem;color:#ffffff;font-size:0.72rem">${telone.address}</div><div style="margin-top:0.2rem;color:#94a3b8;font-size:0.68rem">${corsNote} Shop from telone.co.zw/shops. Pin is the named town or suburb.</div>`;
+            popup.setPosition(f.getGeometry()?.getCoordinates?.() ?? evt.coordinate);
+            popupEl.style.display = "block";
+            return;
+          }
+          if (province && !f.get("station")) {
+            popupEl.innerHTML = `<b>${province.name}</b><div style="color:#fdba74;font-weight:700">${formatPopulation(province.population)}</div><div style="color:#ffffff;font-size:0.72rem">${Number(province.households).toLocaleString("en-ZW")} households</div><div style="margin-top:0.2rem;color:#94a3b8;font-size:0.68rem">ZIMSTAT 2022 census. Bubble is a planning centre, not a district boundary.</div>`;
+            popup.setPosition(f.getGeometry()?.getCoordinates?.() ?? evt.coordinate);
+            popupEl.style.display = "block";
+            return;
+          }
           const s: Station = f.get("station");
           if (!s) return;
           const trigNetClick = layerRef.current === "TrigNet";
@@ -1068,6 +1206,7 @@ export default function CorsMap({
       await syncScienceLayer();
       await syncNetworkLayer();
       await syncProposedSitesLayer();
+      await syncContextLayers();
       await syncGeomagneticLayer();
       if (!disposed) setMapReady(true);
 
@@ -1095,6 +1234,7 @@ export default function CorsMap({
       networkLayerRef.current = null;
       networkSourceRef.current = null;
       proposedLayerRef.current = null;
+      contextLayerRef.current = null;
       geomagneticLayerRef.current = null;
       vectorSourceRef.current = null;
       stationLayerRef.current = null;
@@ -1120,7 +1260,8 @@ export default function CorsMap({
 
   useEffect(() => {
     void syncProposedSitesLayer();
-  }, [proposedCorsSites, layer]);
+    void syncContextLayers();
+  }, [proposedCorsSites, layer, showTeloneCentres, showDemographics]);
 
   useEffect(() => {
     if (!baseTileRef.current || !labelTileRef.current || !transportTileRef.current) return;
@@ -1134,10 +1275,10 @@ export default function CorsMap({
       const transportTile = transportTileRef.current;
       if (cancelled || !baseTile || !labelTile || !transportTile) return;
 
-      baseTile.setSource(new XYZ({ url: baseTileUrl(layer), attributions: "Esri" }));
-      const hybrid = usesHybridOverlays(layer);
-      labelTile.setVisible(hybrid);
-      transportTile.setVisible(hybrid);
+      baseTile.setSource(new XYZ({ url: baseTileUrl(basemap), attributions: "Esri" }));
+      const roads = showStreetLabels(basemap);
+      labelTile.setVisible(roads);
+      transportTile.setVisible(roads);
 
       // Zimbabwe is the focus for every national layer. Global TEC may zoom out;
       // leaving it (or switching Hybrid/Satellite/TEC/…) must return to Zimbabwe.
@@ -1176,12 +1317,14 @@ export default function CorsMap({
       if (cancelled) return;
       await syncProposedSitesLayer();
       if (cancelled) return;
+      await syncContextLayers();
+      if (cancelled) return;
       await syncGeomagneticLayer();
     })();
     return () => {
       cancelled = true;
     };
-  }, [layer, heatmap, ggByStation, mapReady]);
+  }, [layer, basemap, heatmap, ggByStation, mapReady]);
 
   return (
     <div

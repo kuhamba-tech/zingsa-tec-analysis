@@ -104,11 +104,12 @@ export function isInsideZimbabwe(lat: number, lon: number): boolean {
 
 /**
  * True when the point and a neighbourhood around it are inside Zimbabwe.
- * Rejects border-hugging / cross-border placements for proposed CORS sites.
+ * The inset ring alone reaches into Zambia north of Kariba, so a proposal
+ * must also sit inside the country land outline.
  */
 export function isValidProposedCorsSite(lat: number, lon: number): boolean {
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return false;
-  if (!pointInPolygon(lat, lon)) return false;
+  if (!pointInPolygon(lat, lon) || !landContains(lon, lat)) return false;
 
   const b = INLAND_BUFFER_DEG;
   const d = b * 0.7;
@@ -122,7 +123,7 @@ export function isValidProposedCorsSite(lat: number, lon: number): boolean {
     [lat - d, lon + d],
     [lat - d, lon - d],
   ];
-  return neighbourhood.every(([y, x]) => pointInPolygon(y, x));
+  return neighbourhood.every(([y, x]) => pointInPolygon(y, x) && landContains(x, y));
 }
 
 /**

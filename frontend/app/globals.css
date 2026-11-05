@@ -2473,21 +2473,57 @@ a.home-map-layer-btn {
   border-radius: 0;
 }
 
-.network-distances-map-legend {
+.network-distances-side-panel {
   position: absolute;
-  left: 12px;
-  bottom: 12px;
-  z-index: 10;
+  left: 16px;
+  top: 42%;
+  z-index: 13;
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
-  background: rgba(0, 0, 0, 0.82);
+  gap: 0.4rem;
+  width: 210px;
+}
+
+.network-distances-pick {
+  pointer-events: auto;
+  text-align: left;
+  background: rgba(0, 0, 0, 0.86);
+  color: #e2e8f0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.45rem 0.7rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.network-distances-pick.is-active {
+  color: #fff;
+  border-color: #38bdf8;
+  background: rgba(14, 60, 90, 0.92);
+}
+
+.network-distances-side-panel .network-distances-map-legend {
+  position: static;
+  max-width: none;
+}
+
+.network-distances-map-legend {
+  position: absolute;
+  left: 14px;
+  top: 46%;
+  z-index: 12;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  background: rgba(0, 0, 0, 0.86);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 0.55rem 0.8rem;
   font-size: 0.75rem;
   font-weight: 700;
   pointer-events: none;
+  max-width: 220px;
 }
 
 .network-distances-map-legend-title {

@@ -751,7 +751,7 @@ export function buildMetricCards(
       icon: "🛰️",
       label: "Estimated GNSS Risk",
       value: sw?.gnss_risk ?? (indicesLoading ? "Updating…" : "Unavailable"),
-      note: "Provisional · local impact not verified",
+      note: "",
       valueColor: riskColor,
       source: "ZGIIS risk label",
       observedAt: swObserved ? `Snapshot ${swObserved}` : null,

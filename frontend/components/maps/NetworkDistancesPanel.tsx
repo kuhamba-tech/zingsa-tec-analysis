@@ -116,7 +116,9 @@ export default function NetworkDistancesPanel({
           <p className="network-ga-lead">
             Enter how many new CORS stations to add. The optimiser analyses the whole network and
             places sites in distinct coverage gaps nationwide (not clustered in one corridor),
-            only inside Zimbabwe. Uses Leica NRTK spacing {NRTK_SPACING_MIN_KM}–{NRTK_SPACING_MAX_KM}{" "}
+            only inside Zimbabwe. CORS stations already stand on TelOne centres, so among equal
+            gaps it prefers a TelOne centre that does not yet have a CORS, and a more populated
+            2022 census province. Uses Leica NRTK spacing {NRTK_SPACING_MIN_KM}–{NRTK_SPACING_MAX_KM}{" "}
             km · rover ≤ {USEFUL_COVERAGE_KM} km · single RTK prefer ≤ {SINGLE_RTK_RECOMMENDED_KM} km.
           </p>
         </div>
@@ -184,6 +186,16 @@ export default function NetworkDistancesPanel({
                   <span className="network-ga-site-hint">{site.regionHint}</span>
                   <span className="network-ga-site-meta">
                     {site.nearestExistingKm.toFixed(1)} km from {site.nearestExistingCode}
+                    {site.nearestTeloneName != null && site.nearestTeloneKm != null
+                      ? ` · ${site.nearestTeloneKm.toFixed(0)} km from TelOne ${site.nearestTeloneName}`
+                      : ""}
+                    {site.province
+                      ? ` · ${site.province}${
+                          site.provincePopulation != null
+                            ? ` (${site.provincePopulation.toLocaleString("en-ZW")})`
+                            : ""
+                        }`
+                      : ""}
                   </span>
                 </li>
               ))}

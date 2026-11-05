@@ -207,7 +207,12 @@ export default function CorsMapWithLayers({
       ? initialLayer
       : (availableLayers[0] ?? "Hybrid");
   const [layer, setLayer] = useState<MapLayer>(startingLayer);
+  const [basemap, setBasemap] = useState<"Hybrid" | "Satellite" | "Street">(
+    startingLayer === "Satellite" || startingLayer === "Street" ? startingLayer : "Hybrid",
+  );
   const [proposedCorsSites, setProposedCorsSites] = useState<ProposedCorsSite[]>([]);
+  const [showTelone, setShowTelone] = useState(false);
+  const [showDemographics, setShowDemographics] = useState(false);
   const [measuredGg, setMeasuredGg] = useState<Record<string, number>>({});
   const [trignet, setTrignet] = useState<TrigNetResponse | null>(null);
 
@@ -512,7 +517,18 @@ export default function CorsMapWithLayers({
           <div className="home-map-toolbar-summary">
             {trignetActive
               ? `${trignet?.station_count ?? "…"} TrigNet · ${stations.length} Zimbabwe · G ${trignetHeatmap?.station_count ?? 0} · Gg ${Object.keys(trignetGgCombined).length}${trignet?.rinex_day ? ` · RINEX ${trignet.rinex_day}` : ""}`
-              : `${liveCounts.total} stations · ${liveLabel} · GNSS performance not verified`}
+              : `${liveCounts.total} stations · ${liveLabel}`}
+            {networkDistancesActive && (showTelone || showDemographics) && (
+              <p className="home-map-tec-note">
+                {showTelone
+                  ? "TelOne centres from telone.co.zw/shops. A solid dot has no CORS yet. An open ring already has a CORS."
+                  : ""}
+                {showTelone && showDemographics ? " " : ""}
+                {showDemographics
+                  ? "Orange bubbles are the ZIMSTAT 2022 provincial population."
+                  : ""}
+              </p>
+            )}
             {tecLayerActive && (
               <p className="home-map-tec-note">
                 The Zimbabwe CORS Network&apos;s local TEC maps provide information about vertical TEC (VTEC) derived from ground-based GNSS measurements with a latency of not more than 5 minutes and an update rate of 15 minutes.
@@ -525,16 +541,29 @@ export default function CorsMapWithLayers({
           {showLayerSwitcher && (
             <>
               <span className="home-map-layer-label">Map Layer</span>
-              {availableLayers.map((l) => (
-                <button
-                  key={l}
-                  type="button"
-                  onClick={() => setLayer(l)}
-                  className={`home-map-layer-btn${layer === l ? " is-active" : ""}`}
-                >
-                  {l}
-                </button>
-              ))}
+              {availableLayers.map((l) => {
+                const isBasemap = l === "Hybrid" || l === "Satellite" || l === "Street";
+                const active = isBasemap ? basemap === l : layer === l;
+                return (
+                  <button
+                    key={l}
+                    type="button"
+                    onClick={() => {
+                      if (l === "Hybrid" || l === "Satellite" || l === "Street") {
+                        setBasemap(l);
+                        if (layer === "Hybrid" || layer === "Satellite" || layer === "Street") {
+                          setLayer(l);
+                        }
+                        return;
+                      }
+                      setLayer(l);
+                    }}
+                    className={`home-map-layer-btn${active ? " is-active" : ""}`}
+                  >
+                    {l}
+                  </button>
+                );
+              })}
             </>
           )}
         </div>
@@ -545,10 +574,6 @@ export default function CorsMapWithLayers({
               ✈ ICAO {icaoTecLevel(maxVtec).toUpperCase()}
             </span>
           )}
-          <span className="home-map-risk-label">GNSS performance</span>
-          <span className="home-map-risk-value" style={{ color: "#c4d0df" }} title="TEC alone does not verify GNSS accuracy. Measured positioning checks are required.">
-            {"NOT VERIFIED"}
-          </span>
         </div>
       </div>
 
@@ -561,16 +586,36 @@ export default function CorsMapWithLayers({
           stations={trignetActive ? trignetStations : stations}
           height={height}
           layer={layer}
+          basemap={basemap}
           heatmap={trignetActive ? trignetHeatmap : heatmap}
           ggByStation={trignetActive ? trignetGgCombined : tecLayerActive ? ggByStation : {}}
           proposedCorsSites={networkDistancesActive ? proposedCorsSites : []}
+          showTeloneCentres={networkDistancesActive && showTelone}
+          showDemographics={networkDistancesActive && showDemographics}
           highlightCode={highlightCode}
           onStationSelect={onStationSelect}
         />
 
         {networkDistancesActive && (
+          <div className="network-distances-side-panel">
+            <button
+              type="button"
+              className={`network-distances-pick${showTelone ? " is-active" : ""}`}
+              onClick={() => setShowTelone((on) => !on)}
+              aria-pressed={showTelone}
+            >
+              TelOne centres
+            </button>
+            <button
+              type="button"
+              className={`network-distances-pick${showDemographics ? " is-active" : ""}`}
+              onClick={() => setShowDemographics((on) => !on)}
+              aria-pressed={showDemographics}
+            >
+              Demographics
+            </button>
           <div className="network-distances-map-legend" aria-hidden>
-            <div className="network-distances-map-legend-title">Legend</div>
+            <div className="network-distances-map-legend-title">Key</div>
             <div className="network-distances-map-legend-row">
               <span className="dot" style={{ background: "#00ff88" }} />
               <span>CORS Station</span>
@@ -579,6 +624,31 @@ export default function CorsMapWithLayers({
               <span className="dot" style={{ background: "#5ec8ff" }} />
               <span>Reference Station (HARARE)</span>
             </div>
+            {showTelone && (
+              <>
+                <div className="network-distances-map-legend-row">
+                  <span className="dot" style={{ background: "#22d3ee", boxShadow: "0 0 0 1px #083344" }} />
+                  <span>TelOne centre, no CORS yet</span>
+                </div>
+                <div className="network-distances-map-legend-row">
+                  <span className="dot" style={{ background: "transparent", boxShadow: "inset 0 0 0 2px #22d3ee" }} />
+                  <span>TelOne centre, CORS installed</span>
+                </div>
+                <div className="network-distances-map-legend-row">
+                  <span className="dot" style={{ width: 12, height: 12, background: "#e879f9", boxShadow: "0 0 0 1px #4a044e" }} />
+                  <span>TelOne data centre</span>
+                </div>
+              </>
+            )}
+            {showDemographics && (
+              <div className="network-distances-map-legend-row">
+                <span
+                  className="dot"
+                  style={{ width: 14, height: 14, background: "rgba(249, 115, 22, 0.75)", border: "1px solid #ffedd5" }}
+                />
+                <span>Demographics (2022 population)</span>
+              </div>
+            )}
             {proposedCorsSites.length > 0 && (
               <div className="network-distances-map-legend-row">
                 <span className="dot" style={{ background: "#ffb020" }} />
@@ -591,6 +661,7 @@ export default function CorsMapWithLayers({
                 <span>Label shows connected rovers</span>
               </div>
             )}
+          </div>
           </div>
         )}
 

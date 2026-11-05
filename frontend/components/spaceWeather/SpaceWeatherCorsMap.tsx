@@ -11,8 +11,9 @@ import {
   countSpiderLiveStationStatuses,
 } from "@/lib/liveStationStatus";
 import { peekSpaceWeather, subscribeSpaceWeather } from "@/lib/spaceWeatherStore";
-import { peekStations, subscribeStations, stationsAreSpiderAuthoritative } from "@/lib/stationsStore";
+import { peekStations, subscribeStations, stationsAreSpiderAuthoritative, stationsAreLiveAuthoritative } from "@/lib/stationsStore";
 import { mergeTecHeatmapWithStations } from "@/lib/tecHeatmapMerge";
+import { corsRegistryStations } from "@/lib/corsStationCatalog";
 import type { Station, TecHeatmapResponse } from "@/lib/types";
 
 const CorsMapWithLayers = dynamic(
@@ -58,8 +59,14 @@ function useCorsMapHeight(preferred = 440): number {
  */
 export default function SpaceWeatherCorsMap({ height: preferredHeight = 440 }: { height?: number }) {
   const height = useCorsMapHeight(preferredHeight);
-  const [stations, setStations] = useState<Station[]>(() => peekStations());
+  const [stations, setStations] = useState<Station[]>(() => {
+    const cached = peekStations();
+    // Plot known sites immediately. Live Spider/NTRIP replaces these rows.
+    return cached.length ? cached : corsRegistryStations();
+  });
   const [stationsLoading, setStationsLoading] = useState(() => peekStations().length === 0);
+  const [statusNote, setStatusNote] = useState<string | null>(null);
+  const [retry, setRetry] = useState(0);
   const [heatmap, setHeatmap] = useState<TecHeatmapResponse | null>(() => peekTecHeatmap());
   const [riskLevel, setRiskLevel] = useState(() => peekSpaceWeather()?.gnss_risk ?? "Low");
 
@@ -67,6 +74,7 @@ export default function SpaceWeatherCorsMap({ height: preferredHeight = 440 }: {
     if (next.length) {
       setStations(next);
       setStationsLoading(false);
+      setStatusNote(null);
     }
   }), []);
   useEffect(
@@ -79,6 +87,7 @@ export default function SpaceWeatherCorsMap({ height: preferredHeight = 440 }: {
 
   useEffect(() => {
     let cancelled = false;
+    let inFlight = false;
     const cached = peekStations();
     if (cached.length) {
       setStations(cached);
@@ -86,15 +95,36 @@ export default function SpaceWeatherCorsMap({ height: preferredHeight = 440 }: {
     }
 
     // Markers first — same /cors/stations feed the metric cards already use.
-    getStations(false)
-      .then((rows) => {
-        if (cancelled) return;
-        if (rows.length) setStations(rows);
-      })
-      .catch(() => null)
-      .finally(() => {
-        if (!cancelled) setStationsLoading(false);
-      });
+    const applyLive = (rows: Station[]) => {
+      if (cancelled) return;
+      const live = stationsAreLiveAuthoritative(rows);
+      if (live) {
+        setStations(rows);
+        setStationsLoading(false);
+        setStatusNote(null);
+      } else {
+        setStationsLoading(false);
+        setStatusNote("Live station status is still loading. Site locations are shown; colours will update automatically.");
+      }
+    };
+    const pull = () => {
+      if (cancelled || inFlight) return;
+      inFlight = true;
+      getStations(false).then(applyLive).catch(() => {
+        if (!cancelled) {
+          setStationsLoading(false);
+          setStatusNote("Station status could not be refreshed. Retrying automatically; grey sites do not mean they are offline.");
+        }
+      }).finally(() => { inFlight = false; });
+    };
+    pull();
+    // Registry dots stay up immediately. Replace them once Spider/NTRIP answers.
+    const liveTimer = window.setInterval(() => {
+      if (!document.hidden) pull();
+    }, 15_000);
+    const onVisible = () => { if (!document.hidden) pull(); };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("online", pull);
 
     // Station markers use /cors/stations. TEC grid is optional overlay — defer
     // until after first paint so a slow heatmap cannot starve the map chunk.
@@ -109,10 +139,13 @@ export default function SpaceWeatherCorsMap({ height: preferredHeight = 440 }: {
 
     return () => {
       cancelled = true;
+      window.clearInterval(liveTimer);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("online", pull);
       cancelHeat();
       unsubscribeHeatmap();
     };
-  }, []);
+  }, [retry]);
 
   const spiderLive = stationsAreSpiderAuthoritative(stations);
   const liveCounts = useMemo(() => {
@@ -130,6 +163,12 @@ export default function SpaceWeatherCorsMap({ height: preferredHeight = 440 }: {
 
   return (
     <div id="cors-network" className="sw-cors-map-section home-cors-map-section">
+      {statusNote && (
+        <div className="banner banner-info" role="status">
+          {statusNote}{" "}
+          <button type="button" className="btn" onClick={() => setRetry(value => value + 1)}>Refresh station status</button>
+        </div>
+      )}
       <CorsMapWithLayers
         stations={stations}
         height={height}

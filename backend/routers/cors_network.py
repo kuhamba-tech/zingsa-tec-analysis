@@ -664,7 +664,14 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
     # Spider Site Status is ground truth for online/offline. Apply the cached
     # overlay first so a slow archive/Supabase read never stalls the map.
     stations = _merge_spider_site_statuses(stations, refresh=refresh_ntrip)
-    fresh_connections = _fresh_code_live_connections()
+    # The fresh-TEC query opens Postgres. On a busy pool that connect waits
+    # past the dashboard timeout, so the map never receives coordinates or
+    # Spider colours. Normal page loads use the last good cache only.
+    if refresh_ntrip:
+        fresh_connections = _fresh_code_live_connections()
+    else:
+        start_fresh_cors_refresh()
+        fresh_connections = _cached_fresh_connections() or {}
     if fresh_connections:
         stations = _mark_fresh_connections(stations, fresh_connections)
     spider_stations = stations
@@ -676,7 +683,12 @@ def _stations_impl(*, refresh_ntrip: bool = False) -> list:
     # normal page loads too — otherwise every card paints unknown / 0/25.
     # Archive reads can stall on a busy pooler; keep them off the path
     # when Spider is already authoritative.
-    if not pipeline_configured and not spider_ready and not _stations_have_live_status(stations):
+    if (
+        refresh_ntrip
+        and not pipeline_configured
+        and not spider_ready
+        and not _stations_have_live_status(stations)
+    ):
         stations, archive_applied = _merge_archived_live_statuses(stations)
         stations = _hold_non_spider_as_unknown(stations)
         # Re-apply the already-read Spider rows without a second DB read/login.

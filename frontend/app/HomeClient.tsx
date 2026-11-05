@@ -483,7 +483,8 @@ export default function HomeClient({ initialSw = null }: HomeClientProps) {
     <div className="home-page">
       <div className="home-hero-header">
         <div className="home-top-intro">
-          <h1 className="page-title home-page-title">
+          {/* Cursor/browser tooling can decorate SSR headings before hydration. */}
+          <h1 suppressHydrationWarning className="page-title home-page-title">
             <span className="home-page-title-icon home-page-title-logo" aria-hidden>
               <Image
                 src="/zingsa_logo.webp"
@@ -498,7 +499,7 @@ export default function HomeClient({ initialSw = null }: HomeClientProps) {
               <span className="home-page-title-line">Zimbabwe Space Weather &amp; Navigation</span>
             </span>
           </h1>
-          <p className="page-subtitle home-page-subtitle">
+          <p suppressHydrationWarning className="page-subtitle home-page-subtitle">
             Real-time ionospheric TEC, space weather, and GNSS navigation from the Zimbabwe CORS network
           </p>
         </div>
@@ -510,8 +511,8 @@ export default function HomeClient({ initialSw = null }: HomeClientProps) {
       <HomeStormAlertBanner sw={liveSw} />
 
       <div className="home-sw-row">
-        <section className="home-sw-panel" aria-label="Live space weather">
-          <h2 className="home-sw-heading">Live Space Weather · Zimbabwe CORS Network</h2>
+        <section suppressHydrationWarning className="home-sw-panel" aria-label="Live space weather">
+          <h2 suppressHydrationWarning className="home-sw-heading">Live Space Weather · Zimbabwe CORS Network</h2>
           {freshnessMsg && <div className="banner banner-warn" style={{ fontSize: "0.8rem" }}>{freshnessMsg}</div>}
           {loadError && swStatus === "down" && (
             <div className="banner banner-warn" style={{ fontSize: "0.8rem" }}>
@@ -588,12 +589,12 @@ export default function HomeClient({ initialSw = null }: HomeClientProps) {
         <HomeTimelinesGate includeChrome={false} />
       </DeferredMount>
 
-      <section className="home-getting-started" aria-label="Getting started">
+      <section suppressHydrationWarning className="home-getting-started" aria-label="Getting started">
         <div className="home-getting-started-panel">
           <div className="home-getting-started-head">
             <div className="home-getting-started-copy">
-              <h2 className="home-section-heading">Getting Started</h2>
-              <p className="home-getting-started-sub">
+              <h2 suppressHydrationWarning className="home-section-heading">Getting Started</h2>
+              <p suppressHydrationWarning className="home-getting-started-sub">
                 New here? Follow this workflow from live station health through processing to analysis.
               </p>
             </div>
@@ -619,7 +620,7 @@ export default function HomeClient({ initialSw = null }: HomeClientProps) {
           {gettingStartedOpen && (
             <ol className="home-steps-strip">
               {GETTING_STARTED.map((item, index) => (
-                <li key={item.step} className="home-step-item">
+                <li suppressHydrationWarning key={item.step} className="home-step-item">
                   {index > 0 && (
                     <span className="home-step-connector" aria-hidden="true">
                       <svg viewBox="0 0 24 24" width="20" height="20">
@@ -632,8 +633,8 @@ export default function HomeClient({ initialSw = null }: HomeClientProps) {
                       <span className="home-step-badge">Step {item.step}</span>
                       <span className="home-step-icon" aria-hidden="true">{item.icon}</span>
                     </div>
-                    <h3 className="home-step-title">{item.title}</h3>
-                    <p className="home-step-desc">{item.desc}</p>
+                    <h3 suppressHydrationWarning className="home-step-title">{item.title}</h3>
+                    <p suppressHydrationWarning className="home-step-desc">{item.desc}</p>
                     <div className="home-step-actions">
                       <Link href={item.href} className="home-step-cta" prefetch={false}>
                         {item.cta}
@@ -653,8 +654,8 @@ export default function HomeClient({ initialSw = null }: HomeClientProps) {
         </div>
       </section>
 
-      <section className="home-modules">
-        <h2 className="home-section-heading">Analysis Modules</h2>
+      <section suppressHydrationWarning className="home-modules">
+        <h2 suppressHydrationWarning className="home-section-heading">Analysis Modules</h2>
         <div className="analysis-modules-grid">
           {MODULES.map(({ href, icon, title, desc }) => (
             <Link key={href} href={href} className="home-module-link" prefetch={false}>
