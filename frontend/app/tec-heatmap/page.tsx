@@ -152,8 +152,8 @@ export default function TecHeatmapPage() {
 
       <div className="tec-map-header">
         <div>
-          <h1 className="tec-map-title">Zimbabwe TEC Heat Map</h1>
-          <p className="tec-map-subtitle">
+          <h1 className="tec-map-title" suppressHydrationWarning>Zimbabwe TEC Heat Map</h1>
+          <p className="tec-map-subtitle" suppressHydrationWarning>
             Live NTRIP MSM VTEC only (no RINEX/CMN archive). Hybrid satellite base with place names and roads.
             The TEC grid follows the Matamba and Danskin near-real-time pattern: 5-minute updates from a
             15-minute observation window, 1 degree nearest-neighbour gridding, and median filtering. Colours
@@ -246,7 +246,7 @@ export default function TecHeatmapPage() {
           {evaluation && (
             <div className="tec-map-diagnostic-panel tec-map-diagnostic-panel--wide">
               <h2>Matamba Evaluation</h2>
-              <p>
+              <p suppressHydrationWarning>
                 {evaluation.method ?? "NRT TEC estimates are extracted from the median-filtered grid at ionosonde coordinates."}
                 {" "}Matched points only; every {evaluation.comparison_interval_minutes ?? 60} min over the last{" "}
                 {evaluation.comparison_window_days ?? 5} days. Map RMSE uses the previous{" "}
@@ -264,7 +264,7 @@ export default function TecHeatmapPage() {
                   </div>
                 ))}
               </div>
-              <p className="tec-map-diagnostic-note">
+              <p suppressHydrationWarning className="tec-map-diagnostic-note">
                 Paper benchmark: ionosonde r about 0.96 in the example, operational r &gt; 0.82 since 2021-05-06;
                 slopes 0.65-1.12 for ionosonde and 0.59-1.15 for AfriTEC.
               </p>
@@ -275,7 +275,7 @@ export default function TecHeatmapPage() {
 
           <div className="tec-map-diagnostic-panel">
             <h2>Madimbo Ionosonde</h2>
-            <p>
+            <p suppressHydrationWarning>
               {ionosonde?.name ?? "Madimbo ionosonde"} ({ionosonde?.code ?? "MU12K"}) near Zimbabwe: map-estimated TEC{" "}
               <strong>{ionosonde?.estimated_vtec != null ? `${ionosonde.estimated_vtec.toFixed(2)} TECU` : "N/A"}</strong>.
               {ionosonde?.ionosonde_vtec != null
@@ -336,7 +336,7 @@ export default function TecHeatmapPage() {
                   </tbody>
                 </table>
               </div>
-              <p className="tec-map-diagnostic-note">
+              <p suppressHydrationWarning className="tec-map-diagnostic-note">
                 Beitbridge is normally the closest Zimbabwe CORS site to Madimbo; compare only matched-time values for Matamba-style validation.
               </p>
             </div>

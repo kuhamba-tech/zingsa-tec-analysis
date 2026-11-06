@@ -164,13 +164,13 @@ export default function LiveTecMultiDayChart() {
   }, [rows]);
 
   return (
-    <section className="station-vtec-plots" aria-label="Live TEC across days">
+    <section className="station-vtec-plots" aria-label="Live TEC across days" suppressHydrationWarning>
       <div className="station-vtec-plots-header">
         <div>
-          <h2 className="metric-label" style={{ marginBottom: 4, whiteSpace: "normal", overflow: "visible" }}>
+          <h2 className="metric-label" style={{ marginBottom: 4, whiteSpace: "normal", overflow: "visible" }} suppressHydrationWarning>
             Live TEC across days
           </h2>
-          <p className="sw-supporting-text" style={{ margin: 0 }}>
+          <p className="sw-supporting-text" style={{ margin: 0 }} suppressHydrationWarning>
             Measured GOPI code TEC at each Zimbabwe CORS station, one line per station,
             for the last 7 days. Each point is a 30-minute bin. A gap longer than 45
             minutes stays open. Surveyor General sites are not included. A rise that
@@ -180,16 +180,16 @@ export default function LiveTecMultiDayChart() {
           </p>
         </div>
       </div>
-      {failed && <p className="station-vtec-plots-sub">The multi-day live TEC graph could not be loaded.</p>}
+      {failed && <p suppressHydrationWarning className="station-vtec-plots-sub">The multi-day live TEC graph could not be loaded.</p>}
       {!failed && rows == null && (
-        <p className="station-vtec-plots-sub">Loading measured TEC for the last 7 days.</p>
+        <p className="station-vtec-plots-sub" suppressHydrationWarning>Loading measured TEC for the last 7 days.</p>
       )}
       {!failed && rows != null && chart == null && (
-        <p className="station-vtec-plots-sub">No measured GOPI in the last 7 days.</p>
+        <p suppressHydrationWarning className="station-vtec-plots-sub">No measured GOPI in the last 7 days.</p>
       )}
       {chart && (
         <>
-          <p className="station-vtec-plots-sub">
+          <p suppressHydrationWarning className="station-vtec-plots-sub">
             {chart.stations} stations · {chart.days[0]} to {chart.days[chart.days.length - 1]} UTC
             · {chart.days.length} day{chart.days.length === 1 ? "" : "s"} with samples
           </p>

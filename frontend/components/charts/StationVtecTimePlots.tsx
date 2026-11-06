@@ -138,6 +138,7 @@ function formatDayChip(day: string, today: string): string {
   return new Date(ms).toLocaleDateString("en-GB", {
     day: "2-digit",
     month: "short",
+    year: day.slice(0, 4) === today.slice(0, 4) ? undefined : "numeric",
     timeZone: "UTC",
   });
 }
@@ -487,7 +488,7 @@ function StationChartCard({
       ];
 
   return (
-    <article className="card station-vtec-plot-card" aria-label={`${series.station} VTEC time series`}>
+    <article suppressHydrationWarning className="card station-vtec-plot-card" aria-label={`${series.station} VTEC time series`}>
       <div className="station-vtec-plot-head">
         <div>
           <strong>{series.station.toUpperCase()}</strong>
@@ -599,7 +600,7 @@ export default function StationVtecTimePlots({
         const lookback = fetchHoursFor(hours, selectedDay);
         const resample = resampleMinutesForHours(selectedDay ? 24 : hours);
         const timeoutMs = timeoutForHours(lookback);
-        const loadRows = () => getLiveVtecByStation(lookback, resample, timeoutMs);
+        const loadRows = () => getLiveVtecByStation(lookback, resample, timeoutMs, selectedDay);
         let rows: LiveStationVtecSeries[];
         try {
           rows = await loadRows();
@@ -607,12 +608,12 @@ export default function StationVtecTimePlots({
           // One retry with extra headroom — concurrent map/lab traffic can stall the first call.
           await new Promise((r) => setTimeout(r, 600));
           if (cancelled) return;
-          rows = await getLiveVtecByStation(lookback, resample, timeoutMs + 30_000);
+          rows = await getLiveVtecByStation(lookback, resample, timeoutMs + 30_000, selectedDay);
         }
         if (rows.length === 0) {
           await new Promise((r) => setTimeout(r, 800));
           if (cancelled) return;
-          rows = await getLiveVtecByStation(lookback, resample, timeoutMs + 30_000);
+          rows = await getLiveVtecByStation(lookback, resample, timeoutMs + 30_000, selectedDay);
         }
         // [] is a failed history read. A real empty day is the station catalog with no points.
         if (rows.length === 0) {
@@ -848,11 +849,11 @@ export default function StationVtecTimePlots({
   const globalReporting = useMemo(() => Object.keys(globalByStation).length, [globalByStation]);
 
   return (
-    <section className={`station-vtec-plots ${className ?? ""}`.trim()} aria-label={title}>
-      <div className="station-vtec-plots-header">
+    <section className={`station-vtec-plots ${className ?? ""}`.trim()} aria-label={title} suppressHydrationWarning>
+      <div className="station-vtec-plots-header" suppressHydrationWarning>
         <div>
-          <h2 className="home-section-heading">{title}</h2>
-          <p className="station-vtec-plots-sub">
+          <h2 className="home-section-heading" suppressHydrationWarning>{title}</h2>
+          <p className="station-vtec-plots-sub" suppressHydrationWarning>
             Absolute code TEC from the live NTRIP pipeline (GOPI) — solid blue, joined across the minutes between samples. Dashed amber is DLR
             Global TEC at each station. Dotted pink is Method 2 (Gg = Cesaroni). Purple dash-dot is
             interpolated data: inverse-distance GOPI for red (offline) sites and for any gap with no
@@ -861,6 +862,21 @@ export default function StationVtecTimePlots({
             stay off until a real per-station EKF series exists.
           </p>
         </div>
+        <label className="station-vtec-date-picker" suppressHydrationWarning>
+          <span>Choose a UTC day</span>
+          <input
+            type="date"
+            aria-label="Choose a UTC day to display"
+            value={selectedDay ?? ""}
+            max={utcToday()}
+            onChange={(event) => {
+              const day = event.target.value;
+              if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || day > utcToday()) return;
+              setHours(24);
+              setSelectedDay(day);
+            }}
+          />
+        </label>
       </div>
       <div className="station-vtec-plots-controls">
         <div className="station-vtec-hour-filters" role="group" aria-label="VTEC history window">
@@ -880,7 +896,10 @@ export default function StationVtecTimePlots({
         </div>
         {hours >= 24 && (
           <div className="station-vtec-day-filters" role="group" aria-label="UTC day">
-            {recentUtcDays(DAY_FILTER_COUNT).map((day) => (
+            {(selectedDay && !recentUtcDays(DAY_FILTER_COUNT).includes(selectedDay)
+              ? [selectedDay, ...recentUtcDays(DAY_FILTER_COUNT)]
+              : recentUtcDays(DAY_FILTER_COUNT)
+            ).map((day) => (
               <button
                 key={day}
                 type="button"
@@ -917,7 +936,7 @@ export default function StationVtecTimePlots({
         </div>
       )}
       {status === "ok" && (
-        <p className="station-vtec-plots-meta">
+        <p suppressHydrationWarning className="station-vtec-plots-meta">
           {reporting} of {ZINGSA_STATION_TOTAL} stations reporting{" "}
           {selectedDay ? `on ${selectedDay} UTC (00:00–24:00)` : `in the last ${hours} h`}
           {globalReporting > 0
@@ -934,6 +953,7 @@ export default function StationVtecTimePlots({
         <article
           className="card station-vtec-plot-card station-vtec-plot-card--wide"
           aria-label="Network mean VTEC"
+          suppressHydrationWarning
           aria-expanded={meanExplainOpen}
           onClick={() => setMeanExplainOpen((open) => !open)}
           onKeyDown={(event) => {
@@ -1026,7 +1046,7 @@ export default function StationVtecTimePlots({
       )}
 
       {methodCompareChart && (
-        <article
+        <article suppressHydrationWarning
           className="card station-vtec-plot-card station-vtec-plot-card--wide"
           aria-label="GOPI vs Gg latest VTEC"
           aria-expanded={compareExplainOpen}

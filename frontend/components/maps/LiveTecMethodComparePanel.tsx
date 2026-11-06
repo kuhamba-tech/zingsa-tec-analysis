@@ -240,7 +240,7 @@ export default function LiveTecMethodComparePanel({
       <header className="live-tec-method-compare-head">
         <div>
           <div className="live-tec-method-compare-title">Live VTEC method comparison</div>
-          <p className="live-tec-method-compare-lead">
+          <p className="live-tec-method-compare-lead" suppressHydrationWarning>
             GOPI and Gg at each CORS station, set against the DLR global TEC map at the same site.
             A station without its own sample is filled by inverse-distance interpolation from nearby
             measured stations of that method. Δ is the local value minus the comparison value, in TECU.
@@ -402,7 +402,7 @@ export default function LiveTecMethodComparePanel({
         <div className="live-tec-method-periods">
           <div>
             <div className="live-tec-method-compare-title">Morning, afternoon, and night</div>
-            <p className="live-tec-method-compare-lead">
+            <p className="live-tec-method-compare-lead" suppressHydrationWarning>
               Stored measured hours for {periods.day}, {periods.timezone}. Each number is the
               median of the station-hours in that part of the day. A positive difference means
               the first value is higher. Choose a date to compare days.
@@ -433,22 +433,22 @@ export default function LiveTecMethodComparePanel({
             {periods.periods.map((period) => (
               <article key={period.id} className="live-tec-method-period-card">
                 <h3>{period.label}</h3>
-                <p>{period.hours_local}</p>
+                <p suppressHydrationWarning>{period.hours_local}</p>
                 {period.station_hours === 0 ? (
-                  <p>No measured hours stored for this part of the day.</p>
+                  <p suppressHydrationWarning>No measured hours stored for this part of the day.</p>
                 ) : (
                   <>
-                    <p>GOPI {fmt(period.gopi)} · Gg {fmt(period.gg)} · Global {fmt(period.global)} TECU</p>
-                    <p>Gg − GOPI <strong className={deltaClass(period.gg_minus_gopi)}>{signed(period.gg_minus_gopi)}</strong></p>
-                    <p>GOPI − Global <strong className={deltaClass(period.gopi_minus_global)}>{signed(period.gopi_minus_global)}</strong></p>
-                    <p>Gg − Global <strong className={deltaClass(period.gg_minus_global)}>{signed(period.gg_minus_global)}</strong></p>
-                    <p>{period.station_hours} station-hours</p>
+                    <p suppressHydrationWarning>GOPI {fmt(period.gopi)} · Gg {fmt(period.gg)} · Global {fmt(period.global)} TECU</p>
+                    <p suppressHydrationWarning>Gg − GOPI <strong className={deltaClass(period.gg_minus_gopi)}>{signed(period.gg_minus_gopi)}</strong></p>
+                    <p suppressHydrationWarning>GOPI − Global <strong className={deltaClass(period.gopi_minus_global)}>{signed(period.gopi_minus_global)}</strong></p>
+                    <p suppressHydrationWarning>Gg − Global <strong className={deltaClass(period.gg_minus_global)}>{signed(period.gg_minus_global)}</strong></p>
+                    <p suppressHydrationWarning>{period.station_hours} station-hours</p>
                   </>
                 )}
               </article>
             ))}
           </div>
-          {periods.note && <p className="live-tec-method-compare-note">{periods.note}</p>}
+          {periods.note && <p suppressHydrationWarning className="live-tec-method-compare-note">{periods.note}</p>}
         </div>
       )}
 

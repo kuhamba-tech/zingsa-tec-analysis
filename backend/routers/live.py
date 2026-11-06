@@ -699,6 +699,7 @@ async def live_vtec_by_station(
     hours: float = Query(6.0, ge=0.5, le=168),
     resample_minutes: int = Query(2, ge=1, le=60),
     latest_only: bool = Query(False),
+    day: str | None = Query(None, max_length=10),
     _=Depends(require_api_key),
 ):
     """Binned live NTRIP VTEC vs time for every Zimbabwe CORS station.
@@ -724,9 +725,21 @@ async def live_vtec_by_station(
         _VTEC_LATEST_CACHE = (now, result)
         return result
 
-    cache_key = (float(hours), int(resample_minutes))
+    selected_day = (day or "").strip()
+    if selected_day:
+        try:
+            parsed_day = datetime.strptime(selected_day, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="day must be YYYY-MM-DD") from exc
+        if parsed_day.date() > datetime.now(tz=timezone.utc).date():
+            raise HTTPException(status_code=400, detail="day cannot be in the future")
+        selected_day = parsed_day.date().isoformat()
+    else:
+        selected_day = ""
+
+    cache_key = (selected_day or float(hours), int(resample_minutes))
     now = time.time()
-    cache_ttl = 300.0 if hours >= 48 else _VTEC_BY_STATION_CACHE_TTL_S
+    cache_ttl = 300.0 if (selected_day or hours >= 48) else _VTEC_BY_STATION_CACHE_TTL_S
     cached = _VTEC_BY_STATION_CACHE.get(cache_key)
     if cached and (now - cached[0]) < cache_ttl:
         return cached[1]
@@ -736,10 +749,11 @@ async def live_vtec_by_station(
         async def _build_and_cache() -> list[LiveStationVtecSeries]:
             try:
                 result = await asyncio.get_running_loop().run_in_executor(
-                    _HISTORY_EXECUTOR if hours >= 48 else _CHART_EXECUTOR,
-                    lambda h=hours, step=resample_minutes: _build_live_vtec_by_station(
+                    _HISTORY_EXECUTOR if (selected_day or hours >= 48) else _CHART_EXECUTOR,
+                    lambda h=hours, step=resample_minutes, chosen=selected_day: _build_live_vtec_by_station(
                         hours=h,
                         resample_minutes=step,
+                        day=chosen or None,
                     ),
                 )
             except Exception:
@@ -765,7 +779,7 @@ async def live_vtec_by_station(
 
     # The page retries. This wait lets a finished build fill the cache even if
     # the first browser call has already moved on.
-    wait_s = 40.0 if hours >= 48 else 22.0
+    wait_s = 40.0 if (selected_day or hours >= 48) else 22.0
     try:
         return await asyncio.wait_for(asyncio.shield(inflight), timeout=wait_s)
     except asyncio.TimeoutError:
@@ -841,6 +855,7 @@ def _build_live_vtec_by_station(
     *,
     hours: float,
     resample_minutes: int,
+    day: str | None = None,
 ) -> list[LiveStationVtecSeries]:
     """Binned GOPI history for the station charts.
 
@@ -864,14 +879,26 @@ def _build_live_vtec_by_station(
     if not dsns:
         return []
 
+    day_start = None
+    day_end = None
+    if day:
+        day_start = datetime.strptime(day, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        day_end = day_start + timedelta(days=1)
     since = (datetime.now(tz=timezone.utc) - timedelta(hours=hours)).isoformat()
     step = max(1, int(resample_minutes))
-    if hours >= 24:
+    if day_start is not None or hours >= 24:
         timeout_ms = 45000
     elif hours >= 12:
         timeout_ms = 25000
     else:
         timeout_ms = 12000
+    time_sql = "time >= %s AND time < %s" if day_start is not None else "time >= %s"
+    time_params = (
+        (day_start.isoformat(), day_end.isoformat())
+        if day_start is not None and day_end is not None
+        else (since,)
+    )
+    historical_day = day_start is not None and day_start.date() < datetime.now(tz=timezone.utc).date()
     bin_rows = None
     latest_rows = None
     for dsn in dsns:
@@ -891,7 +918,7 @@ def _build_live_vtec_by_station(
                            AVG(vtec_tecu) AS vtec_tecu,
                            COUNT(*) AS obs_count
                     FROM vtec_obs
-                    WHERE time >= %s
+                    WHERE {time_sql}
                       AND vtec_tecu IS NOT NULL
                       AND vtec_tecu > 0
                       AND vtec_tecu <= 50
@@ -901,9 +928,12 @@ def _build_live_vtec_by_station(
                     GROUP BY 1, 2
                     ORDER BY 1, 2
                     """,
-                    (float(step * 60), float(step * 60), since, "%code_live%"),
+                    (float(step * 60), float(step * 60), *time_params, "%code_live%"),
                 )
                 bin_rows = cur.fetchall()
+                if historical_day:
+                    latest_rows = []
+                    break
                 latest_since = (datetime.now(tz=timezone.utc) - timedelta(minutes=15)).isoformat()
                 cur.execute(
                     f"""
@@ -973,12 +1003,15 @@ def _build_live_vtec_by_station(
     for code, station in sorted(catalog.items(), key=lambda item: item[0]):
         points = points_by.get(code) or []
         values = [point.vtec_tecu for point in points]
+        latest = gopi_by.get(code)
+        if latest is None and points:
+            latest = points[-1].vtec_tecu
         series.append(
             LiveStationVtecSeries(
                 station=code,
                 name=station.name,
                 points=points,
-                latest_vtec=gopi_by.get(code),
+                latest_vtec=latest,
                 mean_vtec=round(sum(values) / len(values), 2) if values else None,
             )
         )

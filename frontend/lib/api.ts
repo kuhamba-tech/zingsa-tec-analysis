@@ -1270,10 +1270,15 @@ export const getLiveStationReadings = () =>
     ),
   );
 
-export const getLiveVtecByStation = (hours = 6, resampleMinutes = 2, timeoutMs?: number) =>
-  dedupeGet(`live/vtec-by-station:${hours}:${resampleMinutes}:${timeoutMs ?? "default"}`, () => get<LiveStationVtecSeries[]>(
+export const getLiveVtecByStation = (
+  hours = 6,
+  resampleMinutes = 2,
+  timeoutMs?: number,
+  day?: string | null,
+) =>
+  dedupeGet(`live/vtec-by-station:${hours}:${resampleMinutes}:${day ?? ""}:${timeoutMs ?? "default"}`, () => get<LiveStationVtecSeries[]>(
     "/live/vtec-by-station",
-    { hours, resample_minutes: resampleMinutes, _ts: Date.now() },
+    { hours, resample_minutes: resampleMinutes, ...(day ? { day } : {}), _ts: Date.now() },
     // Cold SQL bins can take 20–60s under concurrent map/lab load; keep headroom.
     timeoutMs ??
       (hours >= 24

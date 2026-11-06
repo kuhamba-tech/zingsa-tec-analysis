@@ -1582,6 +1582,30 @@ select option {
   font-size: 0.88rem;
   line-height: 1.45;
 }
+.station-vtec-date-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 12rem;
+  margin-left: auto;
+}
+.station-vtec-date-picker span {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.station-vtec-date-picker input[type="date"] {
+  border: 1px solid var(--border);
+  background: #0b1220;
+  color: var(--text);
+  color-scheme: dark;
+  border-radius: 6px;
+  padding: 0.45rem 0.7rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
 .station-vtec-plots-controls {
   display: flex;
   flex-wrap: wrap;
