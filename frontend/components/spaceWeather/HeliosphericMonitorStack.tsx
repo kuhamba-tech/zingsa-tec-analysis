@@ -1,9 +1,9 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import SwSectionBanner from "@/components/spaceWeather/SwSectionBanner";
-import { getHeliosphericMonitor } from "@/lib/api";
+import { getHeliosphericMonitor, getSolarBrief, type SolarBriefResponse } from "@/lib/api";
 import { peekHeliosphericMonitor } from "@/lib/heliosphericStore";
 import { loadLineChart } from "@/lib/loadLineChart";
 import {
@@ -119,9 +119,38 @@ function PanelShell({
 
 export default function HeliosphericMonitorStack() {
   const [data, setData] = useState<HeliosphericMonitorResponse | null>(null);
+  const [brief, setBrief] = useState<SolarBriefResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<HeliosphericPanelId | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadBrief = () => {
+      getSolarBrief()
+        .then((payload) => {
+          if (cancelled) return;
+          setBrief((current) => {
+            if (
+              (current?.c_percent != null || (current?.monitor_regions?.length ?? 0) > 0) &&
+              payload.mode === "unavailable"
+            ) {
+              return current;
+            }
+            return payload;
+          });
+        })
+        .catch(() => {
+          /* Keep last good brief; interpretation states unavailable when null. */
+        });
+    };
+    loadBrief();
+    const briefTimer = window.setInterval(loadBrief, 5 * 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(briefTimer);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -276,7 +305,7 @@ export default function HeliosphericMonitorStack() {
             panelId="protons"
             selected={selected === "protons"}
             onToggle={toggle}
-            analysis={analyzeHeliosphericPanel("protons", data)}
+            analysis={analyzeHeliosphericPanel("protons", data, brief)}
           >
             {data.protons.labels.length > 0 ? (
               <LineChart
@@ -300,7 +329,7 @@ export default function HeliosphericMonitorStack() {
             panelId="imf"
             selected={selected === "imf"}
             onToggle={toggle}
-            analysis={analyzeHeliosphericPanel("imf", data)}
+            analysis={analyzeHeliosphericPanel("imf", data, brief)}
           >
             {data.imf.labels.length > 0 ? (
               <LineChart
@@ -329,7 +358,7 @@ export default function HeliosphericMonitorStack() {
             panelId="solar_wind"
             selected={selected === "solar_wind"}
             onToggle={toggle}
-            analysis={analyzeHeliosphericPanel("solar_wind", data)}
+            analysis={analyzeHeliosphericPanel("solar_wind", data, brief)}
           >
             {data.solar_wind.labels.length > 0 ? (() => {
               const speeds = data.solar_wind.speed.filter((v): v is number => v != null && Number.isFinite(v));
@@ -391,7 +420,7 @@ export default function HeliosphericMonitorStack() {
             panelId="kp"
             selected={selected === "kp"}
             onToggle={toggle}
-            analysis={analyzeHeliosphericPanel("kp", data)}
+            analysis={analyzeHeliosphericPanel("kp", data, brief)}
           >
             {data.kp.labels.length > 0 ? (
               <>

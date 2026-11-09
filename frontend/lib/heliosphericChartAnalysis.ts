@@ -188,7 +188,197 @@ export function analyzeImfPanel(data: HeliosphericMonitorResponse | null): Chart
   };
 }
 
-export function analyzeSolarWindPanel(data: HeliosphericMonitorResponse | null): ChartAnalysisBlock {
+/** Optional NOAA/SolarHam brief used to name flares, Earth-facing regions and ejections. */
+export type SolarWindBriefContext = {
+  earth_facing_region_count?: number | null;
+  spotted_region_count?: number | null;
+  c_percent?: number | null;
+  m_percent?: number | null;
+  x_percent?: number | null;
+  flares_today?: { label: string; c_count: number; m_count: number; x_count: number } | null;
+  flares_yesterday?: { label: string; c_count: number; m_count: number; x_count: number } | null;
+  earth_directed_cme?: boolean | null;
+  coronal_hole_stream?: boolean | null;
+  stream_polarity?: string | null;
+  storm_window?: string | null;
+  expected_kp?: number | null;
+  expected_kp_scale?: string | null;
+  expected_kp_window?: string | null;
+  regions?: { number: number; c_percent: number; m_percent: number; x_percent: number }[];
+  monitor_regions?: {
+    number: number;
+    limb: boolean;
+    flare_today: string | null;
+    flare_yesterday: string | null;
+    magnetic_class: string | null;
+  }[];
+} | null;
+
+function flareDaySentence(
+  label: string,
+  day: { label: string; c_count: number; m_count: number; x_count: number } | null | undefined,
+): string | null {
+  if (!day) return null;
+  const bits = [
+    day.c_count > 0 ? `${day.c_count} C-class` : null,
+    day.m_count > 0 ? `${day.m_count} M-class` : null,
+    day.x_count > 0 ? `${day.x_count} X-class` : null,
+  ].filter(Boolean);
+  if (!bits.length) {
+    return `${label}: ${day.label}. No C-, M- or X-class flares are counted in that GOES summary.`;
+  }
+  return `${label}: ${day.label} — ${bits.join(", ")}.`;
+}
+
+function earthFacingActivitySentence(brief: SolarWindBriefContext): string {
+  if (!brief) {
+    return "Earth-facing sunspot / flare catalogue is unavailable in this sample — C/M/X classes and eruption status are not invented.";
+  }
+
+  const facing = brief.earth_facing_region_count ?? brief.spotted_region_count;
+  const parts: string[] = [];
+  if (facing == null) {
+    parts.push("Earth-facing region count is unavailable.");
+  } else {
+    parts.push(
+      `${facing} Earth-facing sunspot region${facing === 1 ? "" : "s"} ${facing === 1 ? "is" : "are"} reported on the NOAA disk summary.`,
+    );
+  }
+
+  const chanceBits = [
+    brief.c_percent != null ? `C-class ${brief.c_percent}%` : null,
+    brief.m_percent != null ? `M-class ${brief.m_percent}%` : null,
+    brief.x_percent != null ? `X-class ${brief.x_percent}%` : null,
+  ].filter(Boolean);
+  if (chanceBits.length) {
+    parts.push(
+      `NOAA whole-disk flare probabilities for the forecast day: ${chanceBits.join(", ")}. Those are chances of C-, M- or X-class flares erupting, not a guarantee of an Earth-directed ejection.`,
+    );
+  }
+
+  const today = flareDaySentence("GOES flares today", brief.flares_today);
+  const yesterday = flareDaySentence("GOES flares yesterday", brief.flares_yesterday);
+  if (today) parts.push(today);
+  if (yesterday) parts.push(yesterday);
+
+  const monitors = brief.monitor_regions ?? [];
+  const earthFacingMonitors = monitors.filter((region) => !region.limb);
+  const limbMonitors = monitors.filter((region) => region.limb);
+  if (earthFacingMonitors.length) {
+    const named = earthFacingMonitors
+      .map((region) => {
+        const flare =
+          region.flare_today
+            ? ` flared ${region.flare_today} today`
+            : region.flare_yesterday
+              ? ` flared ${region.flare_yesterday} yesterday`
+              : " has no listed C/M/X flare in the monitor summary";
+        const mag = region.magnetic_class ? ` (${region.magnetic_class})` : "";
+        return `Region ${region.number}${mag}${flare}`;
+      })
+      .slice(0, 6);
+    parts.push(
+      `Earth-facing active regions on the monitor: ${named.join("; ")}${
+        earthFacingMonitors.length > 6 ? `; +${earthFacingMonitors.length - 6} more` : ""
+      }.`,
+    );
+  }
+  if (limbMonitors.length) {
+    parts.push(
+      `${limbMonitors.length} region${limbMonitors.length === 1 ? "" : "s"} sit at the limb and are not treated as Earth-facing centers.`,
+    );
+  }
+
+  const highM = (brief.regions ?? []).filter((region) => region.m_percent >= 30);
+  const highX = (brief.regions ?? []).filter((region) => region.x_percent >= 10);
+  if (highM.length || highX.length) {
+    const mText = highM.length
+      ? highM.map((region) => `${region.number} (M ${region.m_percent}%)`).join(", ")
+      : null;
+    const xText = highX.length
+      ? highX.map((region) => `${region.number} (X ${region.x_percent}%)`).join(", ")
+      : null;
+    parts.push(
+      [
+        mText ? `Elevated M-class probability on region(s) ${mText}` : null,
+        xText ? `elevated X-class probability on region(s) ${xText}` : null,
+      ]
+        .filter(Boolean)
+        .join("; ") + ".",
+    );
+  }
+
+  if (brief.earth_directed_cme === true) {
+    parts.push(
+      "NOAA's coronagraph assessment reports an Earth-directed coronal mass ejection — plasma has left the Sun toward Earth.",
+    );
+  } else if (brief.earth_directed_cme === false) {
+    parts.push("NOAA's coronagraph assessment reports no Earth-directed coronal mass ejection in the current check.");
+  } else {
+    parts.push("Earth-directed CME status is unavailable from the current brief.");
+  }
+
+  if (brief.coronal_hole_stream) {
+    const polarity = brief.stream_polarity ? `${brief.stream_polarity}-polarity ` : "";
+    const window = brief.storm_window ? ` Arrival / storm window: ${brief.storm_window}.` : "";
+    parts.push(`A ${polarity}coronal-hole high-speed stream is in the NOAA forecast.${window}`);
+  }
+
+  if (brief.expected_kp != null) {
+    const scale = brief.expected_kp_scale ? ` (${brief.expected_kp_scale})` : "";
+    const window = brief.expected_kp_window ? ` for ${brief.expected_kp_window}` : "";
+    parts.push(`Greatest expected 3-hour Kp${window}: ${brief.expected_kp}${scale}.`);
+  }
+
+  return parts.join(" ");
+}
+
+function windDriverFromMeasurements(opts: {
+  crossedFast: boolean;
+  peakSpeed: number;
+  densest: number | null;
+  hottest: number | null;
+  bz: number | null;
+}): string {
+  const { crossedFast, peakSpeed, densest, hottest, bz } = opts;
+  const shockLike =
+    crossedFast &&
+    densest != null &&
+    densest >= 5 &&
+    hottest != null &&
+    hottest >= 200_000;
+  const parts: string[] = [];
+  if (shockLike) {
+    parts.push(
+      `In this RTSW window the wind reached ${Math.round(peakSpeed)} km/s with density up to ${densest.toFixed(1)} cm⁻³ and proton temperature up to ${Math.round(hottest).toLocaleString()} K — the measured signature of a shock or CME-sheath passage at L1.`,
+    );
+  } else if (crossedFast) {
+    parts.push(
+      `In this RTSW window the wind crossed and held above the 500 km/s fast-stream line (peak ${Math.round(peakSpeed)} km/s). That is the measured high-speed stream at L1; assign the solar driver from the flare / CME / coronal-hole catalogue above, not from speed alone.`,
+    );
+  } else {
+    parts.push(
+      `In this RTSW window the wind stayed below the 500 km/s fast-stream line (peak ${Math.round(peakSpeed)} km/s) — measured slow wind at L1.`,
+    );
+  }
+  if (bz == null) {
+    parts.push("IMF Bz is unavailable at the latest wind sample, so southward coupling cannot be confirmed from this plot.");
+  } else if (bz <= -5) {
+    parts.push(
+      `Latest Bz is ${bz.toFixed(1)} nT (southward). Coupling is open while this holds; a geomagnetic storm sentence still needs observed Kp ≥ 5 or Dst ≤ −50 nT together with Zimbabwe TEC/S4.`,
+    );
+  } else {
+    parts.push(
+      `Latest Bz is ${bz.toFixed(1)} nT. Southward Bz at or below −5 nT has to hold with this wind before Kp ≥ 5 or Dst ≤ −50 nT can be written as a storm.`,
+    );
+  }
+  return parts.join(" ");
+}
+
+export function analyzeSolarWindPanel(
+  data: HeliosphericMonitorResponse | null,
+  brief: SolarWindBriefContext = null,
+): ChartAnalysisBlock {
   const times = data?.solar_wind.times ?? [];
   const speed = data?.solar_wind.speed ?? [];
   const density = data?.solar_wind.density ?? [];
@@ -203,8 +393,11 @@ export function analyzeSolarWindPanel(data: HeliosphericMonitorResponse | null):
 
   if (!samples.length) {
     return {
-      lead: "This graph shows the solar wind at Sun–Earth L1. Yellow is speed, blue is density, and orange is proton temperature. The dashed line at 500 km/s marks a fast stream. Its importance is the flow that carries a coronal-hole stream or a CME sheath to Earth. Speed alone is not a storm rating.",
-      bullets: ["No solar-wind plasma samples are available in the current RTSW window."],
+      lead: "This graph shows the solar wind at Sun–Earth L1. Yellow is speed, blue is density, and orange is proton temperature. The dashed line at 500 km/s marks a fast stream. Name the driver from measured C/M/X flares, Earth-facing regions and CME status — not from generic wording.",
+      bullets: [
+        "No solar-wind plasma samples are available in the current RTSW window.",
+        earthFacingActivitySentence(brief),
+      ],
     };
   }
 
@@ -219,15 +412,20 @@ export function analyzeSolarWindPanel(data: HeliosphericMonitorResponse | null):
   const bz = nearestSample(data?.imf.times, data?.imf.bz, latest.time);
 
   const now = `Latest solar wind is ${Math.round(latest.speed)} km/s at ${utcStamp(latest.time)}${latest.density != null ? `, density ${latest.density.toFixed(1)} cm⁻³` : ""}${latest.temperature != null ? `, proton temperature ${Math.round(latest.temperature).toLocaleString()} K` : ""}${bz != null ? `, with Bz ${bz.toFixed(1)} nT` : ""}.`;
-  const range = `Across this plot the speed stayed between ${Math.round(slowest)} and ${Math.round(peak.speed)} km/s. The peak, ${Math.round(peak.speed)} km/s, was at ${utcStamp(peak.time)}.${crossedFast ? " The trace crossed the 500 km/s fast-stream line." : " The trace stayed under the 500 km/s fast-stream line, so this is the slow wind, not a coronal-hole stream."}`;
+  const range = `Across this plot the speed stayed between ${Math.round(slowest)} and ${Math.round(peak.speed)} km/s. The peak, ${Math.round(peak.speed)} km/s, was at ${utcStamp(peak.time)}.${crossedFast ? " The trace crossed the 500 km/s fast-stream line." : " The trace stayed under the 500 km/s fast-stream line."}`;
   const plasma = `${densest?.density != null ? `Density peaked at ${densest.density.toFixed(1)} cm⁻³ at ${utcStamp(densest.time)}. ` : ""}${hottest?.temperature != null ? `Proton temperature peaked at ${Math.round(hottest.temperature).toLocaleString()} K at ${utcStamp(hottest.time)}.` : ""}`.trim();
-  const driver = crossedFast
-    ? "A rise that holds near 500–700 km/s is usually a coronal-hole stream. A jump in speed together with density and temperature is a shock or CME sheath. Speed alone is not a storm: southward Bz has to hold with it until Kp reaches 5 or Dst falls through −50 nT."
-    : "Density and temperature can rise without a fast stream. A shock or CME sheath would show speed, density and temperature jumping together. This window does not. A storm sentence still needs southward Bz to hold until Kp reaches 5 or Dst falls through −50 nT.";
+  const solarActivity = earthFacingActivitySentence(brief);
+  const driver = windDriverFromMeasurements({
+    crossedFast,
+    peakSpeed: peak.speed,
+    densest: densest?.density ?? null,
+    hottest: hottest?.temperature ?? null,
+    bz,
+  });
 
   return {
-    lead: "This graph shows the solar wind at Sun–Earth L1. Yellow is speed, blue is density, and orange is proton temperature. The dashed line at 500 km/s marks a fast stream. Its importance is the flow that carries a coronal-hole stream or a CME sheath to Earth. Speed alone is not a storm rating.",
-    bullets: [now, range, plasma, driver].filter(Boolean),
+    lead: "This graph shows the solar wind at Sun–Earth L1. Yellow is speed, blue is density, and orange is proton temperature. The dashed line at 500 km/s marks a fast stream. The driver is named from measured C-, M- and X-class flares, Earth-facing regions, eruption probability and CME status — together with this RTSW plasma.",
+    bullets: [now, range, plasma, solarActivity, driver].filter(Boolean),
   };
 }
 
@@ -280,6 +478,7 @@ export function analyzeKpForecastPanel(data: HeliosphericMonitorResponse | null)
 export function analyzeHeliosphericPanel(
   id: HeliosphericPanelId,
   data: HeliosphericMonitorResponse | null,
+  brief: SolarWindBriefContext = null,
 ): ChartAnalysisBlock {
   switch (id) {
     case "overview":
@@ -289,7 +488,7 @@ export function analyzeHeliosphericPanel(
     case "imf":
       return analyzeImfPanel(data);
     case "solar_wind":
-      return analyzeSolarWindPanel(data);
+      return analyzeSolarWindPanel(data, brief);
     case "kp":
       return analyzeKpForecastPanel(data);
   }

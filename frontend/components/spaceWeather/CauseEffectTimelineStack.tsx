@@ -581,10 +581,10 @@ export default function CauseEffectTimelineStack({
       ],
     },
     wind: {
-      lead: "Solar wind at L1. Name the driver, then read Bz.",
+      lead: "Solar wind at L1. Name the C/M/X flares, Earth-facing regions and CME status, then read Bz.",
       bullets: [
         WIND_BEAT,
-        "A jump such as 380 to 620 km/s, with density and temperature rising together, is the shock or CME-sheath sentence.",
+        "When speed, density and temperature jump together at L1, write the measured shock or CME-sheath sentence and pair it with which Earth-facing region erupted or carries high M/X probability — not a generic coronal-hole guess.",
       ],
     },
     imf: {
