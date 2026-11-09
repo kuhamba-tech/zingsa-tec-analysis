@@ -234,6 +234,27 @@ export default function GicSciencePanel({ stationId, hours, refreshToken }: { st
     ] as const;
   };
 
+  const siteCards = assessment ? (
+    <div className={styles.sites}>{assessment.stations.map(site => {
+      const peak = gicLimit(site.peak_abs_a);
+      return <section
+        key={site.station_id}
+        className={`${styles.site} ${styles.chartTinted}`}
+        style={{ ["--limit-color" as string]: peak.color } as CSSProperties}
+      >
+        <div className={styles.siteHeader}>
+          <h3>{site.name}</h3>
+          <span className={styles.siteId}>{site.station_id}</span>
+          <span className={styles.limitChip} style={{ ["--limit-color" as string]: peak.color } as CSSProperties}>
+            <span className={styles.limitDot} aria-hidden />
+            {site.peak_abs_a == null ? "No peak" : `${peak.level} · ${fmt(site.peak_abs_a, 3)} A`}
+          </span>
+        </div>
+        <div className={styles.facts}>{siteFacts(site).map(([label, value, color]) => <Fact key={label} label={label} value={value} valueColor={color} />)}</div>
+      </section>;
+    })}</div>
+  ) : null;
+
   return <div className={styles.panel}>
     <section className={styles.intro}><span className={styles.kicker}>Field evidence / scientific assessment</span><h2>Measurement readiness & station comparison</h2>
       <p>Dema and Alaska are the registered monitoring sites. Station descriptions identify the intended sensor and logger architecture; verified commissioning, calibration and received measurements are tracked separately.</p>
@@ -241,29 +262,11 @@ export default function GicSciencePanel({ stationId, hours, refreshToken }: { st
     </section>
     {error && <p className="banner banner-warn" role="status">{error}</p>}
     {!assessment && !error && <p className={styles.status} role="status">Checking stored observations and source health...</p>}
-    {assessment && <>
-      <div className={styles.sites}>{assessment.stations.map(site => {
-        const peak = gicLimit(site.peak_abs_a);
-        return <section
-          key={site.station_id}
-          className={`${styles.site} ${styles.chartTinted}`}
-          style={{ ["--limit-color" as string]: peak.color } as CSSProperties}
-        >
-          <div className={styles.siteHeader}>
-            <h3>{site.name}</h3>
-            <span className={styles.siteId}>{site.station_id}</span>
-            <span className={styles.limitChip} style={{ ["--limit-color" as string]: peak.color } as CSSProperties}>
-              <span className={styles.limitDot} aria-hidden />
-              {site.peak_abs_a == null ? "No peak" : `${peak.level} · ${fmt(site.peak_abs_a, 3)} A`}
-            </span>
-          </div>
-          <div className={styles.facts}>{siteFacts(site).map(([label, value, color]) => <Fact key={label} label={label} value={value} valueColor={color} />)}</div>
-        </section>;
-      })}</div>
+    {assessment && (
       <section className={styles.chart}><h3>Dema versus Alaska / synchronized signed current</h3><p>{when(assessment.window_start)} to {when(assessment.window_end)}. Shared UTC axis across all panels; no interpolation.</p>
         {assessment.comparison.length ? <LineChart labels={labels} datasets={comparison} yLabel="A" height={240} /> : <p className={styles.empty}>Neither station has genuine stored field observations in this window.</p>}
       </section>
-    </>}
+    )}
     <div className={styles.charts}>
       {sourceChart(["bx_nt", "by_nt", "bz_nt"], `${stationId} ground magnetic components`, "nT")}
       {sourceChart(["dbdt_horizontal", "dhdt"], "Horizontal magnetic-field rates", "nT/min")}
@@ -296,5 +299,6 @@ export default function GicSciencePanel({ stationId, hours, refreshToken }: { st
       </div><p role="status">{researchError}</p>
       {climatology && <><p>{climatology.note}</p><div className={styles.scroll}><table><thead><tr><th>Period</th><th>Geomagnetic context</th><th>Samples</th><th>Mean (A)</th><th>Peak |A|</th><th>P95 |A|</th></tr></thead><tbody>{climatology.rows.map((row, i) => <tr key={i}><th>{row.period}</th><td>{row.geomagnetic_context}</td><td>{row.samples}</td><td>{fmt(row.mean_signed_a, 3)}</td><td>{fmt(row.peak_abs_a, 3)}</td><td>{fmt(row.p95_abs_a, 3)}</td></tr>)}</tbody></table></div></>}
     </details>
+    {siteCards}
   </div>;
 }

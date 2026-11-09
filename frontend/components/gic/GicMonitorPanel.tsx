@@ -398,20 +398,6 @@ export default function GicMonitorPanel() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.2rem" }}>
-      {apiConnected === false && (
-        <div className="banner banner-warn" role="status">
-          GIC backend unreachable — map shows static ZETDC grid geometry. Live measurements, EKF alerts, and
-          reports need the FastAPI server (run <code>dev.ps1</code> locally or set NEXT_PUBLIC_API_URL on Vercel).
-        </div>
-      )}
-      {series?.banner && (
-        <div className="banner banner-alert" role="alert">
-          {series.banner}
-        </div>
-      )}
-
-      <GicSciencePanel stationId={stationId} hours={RANGES[rangeIdx].hours} refreshToken={series?.points.at(-1)?.t} />
-
       {/* ── KPI cards ── */}
       <div className="grid-4">
         <MetricCard
@@ -465,6 +451,18 @@ export default function GicMonitorPanel() {
           }}
         />
       </div>
+
+      {apiConnected === false && (
+        <div className="banner banner-warn" role="status">
+          GIC backend unreachable — map shows static ZETDC grid geometry. Live measurements, EKF alerts, and
+          reports need the FastAPI server (run <code>dev.ps1</code> locally or set NEXT_PUBLIC_API_URL on Vercel).
+        </div>
+      )}
+      {series?.banner && (
+        <div className="banner banner-alert" role="alert">
+          {series.banner}
+        </div>
+      )}
 
       {/* ── Live station dashboard (Diagram 2 display) ── */}
       <GicLiveDashboard
@@ -713,6 +711,8 @@ export default function GicMonitorPanel() {
             )}
           </div>
       </div>
+
+      <GicSciencePanel stationId={stationId} hours={RANGES[rangeIdx].hours} refreshToken={series?.points.at(-1)?.t} />
 
     </div>
   );
