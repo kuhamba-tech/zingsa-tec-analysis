@@ -7539,9 +7539,21 @@ a.home-map-layer-btn {
 }
 .sw-report-subtitle {
   font-size: 0.82rem;
-  color: var(--text-muted);
+  color: #ffffff;
   max-width: 42rem;
   font-family: "Inter", system-ui, sans-serif;
+}
+.sw-report-panel,
+.sw-report-panel label,
+.sw-report-control-label,
+.sw-report-section-title,
+.sw-report-mini-title,
+.sw-report-empty,
+.sw-report-risk-msg,
+.sw-report-meta,
+.sw-report-table th,
+.sw-report-table td {
+  color: #ffffff;
 }
 .sw-report-header-actions {
   display: flex;

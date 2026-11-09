@@ -14,8 +14,16 @@ import type {
   SpaceWeatherReportPeriod,
 } from "@/lib/types";
 
+function readableValueColor(color: string | null | undefined): string {
+  // Keep severity accents, but never render unavailable/muted greys as grey text.
+  if (!color || color === "#94a3b8" || color === "#64748b" || color === "#8aa0b3" || color === "#cbd5e1") {
+    return "#ffffff";
+  }
+  return color;
+}
+
 function parameterColor(name: string, value: number | null): string {
-  if (value == null) return "#94a3b8";
+  if (value == null) return "#ffffff";
   if (/kp/i.test(name)) {
     if (value < 3) return "#22c55e";
     if (value < 4) return "#84cc16";
@@ -50,16 +58,17 @@ function parameterColor(name: string, value: number | null): string {
 }
 
 function DiurnalMetricCard({ card }: { card: SpaceWeatherReportDiurnalCard }) {
+  const valueColor = readableValueColor(card.value_color);
   return (
     <article
       className={styles.metricCard}
       aria-label={card.label}
-      style={{ ["--fact-accent" as string]: card.value_color }}
+      style={{ ["--fact-accent" as string]: valueColor }}
     >
       <span className={styles.metricLabel}>{card.label}</span>
-      <strong className={styles.metricValue} style={{ color: card.value_color }}>
+      <strong className={styles.metricValue} style={{ color: valueColor }}>
         {card.value == null ? "Unavailable" : `${card.value.toFixed(1)} ${card.unit}`}
-        <span className={styles.metricSubtitle} style={{ color: card.value_color }}>
+        <span className={styles.metricSubtitle} style={{ color: valueColor }}>
           · {card.status_label}
         </span>
       </strong>
@@ -339,7 +348,7 @@ export default function SpaceWeatherReportsPanel({
                 </div>
                 <div className={styles.metricGrid}>
                   {report.parameters.map((parameter) => {
-                    const color = parameterColor(parameter.name, parameter.current);
+                    const color = readableValueColor(parameterColor(parameter.name, parameter.current));
                     return (
                       <article
                         className={styles.metricCard}
