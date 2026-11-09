@@ -44,6 +44,7 @@ from backend.routers import (
     navigation_news,
     processing,
     reports,
+    scientific_rag,
     space_weather,
     tec,
     theory,
@@ -138,7 +139,14 @@ app.add_middleware(
     allow_origin_regex=_cors_origin_regex(),
     allow_credentials=False,
     allow_methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Accept", "Content-Type", "X-API-Key", "X-Broadcast-Admin-Key", "X-GIC-Admin-Key"],
+    allow_headers=[
+        "Accept",
+        "Content-Type",
+        "X-API-Key",
+        "X-Broadcast-Admin-Key",
+        "X-GIC-Admin-Key",
+        "X-Scientific-Rag-Admin-Key",
+    ],
 )
 
 
@@ -175,6 +183,7 @@ app.include_router(live.router)
 app.include_router(forecast.router)
 app.include_router(reports.router)
 app.include_router(chat.router)
+app.include_router(scientific_rag.router)
 app.include_router(theory.router)
 app.include_router(gic.router)
 

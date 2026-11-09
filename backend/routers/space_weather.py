@@ -772,6 +772,7 @@ def history(
 @router.get("/report", response_model=SpaceWeatherReportResponse)
 def space_weather_report(
     period: str = "hourly",
+    literature: bool = False,
     _=Depends(require_api_key),
 ):
     from zgiis.space_weather.report_builder import REPORT_WINDOWS, build_space_weather_report
@@ -782,6 +783,16 @@ def space_weather_report(
     # Station uptime uses a session-pool checkout that can sit forever when
     # that pool is full. The report itself is the archive, so do not wait on it.
     payload = build_space_weather_report(period, uptime_rows=[])
+    if literature:
+        try:
+            from zgiis.scientific_rag.config import rag_enabled
+            from zgiis.scientific_rag.enhance import attach_literature_enhancement
+
+            if rag_enabled():
+                payload = attach_literature_enhancement(payload, enabled=True)
+        except Exception:
+            # Measurement-only report must still succeed when RAG is unavailable.
+            pass
     return SpaceWeatherReportResponse(**payload)
 
 

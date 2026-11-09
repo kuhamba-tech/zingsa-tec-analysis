@@ -380,6 +380,8 @@ class SpaceWeatherReportResponse(BaseModel):
     risk_score: float | None = None
     risk_message: str = ""
     charts: SpaceWeatherReportCharts = SpaceWeatherReportCharts()
+    literature_available: bool | None = None
+    literature_evidence: list[dict] = []
 
 
 # ── Extended Kalman Filter (EKF) ──────────────────────────────────────────────

@@ -556,12 +556,82 @@ export const getSpaceWeatherHistory = (hours = 168, resample?: string) =>
   get<SpaceWeatherHistoryResponse>("/space-weather/history", { hours, resample });
 export const getSpaceWeatherCorrelations = (hours = 168, resample = "1h") =>
   get<SpaceWeatherCorrelationResponse>("/space-weather/correlations", { hours, resample });
-export const getSpaceWeatherReport = (period: SpaceWeatherReportPeriod = "hourly") =>
+export const getSpaceWeatherReport = (
+  period: SpaceWeatherReportPeriod = "hourly",
+  options?: { literature?: boolean },
+) =>
   getWithRetry<SpaceWeatherReport>(
     "/space-weather/report",
-    { period, _ts: Date.now() },
+    { period, ...(options?.literature ? { literature: "true" } : {}), _ts: Date.now() },
     REPORT_TIMEOUT_MS,
   );
+
+export type ScientificRagStatus = {
+  enabled: boolean;
+  drive_configured: boolean;
+  folder_id_set: boolean;
+  auth_mode?: string;
+  openai_embeddings_ready: boolean;
+  database_ready: boolean;
+  database_error?: string;
+  counts: Record<string, number>;
+};
+
+export type ScientificRagDocument = {
+  drive_file_id: string;
+  title: string;
+  mime_type?: string | null;
+  status: string;
+  error_message?: string | null;
+  page_count?: number | null;
+  indexed_at?: string | null;
+  source_url?: string | null;
+  doi?: string | null;
+};
+
+export type ScientificRagEvidence = {
+  score: number;
+  title?: string | null;
+  citation_label?: string;
+  source_url?: string | null;
+  doi?: string | null;
+  page_start?: number | null;
+  page_end?: number | null;
+  passage: string;
+};
+
+export type ScientificRagAskResponse = {
+  mode: string;
+  answer: string;
+  evidence: ScientificRagEvidence[];
+  evidence_block?: string;
+};
+
+export const getScientificRagStatus = () =>
+  get<ScientificRagStatus>("/scientific-rag/status", { _ts: Date.now() });
+
+export const getScientificRagDocuments = (limit = 100) =>
+  get<{ documents: ScientificRagDocument[] }>("/scientific-rag/documents", { limit, _ts: Date.now() });
+
+export async function syncScientificRag(maxFiles = 3, adminKey?: string) {
+  const res = await fetchWithTimeout(apiUrl("/scientific-rag/sync"), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(KEY ? { "X-API-Key": KEY } : {}),
+      ...(adminKey ? { "X-Scientific-Rag-Admin-Key": adminKey } : {}),
+    },
+    body: JSON.stringify({ max_files: maxFiles }),
+  });
+  if (!res.ok) throw new Error(`API POST /scientific-rag/sync → ${res.status}`);
+  return res.json() as Promise<{ ok: boolean; message?: string; indexed?: number; failed?: number }>;
+}
+
+export const askScientificRag = (question: string, includeLiveContext = true) =>
+  post<ScientificRagAskResponse>("/scientific-rag/ask", {
+    question,
+    include_live_context: includeLiveContext,
+  });
 export const getEkfStatus = () =>
   get<EkfStatus>("/space-weather/ekf", { _ts: Date.now() }, EKF_FAST_TIMEOUT_MS);
 /** Retried EKF fetch — use on manual refresh only; avoid blocking the 60s poll. */

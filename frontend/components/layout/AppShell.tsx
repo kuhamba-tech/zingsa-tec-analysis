@@ -72,6 +72,7 @@ const NAV_GROUPS: { section: string; items: NavItem[] }[] = [
     items: [
       { href: "/reports/?period=daily", label: "Space Weather Reports", icon: "📅", matchQuery: "period=" },
       { href: "/reports/?type=uptime&range=1w", label: "Station Uptime", icon: "📶", matchQuery: "type=uptime" },
+      { href: "/scientific-library/", label: "Scientific Library", icon: "📖" },
     ],
   },
   {

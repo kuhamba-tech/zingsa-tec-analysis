@@ -14,6 +14,7 @@ const GROUP_ROUTERS: [prefix: string, router: string][] = [
   ["/forecast/", "/core-router/"],
   ["/reports/", "/core-router/"],
   ["/chat", "/core-router/"],
+  ["/scientific-rag/", "/core-router/"],
   ["/theory/", "/core-router/"],
   ["/gic/", "/core-router/"],
   ["/cosmic2/", "/core-router/"],

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import styles from "./SpaceWeatherReportsPanel.module.css";
 import LineChart from "@/components/charts/LineChart";
+import ScientificKnowledgeAssistant from "@/components/dashboard/ScientificKnowledgeAssistant";
 import { getSpaceWeatherReport } from "@/lib/api";
 import { downloadSpaceWeatherReportPdf } from "@/lib/reportPdf";
 import { conditionsForSeries } from "@/lib/spaceWeatherMetrics";
@@ -110,12 +111,13 @@ export default function SpaceWeatherReportsPanel({
   const [report, setReport] = useState<SpaceWeatherReport | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [literature, setLiterature] = useState(false);
 
-  const load = useCallback(async (p: SpaceWeatherReportPeriod) => {
+  const load = useCallback(async (p: SpaceWeatherReportPeriod, withLiterature = literature) => {
     setBusy(true);
     setError(null);
     try {
-      const data = await getSpaceWeatherReport(p);
+      const data = await getSpaceWeatherReport(p, { literature: withLiterature });
       setReport(data);
     } catch (loadError) {
       const detail = loadError instanceof Error ? loadError.message : "Unknown report error";
@@ -136,15 +138,15 @@ export default function SpaceWeatherReportsPanel({
     } finally {
       setBusy(false);
     }
-  }, []);
+  }, [literature]);
 
   useEffect(() => {
     setPeriod(initialPeriod);
   }, [initialPeriod]);
 
   useEffect(() => {
-    load(period);
-  }, [load, period]);
+    void load(period, literature);
+  }, [load, period, literature]);
 
   const periodLabel = PERIODS.find((p) => p.id === period)?.label ?? "Report";
 
@@ -289,7 +291,18 @@ export default function SpaceWeatherReportsPanel({
             </label>
           </>
         )}
-        <button type="button" className="btn sw-report-generate-btn" onClick={() => load(period)} disabled={busy}>
+        <label className="sw-report-control-label" style={{ minWidth: "12rem" }}>
+          Scientific literature
+          <span style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem", textTransform: "none", letterSpacing: "normal", fontWeight: 600 }}>
+            <input
+              type="checkbox"
+              checked={literature}
+              onChange={(e) => setLiterature(e.target.checked)}
+            />
+            Enhance with Drive RAG
+          </span>
+        </label>
+        <button type="button" className="btn sw-report-generate-btn" onClick={() => void load(period, literature)} disabled={busy}>
           {busy ? "Generating…" : "✦ Generate Report"}
         </button>
       </div>
@@ -415,6 +428,8 @@ export default function SpaceWeatherReportsPanel({
           )}
         </>
       )}
+
+      <ScientificKnowledgeAssistant />
     </div>
   );
 }

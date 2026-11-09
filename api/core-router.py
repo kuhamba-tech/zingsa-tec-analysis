@@ -2,8 +2,8 @@
 
 These endpoints cannot rely on a dynamic catch-all route in this static-export
 deployment. The frontend sends their real backend path in ``__zr`` so this
-single named function can serve live, forecast, reports, chat, theory, GIC,
-and COSMIC-2 routes while staying below Vercel's function-count limit.
+single named function can serve live, forecast, reports, chat, scientific-rag,
+theory, GIC, and COSMIC-2 routes while staying below Vercel's function-count limit.
 """
 from __future__ import annotations
 
