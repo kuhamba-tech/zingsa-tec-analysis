@@ -1,100 +1,61 @@
-"""Parsers for GIC field data files.
-
-Supported formats:
-- Campbell Scientific CR1000 TOA5 files (the datalogger used at the
-  ZINGSA/ZETDC monitoring stations),
-- generic CSV with a timestamp column and a GIC current column.
-
-Only rows with a parseable timestamp and numeric current value are kept.
-"""
+"""Strict TOA5/CSV parser preserving original field metadata and polarity."""
 from __future__ import annotations
-
 import csv
 import io
+import math
 from typing import Any
+from zgiis.gic.quality import canonical_record
 
-import pandas as pd
-
-_TIME_ALIASES = ("timestamp", "time", "datetime", "date_time", "ts", "date")
-_GIC_ALIASES = ("gic_a", "gic", "gic_amps", "current_a", "current", "neutral_current", "amps", "dc_current")
-_TEMP_ALIASES = ("temp_c", "temperature", "temp", "ptemp_c", "panel_temp")
+_TIME = ("timestamp", "time", "datetime", "date_time", "ts")
+_GIC = ("gic_a", "gic_avg", "gic_amps", "gic_amps_avg", "current_a", "neutral_current", "gic")
 
 
-def _find_column(columns: list[str], aliases: tuple[str, ...]) -> str | None:
-    lowered = {c.lower().strip(): c for c in columns}
-    for alias in aliases:
-        if alias in lowered:
-            return lowered[alias]
-    # Substring match as a fallback (e.g. "GIC_Avg", "GIC_Amps_Avg").
-    for key, original in lowered.items():
-        if any(alias in key for alias in aliases):
-            return original
-    return None
-
-
-def parse_gic_file(content: bytes, filename: str, station_id: str) -> list[dict[str, Any]]:
-    """Parse a TOA5 or CSV file into gic_log rows. Raises ValueError if unusable."""
-    text = content.decode("utf-8", errors="replace")
-    if not text.strip():
-        raise ValueError("File is empty.")
-
-    first_line = text.splitlines()[0]
-    if first_line.startswith('"TOA5"') or first_line.startswith("TOA5"):
-        return _parse_toa5(text, station_id, filename)
-    return _parse_csv(text, station_id, filename)
-
-
-def _parse_toa5(text: str, station_id: str, filename: str) -> list[dict[str, Any]]:
-    """Campbell TOA5: 4 header lines (env, field names, units, aggregation)."""
-    lines = text.splitlines()
-    if len(lines) < 5:
-        raise ValueError("TOA5 file has no data rows.")
-    header = next(csv.reader([lines[1]]))
-    data_text = "\n".join(lines[4:])
-    df = pd.read_csv(io.StringIO(data_text), names=header, na_values=["NAN", '"NAN"'])
-    return _rows_from_dataframe(df, station_id, f"upload:{filename}")
-
-
-def _parse_csv(text: str, station_id: str, filename: str) -> list[dict[str, Any]]:
-    df = pd.read_csv(io.StringIO(text))
-    return _rows_from_dataframe(df, station_id, f"upload:{filename}")
-
-
-def _rows_from_dataframe(df: pd.DataFrame, station_id: str, source: str) -> list[dict[str, Any]]:
-    columns = [str(c) for c in df.columns]
-    time_col = _find_column(columns, _TIME_ALIASES)
-    gic_col = _find_column(columns, _GIC_ALIASES)
-    temp_col = _find_column(columns, _TEMP_ALIASES)
-
-    if not time_col or not gic_col:
-        raise ValueError(
-            "Could not find timestamp and GIC current columns. "
-            f"Found columns: {', '.join(columns)}. Expected e.g. TIMESTAMP + GIC_A."
-        )
-
-    times = pd.to_datetime(df[time_col], utc=True, errors="coerce")
-    currents = pd.to_numeric(df[gic_col], errors="coerce")
-    temps = pd.to_numeric(df[temp_col], errors="coerce") if temp_col else None
-
-    rows: list[dict[str, Any]] = []
-    for i in range(len(df)):
-        t = times.iloc[i]
-        v = currents.iloc[i]
-        if pd.isna(t) or pd.isna(v):
+def parse_gic_file(content: bytes, filename: str, station_id: str, *, logger_timezone: str | None = None,
+                   units: str | None = None, calibration_id: str | None = None) -> list[dict[str, Any]]:
+    text = content.decode("utf-8-sig", errors="strict")
+    lines = list(csv.reader(io.StringIO(text)))
+    if not lines:
+        raise ValueError("File is empty")
+    toa5 = bool(lines[0] and lines[0][0] == "TOA5")
+    if toa5 and len(lines) < 5:
+        raise ValueError("TOA5 file has no measurements")
+    header = [h.strip() for h in lines[1 if toa5 else 0]]
+    lowered = {h.lower(): h for h in header}
+    def column(aliases):
+        return next((lowered[key] for key in aliases if key in lowered), None)
+    time_key, current_key = column(_TIME), column(_GIC)
+    if not time_key or not current_key:
+        raise ValueError("Explicit TIMESTAMP and GIC_A (or GIC_Avg) columns are required")
+    file_units = lines[2][header.index(current_key)].strip() if toa5 else None
+    declared_units = file_units or units or ("A" if current_key.lower() in {"gic_a", "gic_amps", "gic_amps_avg", "current_a"} else None)
+    if declared_units not in {"A", "Amps", "amps", "amperes"}:
+        raise ValueError("Current units must explicitly be amperes; supply calibrated GIC, not sensor voltage")
+    if units and file_units and units != file_units:
+        raise ValueError("Declared units conflict with TOA5 units")
+    result = []
+    for number, cells in enumerate(lines[4 if toa5 else 1:], start=5 if toa5 else 2):
+        if not cells or not any(cells):
             continue
-        temp_v = None
-        if temps is not None and not pd.isna(temps.iloc[i]):
-            temp_v = round(float(temps.iloc[i]), 2)
-        rows.append(
-            {
-                "time": t.isoformat(),
-                "station_id": station_id.upper(),
-                "gic_a": round(float(v), 4),
-                "temp_c": temp_v,
-                "source": source,
-            }
-        )
-
-    if not rows:
-        raise ValueError("No valid measurement rows found in the file.")
-    return rows
+        if len(cells) != len(header):
+            raise ValueError(f"Row {number}: column count differs from header")
+        raw = dict(zip(header, cells))
+        try:
+            flags_key = column(("quality_flags", "quality", "qc"))
+            flags = [v.strip() for v in raw.get(flags_key, "").split(";") if v.strip() and v.strip().lower() not in {"good", "valid", "0"}]
+            record = {"time": raw[time_key], "station_id": station_id,
+                      "gic_a": float(raw[current_key]), "units": "A", "source": f"upload:{filename}",
+                      "logger_timezone": logger_timezone, "calibration_id": calibration_id,
+                      "quality_flags": flags, "raw_fields": raw,
+                      "toa5_headers": lines[:4] if toa5 else None}
+            for target, aliases in {"temp_c": ("temp_c", "ptemp_c", "temperature"),
+                                    "bx_nt": ("bx_nt",), "by_nt": ("by_nt",), "bz_nt": ("bz_nt",),
+                                    "clock_offset_seconds": ("clock_offset_seconds",)}.items():
+                field = column(aliases)
+                if field and raw[field].strip():
+                    record[target] = float(raw[field])
+            result.append(canonical_record(record))
+        except (ValueError, TypeError, KeyError) as exc:
+            raise ValueError(f"Row {number}: {exc}") from exc
+    if not result:
+        raise ValueError("No field measurements in file")
+    return sorted(result, key=lambda row: row["time"])

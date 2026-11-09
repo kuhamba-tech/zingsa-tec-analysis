@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { getSolarBrief, type SolarBriefResponse } from "@/lib/api";
 import type { SolarActivityFull, SpaceWeatherCurrent } from "@/lib/types";
-import SwSectionBanner from "./SwSectionBanner";
 import {
   buildZimbabweIndexAlerts,
   densityWords,
@@ -12,11 +11,23 @@ import {
   kpWords,
   orientationWords,
   windWords,
+  type ZimbabweAlertSeverity,
 } from "@/lib/zimbabweIndexAlerts";
+import {
+  dstColor,
+  flareProbabilityColor,
+  imfBtColor,
+  imfBzColor,
+  noaaGScaleFromKp,
+  s4Color,
+  solarWindColor,
+  solarWindDensityColor,
+  vtecColor,
+} from "@/lib/spaceWeatherMetrics";
 import styles from "./ZimbabweIndexAlerts.module.css";
 
 function numberText(value: number | null | undefined, digits: number, suffix: string): string {
-  if (value == null || !Number.isFinite(value)) return "not available";
+  if (value == null || !Number.isFinite(value)) return "Unavailable";
   const number = value.toFixed(digits);
   return suffix ? `${number} ${suffix}` : number;
 }
@@ -24,22 +35,34 @@ function numberText(value: number | null | undefined, digits: number, suffix: st
 function forecastSentence(brief: SolarBriefResponse): string {
   const parts: string[] = [];
   if (brief.earth_directed_cme === false) {
-    parts.push("NOAA's coronagraph check shows no Earth-directed coronal mass ejection.");
+    parts.push("No Earth-directed coronal mass ejection is reported in the current coronagraph assessment.");
   } else if (brief.earth_directed_cme === true) {
-    parts.push("NOAA reports an Earth-directed coronal mass ejection.");
+    parts.push("An Earth-directed coronal mass ejection is reported.");
   }
   if (brief.coronal_hole_stream) {
     const polarity = brief.stream_polarity ? `${brief.stream_polarity}-polarity ` : "";
-    const window = brief.storm_window ? ` The stated arrival window is ${brief.storm_window}.` : "";
+    const window = brief.storm_window ? ` Arrival window: ${brief.storm_window}.` : "";
     parts.push(`A ${polarity}coronal-hole high-speed stream is in the forecast.${window}`);
   }
   if (brief.expected_kp != null) {
     const scale = brief.expected_kp_scale ? ` (${brief.expected_kp_scale})` : "";
     const window = brief.expected_kp_window ? ` for ${brief.expected_kp_window}` : "";
-    parts.push(`The greatest expected 3-hour Kp${window} is ${brief.expected_kp}${scale}.`);
+    parts.push(`Greatest expected 3-hour Kp${window}: ${brief.expected_kp}${scale}.`);
   }
-  parts.push("Over Zimbabwe that arrival is checked on TEC and S4 from the CORS network.");
+  parts.push("Zimbabwe impact is confirmed only when measured CORS TEC or S4 changes.");
   return parts.join(" ");
+}
+
+function severityClass(severity: ZimbabweAlertSeverity): string {
+  if (severity === "Severe") return styles.alertSevere;
+  if (severity === "High") return styles.alertHigh;
+  return styles.alertModerate;
+}
+
+function severityTextClass(severity: ZimbabweAlertSeverity): string {
+  if (severity === "Severe") return styles.severitySevere;
+  if (severity === "High") return styles.severityHigh;
+  return styles.severityModerate;
 }
 
 export default function ZimbabweIndexAlerts({
@@ -93,77 +116,136 @@ export default function ZimbabweIndexAlerts({
 
   return (
     <section className={`card ${styles.panel}`} aria-labelledby="zimbabwe-index-alerts-title">
-      <SwSectionBanner
-        icon="🇿🇼"
-        title="Zimbabwe index alerts"
-        titleId="zimbabwe-index-alerts-title"
-        tone={alerts.length ? "warn" : sw ? "ok" : "off"}
-        meta={<span>{alerts.length ? `${alerts.length} past a limit` : "No limit crossed"}</span>}
-      />
-      <p className={styles.note}>
-        These codes belong to this dashboard. A code is issued only when a measured index passes the
-        limit already used here. The value, what it means, the retrieval time, and the validity time
-        are on each alert. NOAA bulletins stay in the list below and keep the bureau codes.
-      </p>
+      <header className={styles.header}>
+        <div className={styles.brand}>
+          <div className={styles.mark} aria-hidden>
+            ZW
+          </div>
+          <div className={styles.titleBlock}>
+            <h2 id="zimbabwe-index-alerts-title">Zimbabwe Index Alerts</h2>
+            <p>
+              ZINGSA national operating thresholds. Codes are issued only when a measured index
+              crosses its configured limit, with value, interpretation, and validity shown below.
+            </p>
+          </div>
+        </div>
+        <div className={`${styles.statusChip} ${alerts.length ? styles.statusChipWarn : ""}`}>
+          <span className={styles.statusDot} aria-hidden />
+          {alerts.length ? `${alerts.length} past limit` : "Within limits"}
+        </div>
+      </header>
 
-      <div>
-        <h3 className={styles.heading}>Geomagnetics{retrieved ? ` as of ${retrieved}` : ""}</h3>
+      <div className={styles.section}>
+        <h3 className={styles.heading}>
+          Geomagnetic conditions
+          {retrieved ? <span className={styles.headingMeta}> · {retrieved}</span> : null}
+        </h3>
         <div className={styles.facts}>
-          <Fact label="Kp" value={sw?.kp == null ? "not available" : `${sw.kp.toFixed(1)}: ${kpWords(sw.kp)}`} />
-          <Fact label="Solar wind speed" value={speed == null || speed <= 0 ? "not available" : `${speed.toFixed(0)} km/s: ${windWords(speed)}`} />
-          <Fact label="Solar wind density" value={density == null || density <= 0 ? "not available" : `${density.toFixed(1)} /cm³: ${densityWords(density)}`} />
-          <Fact label="IMF strength" value={bt == null || bt <= 0 ? "not available" : `${bt.toFixed(1)} nT: ${fieldWords(bt)}`} />
-          <Fact label="IMF orientation" value={bz == null ? "not available" : `${orientationWords(bz)} (${bz.toFixed(1)} nT)`} />
-          <Fact label="Dst" value={numberText(sw?.dst, 0, "nT")} />
-          <Fact label="Zimbabwe TEC" value={numberText(sw?.mean_vtec, 1, "TECU")} />
-          <Fact label="S4" value={numberText(sw?.s4, 2, "")} />
+          <Fact
+            label="Kp"
+            value={sw?.kp == null ? "Unavailable" : `${sw.kp.toFixed(1)} · ${kpWords(sw.kp)}`}
+            valueColor={sw?.kp == null ? undefined : noaaGScaleFromKp(sw.kp).color}
+          />
+          <Fact
+            label="Solar wind speed"
+            value={speed == null || speed <= 0 ? "Unavailable" : `${speed.toFixed(0)} km/s · ${windWords(speed)}`}
+            valueColor={speed == null || speed <= 0 ? undefined : solarWindColor(speed)}
+          />
+          <Fact
+            label="Solar wind density"
+            value={density == null || density <= 0 ? "Unavailable" : `${density.toFixed(1)} /cm³ · ${densityWords(density)}`}
+            valueColor={density == null || density <= 0 ? undefined : solarWindDensityColor(density)}
+          />
+          <Fact
+            label="IMF strength"
+            value={bt == null || bt <= 0 ? "Unavailable" : `${bt.toFixed(1)} nT · ${fieldWords(bt)}`}
+            valueColor={bt == null || bt <= 0 ? undefined : imfBtColor(bt)}
+          />
+          <Fact
+            label="IMF orientation"
+            value={bz == null ? "Unavailable" : `${orientationWords(bz)} · ${bz.toFixed(1)} nT`}
+            valueColor={bz == null ? undefined : imfBzColor(bz)}
+          />
+          <Fact
+            label="Dst"
+            value={numberText(sw?.dst, 0, "nT")}
+            valueColor={sw?.dst == null ? undefined : dstColor(sw.dst)}
+          />
+          <Fact
+            label="Zimbabwe TEC"
+            value={numberText(sw?.mean_vtec, 1, "TECU")}
+            valueColor={sw?.mean_vtec == null ? undefined : vtecColor(sw.mean_vtec)}
+          />
+          <Fact
+            label="S4"
+            value={numberText(sw?.s4, 2, "")}
+            valueColor={sw?.s4 == null ? undefined : s4Color(sw.s4)}
+          />
         </div>
       </div>
 
-      <div>
-        <h3 className={styles.heading}>Solar activity (UTC)</h3>
-        <p>
+      <div className={styles.section}>
+        <h3 className={styles.heading}>Solar activity</h3>
+        <p className={styles.copy}>
           {regionCount == null
             ? briefFailed
-              ? "The NOAA region summary could not be read."
-              : "Waiting for the NOAA region summary."
-            : `There ${regionCount === 1 ? "is" : "are"} ${regionCount} sunspot region${regionCount === 1 ? "" : "s"} on the Earth-facing side.`}
-          {brief?.sunspot_number != null ? ` The sunspot number from those centers is ${brief.sunspot_number}.` : ""}
+              ? "Earth-facing sunspot summary is unavailable."
+              : "Loading Earth-facing sunspot summary…"
+            : `${regionCount} Earth-facing sunspot region${regionCount === 1 ? "" : "s"}${
+                brief?.sunspot_number != null ? ` · sunspot number ${brief.sunspot_number}` : ""
+              }.`}
         </p>
         <h3 className={styles.heading}>Flaring probabilities</h3>
-        <div className={styles.facts}>
-          <Fact label="C-flaring" value={brief?.c_percent == null ? "—" : `${brief.c_percent}%`} />
-          <Fact label="M-flaring" value={brief?.m_percent == null ? "—" : `${brief.m_percent}%`} />
-          <Fact label="X-flaring" value={brief?.x_percent == null ? "—" : `${brief.x_percent}%`} />
+        <div className={styles.flareRow}>
+          <Fact
+            label="C-class"
+            value={brief?.c_percent == null ? "—" : `${brief.c_percent}%`}
+            valueColor={flareProbabilityColor("C", brief?.c_percent ?? null)}
+          />
+          <Fact
+            label="M-class"
+            value={brief?.m_percent == null ? "—" : `${brief.m_percent}%`}
+            valueColor={flareProbabilityColor("M", brief?.m_percent ?? null)}
+          />
+          <Fact
+            label="X-class"
+            value={brief?.x_percent == null ? "—" : `${brief.x_percent}%`}
+            valueColor={flareProbabilityColor("X", brief?.x_percent ?? null)}
+          />
         </div>
-        <h3 className={styles.heading}>Solar flaring</h3>
-        <p>
+        <h3 className={styles.heading}>Observed flares</h3>
+        <p className={styles.copy}>
           {brief?.flares_today
-            ? `Today so far: ${brief.flares_today.label}. Yesterday: ${brief.flares_yesterday?.label ?? "—"}. These are GOES flares of class C or higher.`
-            : "The GOES flare list for today and yesterday is not available."}
+            ? `Today: ${brief.flares_today.label}. Yesterday: ${brief.flares_yesterday?.label ?? "—"}. GOES soft X-ray flares, class C and above.`
+            : "GOES flare summary for today and yesterday is unavailable."}
         </p>
-        <h3 className={styles.heading}>Forecast</h3>
-        <p>{brief ? forecastSentence(brief) : "Waiting for the NOAA forecast."}</p>
+        <h3 className={styles.heading}>Outlook</h3>
+        <p className={styles.copy}>{brief ? forecastSentence(brief) : "Solar outlook is loading…"}</p>
       </div>
 
-      <div>
-        <h3 className={styles.heading}>Codes past a limit</h3>
+      <div className={styles.section}>
+        <h3 className={styles.heading}>Active codes</h3>
         {alerts.length === 0 ? (
-          <p>No measured index is past its limit at this retrieval.</p>
+          <p className={styles.empty}>All monitored indices are within ZINGSA operating limits.</p>
         ) : (
           <ul className={styles.list}>
             {alerts.map((alert) => (
-              <li key={alert.code} className={styles.alert}>
+              <li key={alert.code} className={`${styles.alert} ${severityClass(alert.severity)}`}>
                 <div className={styles.codeRow}>
-                  <strong>{alert.code}</strong>
-                  <span>{alert.name}</span>
-                  <span className={styles.severity}>{alert.severity}</span>
+                  <span className={styles.code}>{alert.code}</span>
+                  <span className={styles.name}>{alert.name}</span>
+                  <span className={`${styles.severity} ${severityTextClass(alert.severity)}`}>{alert.severity}</span>
                 </div>
-                <p><strong>Value:</strong> {alert.valueText}. <strong>Limit:</strong> {alert.limitText}</p>
-                <p>{alert.meaning} {alert.explanation}</p>
-                <p>
-                  Retrieved {alert.retrievedAt}. Valid from {alert.validFrom} to {alert.validTo}.
-                  {alert.expired ? " This copy is past that validity; it remains the latest sample held." : ""}
+                <div className={styles.metrics}>
+                  <span><strong>Value</strong>{alert.valueText}</span>
+                  <span><strong>Limit</strong>{alert.limitText}</span>
+                </div>
+                <p className={styles.body}>
+                  {alert.meaning} {alert.explanation}
+                </p>
+                <p className={styles.validity}>
+                  Retrieved {alert.retrievedAt}. Valid {alert.validFrom} – {alert.validTo}.
+                  {alert.expired ? " Sample is outside its validity window; latest available reading retained." : ""}
                 </p>
               </li>
             ))}
@@ -174,11 +256,30 @@ export default function ZimbabweIndexAlerts({
   );
 }
 
-function Fact({ label, value }: { label: string; value: string }) {
+function Fact({
+  label,
+  value,
+  valueColor,
+}: {
+  label: string;
+  value: string;
+  valueColor?: string;
+}) {
+  const elevated = Boolean(valueColor && valueColor !== "#94a3b8" && valueColor !== "#ffffff");
   return (
-    <div className={styles.fact}>
+    <div
+      className={`${styles.fact}${elevated ? ` ${styles.factTinted}` : ""}`}
+      style={
+        valueColor
+          ? ({
+              ["--fact-accent" as string]: valueColor,
+              borderColor: `${valueColor}55`,
+            } as CSSProperties)
+          : undefined
+      }
+    >
       <span>{label}</span>
-      <strong>{value}</strong>
+      <strong style={valueColor ? { color: valueColor } : undefined}>{value}</strong>
     </div>
   );
 }

@@ -104,3 +104,40 @@ def test_enrich_anomaly_days_includes_dst():
     geo = {"2024-04-04": {"date": "2024-04-04", "kp": 6.0, "dst": -85.0}}
     days = enrich_anomaly_days(daily, kp, threshold_pct=50, geomagnetic=geo)
     assert days[0]["dst"] == -85.0
+    assert days[0]["geomagnetic_coincidence"] is True
+
+
+def test_enrich_anomaly_days_flags_negative_percentile_depletion():
+    daily = pd.DataFrame(
+        {
+            "date": pd.to_datetime(
+                ["2024-04-01", "2024-04-02", "2024-04-03", "2024-04-04", "2024-04-05"]
+            ),
+            "mean_vtec": [20.0, 21.0, 19.5, 20.5, 5.0],
+            "max_vtec": [22.0, 23.0, 21.0, 22.0, 7.0],
+            "min_vtec": [18.0, 19.0, 18.0, 19.0, 3.0],
+            "samples": [24, 24, 24, 24, 24],
+        }
+    )
+    days = enrich_anomaly_days(daily, pd.DataFrame(columns=["date", "kp_index"]), threshold_pct=80)
+    by_date = {d["date"]: d for d in days}
+    assert by_date["2024-04-05"]["anomaly"] is True
+    assert by_date["2024-04-05"]["negative_anomaly"] is True
+    assert by_date["2024-04-05"]["anomaly_polarity"] in {"negative", "mixed"}
+
+
+def test_build_anomaly_analysis_reports_roti_unavailable():
+    from zgiis.processing.anomaly_analysis import build_anomaly_analysis
+
+    df = pd.DataFrame(
+        {
+            "timestamp": pd.to_datetime(["2024-04-01 10:00", "2024-04-02 10:00"]),
+            "vtec": [10.0, 12.0],
+            "station": ["hara", "hara"],
+        }
+    )
+    payload = build_anomaly_analysis(df, threshold_pct=95, archive_meta={"source": "fixture", "available": True})
+    assert payload["roti"]["available"] is False
+    assert "satellite-specific" in payload["roti"]["reason"]
+    assert payload["archive"]["available"] is True
+    assert "not proof" in payload["method"]["geomagnetic_note"].lower()

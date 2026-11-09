@@ -38,6 +38,7 @@ import {
   isDocumentVisible,
   scheduleSecondary,
 } from "@/lib/loadBudget";
+import HomeAlertSummary from "@/components/layout/HomeAlertSummary";
 import HomeStormAlertBanner from "@/components/layout/HomeStormAlertBanner";
 import DeferredMount from "@/components/spaceWeather/DeferredMount";
 import HomeTimelinesGate from "@/components/spaceWeather/HomeTimelinesGate";
@@ -60,6 +61,7 @@ const MODULES = [
   { href: "/prn-explorer",      icon: "🛰️",  title: "PRN Explorer",      desc: "Per-satellite TEC analysis" },
   { href: "/tec-heatmap",       icon: "🗺️",  title: "TEC Heatmap",       desc: "Interpolated VTEC grid over Zimbabwe" },
   { href: "/anomaly-detection", icon: "🔬",  title: "Anomaly Detection", desc: "Storm correlation and anomaly flagging" },
+  { href: "/day-night-tec", icon: "🌓", title: "Day–Night TEC", desc: "Measured 24-hour, day, night and regional TEC" },
   { href: "/ai-assistant",      icon: "🤖",  title: "AI Assistant",      desc: "Ask questions about TEC and ionosphere" },
 ];
 
@@ -508,6 +510,7 @@ export default function HomeClient({ initialSw = null }: HomeClientProps) {
         </div>
       </div>
 
+      <HomeAlertSummary />
       <HomeStormAlertBanner sw={liveSw} />
 
       <div className="home-sw-row">

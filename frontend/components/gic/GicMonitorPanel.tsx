@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import MetricCard from "@/components/cards/MetricCard";
 import LineChart from "@/components/charts/LineChart";
+import GicSciencePanel from "./GicSciencePanel";
 import GicLiveDashboard from "./GicLiveDashboard";
 import GicNetworkMap from "./GicNetworkMap";
 import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
@@ -70,6 +71,8 @@ export default function GicMonitorPanel() {
   const [uploadMsg, setUploadMsg] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  const [uploadTimezone, setUploadTimezone] = useState("");
+  const [uploadCalibration, setUploadCalibration] = useState("");
   const [reportPeriod, setReportPeriod] = useState<GicReportPeriod>("daily");
   const [report, setReport] = useState<GicReport | null>(null);
   const [reportBusy, setReportBusy] = useState(false);
@@ -88,7 +91,7 @@ export default function GicMonitorPanel() {
         return (withData ?? st.stations[0])?.station_id ?? prev;
       });
     }
-    setApiConnected(Boolean(net || st));
+    setApiConnected(Boolean(st));
   }, []);
 
   useEffect(() => {
@@ -196,7 +199,7 @@ export default function GicMonitorPanel() {
     setUploadBusy(true);
     setUploadMsg(null);
     try {
-      const res = await uploadGicFile(file, uploadStation);
+      const res = await uploadGicFile(file, uploadStation, uploadTimezone || undefined, uploadCalibration || undefined);
       setUploadMsg(
         `✓ ${res.filename}: ${res.parsed} rows parsed, ${res.inserted} new rows stored for ${res.station_id} (${res.from.slice(0, 16)} → ${res.to.slice(0, 16)}).`,
       );
@@ -244,8 +247,7 @@ export default function GicMonitorPanel() {
       <div className="operations-chart-title">GIC Report Generator</div>
       <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "0.7rem" }}>
         Generate hourly, daily, weekly, monthly, or yearly reports for the selected monitoring station.
-        Each report includes peak/mean GIC statistics, risk-band occupancy, large-GIC events (≥ 10 A),
-        plain-language interpretation, and Kp/Dst correlation — computed from stored field data only.
+        Reports use raw stored observations for signed peaks, provisional category occupancy, event intervals and coverage. Gaps, quality flags and missing cadence limit interpretation; current excursions alone do not establish a storm cause.
       </p>
       <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap", alignItems: "center", marginBottom: "0.85rem" }}>
         <label style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>Station</label>
@@ -314,9 +316,9 @@ export default function GicMonitorPanel() {
               <MetricCard label="Mean GIC" value={report.statistics.mean_a} unit="A" sub={`σ = ${report.statistics.std_a} A`} />
               <MetricCard label="95th pct |GIC|" value={report.statistics.p95_abs_a} unit="A" sub="magnitude percentile" />
               <MetricCard
-                label="Large-GIC events"
+                label="Monitoring excursions"
                 value={report.events.length}
-                sub="|GIC| ≥ 10 A episodes"
+                sub={`|GIC| >= ${report.event_threshold_a ?? 10} A; gaps excluded`}
                 variant={report.events.length > 0 ? "warn" : "ok"}
               />
             </div>
@@ -326,7 +328,7 @@ export default function GicMonitorPanel() {
 
           {report.band_minutes.length > 0 && report.sample_count > 0 && (
             <div>
-              <div className="operations-chart-title" style={{ marginBottom: "0.4rem" }}>Risk-Band Occupancy</div>
+              <div className="operations-chart-title" style={{ marginBottom: "0.4rem" }}>Monitoring Category Occupancy / observed intervals only</div>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.8rem" }}>
                 <thead>
                   <tr style={{ borderBottom: "1px solid var(--border)" }}>
@@ -392,7 +394,7 @@ export default function GicMonitorPanel() {
     </div>
   );
 
-  const stationsWithData = status.stations.filter((s) => s.has_data).length;
+  const stationsWithData = status.stations.filter((s) => s.reporting === true).length;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.2rem" }}>
@@ -408,17 +410,19 @@ export default function GicMonitorPanel() {
         </div>
       )}
 
+      <GicSciencePanel stationId={stationId} hours={RANGES[rangeIdx].hours} refreshToken={series?.points.at(-1)?.t} />
+
       {/* ── KPI cards ── */}
       <div className="grid-4">
         <MetricCard
-          label="Monitoring Stations"
+          label="Registered Monitoring Sites"
           value={status.stations.length}
-          sub={`${stationsWithData} reporting field data`}
+          sub={apiConnected === true ? `${stationsWithData} recently reporting field stations` : "Reporting status unverified"}
           variant={stationsWithData > 0 ? "ok" : "warn"}
         />
         <MetricCard
           label="Stored Measurements"
-          value={status.total_records.toLocaleString()}
+          value={apiConnected === true ? status.total_records.toLocaleString() : null}
           sub="transformer-neutral samples"
         />
         <MetricCard
@@ -435,12 +439,12 @@ export default function GicMonitorPanel() {
           }
         />
         <MetricCard
-          label="EKF Deviation"
+          label="EKF / Research Only"
           value={series?.deviation?.available ? (series.deviation.ratio ?? 0).toFixed(2) : null}
           sub={
             series?.deviation?.available
               ? `severity: ${series.deviation.severity} (alert if ratio ≥ 1)`
-              : "needs more observed history"
+              : "operational prediction warnings disabled"
           }
           color={series?.deviation ? SEVERITY_COLOR[series.deviation.severity] : undefined}
         />
@@ -450,9 +454,7 @@ export default function GicMonitorPanel() {
       <div className="card card-accent">
         <div className="operations-chart-title">ZETDC Transmission Network &amp; GIC Sensors</div>
         <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "0.6rem" }}>
-          HV substations and 330/400 kV lines of the Zimbabwe grid. Circled substations host a
-          ZINGSA/ZETDC GIC monitoring station (clamp sensor on the transformer neutral). Click any
-          feature for details.
+          Schematic HV substations and 330/400 kV connections with registered Dema and Alaska sites. Coordinates are approximate and line routes are not surveyed. Authoritative ZETDC coordinate and topology approval is not recorded. Click features for existing metadata.
         </p>
         <GicNetworkMap
           network={network}
@@ -474,7 +476,7 @@ export default function GicMonitorPanel() {
 
       {/* ── Series controls + charts ── */}
       <div className="card card-accent">
-        <div className="operations-chart-title">GIC Time Series — Observed vs EKF Predicted</div>
+        <div className="operations-chart-title">GIC Time Series / measured current; prediction overlay withheld</div>
         <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap", alignItems: "center", margin: "0.5rem 0 0.9rem" }}>
           <label style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>Station</label>
           <select
@@ -529,17 +531,15 @@ export default function GicMonitorPanel() {
               ]}
               yLabel="GIC (A)"
               height={300}
-              threshold={{ value: 10, label: "Large GIC (10 A)" }}
-              thresholds={[
-                { value: 25, label: "Moderate (25 A)", color: "#ffcc00" },
-                { value: 50, label: "High (50 A)", color: "#ff7a00" },
-                { value: 75, label: "Extreme (75 A)", color: "#ff2e2e" },
-              ]}
+              thresholds={(series?.monitoring_bands ?? network.risk_bands).flatMap(band => band.min_abs_a > 0 ? [
+                { value: band.min_abs_a, label: `${band.level} / provisional or site policy`, color: band.color },
+                { value: -band.min_abs_a, label: `Negative ${band.level}`, color: band.color },
+              ] : [])}
             />
             {gicAnalysis && <ChartAnalysisBox block={gicAnalysis} />}
 
             <div className="operations-chart-title" style={{ marginTop: "1.1rem" }}>
-              Rate of Change (GIC analogue of dB/dt)
+              Current Rate of Change / dGIC/dt (not magnetic dB/dt)
             </div>
             <LineChart
               labels={chartData.labels}
@@ -585,11 +585,9 @@ export default function GicMonitorPanel() {
 
       {/* ── GIC EKF deviation alerts ── */}
       <div className="card card-accent">
-        <div className="operations-chart-title">GIC EKF Deviation Alerts</div>
+        <div className="operations-chart-title">Historical GIC EKF Residual Records / research only</div>
         <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "0.75rem" }}>
-          When measured GIC diverges from the filter forecast beyond mean + 3σ of recent errors, a residual
-          alert is logged for operator review. This is not a geomagnetic storm declaration — storm watches
-          still follow observed Kp / Dst.
+          Prediction-residual warnings are disabled pending independent validation. Existing records below are historical research flags, not operational warnings. Observed-current flags are shown separately above.
         </p>
         {gicAlerts.length === 0 ? (
           <p style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
@@ -664,17 +662,17 @@ export default function GicMonitorPanel() {
       {/* ── Risk bands reference ── */}
       {network && (
         <div className="card card-accent">
-          <div className="operations-chart-title">Interpreting GIC Magnitudes</div>
+          <div className="operations-chart-title">Provisional GIC Monitoring Categories</div>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.82rem" }}>
             <thead>
               <tr style={{ borderBottom: "1px solid var(--border)" }}>
                 <th style={{ textAlign: "left", padding: "0.35rem 0.5rem" }}>Band</th>
                 <th style={{ textAlign: "right", padding: "0.35rem 0.5rem" }}>|GIC| from</th>
-                <th style={{ textAlign: "left", padding: "0.35rem 0.5rem" }}>Engineering meaning</th>
+                <th style={{ textAlign: "left", padding: "0.35rem 0.5rem" }}>Monitoring interpretation</th>
               </tr>
             </thead>
             <tbody>
-              {network.risk_bands.map((b) => (
+              {(series?.monitoring_bands ?? network.risk_bands).map((b) => (
                 <tr key={b.level} style={{ borderBottom: "1px solid rgba(36,77,115,0.35)" }}>
                   <td style={{ padding: "0.35rem 0.5rem", color: b.color, fontWeight: 700 }}>{b.level}</td>
                   <td style={{ padding: "0.35rem 0.5rem", textAlign: "right" }}>{b.min_abs_a} A</td>
@@ -704,6 +702,8 @@ export default function GicMonitorPanel() {
                 <option key={s.station_id} value={s.station_id}>{s.station_id}</option>
               ))}
             </select>
+            <label>Logger timezone for timestamps without an offset<input className="form-input" value={uploadTimezone} onChange={e => setUploadTimezone(e.target.value)} placeholder="UTC or Africa/Harare; must match logger configuration" /></label>
+            <label>Sensor calibration reference<input className="form-input" value={uploadCalibration} onChange={e => setUploadCalibration(e.target.value)} placeholder="Calibration record identifier, if documented" /></label>
             <input ref={fileRef} type="file" accept=".dat,.csv,.txt" style={{ fontSize: "0.8rem" }} />
             <button type="button" className="btn btn-primary" onClick={handleUpload} disabled={uploadBusy} style={{ alignSelf: "flex-start" }}>
               {uploadBusy ? "Uploading…" : "Upload & Ingest"}

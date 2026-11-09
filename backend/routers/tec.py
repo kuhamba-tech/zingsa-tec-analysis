@@ -5,8 +5,6 @@ import logging
 import threading
 import time
 from datetime import date
-from functools import lru_cache
-
 import numpy as np
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -74,23 +72,44 @@ _DLR_PNG_CACHE: dict[str, object] = {}
 _DLR_PNG_CACHE_TTL_S = 300.0
 
 
-@lru_cache(maxsize=1)
-def _archive() -> pd.DataFrame:
+_ARCHIVE_CACHE: dict[str, object] = {"loaded_at": 0.0, "df": None, "meta": {}}
+_ARCHIVE_CACHE_TTL_S = 120.0
+
+
+def _archive_bundle() -> tuple[pd.DataFrame, dict]:
+    """Live ``vtec_obs`` first, packaged CMN CSV fallback. Empty results are not sticky."""
+    now = time.monotonic()
+    cached_df = _ARCHIVE_CACHE.get("df")
+    cached_meta = _ARCHIVE_CACHE.get("meta") or {}
+    loaded_at = float(_ARCHIVE_CACHE.get("loaded_at") or 0.0)
+    if (
+        isinstance(cached_df, pd.DataFrame)
+        and not cached_df.empty
+        and cached_meta.get("available")
+        and (now - loaded_at) < _ARCHIVE_CACHE_TTL_S
+    ):
+        return cached_df, dict(cached_meta)
     try:
-        from zgiis.data.tec_archive import load_historical_tec
-        df, _ = load_historical_tec()
-        return df
-    except Exception:
-        return pd.DataFrame()
+        from zgiis.data.tec_archive import load_anomaly_tec
+
+        df, meta = load_anomaly_tec()
+    except Exception as exc:
+        log.warning("anomaly TEC archive load failed: %s", exc)
+        df, meta = pd.DataFrame(), {"available": False, "error": str(exc), "source": "none"}
+    _ARCHIVE_CACHE["df"] = df
+    _ARCHIVE_CACHE["meta"] = meta
+    _ARCHIVE_CACHE["loaded_at"] = now
+    return df, meta
+
+
+def _archive() -> pd.DataFrame:
+    df, _ = _archive_bundle()
+    return df
 
 
 def _archive_meta() -> dict:
-    try:
-        from zgiis.data.tec_archive import load_historical_tec
-        _, meta = load_historical_tec()
-        return meta
-    except Exception:
-        return {}
+    _, meta = _archive_bundle()
+    return meta
 
 
 def _vtec_by_date(start: str, end: str, station: str | None) -> dict[str, float]:
@@ -459,7 +478,8 @@ async def anomalies(
 ):
     from zgiis.processing.anomaly_analysis import build_anomaly_analysis
 
-    payload = build_anomaly_analysis(_archive(), station=station, threshold_pct=threshold_pct)
+    df, meta = _archive_bundle()
+    payload = build_anomaly_analysis(df, station=station, threshold_pct=threshold_pct, archive_meta=meta)
     return [AnomalyDay(**day) for day in payload["days"]]
 
 
@@ -471,7 +491,8 @@ async def anomaly_analysis(
 ):
     from zgiis.processing.anomaly_analysis import build_anomaly_analysis
 
-    payload = build_anomaly_analysis(_archive(), station=station, threshold_pct=threshold_pct)
+    df, meta = _archive_bundle()
+    payload = build_anomaly_analysis(df, station=station, threshold_pct=threshold_pct, archive_meta=meta)
     return AnomalyAnalysisResponse(
         days=[AnomalyDay(**day) for day in payload["days"]],
         storm_comparison=[StormComparisonDoy(**row) for row in payload["storm_comparison"]],
@@ -483,6 +504,10 @@ async def anomaly_analysis(
         diurnal=[DiurnalPoint(**row) for row in payload["diurnal"]],
         seasonal=[SeasonalRow(**row) for row in payload["seasonal"]],
         solar_cycle=[SolarCycleRow(**row) for row in payload["solar_cycle"]],
+        archive=payload.get("archive") or meta,
+        completeness=payload.get("completeness"),
+        roti=payload.get("roti"),
+        method=payload.get("method"),
     )
 
 

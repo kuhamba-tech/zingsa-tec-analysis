@@ -12,8 +12,8 @@ export default function GicMonitorPage() {
           space-weather risk to transformers and ZPC generation assets.
         </p>
       </div>
-      <GicGuidePanel />
       <GicMonitorPanel />
+      <GicGuidePanel />
     </div>
   );
 }

@@ -336,6 +336,32 @@ class SpaceWeatherReportCharts(BaseModel):
     tec: list[float | None] = []
 
 
+class SpaceWeatherReportSection(BaseModel):
+    id: str
+    title: str
+    paragraphs: list[str] = []
+
+
+class SpaceWeatherReportReference(BaseModel):
+    title: str
+    url: str
+
+
+class SpaceWeatherReportDiurnalCard(BaseModel):
+    id: str
+    label: str
+    value: float | None = None
+    unit: str = "TECU"
+    status: str
+    status_label: str
+    value_color: str
+    expected_low: float
+    expected_high: float
+    sample_count: int = 0
+    hours_cat: list[int] = []
+    note: str = ""
+
+
 class SpaceWeatherReportResponse(BaseModel):
     period: str
     period_label: str
@@ -345,6 +371,9 @@ class SpaceWeatherReportResponse(BaseModel):
     sample_count: int = 0
     impact: dict[str, str]
     executive_summary: str
+    sections: list[SpaceWeatherReportSection] = []
+    diurnal_cards: list[SpaceWeatherReportDiurnalCard] = []
+    references: list[SpaceWeatherReportReference] = []
     parameters: list[SpaceWeatherReportParameter] = []
     gnss_stations: list[SpaceWeatherReportGnssStation] = []
     overall_availability_pct: float | None = None
@@ -409,6 +438,51 @@ class StormAlertStatus(BaseModel):
     ekf_alert_count: int = 0
     notification_channels: dict[str, bool] = {}
     dry_run: bool = True
+
+
+class EarlyWarningAlertOut(BaseModel):
+    alert_id: str
+    rule_id: str
+    authority: str
+    category: str
+    severity: str
+    status: str
+    title: str
+    message: str
+    observed_value: float | None = None
+    threshold: float | None = None
+    unit: str | None = None
+    duration_minutes: float | None = None
+    observation_time: str | None = None
+    data_age_minutes: float | None = None
+    source: str
+    first_detected: str
+    last_updated: str
+    resolved_at: str | None = None
+    related: dict = {}
+    acknowledged_status: bool = False
+
+
+class EarlyWarningSummaryOut(BaseModel):
+    highest_severity: str = "none"
+    active_count: int = 0
+    by_authority: dict[str, int] = {}
+    cooldown_minutes: int = 30
+    sustain_minutes: int = 10
+
+
+class EarlyWarningSnapshotOut(BaseModel):
+    summary: EarlyWarningSummaryOut
+    active: list[EarlyWarningAlertOut] = []
+    history: list[EarlyWarningAlertOut] = []
+    diagnostics: dict = {}
+    authority_legend: dict[str, str] = {}
+    notification_settings: dict = {
+        "dashboard": True,
+        "email": False,
+        "whatsapp": False,
+        "note": "Dashboard notifications are enabled. Email and messaging stay off until approved integrations are configured.",
+    }
 
 class StationOut(BaseModel):
     code: str
@@ -637,15 +711,23 @@ class AnomalyDay(BaseModel):
     anomaly: bool
     threshold: float
     max_vtec: float | None = None
+    min_vtec: float | None = None
+    low_threshold: float | None = None
+    anomaly_polarity: str | None = None
+    positive_anomaly: bool = False
+    negative_anomaly: bool = False
+    quiet_baseline_tecu: float | None = None
     tec_anomaly_flag: bool = False
     storm_flag: bool = False
     kp_storm_flag: bool = False
+    geomagnetic_coincidence: bool = False
     kp: float | None = None
     dst: float | None = None
     kp_severity: str | None = None
     tec_response: str | None = None
     tec_response_z: float | None = None
     tec_deviation_tecu: float | None = None
+    samples: int | None = None
 
 
 class StormComparisonDoy(BaseModel):
@@ -681,6 +763,10 @@ class AnomalyAnalysisResponse(BaseModel):
     diurnal: list["DiurnalPoint"] = []
     seasonal: list["SeasonalRow"] = []
     solar_cycle: list["SolarCycleRow"] = []
+    archive: dict | None = None
+    completeness: dict | None = None
+    roti: dict | None = None
+    method: dict | None = None
 
 
 class DiurnalPoint(BaseModel):

@@ -67,6 +67,8 @@ def main() -> int:
                     log.error("statement failed: %s", exc)
                     log.error("%s", stmt[:200])
                     return 1
+            for stmt in _statements((ROOT / "zgiis/db/gic_operations.sql").read_text(encoding="utf-8")):
+                cur.execute(stmt)
             # The backend connects as the table owner, which bypasses RLS. With
             # RLS on and no policies, the public anon key gets nothing via the
             # Supabase REST API.

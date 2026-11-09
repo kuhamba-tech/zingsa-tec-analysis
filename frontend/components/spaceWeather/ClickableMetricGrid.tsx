@@ -490,7 +490,7 @@ function ExplanationPanel({
             </li>
             <li>
               <Link href="/storm-watch/" className="link-inline">
-                Open Alerts for NOAA bulletins
+                Open Alerts Centre
               </Link>
             </li>
           </ul>

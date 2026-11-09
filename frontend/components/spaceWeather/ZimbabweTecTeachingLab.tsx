@@ -18,7 +18,7 @@ import { ELEVATION_MIN_DEG } from "@/lib/elevationMask";
 import { getTecMethodCmpParams } from "@/lib/tecMethodCompareParams";
 import { getLoadProfile } from "@/lib/loadBudget";
 import { isSurveyorGeneral } from "@/lib/liveStationStatus";
-import { formatKnmiUtcTick, sharedTimeDomain, utcTimeAxisProps } from "@/lib/chartTimeAxis";
+import { formatUtcAxisTick, formatUtcDayShort, sharedTimeDomain, utcTimeAxisProps } from "@/lib/chartTimeAxis";
 import type { ChartAnalysisBlock } from "@/lib/multiSourceChartAnalysis";
 import {
   flatLayerStec,
@@ -96,6 +96,80 @@ function utcDayLabel(dayStartMs: number): string {
   const d = new Date(dayStartMs);
   const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   return `${d.getUTCDate()} ${months[d.getUTCMonth()]} ${d.getUTCFullYear()} UTC`;
+}
+
+function formatDayChip(day: string, today: string): string {
+  if (day === today) return "Today";
+  const ms = Date.parse(`${day}T00:00:00Z`);
+  if (!Number.isFinite(ms)) return day;
+  return new Date(ms).toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    timeZone: "UTC",
+  });
+}
+
+/** Time on every 6-hour mark, with the UTC day underneath — same reading as the regional day chips. */
+function formatVtecUtcTick(ms: number): string {
+  const label = formatUtcAxisTick(ms, { majorHours: 6 });
+  if (!label) return "";
+  if (label.includes("\n")) return label;
+  return `${label}\n${formatUtcDayShort(ms)}`;
+}
+
+type PlottedStation = {
+  station: string;
+  color: string;
+  epochs: number[];
+  values: (number | null)[];
+  labels: string[];
+  latest: number | null;
+  mean: number | null;
+};
+
+function plotStationRows(rows: LiveStationVtecSeries[], utcDay: string | null): PlottedStation[] {
+  const start = utcDay ? Date.parse(`${utcDay}T00:00:00Z`) : null;
+  const end = start != null ? start + 24 * 3_600_000 : null;
+  return rows
+    .filter((row) => row.points?.length && !isSurveyorGeneral(row.station))
+    .map((row) => {
+      const epochs: number[] = [];
+      const values: (number | null)[] = [];
+      const labels: string[] = [];
+      for (const point of row.points) {
+        const ms = Date.parse(point.time);
+        if (!Number.isFinite(ms)) continue;
+        if (start != null && end != null && (ms < start || ms >= end)) continue;
+        epochs.push(ms);
+        values.push(point.vtec_tecu);
+        labels.push(point.time);
+      }
+      return {
+        station: row.station,
+        epochs,
+        values,
+        labels,
+        latest: row.latest_vtec,
+        mean: row.mean_vtec,
+      };
+    })
+    .filter((row) => row.epochs.length > 0)
+    .slice(0, 8)
+    .map((row, index) => ({ ...row, color: STATION_COLORS[index % STATION_COLORS.length] }));
+}
+
+function utcDaysFromRows(rows: LiveStationVtecSeries[]): string[] {
+  const days = new Set<string>();
+  for (const row of rows) {
+    if (isSurveyorGeneral(row.station)) continue;
+    for (const point of row.points ?? []) {
+      const ms = Date.parse(point.time);
+      if (!Number.isFinite(ms)) continue;
+      if (point.vtec_tecu == null || !Number.isFinite(point.vtec_tecu)) continue;
+      days.add(new Date(ms).toISOString().slice(0, 10));
+    }
+  }
+  return [...days].sort();
 }
 
 function hoursSinceUtcMidnight(now = Date.now()): number {
@@ -245,7 +319,9 @@ export default function ZimbabweTecTeachingLab() {
   const [cmpSettled, setCmpSettled] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
+  const [history, setHistory] = useState<LiveStationVtecSeries[]>([]);
   const [openGraph, setOpenGraph] = useState<GraphId | null>(null);
+  const [dayChoice, setDayChoice] = useState<string>("all");
   const toggleGraph = (id: GraphId) => setOpenGraph((cur) => (cur === id ? null : id));
 
   useEffect(() => {
@@ -314,6 +390,32 @@ export default function ZimbabweTecTeachingLab() {
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    const windows: Array<[number, number, number]> = [
+      [168, 30, 45_000],
+      [48, 60, 40_000],
+    ];
+    (async () => {
+      for (const [hours, step, timeoutMs] of windows) {
+        if (cancelled) return;
+        try {
+          const rows = await getLiveVtecByStation(hours, step, timeoutMs);
+          if (cancelled || !Array.isArray(rows)) continue;
+          if (rows.some((row) => (row.points?.length ?? 0) > 0)) {
+            setHistory(rows);
+            return;
+          }
+        } catch {
+          // A busy 7-day read falls through to the shorter window.
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const utcDayStart = useMemo(() => startOfUtcDayMs(), [updatedAt]);
   const utcDayTitle = useMemo(() => utcDayLabel(utcDayStart), [utcDayStart]);
 
@@ -344,12 +446,30 @@ export default function ZimbabweTecTeachingLab() {
       });
   }, [stations]);
 
+  const utcDays = useMemo(
+    () => utcDaysFromRows(history.length ? history : stations),
+    [history, stations],
+  );
+  const today = useMemo(() => new Date().toISOString().slice(0, 10), [updatedAt]);
+  const selectedDay = dayChoice !== "all" && utcDays.includes(dayChoice) ? dayChoice : null;
+  const dayIndex = selectedDay ? utcDays.indexOf(selectedDay) : -1;
+  const chartSeries = useMemo(() => {
+    if (!selectedDay) return stationSeries;
+    return plotStationRows(history.length ? history : stations, selectedDay);
+  }, [history, selectedDay, stationSeries, stations]);
+
   const vtecTimeAxis = useMemo(() => {
-    const domain = sharedTimeDomain(stationSeries.map((s) => s.epochs));
+    if (selectedDay) {
+      const min = Date.parse(`${selectedDay}T00:00:00Z`);
+      if (Number.isFinite(min)) {
+        return utcTimeAxisProps({ min, max: min + 24 * 3_600_000 }, { rangeHours: 24, majorHours: 6 });
+      }
+    }
+    const domain = sharedTimeDomain(chartSeries.map((s) => s.epochs));
     if (!domain) return null;
     const rangeHours = Math.max(6, (domain.max - domain.min) / 3_600_000);
     return utcTimeAxisProps(domain, { rangeHours });
-  }, [stationSeries]);
+  }, [chartSeries, selectedDay]);
 
   const elevScatter = useMemo(() => {
     const stecByConst: Record<string, { x: number; y: number }[]> = {};
@@ -543,23 +663,70 @@ export default function ZimbabweTecTeachingLab() {
 
       <Section
         title="1 · VTEC Time Series"
-        subtitle="Vertical Total Electron Content (VTEC) versus Universal Time (UT)."
+        subtitle={
+          selectedDay
+            ? `Vertical Total Electron Content (VTEC) versus Universal Time (UT) on ${selectedDay} UTC.`
+            : "Vertical Total Electron Content (VTEC) versus Universal Time (UT)."
+        }
         open={openGraph === "vtec-series"}
         onToggle={() => toggleGraph("vtec-series")}
         analysis={analyses["vtec-series"]}
       >
-        {stationSeries.length > 0 ? (
+        {utcDays.length > 0 && (
+          <div className="station-vtec-plots-controls" style={{ marginBottom: "0.65rem" }}>
+            <div className="station-vtec-day-filters" role="group" aria-label="UTC day">
+              <button
+                type="button"
+                className={selectedDay == null ? "active" : ""}
+                onClick={() => setDayChoice("all")}
+              >
+                All days
+              </button>
+              <button
+                type="button"
+                disabled={selectedDay != null && dayIndex <= 0}
+                onClick={() => {
+                  if (selectedDay == null) setDayChoice(utcDays[utcDays.length - 1]);
+                  else if (dayIndex > 0) setDayChoice(utcDays[dayIndex - 1]);
+                }}
+              >
+                Previous day
+              </button>
+              {utcDays.map((day) => (
+                <button
+                  key={day}
+                  type="button"
+                  className={selectedDay === day ? "active" : ""}
+                  title={`${day} UTC`}
+                  onClick={() => setDayChoice(day)}
+                >
+                  {formatDayChip(day, today)}
+                </button>
+              ))}
+              <button
+                type="button"
+                disabled={dayIndex < 0 || dayIndex >= utcDays.length - 1}
+                onClick={() => {
+                  if (dayIndex >= 0 && dayIndex < utcDays.length - 1) setDayChoice(utcDays[dayIndex + 1]);
+                }}
+              >
+                Next day
+              </button>
+            </div>
+          </div>
+        )}
+        {chartSeries.length > 0 ? (
           <LineChart
-            labels={stationSeries[0].labels}
-            xValues={stationSeries[0].epochs}
-            epochMs={stationSeries[0].epochs}
-            xLabel="UT"
+            labels={chartSeries[0].labels}
+            xValues={chartSeries[0].epochs}
+            epochMs={chartSeries[0].epochs}
+            xLabel="UTC"
             yLabel="VTEC (TECU)"
             height={240}
             toggleableLegend
-            formatXTick={formatKnmiUtcTick}
             {...(vtecTimeAxis ?? {})}
-            datasets={stationSeries.map((s) => ({
+            formatXTick={formatVtecUtcTick}
+            datasets={chartSeries.map((s) => ({
               label: `${s.station.toUpperCase()} VTEC`,
               data: s.values,
               color: s.color,
@@ -567,7 +734,11 @@ export default function ZimbabweTecTeachingLab() {
           />
         ) : (
           <div className="banner banner-info">
-            {loading ? "Waiting for live station VTEC…" : "No live station VTEC points in the current window."}
+            {loading
+              ? "Waiting for live station VTEC…"
+              : selectedDay
+                ? `No measured station VTEC on ${selectedDay} UTC.`
+                : "No live station VTEC points in the current window."}
           </div>
         )}
       </Section>

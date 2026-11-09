@@ -121,15 +121,25 @@ def enrich_anomaly_days(
     kp_df: pd.DataFrame,
     threshold_pct: int = 95,
     geomagnetic: dict[str, dict[str, Any]] | None = None,
+    *,
+    response_z_threshold: float = 2.0,
 ) -> list[dict[str, Any]]:
+    """Flag positive and negative TEC anomalies vs quiet-time reference and percentiles.
+
+    ``anomaly`` is true for either a high-percentile enhancement or a quiet-baseline
+    deviation with |z| at/above ``response_z_threshold``. Same-day Kp ≥ 5 is recorded
+    as a geomagnetic coincidence for further assessment — not proof of causation.
+    """
     if daily.empty:
         return []
 
-    threshold = float(daily["mean_vtec"].quantile(threshold_pct / 100.0))
+    high_threshold = float(daily["mean_vtec"].quantile(threshold_pct / 100.0))
+    low_threshold = float(daily["mean_vtec"].quantile(1.0 - threshold_pct / 100.0))
     marked = mark_storm_days(
         daily.copy(),
         kp_df=kp_df if not kp_df.empty else None,
         vtec_percentile=threshold_pct / 100.0,
+        tec_response_z_threshold=response_z_threshold,
     )
 
     days: list[dict[str, Any]] = []
@@ -140,24 +150,53 @@ def enrich_anomaly_days(
         tec_z = row.get("tec_response_z")
         tec_dev = row.get("tec_deviation_tecu")
         max_vtec = row.get("max_vtec")
+        min_vtec = row.get("min_vtec")
+        baseline = row.get("tec_baseline")
+        mean_vtec = float(row["mean_vtec"])
         geo = (geomagnetic or {}).get(date_str, {})
         dst_val = geo.get("dst")
+
+        z_val = float(tec_z) if pd.notna(tec_z) else None
+        positive_quiet = z_val is not None and z_val >= response_z_threshold
+        negative_quiet = z_val is not None and z_val <= -response_z_threshold
+        positive_pct = mean_vtec >= high_threshold
+        negative_pct = mean_vtec <= low_threshold
+        positive = bool(positive_quiet or positive_pct)
+        negative = bool(negative_quiet or negative_pct)
+        anomaly = positive or negative
+        if positive and negative:
+            polarity = "mixed"
+        elif positive:
+            polarity = "positive"
+        elif negative:
+            polarity = "negative"
+        else:
+            polarity = "none"
+
         days.append(
             {
                 "date": date_str,
-                "mean_vtec": float(row["mean_vtec"]),
+                "mean_vtec": mean_vtec,
                 "max_vtec": float(max_vtec) if pd.notna(max_vtec) else None,
-                "anomaly": bool(row["mean_vtec"] >= threshold),
-                "threshold": threshold,
+                "min_vtec": float(min_vtec) if pd.notna(min_vtec) else None,
+                "anomaly": anomaly,
+                "threshold": high_threshold,
+                "low_threshold": low_threshold,
+                "anomaly_polarity": polarity,
+                "positive_anomaly": positive,
+                "negative_anomaly": negative,
+                "quiet_baseline_tecu": float(baseline) if pd.notna(baseline) else None,
                 "tec_anomaly_flag": bool(row.get("tec_anomaly_flag", False)),
                 "storm_flag": bool(row.get("storm_flag", False)),
                 "kp_storm_flag": bool(row.get("kp_storm_flag", False)),
+                "geomagnetic_coincidence": bool(row.get("kp_storm_flag", False)),
                 "kp": float(kp_val) if pd.notna(kp_val) else None,
                 "dst": float(dst_val) if dst_val is not None else None,
                 "kp_severity": row.get("kp_severity"),
                 "tec_response": row.get("tec_response"),
-                "tec_response_z": float(tec_z) if pd.notna(tec_z) else None,
+                "tec_response_z": z_val,
                 "tec_deviation_tecu": float(tec_dev) if pd.notna(tec_dev) else None,
+                "samples": int(row["samples"]) if "samples" in row and pd.notna(row.get("samples")) else None,
             }
         )
     return days
@@ -293,15 +332,44 @@ def build_eia_summary(
     }
 
 
+def _completeness(daily: pd.DataFrame) -> dict[str, Any]:
+    if daily.empty:
+        return {
+            "day_count": 0,
+            "sample_count": 0,
+            "mean_samples_per_day": None,
+            "missing_day_fraction": None,
+        }
+    day_count = int(len(daily))
+    sample_count = int(pd.to_numeric(daily.get("samples"), errors="coerce").fillna(0).sum())
+    span_days = max(1, int((daily["date"].max() - daily["date"].min()).days) + 1)
+    return {
+        "day_count": day_count,
+        "sample_count": sample_count,
+        "mean_samples_per_day": round(sample_count / day_count, 2) if day_count else None,
+        "missing_day_fraction": round(max(0.0, 1.0 - (day_count / span_days)), 3),
+    }
+
+
 def build_anomaly_analysis(
     df: pd.DataFrame,
     *,
     station: str | None = None,
     threshold_pct: int = 95,
+    archive_meta: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     stations = list_archive_stations(df)
     daily = build_daily_archive(df, station)
     empty_eia = build_eia_summary([], [], [])
+    meta = dict(archive_meta or {})
+    roti = {
+        "available": False,
+        "status": "unavailable",
+        "reason": (
+            "ROTI requires continuous high-cadence, satellite-specific STEC arcs. "
+            "It is not derived from regional VTEC averages."
+        ),
+    }
 
     if daily.empty:
         return {
@@ -315,6 +383,19 @@ def build_anomaly_analysis(
             "diurnal": [],
             "seasonal": [],
             "solar_cycle": [],
+            "archive": {**meta, "available": False},
+            "completeness": _completeness(daily),
+            "roti": roti,
+            "method": {
+                "delta_tec": "ΔTEC(t) = VTEC_observed(t) − VTEC_quiet(t)",
+                "quiet_reference": "Median of prior quiet days (Kp < 4) in a 27-day window",
+                "positive_negative": "Both enhancements and depletions are flagged",
+                "percentile": f"{threshold_pct}th / {100 - threshold_pct}th percentile of daily mean VTEC",
+                "geomagnetic_note": (
+                    "Same-day Kp ≥ 5 is a geomagnetic coincidence requiring further assessment "
+                    "with SYM-H, IMF Bz, solar wind and TEC timing — not proof of causation."
+                ),
+            },
         }
 
     start = daily["date"].min().date()
@@ -349,4 +430,23 @@ def build_anomaly_analysis(
         "diurnal": diurnal,
         "seasonal": seasonal,
         "solar_cycle": solar_cycle,
+        "archive": {
+            **meta,
+            "available": True,
+            "day_count": int(len(daily)),
+            "first_date": str(start),
+            "last_date": str(end),
+        },
+        "completeness": _completeness(daily),
+        "roti": roti,
+        "method": {
+            "delta_tec": "ΔTEC(t) = VTEC_observed(t) − VTEC_quiet(t)",
+            "quiet_reference": "Median of prior quiet days (Kp < 4) in a 27-day window",
+            "positive_negative": "Both enhancements and depletions are flagged",
+            "percentile": f"{threshold_pct}th / {100 - threshold_pct}th percentile of daily mean VTEC",
+            "geomagnetic_note": (
+                "Same-day Kp ≥ 5 is a geomagnetic coincidence requiring further assessment "
+                "with SYM-H, IMF Bz, solar wind and TEC timing — not proof of causation."
+            ),
+        },
     }

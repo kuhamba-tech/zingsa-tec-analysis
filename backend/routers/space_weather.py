@@ -12,6 +12,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from backend.deps import require_api_key
 from backend.schemas import (
     CorrelationPair,
+    EarlyWarningAlertOut,
+    EarlyWarningSnapshotOut,
+    EarlyWarningSummaryOut,
     EkfAlertOut,
     EkfPointOut,
     EkfSeriesOut,
@@ -972,6 +975,46 @@ def heliospheric_monitor(
 def ekf_alert_ack(alert_id: str, _=Depends(require_api_key)):
     from zgiis.db.ekf_alert_db import EkfAlertDB
     EkfAlertDB().acknowledge(alert_id)
+
+
+@router.get("/early-warning", response_model=EarlyWarningSnapshotOut)
+def early_warning_snapshot(
+    hours: float = Query(168.0, ge=1.0, le=720.0),
+    evaluate: bool = Query(False),
+    _=Depends(require_api_key),
+):
+    """ZINGSA Early Warning Centre snapshot (active, watches, history, summary)."""
+    from zgiis.space_weather.early_warning_service import get_early_warning_snapshot
+
+    payload = get_early_warning_snapshot(hours=hours, evaluate=evaluate)
+    summary = EarlyWarningSummaryOut(**(payload.get("summary") or {}))
+    active = [EarlyWarningAlertOut(**row) for row in payload.get("active") or []]
+    history = [EarlyWarningAlertOut(**row) for row in payload.get("history") or []]
+    return EarlyWarningSnapshotOut(
+        summary=summary,
+        active=active,
+        history=history,
+        diagnostics=payload.get("diagnostics") or {},
+        authority_legend=payload.get("authority_legend") or {},
+    )
+
+
+@router.post("/early-warning/evaluate", response_model=EarlyWarningSnapshotOut)
+def early_warning_evaluate(_=Depends(require_api_key)):
+    """Server-side evaluation cycle — used by cron / workers, not by browser polling alone."""
+    from zgiis.space_weather.early_warning_service import run_early_warning_cycle
+
+    payload = run_early_warning_cycle(persist=True)
+    summary = EarlyWarningSummaryOut(**(payload.get("summary") or {}))
+    active = [EarlyWarningAlertOut(**row) for row in payload.get("active") or []]
+    history = [EarlyWarningAlertOut(**row) for row in payload.get("history") or []]
+    return EarlyWarningSnapshotOut(
+        summary=summary,
+        active=active,
+        history=history,
+        diagnostics=payload.get("diagnostics") or {},
+        authority_legend=payload.get("authority_legend") or {},
+    )
 
 
 def _float_or_none(value: object) -> float | None:

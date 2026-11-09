@@ -46,10 +46,13 @@ const NAV_GROUPS: { section: string; items: NavItem[] }[] = [
       { href: "/space-weather/gnss-intelligence/", label: "Navigation Weather", icon: "🛰️" },
       { href: "/anomaly-detection/", label: "TEC Anomaly", icon: "🔮" },
       { href: "/gic-monitor/", label: "GIC Monitor", icon: "🧲" },
-      { href: "/storm-watch/", label: "Storm Watch", icon: "🌩️" },
+      { href: "/storm-watch/", label: "Alerts Centre", icon: "🌩️" },
     ],
   },
-  {section:"Analysis Modules",items:[{href:"/tec-climatology/",label:"TEC Climatology",icon:"📊"}]},
+  {section:"Analysis Modules",items:[
+    {href:"/tec-climatology/",label:"TEC Climatology",icon:"📊"},
+    {href:"/day-night-tec/",label:"Day–Night TEC",icon:"🌓"},
+  ]},
   {
     section: "AI Intelligence",
     items: [

@@ -1,0 +1,28 @@
+.panel { display: grid; gap: 1.1rem; min-width: 0; }
+.intro,.site,.chart,.details { background: #0c1826; border: 1px solid #29465d; padding: 1.2rem; border-radius: 12px; min-width: 0; }
+.intro { background: linear-gradient(120deg,#102c41,#0b1624); }
+.kicker { color: #87c9eb; font-size: .68rem; text-transform: uppercase; letter-spacing: .12em; }
+.panel h2 { font-size: 1.4rem; font-weight: 650; margin: .5rem 0; letter-spacing: -.025em; }
+.panel h3 { font-size: 1rem; font-weight: 650; margin-bottom: .8rem; color: #deeffb; }
+.panel p { color: #b0c3d5; font-size: .82rem; line-height: 1.75; margin: .65rem 0; overflow-wrap: anywhere; }
+.intro .notice { padding: .85rem 1rem; border-left: 3px solid #f0b85d; background: #2b241a; color: #f1d7a9; }
+.sites,.charts { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 1rem; }
+.site dl { display: grid; grid-template-columns: minmax(100px,1fr) minmax(100px,1.2fr); gap: .7rem 1rem; font-size: .76rem; margin-top: 1rem; }
+.site dt { color: #96afc6; }
+.site dd { color: #e0edf7; overflow-wrap: anywhere; }
+.chart .source,.source { font-size: .69rem; color: #99b0c5; }
+.empty { padding: 2.5rem 1rem; text-align: center; background: #0a1421; border: 1px dashed #2d465c; border-radius: 8px; }
+.details summary { color: #d1e8f8; font-weight: 650; font-size: .9rem; cursor: pointer; }
+.scroll { overflow-x: auto; margin-top: 1rem; }
+.panel table { width: 100%; border-collapse: collapse; font-size: .75rem; text-align: left; }
+.panel th,.panel td { padding: .65rem; border-bottom: 1px solid #294258; }
+.panel th { color: #b9ddf4; font-weight: 600; }
+.panel td { color: #b7c9d9; }
+.formGrid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: .8rem; margin: 1rem 0; }
+.panel label { display: flex; flex-direction: column; gap: .4rem; color: #b8cfe0; font-size: .75rem; }
+.panel input:not([type=checkbox]),.panel select { width: 100%; border: 1px solid #355570; background: #0b1725; color: #edf7ff; padding: .65rem; border-radius: 7px; min-width: 0; }
+.panel .check { flex-direction: row; align-items: center; margin: 1rem 0; }
+.researchControls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 1rem; }
+.researchControls label { flex: 1; min-width: 180px; }
+@media(max-width:850px) { .sites,.charts { grid-template-columns: 1fr; } }
+@media(max-width:550px) { .formGrid { grid-template-columns: 1fr; } .site dl { grid-template-columns: 1fr; gap: .35rem; } .site dd { margin-bottom: .65rem; } }

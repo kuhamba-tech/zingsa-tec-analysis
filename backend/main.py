@@ -138,7 +138,7 @@ app.add_middleware(
     allow_origin_regex=_cors_origin_regex(),
     allow_credentials=False,
     allow_methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Accept", "Content-Type", "X-API-Key", "X-Broadcast-Admin-Key"],
+    allow_headers=["Accept", "Content-Type", "X-API-Key", "X-Broadcast-Admin-Key", "X-GIC-Admin-Key"],
 )
 
 

@@ -569,6 +569,11 @@ export const getEkfStatusWithRetry = () =>
   getWithRetry<EkfStatus>("/space-weather/ekf", { _ts: Date.now() }, EKF_FAST_TIMEOUT_MS);
 export const getStormAlertStatus = () => get<StormAlertStatus>("/space-weather/storm-alerts/status");
 export const getEkfAlertLog = (hours = 24) => get<EkfAlert[]>("/space-weather/ekf/alerts", { hours });
+export const getEarlyWarningSnapshot = (hours = 168, evaluate = false) =>
+  get<import("@/lib/earlyWarningTypes").EarlyWarningSnapshot>("/space-weather/early-warning", {
+    hours,
+    evaluate: evaluate ? "true" : "false",
+  });
 export const ackEkfAlert = (alertId: string) =>
   fetch(apiUrl(`/space-weather/ekf/alerts/${alertId}/ack`), {
     method: "POST",
@@ -1324,6 +1329,8 @@ export const getKyotoVtecComparison = (params:Record<string,string|number>) =>
   get<{points:{time:string;vtec:number;stations:number;observations:number}[];catalog:{code:string;region:string}[]}>("/space-weather/geomagnetic-vtec",params,55_000);
 export const getTecClimatology = (params: Record<string,string|number>) =>
   getWithRetry<import("./tecClimatology").TecClimatology>("/live/tec-climatology", params, 120_000);
+export const getDayNightTec = () =>
+  getWithRetry<import("./dayNightTec").DayNightTec>("/live/day-night-tec", { _ts: Date.now() }, 120_000);
 export const getLivePipelineStatus = () => get<LivePipelineStatus>("/live/pipeline-status");
 export const getLiveVtecHealth = () =>
   get<LiveVtecHealth>("/live/vtec-health", { _ts: Date.now() });
@@ -1390,10 +1397,12 @@ export const getGicReport = (station_id: string, period: GicReportPeriod) =>
 export const getGicLiveModel = (hours = 24) =>
   get<GicLiveModel>("/gic/live-model", { hours, _ts: Date.now() });
 
-export async function uploadGicFile(file: File, stationId: string): Promise<GicUploadResult> {
+export async function uploadGicFile(file: File, stationId: string, loggerTimezone?: string, calibrationId?: string): Promise<GicUploadResult> {
   const fd = new FormData();
   fd.append("file", file);
   fd.append("station_id", stationId);
+  if (loggerTimezone) fd.append("logger_timezone", loggerTimezone);
+  if (calibrationId) fd.append("calibration_id", calibrationId);
   const res = await fetch(apiUrl("/gic/upload"), {
     method: "POST",
     headers: KEY ? { "X-API-Key": KEY } : {},

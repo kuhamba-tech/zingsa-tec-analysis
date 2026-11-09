@@ -303,7 +303,7 @@ export function noaaGScaleFromKp(kp: number | null | undefined, loading = false)
   };
 }
 
-function dstColor(dst: number | null): string {
+export function dstColor(dst: number | null): string {
   if (dst === null) return "#ffffff";
   if (dst < -100) return "#ef4444";
   if (dst < -50) return "#f97316";
@@ -320,7 +320,7 @@ function apColor(ap: number | null): string {
   return "#00ff88";
 }
 
-function solarWindColor(speed: number | null): string {
+export function solarWindColor(speed: number | null): string {
   if (speed === null) return "#ffffff";
   if (speed > 700) return "#f97316";
   if (speed > 500) return "#eab308";
@@ -336,7 +336,7 @@ function solarWindInterpretation(speed: number | null): string {
   return "Very fast";
 }
 
-function imfBzColor(bz: number | null): string {
+export function imfBzColor(bz: number | null): string {
   if (bz === null) return "#ffffff";
   if (bz <= -10) return "#ef4444";
   if (bz < 0) return "#f97316";
@@ -344,7 +344,32 @@ function imfBzColor(bz: number | null): string {
   return "#00ff88";
 }
 
-function flareColor(flareClass: string | null | undefined): string {
+export function solarWindDensityColor(density: number | null): string {
+  if (density === null) return "#94a3b8";
+  if (density >= 20) return "#ef4444";
+  if (density >= 10) return "#f97316";
+  if (density >= 3) return "#38bdf8";
+  return "#22c55e";
+}
+
+export function imfBtColor(bt: number | null): string {
+  if (bt === null) return "#94a3b8";
+  if (bt >= 15) return "#ef4444";
+  if (bt >= 10) return "#f97316";
+  if (bt >= 5) return "#eab308";
+  return "#38bdf8";
+}
+
+export function s4Color(s4: number | null): string {
+  if (s4 === null) return "#94a3b8";
+  if (s4 >= 0.7) return "#a855f7";
+  if (s4 >= 0.5) return "#ef4444";
+  if (s4 >= 0.35) return "#f97316";
+  if (s4 >= 0.2) return "#eab308";
+  return "#22c55e";
+}
+
+export function flareColor(flareClass: string | null | undefined): string {
   if (!flareClass || flareClass === "Unavailable" || flareClass === "N/A") return "#94a3b8";
   const letter = flareClass.trim().charAt(0).toUpperCase();
   if (letter === "X") return "#a855f7";
@@ -352,6 +377,14 @@ function flareColor(flareClass: string | null | undefined): string {
   if (letter === "C") return "#f97316";
   if (letter === "B") return "#eab308";
   return "#38bdf8";
+}
+
+export function flareProbabilityColor(cls: "C" | "M" | "X", percent: number | null): string {
+  if (percent == null || !Number.isFinite(percent)) return "#94a3b8";
+  const base = cls === "X" ? "#a855f7" : cls === "M" ? "#ef4444" : "#f97316";
+  if (percent >= 50) return base;
+  if (percent >= 20) return cls === "C" ? "#eab308" : base;
+  return "#94a3b8";
 }
 
 /** Same palette as the Zimbabwe Ionosphere N/D/H/S/X scale strip. */

@@ -1,111 +1,86 @@
 #!/usr/bin/env python3
-"""Raspberry Pi gateway uploader for live GIC field readings.
-
-Reads the latest rows from a Campbell CR1000 TOA5 export or CSV file and
-POSTs them to the ZGIIS backend at POST /gic/ingest.
-
-Environment variables:
-  GIC_GATEWAY_URL   Base URL (default http://127.0.0.1:8000)
-  API_KEY           X-API-Key header value (required in production)
-  GIC_STATION_ID    Station identifier (default DEMA_001)
-  GIC_DATA_FILE     Path to TOA5/CSV file to tail (required)
-  GIC_BATCH_SIZE    Max readings per upload (default 120)
-  GIC_STATE_FILE    Tracks last uploaded timestamp (default .gic_gateway_state)
-
-Example cron (every minute):
-  * * * * * /path/to/.venv/bin/python /path/to/scripts/gic_gateway_upload.py >> /var/log/gic_gateway.log 2>&1
+"""Replay-safe CR1000 file gateway: once for cron, or --watch for continuous polling.
+The logger/LoggerNet must first export its real TOA5/CSV table to GIC_DATA_FILE.
+No direct PakBus commissioning or sensor calibration is implied by this program.
 """
 from __future__ import annotations
-
+import argparse
+import hashlib
 import json
+import logging
 import os
 import sys
-from datetime import datetime, timezone
+import time
 from pathlib import Path
-
-try:
-    import requests
-except ImportError:
-    print("Install requests: pip install requests", file=sys.stderr)
-    sys.exit(1)
-
+import requests
 ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+if str(ROOT) not in sys.path: sys.path.insert(0, str(ROOT))
+from zgiis.gic.ingest import parse_gic_file
 
-from zgiis.gic.ingest import parse_gic_file  # noqa: E402
-
-
-def _env(name: str, default: str = "") -> str:
-    return os.environ.get(name, default).strip()
+log = logging.getLogger("gic_gateway")
 
 
-def _load_state(path: Path) -> str | None:
-    if not path.is_file():
-        return None
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return data.get("last_time")
-    except (json.JSONDecodeError, OSError):
-        return None
-
-
-def _save_state(path: Path, last_time: str) -> None:
+def _save_state(path: Path, state: dict):
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"last_time": last_time}), encoding="utf-8")
+    temporary = path.with_suffix(path.suffix+".tmp")
+    temporary.write_text(json.dumps(state), encoding="utf-8")
+    temporary.replace(path)
 
 
-def main() -> int:
-    base_url = _env("GIC_GATEWAY_URL", "http://127.0.0.1:8000").rstrip("/")
-    api_key = _env("API_KEY")
-    station_id = _env("GIC_STATION_ID", "DEMA_001").upper()
-    data_file = _env("GIC_DATA_FILE")
-    batch_size = max(1, int(_env("GIC_BATCH_SIZE", "120") or "120"))
-    state_file = Path(_env("GIC_STATE_FILE", str(Path.cwd() / ".gic_gateway_state")))
-
-    if not data_file:
-        print("GIC_DATA_FILE is required.", file=sys.stderr)
-        return 2
-    path = Path(data_file)
-    if not path.is_file():
-        print(f"Data file not found: {path}", file=sys.stderr)
-        return 2
-
+def upload_file(*, path: Path, station_id: str, base_url: str, api_key: str,
+                state_file: Path, batch_size: int = 120, logger_timezone=None,
+                calibration_id=None, units=None, post=requests.post) -> dict:
+    if not 1 <= batch_size <= 10000: raise ValueError("Batch size must be 1..10000")
     content = path.read_bytes()
-    rows = parse_gic_file(content, path.name, station_id)
-    last_uploaded = _load_state(state_file)
-    if last_uploaded:
-        rows = [r for r in rows if r["time"] > last_uploaded]
-    if not rows:
-        print(f"{datetime.now(timezone.utc).isoformat()} — no new rows for {station_id}")
-        return 0
-
-    batch = rows[-batch_size:]
-    payload = {
-        "station_id": station_id,
-        "readings": [
-            {"time": r["time"], "gic_a": r["gic_a"], "temp_c": r.get("temp_c")}
-            for r in batch
-        ],
-    }
-    headers = {"Content-Type": "application/json"}
-    if api_key:
-        headers["X-API-Key"] = api_key
-
-    url = f"{base_url}/gic/ingest"
-    resp = requests.post(url, json=payload, headers=headers, timeout=30)
-    if resp.status_code not in (200, 201):
-        print(f"Upload failed ({resp.status_code}): {resp.text}", file=sys.stderr)
-        return 1
-
-    newest = batch[-1]["time"]
-    _save_state(state_file, newest)
-    print(
-        f"{datetime.now(timezone.utc).isoformat()} — uploaded {len(batch)} readings "
-        f"for {station_id} (latest {newest})"
-    )
-    return 0
+    identity = hashlib.sha256(json.dumps([str(path.resolve()), station_id, logger_timezone, calibration_id, units]).encode()+content).hexdigest()
+    try: state = json.loads(state_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError): state = {}
+    if state.get("completed_fingerprint") == identity:
+        return {"received": 0, "inserted": 0, "unchanged": True}
+    rows = parse_gic_file(content, path.name, station_id, logger_timezone=logger_timezone, calibration_id=calibration_id, units=units)
+    received = inserted = 0
+    # Always oldest first. Resend changed/rotated exports in full: the server's
+    # (station,time) unique constraint handles retry, late records and overlaps.
+    for offset in range(0, len(rows), batch_size):
+        batch = rows[offset:offset+batch_size]
+        payload = {"station_id": station_id.upper(), "readings": [{k:v for k,v in row.items() if k not in {"station_id", "source"}} for row in batch]}
+        headers = {"X-API-Key": api_key} if api_key else {}
+        response = post(base_url.rstrip("/")+"/gic/ingest", json=payload, headers=headers, timeout=30)
+        response.raise_for_status()
+        receipt = response.json()
+        if receipt.get("received") != len(batch) or receipt.get("station_id") != station_id.upper():
+            raise ValueError("Server did not acknowledge the complete station batch; checkpoint unchanged")
+        received += len(batch)
+        inserted += int(receipt["inserted"])
+    _save_state(state_file, {"station_id": station_id.upper(), "completed_fingerprint": identity,
+                             "last_time": rows[-1]["time"], "records_acknowledged": received})
+    return {"received": received, "inserted": inserted, "unchanged": False}
 
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--watch", action="store_true")
+    args = parser.parse_args()
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    if not os.getenv("GIC_DATA_FILE") or not os.getenv("GIC_STATION_ID"):
+        log.error("GIC_DATA_FILE and GIC_STATION_ID must explicitly identify the logger export")
+        return 2
+    failures = 0
+    while True:
+        try:
+            result = upload_file(path=Path(os.environ["GIC_DATA_FILE"]), station_id=os.environ["GIC_STATION_ID"],
+                base_url=os.getenv("GIC_GATEWAY_URL", "http://127.0.0.1:8000"), api_key=os.getenv("API_KEY", ""),
+                state_file=Path(os.getenv("GIC_STATE_FILE", ".gic_gateway_state")), batch_size=int(os.getenv("GIC_BATCH_SIZE", "120")),
+                logger_timezone=os.getenv("GIC_LOGGER_TIMEZONE"), calibration_id=os.getenv("GIC_CALIBRATION_ID"), units=os.getenv("GIC_UNITS"))
+            log.info("Station %s: %s", os.environ["GIC_STATION_ID"], result)
+            failures = 0
+            if not args.watch: return 0
+        except (requests.RequestException, ValueError, OSError) as exc:
+            # Do not log credentials, headers, response bodies or network URLs.
+            log.error("Station upload failed (%s); checkpoint retained", type(exc).__name__)
+            failures += 1
+            if not args.watch: return 1
+        time.sleep(min(300, max(5, int(os.getenv("GIC_POLL_SECONDS", "30"))) * 2**min(failures, 4)))
+
+
+if __name__ == "__main__": raise SystemExit(main())

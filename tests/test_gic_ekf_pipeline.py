@@ -33,7 +33,9 @@ class GicEkfPipelineTests(unittest.TestCase):
         ]
         mock_build.return_value = SpaceWeatherTimelines(gic=gic_points)
 
-        status = compute_ekf_status({"kp": 2, "dst": -10}, dispatch_notifications=False)
+        with patch("zgiis.db.ekf_alert_db.EkfAlertDB") as alert_db:
+            alert_db.return_value.list_alerts.return_value = []
+            status = compute_ekf_status({"kp": 2, "dst": -10}, dispatch_notifications=False)
         self.assertIn("gic", status.series)
         self.assertGreater(len(status.series["gic"].points), 0)
 

@@ -1,6 +1,6 @@
 import type { SolarActivityFull, SpaceWeatherCurrent } from "@/lib/types";
 
-/** Limits already used on this dashboard. An alert exists only after a measured value crosses one. */
+/** ZINGSA operating limits. An alert is issued only after a measured value crosses one. */
 const VTEC_LIMIT = 40;
 const S4_LIMIT = 0.35;
 const KP_LIMIT = 4;
@@ -142,10 +142,10 @@ export function buildZimbabweIndexAlerts(
       valueText: `Kp ${signed(sw.kp, 1)} (${kpWords(sw.kp)})`,
       limitText: `Kp ${KP_LIMIT} (Active). G1 begins at Kp 5.`,
       severity,
-      meaning: `Planetary K is ${signed(sw.kp, 1)}, past the Active line at ${KP_LIMIT}.`,
+      meaning: `Planetary K is ${signed(sw.kp, 1)}, above the Active threshold of ${KP_LIMIT}.`,
       explanation: sw.kp >= 5
-        ? "This is at or above the G1 line. A G1 or stronger interval can move TEC over Zimbabwe enough to matter for GNSS. Read it on TEC and S4 from the CORS network, together with southward IMF Bz."
-        : "Kp 4 is active, still below the G1 line at Kp 5. Over Zimbabwe the local change is usually small. Call it a disturbance only if TEC or S4 moves in the same window.",
+        ? "Kp is at or above the G1 threshold. Intervals of this magnitude can alter TEC over Zimbabwe. Confirm with CORS TEC and S4, together with southward IMF Bz."
+        : "Kp 4 is Active, still below the G1 threshold at Kp 5. Local impact over Zimbabwe is typically limited unless TEC or S4 also changes in the same window.",
     }, validity(bundleTime, 180, now));
   }
 
@@ -157,10 +157,10 @@ export function buildZimbabweIndexAlerts(
       valueText: `Dst ${signed(sw.dst, 0)} nT`,
       limitText: `${DST_LIMIT} nT (watch). A storm reading begins at −50 nT.`,
       severity,
-      meaning: `Dst is ${signed(sw.dst, 0)} nT, past the watch line at ${DST_LIMIT} nT.`,
+      meaning: `Dst is ${signed(sw.dst, 0)} nT, below the watch threshold of ${DST_LIMIT} nT.`,
       explanation: sw.dst <= -50
-        ? "This is at or past the −50 nT storm line. The ring current is enhanced. Confirm the same hours on TEC and S4 from the CORS network."
-        : "Dst between −30 and −50 nT is elevated, still short of the −50 nT storm line. Over Zimbabwe, watch TEC and S4 before calling it a GNSS disturbance.",
+        ? "Dst is at or below the −50 nT storm threshold. The ring current is enhanced. Confirm concurrent CORS TEC and S4."
+        : "Dst between −30 and −50 nT is elevated but remains above the −50 nT storm threshold. Monitor CORS TEC and S4 for GNSS impact.",
     }, validity(bundleTime, 15, now));
   }
 
@@ -172,10 +172,10 @@ export function buildZimbabweIndexAlerts(
       valueText: `${signed(sw.mean_vtec, 1)} TECU`,
       limitText: `${VTEC_LIMIT} TECU (high band on the Zimbabwe ionosphere scale).`,
       severity,
-      meaning: `The CORS network mean is ${signed(sw.mean_vtec, 1)} TECU, past ${VTEC_LIMIT} TECU.`,
+      meaning: `CORS network mean TEC is ${signed(sw.mean_vtec, 1)} TECU, above ${VTEC_LIMIT} TECU.`,
       explanation: sw.mean_vtec >= 100
-        ? "This is the storm band of the Zimbabwe TEC scale. Range delay on GNSS is large. Pair it with Kp, Dst and S4 before calling the cause."
-        : "This is the high band of the Zimbabwe TEC scale. GNSS range delay is larger than on a typical day. It is a storm only if Kp, Dst or S4 is disturbed in the same window.",
+        ? "TEC is in the storm band of the Zimbabwe scale. GNSS range delay is large. Cross-check with Kp, Dst and S4."
+        : "TEC is in the high band of the Zimbabwe scale. GNSS range delay is elevated relative to quiet conditions. Storm classification requires concurrent Kp, Dst or S4 disturbance.",
     }, validity(bundleTime, 15, now));
   }
 
@@ -187,8 +187,8 @@ export function buildZimbabweIndexAlerts(
       valueText: `S4 ${signed(sw.s4, 2)}`,
       limitText: `S4 ${S4_LIMIT.toFixed(2)} (moderate). Strong begins at 0.50 and severe at 0.70.`,
       severity,
-      meaning: `S4 is ${signed(sw.s4, 2)}, past the moderate scintillation line at ${S4_LIMIT.toFixed(2)}.`,
-      explanation: "S4 is the intensity flicker on GNSS signals over Zimbabwe. Above this line, receivers can lose lock, especially on low-elevation satellites.",
+      meaning: `S4 is ${signed(sw.s4, 2)}, above the moderate scintillation threshold of ${S4_LIMIT.toFixed(2)}.`,
+      explanation: "S4 measures intensity scintillation on GNSS signals over Zimbabwe. Above this threshold, receivers may lose lock, particularly on low-elevation satellites.",
     }, validity(bundleTime, 15, now));
   }
 
@@ -208,8 +208,8 @@ export function buildZimbabweIndexAlerts(
       valueText: `${signed(speed, 0)} km/s (${windWords(speed)})`,
       limitText: `${WIND_LIMIT} km/s (fast).`,
       severity: speed >= 700 ? "Severe" : "High",
-      meaning: `Solar wind speed is ${signed(speed, 0)} km/s, past the fast-wind line at ${WIND_LIMIT} km/s.`,
-      explanation: "A fast stream raises geomagnetic activity when the interplanetary field turns south. Over Zimbabwe the arrival is checked on TEC and S4.",
+      meaning: `Solar wind speed is ${signed(speed, 0)} km/s, above the fast-wind threshold of ${WIND_LIMIT} km/s.`,
+      explanation: "A fast stream can elevate geomagnetic activity when the interplanetary field turns south. Zimbabwe impact is confirmed only on measured TEC and S4.",
     }, validity(windTime, 15, now));
   }
 
@@ -220,8 +220,8 @@ export function buildZimbabweIndexAlerts(
       valueText: `${signed(density, 1)} /cm³ (${densityWords(density)})`,
       limitText: `${DENSITY_LIMIT} /cm³ (high).`,
       severity: density >= 20 ? "Severe" : "High",
-      meaning: `Solar wind density is ${signed(density, 1)} per cm³, past the high-density line at ${DENSITY_LIMIT}.`,
-      explanation: "High density raises the pressure of the wind on Earth's field. It matters for Zimbabwe GNSS when Bz is also south.",
+      meaning: `Solar wind density is ${signed(density, 1)} per cm³, above the high-density threshold of ${DENSITY_LIMIT}.`,
+      explanation: "Elevated density increases solar-wind dynamic pressure on Earth's magnetic field. GNSS impact over Zimbabwe is more likely when Bz is also southward.",
     }, validity(windTime, 15, now));
   }
 
@@ -232,8 +232,8 @@ export function buildZimbabweIndexAlerts(
       valueText: `Bt ${signed(bt, 1)} nT (${fieldWords(bt)})`,
       limitText: `${BT_LIMIT} nT (strong).`,
       severity: bt >= 15 ? "Severe" : "High",
-      meaning: `The interplanetary field strength is ${signed(bt, 1)} nT, past the strong-field line at ${BT_LIMIT} nT.`,
-      explanation: "A strong field couples more energy into the magnetosphere when Bz points south. The Zimbabwe check is TEC and S4 after that turning.",
+      meaning: `Interplanetary field strength is ${signed(bt, 1)} nT, above the strong-field threshold of ${BT_LIMIT} nT.`,
+      explanation: "A strong interplanetary field couples more energy into the magnetosphere when Bz is southward. Confirm Zimbabwe impact on CORS TEC and S4.",
     }, validity(magTime, 15, now));
   }
 
@@ -245,8 +245,8 @@ export function buildZimbabweIndexAlerts(
       valueText: `Bz ${signed(bz, 1)} nT (South)`,
       limitText: `${BZ_LIMIT} nT (southward coupling).`,
       severity,
-      meaning: `Bz is ${signed(bz, 1)} nT, south of the coupling line at ${BZ_LIMIT} nT.`,
-      explanation: "Southward Bz connects the solar wind to Earth's field. Over Zimbabwe, watch TEC and S4 for a change after this sample.",
+      meaning: `Bz is ${signed(bz, 1)} nT, below the southward-coupling threshold of ${BZ_LIMIT} nT.`,
+      explanation: "Southward Bz favours solar-wind–magnetosphere coupling. Monitor CORS TEC and S4 for subsequent change over Zimbabwe.",
     }, validity(magTime, 15, now));
   }
 
@@ -259,7 +259,7 @@ export function buildZimbabweIndexAlerts(
       limitText: "C-class. M is high and X is severe.",
       severity: letter === "X" ? "Severe" : letter === "M" ? "High" : "Moderate",
       meaning: `GOES soft X-rays are ${solar?.flare_class}, at or above C-class.`,
-      explanation: "On the sunlit side, including Zimbabwe in daylight, HF links can fade for minutes. A dayside TEC rise is the GNSS check. An Earth-directed CME is a separate product.",
+      explanation: "On the sunlit hemisphere, including Zimbabwe in daylight, HF links may fade for minutes. Confirm GNSS effects with a dayside TEC rise. Earth-directed CMEs are assessed separately.",
     }, validity(feedTime(solar, "goes_xray") ?? solar?.updated ?? null, 15, now));
   }
 

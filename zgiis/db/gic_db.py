@@ -6,6 +6,9 @@ stored; nothing is synthesised.
 from __future__ import annotations
 
 import logging
+import threading
+from pathlib import Path
+from psycopg2.extras import Json
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -40,13 +43,14 @@ class GicDB:
     def __init__(self, dsn: str | None = None) -> None:
         self._dsn = database_dsn() if dsn is None else dsn
         self._conn = None
+        self._lock = threading.RLock()
         if not self._dsn:
             log.error("SUPABASE_DATABASE_URL is not configured")
             raise DatabaseUnavailable("SUPABASE_DATABASE_URL is not configured")
         try:
             self._conn = checkout(self._dsn)
             if schema_init_enabled():
-                with self._conn.cursor() as cur:
+                with self._lock, self._conn.cursor() as cur:
                     execute_script(cur, _DDL)
         except Exception as exc:
             log.error("GicDB Postgres init failed: %s", exc)
@@ -56,27 +60,57 @@ class GicDB:
         """Insert measurement rows; duplicates (same time+station) are skipped."""
         if not rows:
             return 0
-        before = self.record_count()
-        with transaction(self._conn):
-            cur = self._conn.cursor()
-            cur.executemany(
-                """
-                INSERT INTO gic_log (time, station_id, gic_a, temp_c, source)
-                VALUES (%s, %s, %s, %s, %s)
-                ON CONFLICT (time, station_id) DO NOTHING
-                """,
-                [
-                    (
-                        str(r["time"]),
-                        str(r["station_id"]).upper(),
-                        float(r["gic_a"]),
-                        r.get("temp_c"),
-                        r.get("source", "ingest"),
+        from zgiis.gic.quality import canonical_record
+        records = [canonical_record(row) for row in rows]
+        inserted = 0
+        with self._lock, transaction(self._conn):
+            with self._lock, self._conn.cursor() as cur:
+                for r in records:
+                    cur.execute(
+                        """INSERT INTO gic_log
+                        (time, station_id, gic_a, temp_c, source, original_time, units, quality_flags, metadata, received_at)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,now())
+                        ON CONFLICT (time, station_id) DO NOTHING RETURNING time""",
+                        (r["time"], r["station_id"], r["gic_a"], r.get("temp_c"), r.get("source", "ingest"),
+                         r["original_time"], r["units"], Json(r["quality_flags"]),
+                         Json({k: v for k, v in r.items() if k not in {"time", "station_id", "gic_a", "temp_c", "source", "original_time", "units", "quality_flags"}})),
                     )
-                    for r in rows
-                ],
-            )
-        return self.record_count() - before
+                    created = cur.fetchone() is not None
+                    if not created:
+                        cur.execute("SELECT gic_a FROM gic_log WHERE time=%s AND station_id=%s", (r["time"], r["station_id"]))
+                        existing = cur.fetchone()
+                        if existing and float(existing[0]) != r["gic_a"]:
+                            raise ValueError("Conflicting current for an existing station timestamp; original observation retained")
+                    inserted += int(created)
+                cur.execute("""INSERT INTO gic_ingest_audit
+                    (station_id,source,received,inserted,first_observation,last_observation)
+                    VALUES (%s,%s,%s,%s,%s,%s)""",
+                    (records[0]["station_id"], records[0].get("source", "ingest"), len(records), inserted,
+                     min(r["time"] for r in records), max(r["time"] for r in records)))
+        return inserted
+
+    def station_config(self, station_id: str) -> dict:
+        with self._lock, self._conn.cursor() as cur:
+            cur.execute("SELECT configuration FROM gic_station_config WHERE station_id=%s", (station_id.upper(),))
+            row = cur.fetchone()
+        return row[0] if row else {}
+
+    def save_station_config(self, station_id: str, configuration: dict) -> None:
+        with self._lock, transaction(self._conn):
+            with self._lock, self._conn.cursor() as cur:
+                cur.execute("""INSERT INTO gic_station_config(station_id,configuration) VALUES (%s,%s)
+                    ON CONFLICT(station_id) DO UPDATE SET configuration=excluded.configuration, updated_at=now()""",
+                    (station_id.upper(), Json(configuration)))
+                cur.execute("INSERT INTO gic_config_audit(station_id,configuration) VALUES (%s,%s)",
+                            (station_id.upper(), Json(configuration)))
+
+    def receipt(self, station_id: str) -> dict | None:
+        with self._lock, self._conn.cursor() as cur:
+            cur.execute("""SELECT received_at,source,received,inserted FROM gic_ingest_audit
+                WHERE station_id=%s ORDER BY received_at DESC LIMIT 1""", (station_id.upper(),))
+            row = cur.fetchone()
+        return dict(zip(("received_at", "source", "received", "inserted"),
+                        (row[0].isoformat(), *row[1:]))) if row else None
 
     def query_dataframe(
         self,
@@ -87,7 +121,7 @@ class GicDB:
         end: str | None = None,
         resample: str | None = None,
     ) -> pd.DataFrame:
-        sql = "SELECT time, station_id, gic_a, temp_c FROM gic_log WHERE 1=1"
+        sql = "SELECT time, station_id, gic_a, temp_c, source, original_time, units, quality_flags, metadata, received_at FROM gic_log WHERE 1=1"
         params: list[Any] = []
         if station_id:
             sql += " AND station_id = %s"
@@ -102,9 +136,10 @@ class GicDB:
         if end:
             sql += " AND time <= %s"
             params.append(end)
-        sql += " ORDER BY time"
+        sql += " AND time <= now() ORDER BY time"
 
-        df = pd.read_sql(sql, self._conn, params=params)
+        with self._lock:
+            df = pd.read_sql(sql, self._conn, params=params)
         if df.empty:
             return df
 
@@ -122,7 +157,7 @@ class GicDB:
         return df.reset_index()
 
     def station_summaries(self) -> list[dict[str, Any]]:
-        with self._conn.cursor() as cur:
+        with self._lock, self._conn.cursor() as cur:
             cur.execute(
                 """
                 SELECT station_id, COUNT(*), MIN(time), MAX(time)
@@ -132,7 +167,7 @@ class GicDB:
             grouped = cur.fetchall()
         out: list[dict[str, Any]] = []
         for station_id, count, first, last in grouped:
-            with self._conn.cursor() as cur:
+            with self._lock, self._conn.cursor() as cur:
                 cur.execute(
                     "SELECT time, gic_a FROM gic_log WHERE station_id = %s ORDER BY time DESC LIMIT 1",
                     (station_id,),
@@ -153,7 +188,7 @@ class GicDB:
         return out
 
     def record_count(self) -> int:
-        with self._conn.cursor() as cur:
+        with self._lock, self._conn.cursor() as cur:
             cur.execute("SELECT COUNT(*) FROM gic_log")
             return int(cur.fetchone()[0])
 

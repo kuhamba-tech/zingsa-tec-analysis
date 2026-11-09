@@ -139,7 +139,7 @@ export default function GicNetworkMap({ network, stationStatus, height = 460, on
             image: new Circle({
               radius: 13,
               fill: new Fill({ color: "rgba(22,139,210,0.001)" }),
-              stroke: new Stroke({ color: mon.has_data ? "#00ff88" : "#168bd2", width: 2.5 }),
+              stroke: new Stroke({ color: mon.reporting ? "#00ff88" : "#168bd2", width: 2.5 }),
             }),
           }),
         );
@@ -276,7 +276,7 @@ export default function GicNetworkMap({ network, stationStatus, height = 460, on
               (mon
                 ? `<br/>🧲 GIC monitoring: <b>${mon.station_id}</b>` +
                   (mon.has_data && mon.latest_gic_a != null
-                    ? `<br/>Latest GIC: <b>${mon.latest_gic_a.toFixed(2)} A</b> (${mon.latest_level ?? "—"})`
+                    ? `<br/>Latest archived GIC: <b>${mon.latest_gic_a.toFixed(2)} A</b> (${mon.latest_level ?? "—"})`
                     : "<br/>No field data ingested yet")
                 : "");
           } else if (kind === "power_plant") {

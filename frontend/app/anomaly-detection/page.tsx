@@ -273,6 +273,10 @@ export default function AnomalyDetectionPage() {
   const [pct, setPct] = useState(95);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [archiveMeta, setArchiveMeta] = useState<Record<string, unknown> | null>(null);
+  const [completeness, setCompleteness] = useState<Record<string, unknown> | null>(null);
+  const [rotiMeta, setRotiMeta] = useState<Record<string, unknown> | null>(null);
+  const [methodMeta, setMethodMeta] = useState<Record<string, unknown> | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -289,6 +293,10 @@ export default function AnomalyDetectionPage() {
         setDiurnal(analysis.diurnal);
         setSeasonal(analysis.seasonal);
         setSolar(analysis.solar_cycle);
+        setArchiveMeta(analysis.archive ?? null);
+        setCompleteness(analysis.completeness ?? null);
+        setRotiMeta(analysis.roti ?? null);
+        setMethodMeta(analysis.method ?? null);
         setForecast(f);
       })
       .catch((exc) => setError(exc instanceof Error ? exc.message : "Could not load anomaly data"))
@@ -344,7 +352,7 @@ export default function AnomalyDetectionPage() {
 
   const anomalyDays = useMemo(() => anomalies.filter((a) => a.anomaly), [anomalies]);
   const stormConfirmed = useMemo(
-    () => anomalies.filter((a) => a.anomaly && a.storm_flag),
+    () => anomalies.filter((a) => a.anomaly && (a.geomagnetic_coincidence || a.storm_flag)),
     [anomalies],
   );
   const threshold = anomalies[0]?.threshold ?? 0;
@@ -353,8 +361,19 @@ export default function AnomalyDetectionPage() {
     null,
   );
   const anomalyRate = anomalies.length ? (anomalyDays.length * 100) / anomalies.length : 0;
-  const stormLinkedCount = anomalyDays.filter((d) => d.storm_flag).length;
+  const stormLinkedCount = anomalyDays.filter((d) => d.geomagnetic_coincidence || d.storm_flag).length;
   const unconfirmedCount = anomalyDays.length - stormLinkedCount;
+  const positiveCount = anomalyDays.filter((d) => d.positive_anomaly || d.anomaly_polarity === "positive").length;
+  const negativeCount = anomalyDays.filter((d) => d.negative_anomaly || d.anomaly_polarity === "negative").length;
+  const archiveAvailable = Boolean(archiveMeta?.available) || anomalies.length > 0;
+  const archiveSource =
+    typeof archiveMeta?.source === "string" ? archiveMeta.source : archiveAvailable ? "TEC archive" : "Unavailable";
+  const archiveWindow =
+    typeof archiveMeta?.first_date === "string" && typeof archiveMeta?.last_date === "string"
+      ? `${String(archiveMeta.first_date).slice(0, 10)} → ${String(archiveMeta.last_date).slice(0, 10)}`
+      : anomalies.length
+        ? `${anomalies[0].date} → ${anomalies[anomalies.length - 1].date}`
+        : "No dated samples";
   const latestAnomaly = useMemo(
     () =>
       anomalyDays
@@ -400,7 +419,9 @@ export default function AnomalyDetectionPage() {
       <div>
         <h1 className="page-title">TEC Anomaly Detection</h1>
         <p className="page-subtitle">
-          Detect unusual ionospheric days, correlate with geomagnetic storms, and explore diurnal, seasonal, and solar-cycle context for Zimbabwe CORS TEC.
+          Detect positive and negative ΔTEC over Zimbabwe CORS, place days beside geomagnetic context, and
+          explore diurnal, seasonal and solar-cycle structure. Zero anomalies means no days crossed the
+          configured tests in the loaded archive — not that the ionosphere was quiet.
         </p>
       </div>
 
@@ -455,12 +476,43 @@ export default function AnomalyDetectionPage() {
 
       {error && <div className="banner banner-alert">{error}</div>}
       {loading && <div className="banner banner-info">Loading TEC anomaly analytics...</div>}
-      {!loading && !error && anomalies.length === 0 && (
+      {!loading && !error && !archiveAvailable && (
         <div className="banner banner-warn">
-          No processed TEC archive available yet — anomaly detection needs ingested RINEX/CMN observations.
-          Process station data on the <Link href="/processing/">Processing</Link> page to populate this view.
+          No TEC archive is available to this page yet. It first reads measured GOPI samples from{" "}
+          <code>vtec_obs</code>, then falls back to the packaged CMN hourly index. Confirm the live CORS
+          collector is writing observations, or process station data on the{" "}
+          <Link href="/processing/">Processing</Link> page. Zero anomalies are not claimed while the archive
+          is empty.
         </div>
       )}
+      {!loading && !error && archiveAvailable && anomalies.length > 0 && anomalyDays.length === 0 && (
+        <div className="banner banner-info">
+          Archive loaded ({archiveSource}). No days crossed the positive/negative ΔTEC or percentile tests
+          at the current settings — this does not by itself establish quiet ionospheric conditions.
+        </div>
+      )}
+
+      <section className="card" style={{ marginBottom: "0.85rem" }}>
+        <div className="metric-label">Archive status</div>
+        <p className="body-copy" style={{ margin: "0.35rem 0 0" }}>
+          <strong>{archiveAvailable ? "Connected" : "Unavailable"}</strong>
+          {" · "}
+          {archiveSource}
+          {" · "}
+          {archiveWindow}
+          {completeness?.day_count != null ? ` · ${String(completeness.day_count)} days` : ""}
+          {completeness?.missing_day_fraction != null
+            ? ` · missing-day fraction ${fmt(Number(completeness.missing_day_fraction), 2)}`
+            : ""}
+        </p>
+        <p className="small-note" style={{ marginTop: "0.35rem" }}>
+          {typeof methodMeta?.delta_tec === "string" ? methodMeta.delta_tec : "ΔTEC(t) = VTEC_observed − VTEC_quiet"}
+          {" · "}
+          {typeof rotiMeta?.reason === "string"
+            ? `ROTI: ${rotiMeta.reason}`
+            : "ROTI unavailable until satellite-specific high-cadence STEC arcs are exposed."}
+        </p>
+      </section>
 
       <section className="anomaly-summary-grid">
         <div className="card card-accent">
@@ -468,26 +520,26 @@ export default function AnomalyDetectionPage() {
           <div className="metric-value">{anomalyDays.length}</div>
           <p className="small-note">
             {anomalyDays.length
-              ? `${fmt(anomalyRate, 1)}% of archive · threshold ${fmt(threshold)} TECU (${pct}th pct)`
-              : `No days above ${pct}th percentile yet`}
+              ? `${fmt(anomalyRate, 1)}% of archive · +${positiveCount} / −${negativeCount} · threshold ${fmt(threshold)} TECU`
+              : `No ΔTEC / ${pct}th-percentile crossings yet`}
           </p>
         </div>
         <div className="card card-warn">
-          <div className="metric-label">Storm-linked</div>
+          <div className="metric-label">Geomagnetic coincidence</div>
           <div className="metric-value">{stormLinkedCount}</div>
           <p className="small-note">
             {stormLinkedCount
-              ? "High TEC during Kp storm (G1+) — likely space weather"
-              : "No storm-confirmed anomalies in range"}
+              ? "Anomaly with same-day Kp ≥ 5 — investigate further"
+              : "No same-day Kp ≥ 5 coincidences in range"}
           </p>
         </div>
         <div className="card card-ok">
-          <div className="metric-label">Unconfirmed spikes</div>
+          <div className="metric-label">Unconfirmed anomalies</div>
           <div className="metric-value">{unconfirmedCount}</div>
           <p className="small-note">
             {unconfirmedCount
-              ? "Above threshold without Kp storm — check EIA / local effects"
-              : "All anomalies matched storm flags or none flagged"}
+              ? "Flagged without Kp ≥ 5 coincidence — check EIA / local effects"
+              : "All anomalies had a geomagnetic coincidence, or none flagged"}
           </p>
         </div>
         <div className="card card-alert">
@@ -495,8 +547,12 @@ export default function AnomalyDetectionPage() {
           <div className="metric-value">{fmt(maxDay?.mean_vtec)}</div>
           <p className="small-note">
             {maxDay
-              ? `${maxDay.date}${maxDay.anomaly ? " · anomaly" : ""}${maxDay.storm_flag ? " · storm" : ""}`
-              : "No archive data"}
+              ? `${maxDay.date}${maxDay.anomaly ? " · anomaly" : ""}${
+                  maxDay.geomagnetic_coincidence || maxDay.storm_flag ? " · Kp coincidence" : ""
+                }`
+              : archiveAvailable
+                ? "Archive loaded · no daily means"
+                : "Archive unavailable"}
           </p>
         </div>
       </section>
@@ -568,19 +624,31 @@ export default function AnomalyDetectionPage() {
           </div>
 
           <div className="card">
-            <div className="metric-label">Daily mean VTEC with anomaly threshold</div>
+            <div className="metric-label">Daily mean VTEC with ΔTEC anomaly markers</div>
             <p className="small-note">
-              Values above the dashed threshold are flagged. Orange markers mean a geomagnetic storm (Kp ≥ 5) occurred the same day —
-              strong evidence the TEC rise was space-weather driven.
+              Red markers are positive anomalies; purple markers are negative anomalies. Orange markers
+              indicate a same-day Kp ≥ 5 geomagnetic coincidence that warrants further assessment with
+              SYM-H, IMF Bz, solar wind and TEC timing — not automatic storm causation.
             </p>
             <LineChart
               labels={anomalies.map((a) => a.date)}
               datasets={[
                 { label: "VTEC (TECU)", data: anomalies.map((a) => a.mean_vtec), color: "#168bd2" },
-                { label: "Anomaly days", data: anomalies.map((a) => (a.anomaly ? a.mean_vtec : NaN)), color: "#ff4444" },
                 {
-                  label: "Kp storm days",
-                  data: anomalies.map((a) => (a.storm_flag ? a.mean_vtec : NaN)),
+                  label: "Positive ΔTEC",
+                  data: anomalies.map((a) => (a.positive_anomaly ? a.mean_vtec : NaN)),
+                  color: "#ff4444",
+                },
+                {
+                  label: "Negative ΔTEC",
+                  data: anomalies.map((a) => (a.negative_anomaly && !a.positive_anomaly ? a.mean_vtec : NaN)),
+                  color: "#a855f7",
+                },
+                {
+                  label: "Kp coincidence",
+                  data: anomalies.map((a) =>
+                    a.anomaly && (a.geomagnetic_coincidence || a.storm_flag) ? a.mean_vtec : NaN,
+                  ),
                   color: "#ff8c00",
                 },
               ]}

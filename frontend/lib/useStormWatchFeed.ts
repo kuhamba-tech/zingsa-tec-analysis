@@ -2,12 +2,14 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
+  getEarlyWarningSnapshot,
   getEkfAlertLog,
   getEkfStatus,
   getSolarActivity,
   getSpaceWeather,
   getStormAlertStatus,
 } from "@/lib/api";
+import type { EarlyWarningSnapshot } from "@/lib/earlyWarningTypes";
 import type {
   EkfAlert,
   EkfStatus,
@@ -24,17 +26,20 @@ export function useStormWatchFeed(hours = 168) {
   const [stormStatus, setStormStatus] = useState<StormAlertStatus | null>(null);
   const [ekf, setEkf] = useState<EkfStatus | null>(null);
   const [solar, setSolar] = useState<SolarActivityFull | null>(null);
+  const [earlyWarning, setEarlyWarning] = useState<EarlyWarningSnapshot | null>(null);
   const [solarError, setSolarError] = useState(false);
   const [loading, setLoading] = useState(true);
   const [now, setNow] = useState(() => Date.now());
 
   const load = useCallback(async () => {
-    const [alertsR, swR, statusR, ekfR, solarR] = await Promise.allSettled([
+    const [alertsR, swR, statusR, ekfR, solarR, earlyR] = await Promise.allSettled([
       getEkfAlertLog(hours),
       getSpaceWeather(),
       getStormAlertStatus(),
       getEkfStatus(),
       getSolarActivity(false, true),
+      // Read stored alerts; evaluation is owned by the server cron / evaluate endpoint.
+      getEarlyWarningSnapshot(hours, false),
     ]);
 
     if (alertsR.status === "fulfilled") setAlerts(alertsR.value);
@@ -47,6 +52,7 @@ export function useStormWatchFeed(hours = 168) {
     } else {
       setSolarError(true);
     }
+    if (earlyR.status === "fulfilled") setEarlyWarning(earlyR.value);
     setNow(Date.now());
     setLoading(false);
   }, [hours]);
@@ -65,6 +71,7 @@ export function useStormWatchFeed(hours = 168) {
     ekf,
     solar,
     solarError,
+    earlyWarning,
     now,
     loading,
     reload: load,

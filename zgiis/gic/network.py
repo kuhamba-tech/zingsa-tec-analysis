@@ -145,23 +145,13 @@ MONITORING_STATIONS: list[dict] = [
     },
 ]
 
-# ── GIC magnitude interpretation bands (from the literature) ─────────────────
-# <5 A quiet; ≥10 A "large" per the EPRI SUNBURST occurrence study
-# (Space Weather, 2023); 25–35 A onset of even-order harmonic generation via
-# asymmetric half-cycle transformer core saturation and >30 A increased
-# reactive power draw (~0.026–0.038 MVAr/A) per the Gannon-storm transformer
-# response study (Space Weather, 2024).
+# Provisional monitoring categories; not transformer damage thresholds.
 RISK_BANDS: list[dict] = [
-    {"level": "Quiet", "min_abs_a": 0.0, "color": "#00ff88",
-     "meaning": "Background level — no transformer impact expected."},
-    {"level": "Elevated", "min_abs_a": 5.0, "color": "#a3e635",
-     "meaning": "Above background — watch space-weather indices."},
-    {"level": "Large", "min_abs_a": 10.0, "color": "#ff8c00",
-     "meaning": "Large GIC event (EPRI SUNBURST criterion). Log and cross-check Kp/Dst."},
-    {"level": "High", "min_abs_a": 25.0, "color": "#ff4444",
-     "meaning": "Even-order harmonic generation likely — asymmetric half-cycle core saturation onset."},
-    {"level": "Severe", "min_abs_a": 35.0, "color": "#d946ef",
-     "meaning": "Transformer core saturation with increased reactive power draw (~0.03 MVAr/A). Risk of heating/tripping."},
+    {"level": "Quiet", "min_abs_a": 0., "color": "#00ff88", "meaning": "Provisional category 0; transformer effects unassessed."},
+    {"level": "Elevated", "min_abs_a": 5., "color": "#a3e635", "meaning": "Provisional category 1; review magnitude, polarity, quality and duration."},
+    {"level": "Large", "min_abs_a": 10., "color": "#ff8c00", "meaning": "Provisional category 2; an event-screening level, not a damage criterion."},
+    {"level": "High", "min_abs_a": 25., "color": "#ff4444", "meaning": "Provisional category 3; engineering interpretation is site-specific."},
+    {"level": "Severe", "min_abs_a": 35., "color": "#d946ef", "meaning": "Provisional category 4; no universal heating or reactive-power conversion."},
 ]
 
 

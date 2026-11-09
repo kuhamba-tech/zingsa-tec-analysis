@@ -109,6 +109,8 @@ def evaluate(series_by_param: dict[str, list[EkfPoint]]) -> dict:
 
     alerts: list[dict] = []
     for param, s in status.items():
+        if param == "gic":
+            continue  # Unvalidated GIC residuals must never become operational alerts.
         if not s["available"] or s["ratio"] is None or s["ratio"] < 1.0:
             continue
 

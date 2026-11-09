@@ -92,29 +92,45 @@ export async function downloadSpaceWeatherReportPdf(report: SpaceWeatherReport) 
   doc.setFontSize(9);
   doc.text(`Window: ${fmtUtc(report.window_start)} → ${fmtUtc(report.window_end)}`, 14, y);
   y += 5;
-  doc.text(`Samples: ${report.sample_count} · Impact: ${report.impact.label}`, 14, y);
+  doc.text(`Archived records: ${report.sample_count}`, 14, y);
   y += 8;
 
-  doc.setFont("helvetica", "bold");
-  doc.text("Executive summary", 14, y);
-  y += 5;
-  doc.setFont("helvetica", "normal");
-  const summaryLines = doc.splitTextToSize(report.executive_summary, 182);
-  doc.text(summaryLines, 14, y);
-  y += summaryLines.length * 4.5 + 4;
+  const paragraph = (text: string, bold = false) => {
+    doc.setFont("helvetica", bold ? "bold" : "normal");
+    doc.setFontSize(bold ? 11 : 9);
+    const lines: string[] = doc.splitTextToSize(text, 182);
+    for (const line of lines) {
+      if (y > 276) { doc.addPage(); y = 20; }
+      doc.text(line, 14, y);
+      y += 4.8;
+    }
+    y += 3;
+  };
+  paragraph("Automated scientific assessment / scientist review not recorded");
+  paragraph("Assessment at a glance", true);
+  paragraph(report.sections?.length ? report.executive_summary : "Structured assessment unavailable. The archived measurements below do not independently establish local impacts.");
+  for (const section of report.sections ?? []) {
+    if (y > 255) { doc.addPage(); y = 20; }
+    paragraph(section.title, true);
+    for (const text of section.paragraphs) paragraph(text);
+  }
+  if (report.references?.length) {
+    paragraph("Scientific reference framework", true);
+    for (const reference of report.references) paragraph(`${reference.title}: ${reference.url}`);
+  }
+  if (y > 245) { doc.addPage(); y = 20; }
 
   if (report.parameters.length) {
     y = await addTable(
       doc,
       y,
-      [["Parameter", "Current", "Trend", "Interpretation"]],
+      [["Parameter", "Latest archived value", "Archive trend"]],
       report.parameters.map((p) => [
         p.name,
         p.current != null ? `${fmtNum(p.current)}${p.unit ? ` ${p.unit}` : ""}` : "—",
         p.trend,
-        p.interpretation.slice(0, 120),
       ]),
-      "Key parameters",
+      "Latest archived measurements",
     );
   }
 
@@ -128,7 +144,7 @@ export async function downloadSpaceWeatherReportPdf(report: SpaceWeatherReport) 
         s.availability_pct != null ? fmtNum(s.availability_pct, 1) : "—",
         s.rtk_note.slice(0, 80),
       ]),
-      "CORS network impact",
+      "CORS service availability (not impact attribution)",
     );
   }
 
@@ -239,6 +255,14 @@ export async function downloadGicReportPdf(report: GicReport) {
   doc.text(`Samples: ${report.sample_count}`, 14, y);
   y += 8;
 
+  if (report.coverage) {
+    y = await addTable(doc, y, [["Observation coverage", "Value"]], [
+      ["Stored / valid records", `${report.coverage.records} / ${report.coverage.valid_records}`],
+      ["Expected sampling cadence (s)", report.coverage.cadence_seconds == null ? "Unknown" : String(report.coverage.cadence_seconds)],
+      ["Missing data (%)", report.coverage.missing_pct == null ? "Unknown; cadence required" : String(report.coverage.missing_pct)],
+      ["Duration method", report.duration_method ?? "Observed adjoining intervals only"],
+    ], "Data quality and coverage");
+  }
   if (report.statistics) {
     const s = report.statistics;
     y = await addTable(
@@ -251,7 +275,7 @@ export async function downloadGicReportPdf(report: GicReport) {
         ["Mean GIC (A)", fmtNum(s.mean_a, 2)],
         ["Std dev (A)", fmtNum(s.std_a, 2)],
         ["95th percentile |GIC| (A)", fmtNum(s.p95_abs_a, 2)],
-        ["Large-GIC events (≥10 A)", String(report.events.length)],
+        [`Events >= ${report.event_threshold_a ?? 10} A (monitoring)`, String(report.events.length)],
       ],
       "Statistics",
     );
@@ -261,9 +285,9 @@ export async function downloadGicReportPdf(report: GicReport) {
     y = await addTable(
       doc,
       y,
-      [["Risk band", "Minutes", "Samples"]],
+      [["Monitoring category", "Observed minutes", "Samples"]],
       report.band_minutes.map((b) => [b.level, String(b.minutes), String(b.samples)]),
-      "Risk-band occupancy",
+      "Monitoring category occupancy",
     );
   }
 
@@ -297,8 +321,12 @@ export async function downloadGicReportPdf(report: GicReport) {
     doc.setFont("helvetica", "normal");
     for (const note of report.interpretation) {
       const lines = doc.splitTextToSize(`• ${note}`, 182);
-      doc.text(lines, 14, y);
-      y += lines.length * 4.5;
+      for (const line of lines as string[]) {
+        if (y > 276) { doc.addPage(); y = 20; }
+        doc.text(line, 14, y);
+        y += 4.5;
+      }
+      y += 2;
     }
   }
 

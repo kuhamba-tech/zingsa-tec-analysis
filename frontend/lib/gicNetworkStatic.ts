@@ -137,11 +137,11 @@ const MONITORING_STATIONS = [
 ] as const;
 
 const RISK_BANDS = [
-  { level: "Quiet", min_abs_a: 0, color: "#00ff88", meaning: "Background level — no transformer impact expected." },
-  { level: "Elevated", min_abs_a: 5, color: "#a3e635", meaning: "Above background — watch space-weather indices." },
-  { level: "Large", min_abs_a: 10, color: "#ff8c00", meaning: "Large GIC event (EPRI SUNBURST criterion). Log and cross-check Kp/Dst." },
-  { level: "High", min_abs_a: 25, color: "#ff4444", meaning: "Even-order harmonic generation likely — asymmetric half-cycle core saturation onset." },
-  { level: "Severe", min_abs_a: 35, color: "#d946ef", meaning: "Transformer core saturation with increased reactive power draw (~0.03 MVAr/A). Risk of heating/tripping." },
+  { level: "Quiet", min_abs_a: 0, color: "#00ff88", meaning: "Provisional category 0; transformer effects unassessed." },
+  { level: "Elevated", min_abs_a: 5, color: "#a3e635", meaning: "Provisional category 1; review quality, polarity and duration." },
+  { level: "Large", min_abs_a: 10, color: "#ff8c00", meaning: "Provisional event-screening category; not a damage criterion." },
+  { level: "High", min_abs_a: 25, color: "#ff4444", meaning: "Provisional category 3; interpretation requires site engineering." },
+  { level: "Severe", min_abs_a: 35, color: "#d946ef", meaning: "Provisional category 4; no universal reactive-power conversion." },
 ] as const;
 
 function buildNetwork(): GicNetwork {

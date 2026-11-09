@@ -24,6 +24,8 @@ async function proxy(req: NextRequest, pathParts: string[]) {
   const headers = new Headers();
   const apiKey = req.headers.get("x-api-key") || process.env.NEXT_PUBLIC_API_KEY;
   if (apiKey) headers.set("X-API-Key", apiKey);
+  const gicAdminKey = req.headers.get("x-gic-admin-key");
+  if (gicAdminKey) headers.set("X-GIC-Admin-Key", gicAdminKey);
   const accept = req.headers.get("accept");
   if (accept) headers.set("Accept", accept);
   headers.set("User-Agent", "ZGIIS-Next-Proxy/1.0");

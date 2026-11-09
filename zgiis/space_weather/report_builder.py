@@ -6,12 +6,14 @@ from typing import Any
 
 import pandas as pd
 
+from zgiis.space_weather.report_narrative import scientific_assessment
+
 REPORT_WINDOWS: dict[str, dict[str, Any]] = {
     "hourly": {"hours": 1.0, "label": "Hourly Report (Last 1 Hour)", "resample": None},
-    "daily": {"hours": 24.0, "label": "Daily Report (Today)", "resample": "15min"},
-    "weekly": {"hours": 168.0, "label": "Weekly Report (This Week)", "resample": "1h"},
-    "monthly": {"hours": 720.0, "label": "Monthly Report (This Month)", "resample": "3h"},
-    "yearly": {"hours": 8760.0, "label": "Yearly Report (This Year)", "resample": "1D"},
+    "daily": {"hours": 24.0, "label": "Daily Report (Last 24 Hours)", "resample": "15min"},
+    "weekly": {"hours": 168.0, "label": "Weekly Report (Last 7 Days)", "resample": "1h"},
+    "monthly": {"hours": 720.0, "label": "Monthly Report (Last 30 Days)", "resample": "3h"},
+    "yearly": {"hours": 8760.0, "label": "Yearly Report (Last 365 Days)", "resample": "1D"},
 }
 
 _REPORT_NUMERIC_COLUMNS = (
@@ -52,14 +54,17 @@ def _trend(series: pd.Series) -> str:
     mid = len(s) // 2
     first = float(s.iloc[:mid].mean())
     second = float(s.iloc[mid:].mean())
-    if second > first * 1.05:
+    tolerance = max(abs(first) * 0.05, 1e-6)
+    if second > first + tolerance:
         return "rising"
-    if second < first * 0.95:
+    if second < first - tolerance:
         return "falling"
     return "stable"
 
 
 def _impact_level(kp: float | None, dst: float | None, s4: float | None, gnss: str | None) -> dict[str, str]:
+    if all(value is None for value in (kp, dst, s4)) and not gnss:
+        return {"label": "INSUFFICIENT DATA", "color": "#94a3b8", "risk": "Unknown"}
     score = 0
     if kp is not None and kp >= 5:
         score += 2
@@ -79,12 +84,12 @@ def _impact_level(kp: float | None, dst: float | None, s4: float | None, gnss: s
         score += 1
 
     if score >= 4:
-        return {"label": "HIGH IMPACT", "color": "#ff4444", "risk": "High"}
+        return {"label": "HIGH INDICATOR LEVEL", "color": "#ff4444", "risk": "High"}
     if score >= 2:
-        return {"label": "MODERATE IMPACT", "color": "#ff8c00", "risk": "Moderate"}
+        return {"label": "MODERATE INDICATOR LEVEL", "color": "#ff8c00", "risk": "Moderate"}
     if score >= 1:
-        return {"label": "LOW IMPACT", "color": "#00ff88", "risk": "Low"}
-    return {"label": "LOW IMPACT", "color": "#00ff88", "risk": "Low"}
+        return {"label": "LOW INDICATOR LEVEL", "color": "#00ff88", "risk": "Low"}
+    return {"label": "LOW INDICATOR LEVEL", "color": "#00ff88", "risk": "Low"}
 
 
 def _interpret_kp(v: float | None) -> str:
@@ -115,7 +120,7 @@ def _interpret_wind(v: float | None) -> str:
     if v is None:
         return "No solar-wind data"
     if v >= 650:
-        return "Storm-level solar wind"
+        return "Fast solar wind; assess IMF coupling"
     if v >= 550:
         return "Elevated solar-wind speed"
     if v >= 450:
@@ -142,7 +147,7 @@ def _interpret_tec(v: float | None) -> str:
         return "Elevated TEC — monitor GNSS"
     if v >= 25:
         return "Moderate TEC levels"
-    return "Typical TEC for quiet conditions"
+    return "Electron content; local reference needed"
 
 
 def _interpret_s4(v: float | None) -> str:
@@ -155,28 +160,6 @@ def _interpret_s4(v: float | None) -> str:
     if v >= 0.15:
         return "Weak scintillation"
     return "Minimal scintillation"
-
-
-def _executive_summary(df: pd.DataFrame, impact: dict[str, str]) -> str:
-    if df.empty:
-        return (
-            "Insufficient logged dashboard data for this reporting window. "
-            "Keep the backend running so the space-weather logger can archive samples, then regenerate."
-        )
-    kp = df["kp"].dropna()
-    dst = df["dst"].dropna()
-    s4 = df["s4"].dropna()
-    parts = [
-        f"Automated analysis of the selected interval indicates {impact['label'].lower()} on GNSS and power-grid monitoring."
-    ]
-    if not kp.empty:
-        parts.append(f"Kp reached {float(kp.max()):.1f} (mean {float(kp.mean()):.1f}).")
-    if not dst.empty:
-        parts.append(f"Dst ranged from {float(dst.min()):.0f} to {float(dst.max()):.0f} nT.")
-    if not s4.empty:
-        parts.append(f"Scintillation S4 peaked at {float(s4.max()):.3f}.")
-    parts.append("All values are derived from the logged archive — nothing is simulated.")
-    return " ".join(parts)
 
 
 def build_space_weather_report(
@@ -192,7 +175,7 @@ def build_space_weather_report(
 
     from zgiis.db.space_weather_db import read_log_dataframe
 
-    df = read_log_dataframe(hours=win_hours, resample=meta.get("resample"))
+    df = read_log_dataframe(hours=win_hours, resample=None)
     if df.empty:
         return {
             "period": period,
@@ -202,7 +185,7 @@ def build_space_weather_report(
             "generated_utc": _utc_iso(now),
             "sample_count": 0,
             "impact": _impact_level(None, None, None, None),
-            "executive_summary": _executive_summary(df, _impact_level(None, None, None, None)),
+            **scientific_assessment(df),
             "parameters": [],
             "gnss_stations": [],
             "overall_availability_pct": None,
@@ -221,11 +204,11 @@ def build_space_weather_report(
     s4_cur = _float(latest.get("s4"))
     gnss_cur = str(latest.get("gnss_risk") or "")
 
-    impact = _impact_level(kp_cur, dst_cur, s4_cur, gnss_cur)
+    impact = _impact_level(_float(df["kp"].max()), _float(df["dst"].min()), _float(df["s4"].max()), gnss_cur)
 
     parameters = [
         {"name": "Kp Index", "current": kp_cur, "trend": _trend(df["kp"]), "interpretation": _interpret_kp(kp_cur)},
-        {"name": "Dst Index", "current": dst_cur, "trend": _trend(df["dst"]), "interpretation": _interpret_dst(dst_cur)},
+        {"name": "Dst Index", "unit": "nT", "current": dst_cur, "trend": _trend(df["dst"]), "interpretation": _interpret_dst(dst_cur)},
         {"name": "Solar Wind Speed", "current": wind_cur, "unit": "km/s", "trend": _trend(df["plasma_speed"]), "interpretation": _interpret_wind(wind_cur)},
         {"name": "Solar Flux (F10.7)", "current": f107_cur, "unit": "sfu", "trend": _trend(df["f107"]), "interpretation": _interpret_f107(f107_cur)},
         {"name": "TEC (Network Mean)", "current": tec_cur, "unit": "TECU", "trend": _trend(df["mean_vtec"]), "interpretation": _interpret_tec(tec_cur)},
@@ -256,7 +239,7 @@ def build_space_weather_report(
         if i % step != 0 and i != len(df) - 1:
             continue
         t = r["time"]
-        labels.append(t.strftime("%H:%M") if hasattr(t, "strftime") else str(t)[11:16])
+        labels.append(t.strftime("%m-%d %H:%M" if win_hours > 24 else "%H:%M") if hasattr(t, "strftime") else str(t)[:16])
         kp_chart.append(_float(r.get("kp")))
         dst_chart.append(_float(r.get("dst")))
         tec_chart.append(_float(r.get("mean_vtec")))
@@ -269,7 +252,7 @@ def build_space_weather_report(
         "generated_utc": _utc_iso(now),
         "sample_count": int(len(df)),
         "impact": impact,
-        "executive_summary": _executive_summary(df, impact),
+        **scientific_assessment(df),
         "parameters": parameters,
         "gnss_stations": gnss_stations,
         "overall_availability_pct": overall_avail,
@@ -290,21 +273,10 @@ def _float(v: Any) -> float | None:
 
 def _rtk_note(online_pct: float, s4: float | None) -> str:
     if online_pct < 80:
-        return "Reduced — check NTRIP"
-    if s4 is not None and s4 >= 0.4:
-        return "Degraded — scintillation"
-    if s4 is not None and s4 >= 0.25:
-        return "Moderate cm-level"
-    return "Nominal cm-level"
+        return "Reduced service availability; investigate station and link health"
+    return "Service availability only; positioning accuracy not assessed"
 
 
 def _risk_message(risk: str, s4: float | None, kp: float | None) -> str:
-    if risk == "High":
-        return "Elevated geomagnetic or scintillation activity — expect GNSS impacts."
-    if risk == "Moderate":
-        return "Some degradation possible for precision GNSS users."
-    if s4 is not None and s4 >= 0.3:
-        return "Scintillation may affect RTK at low elevations."
-    if kp is not None and kp >= 4:
-        return "Active conditions — monitor Kp and Dst."
-    return "No significant impact expected."
+    return (f"{risk} environmental indicator level under the dashboard screening rules. "
+            "This is not a calibrated impact probability or a NOAA warning; local operational effects require independent confirmation.")

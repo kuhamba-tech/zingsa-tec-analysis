@@ -37,8 +37,7 @@ export default function GicGuidePanel() {
           <div>
             <strong>What we measure</strong>
             <p>
-              Clamp sensors on transformer neutrals at Dema and Alaska substations record current in amperes (A).
-              Data flows via Campbell CR1000 loggers to the platform for live charts and archival reports.
+              The existing programme registry identifies GMW CPCO sensors, Campbell CR1000 loggers and Raspberry Pi gateways at Dema and Alaska. These descriptions are retained; actual commissioning and received current measurements require independent verification.
             </p>
           </div>
         </div>
@@ -48,7 +47,7 @@ export default function GicGuidePanel() {
             <strong>Network map</strong>
             <p>
               HV substations and transmission lines across Zimbabwe, plus ZPC generation plants linked to the grid.
-              Green markers = live GIC data; blue = sensor installed but awaiting data.
+              Markers identify registered sites and stored observation history; they do not independently verify commissioning. Coordinates and line topology remain schematic pending an authoritative ZETDC register.
             </p>
           </div>
         </div>
@@ -57,22 +56,16 @@ export default function GicGuidePanel() {
           <div>
             <strong>Forecast &amp; alerts</strong>
             <p>
-              Observed GIC is compared with an Extended Kalman Filter (EKF) prediction. Large deviations trigger
-              alerts cross-checked against Kp, Dst, and solar-wind indices from the space-weather feed.
+              The EKF is retained for research validation against measured GIC and simple baselines. Operational prediction overlays and residual warnings remain disabled pending independent evaluation and engineering approval.
             </p>
           </div>
         </div>
       </div>
 
       <div className="anomaly-legend-box">
-        <div className="metric-label">GIC risk levels (EPRI / operational guide)</div>
-        <ul className="anomaly-legend-list">
-          <li><span className="anomaly-swatch" style={{ background: "#00ff88" }} /> <strong>Quiet (&lt; 5 A)</strong> — background; no transformer impact expected</li>
-          <li><span className="anomaly-swatch" style={{ background: "#a3e635" }} /> <strong>Elevated (5–10 A)</strong> — watch Kp/Dst and space-weather conditions</li>
-          <li><span className="anomaly-swatch" style={{ background: "#ff8c00" }} /> <strong>Large (10–25 A)</strong> — log event; EPRI SUNBURST large-GIC criterion</li>
-          <li><span className="anomaly-swatch" style={{ background: "#ff4444" }} /> <strong>High (25–35 A)</strong> — harmonic generation and asymmetric saturation possible</li>
-          <li><span className="anomaly-swatch" style={{ background: "#d946ef" }} /> <strong>Severe (&gt; 35 A)</strong> — core saturation risk; increased reactive draw and heating</li>
-        </ul>
+        <div className="metric-label">Provisional monitoring categories / default 5, 10, 25 and 35 A</div>
+        <p>These are descriptive screening categories, not universal transformer damage thresholds. Approved site-specific settings can replace the defaults. Interpret signed current together with duration, quality, transformer metadata and local engineering diagnostics. No universal reactive-power consumption per ampere is assumed.</p>
+
       </div>
 
       <p className="small-note" style={{ marginTop: "0.75rem" }}>

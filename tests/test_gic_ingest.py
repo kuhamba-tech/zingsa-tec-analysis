@@ -22,12 +22,12 @@ class GicIngestTests(unittest.TestCase):
     def test_parse_toa5_header(self):
         toa5 = b'''"TOA5",1,CR1000,12345,CRBasic,2.0,0,0,Example
 TIMESTAMP,GIC_Avg,PTemp_C
-TS,Watts,C
+TS,A,C
 Avg,Avg,Inst
 2024-06-01 12:00:00,1.25,21.5
 2024-06-01 12:01:00,2.50,21.4
 '''
-        rows = parse_gic_file(toa5, "table.dat", "ALASKA_001")
+        rows = parse_gic_file(toa5, "table.dat", "ALASKA_001", logger_timezone="UTC")
         self.assertEqual(len(rows), 2)
         self.assertEqual(rows[0]["station_id"], "ALASKA_001")
         self.assertAlmostEqual(rows[1]["gic_a"], 2.5)

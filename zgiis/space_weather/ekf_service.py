@@ -68,7 +68,7 @@ def compute_ekf_status(
             geomagnetic=geo,
         )
 
-    recent = db.list_alerts(hours=6)
+    recent = [alert for alert in db.list_alerts(hours=6) if alert.get("parameter") != "gic"]
     alarm = build_alarm_summary(kp=kp, dst=dst, alerts=stored_alerts or recent)
     notify = channels_configured()
 

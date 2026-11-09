@@ -244,6 +244,21 @@ export interface SpaceWeatherReportCharts {
   tec: (number | null)[];
 }
 
+export interface SpaceWeatherReportDiurnalCard {
+  id: string;
+  label: string;
+  value: number | null;
+  unit: string;
+  status: string;
+  status_label: string;
+  value_color: string;
+  expected_low: number;
+  expected_high: number;
+  sample_count: number;
+  hours_cat: number[];
+  note: string;
+}
+
 export interface SpaceWeatherReport {
   period: SpaceWeatherReportPeriod;
   period_label: string;
@@ -253,6 +268,9 @@ export interface SpaceWeatherReport {
   sample_count: number;
   impact: { label: string; color: string; risk: string };
   executive_summary: string;
+  sections?: { id: string; title: string; paragraphs: string[] }[];
+  diurnal_cards?: SpaceWeatherReportDiurnalCard[];
+  references?: { title: string; url: string }[];
   parameters: SpaceWeatherReportParameter[];
   gnss_stations: SpaceWeatherReportGnssStation[];
   overall_availability_pct: number | null;
@@ -620,15 +638,23 @@ export interface AnomalyDay {
   anomaly: boolean;
   threshold: number;
   max_vtec?: number | null;
+  min_vtec?: number | null;
+  low_threshold?: number | null;
+  anomaly_polarity?: string | null;
+  positive_anomaly?: boolean;
+  negative_anomaly?: boolean;
+  quiet_baseline_tecu?: number | null;
   tec_anomaly_flag?: boolean;
   storm_flag?: boolean;
   kp_storm_flag?: boolean;
+  geomagnetic_coincidence?: boolean;
   kp?: number | null;
   dst?: number | null;
   kp_severity?: string | null;
   tec_response?: string | null;
   tec_response_z?: number | null;
   tec_deviation_tecu?: number | null;
+  samples?: number | null;
 }
 
 export interface StormComparisonDoy {
@@ -664,6 +690,10 @@ export interface AnomalyAnalysisResponse {
   diurnal: DiurnalPoint[];
   seasonal: SeasonalRow[];
   solar_cycle: SolarCycleRow[];
+  archive?: Record<string, unknown> | null;
+  completeness?: Record<string, unknown> | null;
+  roti?: Record<string, unknown> | null;
+  method?: Record<string, unknown> | null;
 }
 
 export interface TecHeatmapResponse {
@@ -2012,6 +2042,8 @@ export interface GicNetwork {
 }
 
 export interface GicStationStatus {
+  reporting?: boolean;
+  data_age_seconds?: number | null;
   station_id: string;
   name: string;
   substation: string | null;
@@ -2058,6 +2090,7 @@ export interface GicDeviationStatus {
 }
 
 export interface GicSeriesResponse {
+  monitoring_bands?: GicRiskBand[];
   station_id: string;
   hours: number;
   resample: string | null;
@@ -2133,6 +2166,9 @@ export interface GicLiveModel {
 export type GicReportPeriod = "hourly" | "daily" | "weekly" | "monthly" | "yearly";
 
 export interface GicReport {
+  coverage?: import("./gicOperations").GicCoverage;
+  event_threshold_a?: number;
+  duration_method?: string;
   station_id: string;
   period: GicReportPeriod;
   period_label: string;

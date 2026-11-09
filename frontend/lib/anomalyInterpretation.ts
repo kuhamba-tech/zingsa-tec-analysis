@@ -27,11 +27,11 @@ export function deviationPercent(day: AnomalyDay): number | null {
 function severityFromDay(day: AnomalyDay, above: number): AnomalySeverity {
   if (!day.anomaly) return "quiet";
   const kp = day.kp ?? 0;
-  const z = day.tec_response_z ?? 0;
-  if (day.storm_flag && kp >= 7) return "severe";
-  if (day.storm_flag && kp >= 5) return "high";
-  if (above >= 15 || z >= 3) return "high";
-  if (above >= 5 || z >= 2) return "moderate";
+  const z = Math.abs(day.tec_response_z ?? 0);
+  if (day.geomagnetic_coincidence && kp >= 7) return "severe";
+  if (day.geomagnetic_coincidence && kp >= 5) return "high";
+  if (Math.abs(above) >= 15 || z >= 3) return "high";
+  if (Math.abs(above) >= 5 || z >= 2) return "moderate";
   return "low";
 }
 
@@ -39,49 +39,59 @@ export function interpretAnomalyDay(day: AnomalyDay, thresholdPct: number): Anom
   const above = deviationAboveThreshold(day) ?? 0;
   const severity = severityFromDay(day, above);
   const pctStr = `${thresholdPct}th percentile`;
-  const aboveStr = above > 0 ? `+${above.toFixed(1)} TECU above threshold` : "at threshold";
+  const deltaStr =
+    above > 0 ? `ΔTEC +${above.toFixed(1)} TECU` : above < 0 ? `ΔTEC ${above.toFixed(1)} TECU` : "ΔTEC ≈ 0";
+  const polarity = day.anomaly_polarity ?? (day.negative_anomaly ? "negative" : day.positive_anomaly ? "positive" : "none");
+  const coincidence = Boolean(day.geomagnetic_coincidence ?? day.storm_flag);
 
   if (!day.anomaly) {
     return {
       category: "Normal",
       severity: "quiet",
       headline: "Within expected range",
-      detail: `Mean VTEC stayed below the ${pctStr} cutoff (${day.threshold.toFixed(1)} TECU).`,
+      detail: `Mean VTEC stayed inside the quiet-reference / ${pctStr} envelope (${day.threshold.toFixed(1)} TECU high threshold).`,
       recommendation: "No action required — ionosphere behaved normally for this archive day.",
     };
   }
 
-  if (day.storm_flag) {
-    const stormLabel = day.kp_severity ?? (day.kp != null && day.kp >= 5 ? "Geomagnetic storm" : "Storm period");
+  if (polarity === "negative" || day.tec_response === "Negative ionospheric response") {
     return {
-      category: "Storm-linked",
-      severity,
-      headline: `${stormLabel} — TEC elevated`,
-      detail: `Mean VTEC ${day.mean_vtec.toFixed(1)} TECU (${aboveStr}). Kp ${day.kp?.toFixed(1) ?? "—"}${
-        day.dst != null ? `, Dst ${day.dst.toFixed(0)} nT` : ""
-      }. ${day.tec_response ?? "Positive ionospheric response expected during disturbed conditions."}`,
+      category: coincidence ? "Negative TEC · geomagnetic coincidence" : "Negative TEC storm",
+      severity: severity === "quiet" ? "moderate" : severity,
+      headline: coincidence
+        ? "TEC depletion with same-day geomagnetic coincidence"
+        : "TEC depletion relative to quiet-time reference",
+      detail: `Mean VTEC ${day.mean_vtec.toFixed(1)} TECU (${deltaStr}). ${
+        coincidence
+          ? `Kp ${day.kp?.toFixed(1) ?? "—"}${day.dst != null ? `, Dst ${day.dst.toFixed(0)} nT` : ""} coincided on this day — investigate SYM-H, IMF Bz, solar wind and TEC timing before attributing cause.`
+          : "No Kp ≥ 5 coincidence. Assess data completeness, masking and regional gradients before treating as an operational alert."
+      }`,
       recommendation:
-        "Treat as space-weather driven. Check GNSS accuracy, scintillation (S4), and compare with PRN Explorer for satellite-specific effects.",
+        "Review the time series for depletion timing. Cross-check CORS completeness and scintillation before GNSS impact decisions.",
     };
   }
 
-  if (day.tec_response === "Negative ionospheric response") {
+  if (coincidence) {
+    const stormLabel = day.kp_severity ?? (day.kp != null && day.kp >= 5 ? "G1+ geomagnetic conditions" : "Storm period");
     return {
-      category: "Depression",
-      severity: severity === "quiet" ? "moderate" : severity,
-      headline: "TEC below quiet baseline",
-      detail: `Mean VTEC ${day.mean_vtec.toFixed(1)} TECU flagged as an anomaly but ionospheric response was negative vs prior quiet days.`,
-      recommendation: "Review time series — may indicate data gap, masking, or unusual depletion rather than a storm enhancement.",
+      category: "Positive TEC · geomagnetic coincidence",
+      severity,
+      headline: `${stormLabel} — TEC enhancement requires further assessment`,
+      detail: `Mean VTEC ${day.mean_vtec.toFixed(1)} TECU (${deltaStr}). Kp ${day.kp?.toFixed(1) ?? "—"}${
+        day.dst != null ? `, Dst ${day.dst.toFixed(0)} nT` : ""
+      }. Same-day Kp ≥ 5 is a geomagnetic coincidence, not proof that the TEC change was storm-driven.`,
+      recommendation:
+        "Investigate with SYM-H, IMF Bz, solar-wind timing and CORS TEC/S4. Confirm GNSS effects locally before issuing an impact alert.",
     };
   }
 
   return {
-    category: "Unconfirmed spike",
+    category: "Unconfirmed enhancement",
     severity,
-    headline: "High TEC without storm flag",
-    detail: `Mean VTEC ${day.mean_vtec.toFixed(1)} TECU (${aboveStr}). No Kp ≥ 5 storm on this day — could be Equatorial Ionospheric Anomaly (EIA), post-sunset enhancement, or regional gradient.`,
+    headline: "High TEC without geomagnetic coincidence",
+    detail: `Mean VTEC ${day.mean_vtec.toFixed(1)} TECU (${deltaStr}). No Kp ≥ 5 coincidence — could be Equatorial Ionospheric Anomaly (EIA), post-sunset enhancement, or a regional gradient.`,
     recommendation:
-      "Cross-check TEC heatmap and diurnal profile. Confirm on time series before treating as operational alert.",
+      "Cross-check TEC heatmap and diurnal profile. Confirm on time series before treating as an operational alert.",
   };
 }
 

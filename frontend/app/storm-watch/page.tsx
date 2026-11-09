@@ -1,11 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import StormWatchLog from "@/components/spaceWeather/StormWatchLog";
-import StormWatchSummary from "@/components/spaceWeather/StormWatchSummary";
+import styles from "@/components/spaceWeather/EarlyWarningCentre.module.css";
+import EarlyWarningCentre from "@/components/spaceWeather/EarlyWarningCentre";
 import StormWatchGuidePanel from "@/components/spaceWeather/StormWatchGuidePanel";
-import OperationalAlerts from "@/components/spaceWeather/OperationalAlerts";
-import ZimbabweIndexAlerts from "@/components/spaceWeather/ZimbabweIndexAlerts";
 import { useStormWatchFeed } from "@/lib/useStormWatchFeed";
 
 export default function StormWatchPage() {
@@ -17,26 +15,35 @@ export default function StormWatchPage() {
     ekf,
     solar,
     solarError,
+    earlyWarning,
     now,
     loading,
   } = useStormWatchFeed(168);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.4rem" }}>
-      <div className="dashboard-header-copy">
-        <h1 className="page-title">Alerts</h1>
-        <p className="page-subtitle">
-          Zimbabwe codes when a measured index passes its limit, then NOAA SWPC bulletins and the
-          ionospheric disturbance log.
-        </p>
-      </div>
+      <header className={styles.pageHeader}>
+        <div><span className={styles.eyebrow}>ZINGSA / Space weather intelligence</span>
+          <h1>Alerts Centre</h1>
+          <p>Monitor developing threats. Understand local impact. Stay informed.</p>
+        </div>
+        <Link className={styles.contextLink} href="/space-weather/">View live space weather <span aria-hidden="true">{"\u2197"}</span></Link>
+      </header>
 
-      <ZimbabweIndexAlerts sw={sw} solar={solar} now={now} />
-      <OperationalAlerts solar={solar} now={now} refreshFailed={solarError} />
+      <EarlyWarningCentre
+        snapshot={earlyWarning}
+        loading={loading}
+        sw={sw}
+        solar={solar}
+        solarError={solarError}
+        now={now}
+        stormStatus={stormStatus}
+        ekf={ekf}
+        ekfAlerts={alerts}
+        onEkfAlertsChange={setAlerts}
+      />
 
       <StormWatchGuidePanel />
-      <StormWatchSummary sw={sw} stormStatus={stormStatus} ekf={ekf} loading={loading} />
-      <StormWatchLog alerts={alerts} onAlertsChange={setAlerts} hours={168} />
 
       <p style={{ fontSize: "0.82rem", color: "var(--text-muted)", margin: 0 }}>
         Broader solar and heliospheric context stays on{" "}

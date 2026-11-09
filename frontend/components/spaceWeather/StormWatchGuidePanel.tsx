@@ -9,16 +9,16 @@ export default function StormWatchGuidePanel() {
       <div className="anomaly-guide-header">
         <div>
           <div className="metric-label">About this page</div>
-          <h2 className="anomaly-guide-title">What Storm Watch is for</h2>
+          <h2 className="anomaly-guide-title">What the Alerts Centre covers</h2>
         </div>
       </div>
 
       <p className="body-copy">
-        Storm Watch is ZINGSA&apos;s <strong>operational geomagnetic alerting centre</strong>. It monitors live
-        space-weather indices — primarily <strong>Kp</strong> and <strong>Dst</strong> — and raises watches
-        and alarms when thresholds associated with geomagnetic storms are crossed. It also logs moments when
-        live ionospheric readings <em>break away from forecast</em>, giving operators an early signal before
-        official storm scales fully escalate.
+        This is ZINGSA&apos;s <strong>operational space-weather alerts centre</strong>. It applies national
+        operating thresholds to live indices — primarily <strong>Kp</strong>, <strong>Dst</strong>, solar-wind
+        drivers, and Zimbabwe CORS TEC / S4 — and raises watches when those limits are crossed. Filter
+        residuals are logged when live readings diverge from the Extended Kalman Filter forecast, giving
+        operators an early signal of ionospheric disturbance.
       </p>
 
       <div className="anomaly-guide-grid">

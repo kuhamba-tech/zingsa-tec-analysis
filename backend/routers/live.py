@@ -31,6 +31,14 @@ from backend.schemas import (
 router = APIRouter(prefix="/live", tags=["live"])
 
 
+@router.get("/day-night-tec")
+async def day_night_tec(_=Depends(require_api_key)):
+    """Measured GOPI day and night profiles. Missing hours stay empty."""
+    from zgiis.processing.day_night_tec import build_day_night
+
+    return await asyncio.to_thread(build_day_night, _db())
+
+
 @router.get("/tec-climatology")
 async def tec_climatology(
     start: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),

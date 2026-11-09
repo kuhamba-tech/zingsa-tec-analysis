@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 import pandas as pd
 
 from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
+from zgiis.processing.measured_tec import measured_gopi_clause
 from zgiis.processing.north_south_tec_research import zimbabwe_lat_band
 
 VERSION = "tec-climatology-1"
@@ -61,14 +62,15 @@ def read_bins(db, start, end, minutes):
     bucket = f"CAST(FLOOR({epoch} / {int(minutes)*60}) AS BIGINT) * {int(minutes)*60}"
     # Old records may predate the idempotency migration. De-duplicate their
     # scientific identity in the query without deleting historical records.
+    measured, measured_params = measured_gopi_clause(marker, elevation=False)
     sql = f"""SELECT station, {bucket} AS bucket, AVG(vtec_tecu) AS vtec,
                      COUNT(*) AS observations
         FROM (SELECT time, station, constellation, prn, tec_method, AVG(vtec_tecu) AS vtec_tecu
               FROM vtec_obs WHERE time >= {marker} AND time < {marker}
-              AND tec_method LIKE {marker} AND vtec_tecu > 0 AND vtec_tecu < 200
+              AND {measured}
               GROUP BY time, station, constellation, prn, tec_method) AS measured
         GROUP BY station, {bucket} ORDER BY bucket, station"""
-    return db._read_sql(sql, [start.isoformat(), end.isoformat(), "%code_live%"])
+    return db._read_sql(sql, [start.isoformat(), end.isoformat(), *measured_params])
 
 
 def summarize(frame, key, expected, station_codes):
