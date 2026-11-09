@@ -5,6 +5,7 @@ import { getSolarBrief, type SolarBriefResponse } from "@/lib/api";
 import type { SolarActivityFull, SpaceWeatherCurrent } from "@/lib/types";
 import {
   buildZimbabweIndexAlerts,
+  buildZingsaSpaceWeatherUpdate,
   densityWords,
   fieldWords,
   formatAlertUtc,
@@ -32,7 +33,11 @@ function numberText(value: number | null | undefined, digits: number, suffix: st
   return suffix ? `${number} ${suffix}` : number;
 }
 
-function forecastSentence(brief: SolarBriefResponse): string {
+function forecastSentence(
+  brief: SolarBriefResponse,
+  sw: SpaceWeatherCurrent | null,
+  solar: SolarActivityFull | null,
+): string {
   const parts: string[] = [];
   if (brief.earth_directed_cme === false) {
     parts.push("No Earth-directed coronal mass ejection is reported in the current coronagraph assessment.");
@@ -49,7 +54,8 @@ function forecastSentence(brief: SolarBriefResponse): string {
     const window = brief.expected_kp_window ? ` for ${brief.expected_kp_window}` : "";
     parts.push(`Greatest expected 3-hour Kp${window}: ${brief.expected_kp}${scale}.`);
   }
-  parts.push("Zimbabwe impact is confirmed only when measured CORS TEC or S4 changes.");
+  const update = buildZingsaSpaceWeatherUpdate(sw, solar, brief);
+  parts.push(update.couplingLine, update.localLine);
   return parts.join(" ");
 }
 
@@ -113,6 +119,7 @@ export default function ZimbabweIndexAlerts({
   const bt = magFresh ? solar?.solar_wind?.bt : null;
   const bz = magFresh ? solar?.solar_wind?.bz : null;
   const regionCount = brief?.earth_facing_region_count ?? brief?.spotted_region_count ?? null;
+  const update = buildZingsaSpaceWeatherUpdate(sw, solar, brief);
 
   return (
     <section className={`card ${styles.panel}`} aria-labelledby="zimbabwe-index-alerts-title">
@@ -134,6 +141,14 @@ export default function ZimbabweIndexAlerts({
           {alerts.length ? `${alerts.length} past limit` : "Within limits"}
         </div>
       </header>
+
+      <div className={styles.section}>
+        <h3 className={styles.heading}>
+          {update.title}
+          {retrieved ? <span className={styles.headingMeta}> · {retrieved}</span> : null}
+        </h3>
+        <p className={styles.copy}>{update.body}</p>
+      </div>
 
       <div className={styles.section}>
         <h3 className={styles.heading}>
@@ -220,7 +235,9 @@ export default function ZimbabweIndexAlerts({
             : "GOES flare summary for today and yesterday is unavailable."}
         </p>
         <h3 className={styles.heading}>Outlook</h3>
-        <p className={styles.copy}>{brief ? forecastSentence(brief) : "Solar outlook is loading…"}</p>
+        <p className={styles.copy}>
+          {brief ? forecastSentence(brief, sw, solar) : "Solar outlook is loading…"}
+        </p>
       </div>
 
       <div className={styles.section}>

@@ -21,13 +21,15 @@ const GIC_LIMITS = [
   { level: "Severe", min: 35, color: "#d946ef" },
 ] as const;
 
+type GicLimitBand = (typeof GIC_LIMITS)[number];
+
 const fmt = (v: number | null | undefined, digits = 1) => v == null ? "Unknown" : v.toFixed(digits);
 const when = (v: string | null | undefined) => v ? `${v.replace("T", " ").slice(0, 19)} UTC` : "No valid observation";
 const age = (v: number | null | undefined) => v == null ? "Unknown" : v < 0 ? "Clock ahead" : v < 120 ? `${v.toFixed(0)} s` : v < 7200 ? `${(v / 60).toFixed(0)} min` : `${(v / 3600).toFixed(1)} h`;
 
-function gicLimit(absA: number | null | undefined) {
+function gicLimit(absA: number | null | undefined): Pick<GicLimitBand, "level" | "color"> | { level: "Unknown"; color: string } {
   if (absA == null || !Number.isFinite(absA)) return { level: "Unknown", color: MUTED };
-  let selected = GIC_LIMITS[0];
+  let selected: GicLimitBand = GIC_LIMITS[0];
   for (const band of GIC_LIMITS) {
     if (Math.abs(absA) >= band.min) selected = band;
   }

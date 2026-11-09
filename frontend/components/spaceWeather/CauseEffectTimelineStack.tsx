@@ -5,7 +5,6 @@ import LocalIonosphereObservations from "./LocalIonosphereObservations";
 import DeferredMount from "./DeferredMount";
 import SpaceWeatherCorsMap from "./SpaceWeatherCorsMap";
 import SwSectionBanner from "./SwSectionBanner";
-import TecPrimerBlock from "./TecPrimerBlock";
 import dynamic from "next/dynamic";
 import { getHeliosphericMonitor, getLiveVtecByStation, getTimelines } from "@/lib/api";
 import { getLoadProfile } from "@/lib/loadBudget";
@@ -45,15 +44,12 @@ const GoesXrayLastDayChart = dynamic(() => import("./GoesXrayLastDayChart"), {
     <div className="banner banner-info" role="status">Loading chart…</div>
   ),
 });
-
-const PRIORITY_STATIONS = ["hara", "bula", "masv", "kari", "beit"] as const;
-const STATION_COLORS: Record<string, string> = {
-  hara: "#38bdf8",
-  bula: "#fbbf24",
-  masv: "#a78bfa",
-  kari: "#34d399",
-  beit: "#f97316",
-};
+const ZimbabweMeanDiurnalTec = dynamic(() => import("@/components/charts/ZimbabweMeanDiurnalTec"), {
+  ssr: false,
+  loading: () => (
+    <div className="banner banner-info" role="status">Loading mean daily TEC…</div>
+  ),
+});
 
 const FLARE_THRESHOLDS = [
   { value: 1e-6, label: "C", color: "#f97316" },
@@ -265,9 +261,9 @@ export default function CauseEffectTimelineStack({
   variant?: CauseEffectVariant;
   /** Inserted after GOES X-ray (e.g. F10.7 sun metric on Live Metric). */
   afterSun?: ReactNode;
-  /** Inserted after Zimbabwe VTEC (e.g. CORS online timeline on Live Metric). */
+  /** Inserted after mean daily TEC (e.g. CORS online timeline on Live Metric). */
   afterVtec?: ReactNode | ((sync: TimelineSync) => ReactNode);
-  /** First panel number for local VTEC/GNSS when drivers are omitted (default 1). */
+  /** First panel number for local TEC/GNSS when drivers are omitted (default 1). */
   localStartNumber?: number;
   /**
    * When false, skip ionosphere strip + CORS map (caller mounts them earlier so
@@ -442,17 +438,6 @@ export default function CauseEffectTimelineStack({
     return () => { cancelled = true; window.clearInterval(poll); window.clearInterval(clock); };
   }, [rangeHours, showDrivers, showLocal, fetchVtec, showChrome, vtecHours, vtecResample]);
 
-  const plottedStations = useMemo(() => {
-    const available = vtec.filter((station) => station.points?.length);
-    return [...available].sort((a, b) => {
-      const rank = (code: string) => {
-        const index = (PRIORITY_STATIONS as readonly string[]).indexOf(code.toLowerCase().replace(/_+$/, ""));
-        return index < 0 ? PRIORITY_STATIONS.length : index;
-      };
-      return rank(a.station) - rank(b.station);
-    }).slice(0, 5);
-  }, [vtec]);
-
   const syncProps = {
     syncHoverMs,
     onSyncHoverMs: setSyncHoverMs,
@@ -542,21 +527,6 @@ export default function CauseEffectTimelineStack({
     });
   }, [timelines]);
 
-  const vtecPanelRaw = useMemo(() => {
-    const set = new Set<string>();
-    for (const s of plottedStations) for (const p of s.points) set.add(p.time);
-    const times = [...set].sort();
-    if (!times.length || !plottedStations.length) return null;
-    const labels = times;
-    const epochs = times.map((t) => parseTimelineEpoch(t));
-    const series: Record<string, (number | null)[]> = {};
-    for (const s of plottedStations) {
-      const byTime = new Map(s.points.map((p) => [p.time, p.vtec_tecu]));
-      series[s.station] = times.map((t) => byTime.get(t) ?? null);
-    }
-    return chronologicalSeries(labels, epochs, series);
-  }, [plottedStations]);
-
   const timeDomain = useMemo(() => {
     if (!now) return null;
     return alignTimeDomain(now - rangeHours * ONE_H_MS, now, rangeHours <= 8 ? ONE_H_MS : SIX_H_MS);
@@ -571,10 +541,6 @@ export default function CauseEffectTimelineStack({
   const dstPanel = useMemo(
     () => clipOrFallback(dstPanelRaw, timeDomain),
     [dstPanelRaw, timeDomain],
-  );
-  const vtecPanel = useMemo(
-    () => clipOrFallback(vtecPanelRaw, timeDomain),
-    [vtecPanelRaw, timeDomain],
   );
   const gnssPanelClipped = useMemo(
     () => clipOrFallback(gnssPanel, timeDomain),
@@ -630,11 +596,11 @@ export default function CauseEffectTimelineStack({
       bullets: [KP_BEAT, DST_BEAT, ZIMBABWE_TRANSLATION],
     },
     vtec: {
-      lead: "Zimbabwe CORS VTEC. This is the local sentence after the solar and geomagnetic beats.",
+      lead: "Mean daily TEC for northern, central and southern Zimbabwe. This is the local sentence after the solar and geomagnetic beats.",
       bullets: [
         TEC_BEAT,
-        "Night is often 1–10 TECU and a quiet day 10–40 TECU. Near the 2024 maximum, quiet days reached 50–100 TECU. Above about 200 TECU is extreme.",
-        "Stations share one UTC axis. A rise after sunrise that repeats every day is the EUV curve. A rise that lines up with southward Bz and Kp ≥ 5 is the storm departure.",
+        "Blue is northern Zimbabwe (north of −18.2°), orange is central (north of −20.2°), and yellow is southern. Solid lines are observed hourly means; bars are the sample standard deviation; dashed lines are DLR global TEC at the same stations.",
+        "A rise after sunrise that repeats every day is the EUV curve. A rise that lines up with southward Bz and Kp ≥ 5 is the storm departure from the regional diurnal shape.",
       ],
     },
     gnss: {
@@ -659,10 +625,10 @@ export default function CauseEffectTimelineStack({
     variant === "drivers"
       ? "Measurement flow: GOES X-ray → solar wind → IMF → geomagnetic activity. Shared UTC window and synchronized crosshair across panels 1–4."
       : variant === "local"
-        ? "Zimbabwe CORS VTEC, station online counts, and scintillation / GNSS risk only — shared UTC window with synchronized crosshair. Up to five station traces; VTEC history up to 7 days. Planetary Kp colour bands are on the Kp Scale tab."
+        ? "Mean daily TEC by Zimbabwe latitude band, station online counts, and scintillation / GNSS risk only. Planetary Kp colour bands are on the Kp Scale tab."
         : variant === "liveMetric"
-          ? "Measurement flow: GOES X-ray → F10.7 → Heliospheric Monitor → Zimbabwe VTEC → CORS online → scintillation / GNSS risk."
-          : "Shared UTC window and synchronized crosshair. Compare observations and propagation delays; alignment alone does not establish cause and effect. Up to five station traces are shown; coverage above includes all returned stations. Local VTEC history is available for up to 7 days.";
+          ? "Measurement flow: GOES X-ray → F10.7 → Heliospheric Monitor → mean daily TEC → CORS online → scintillation / GNSS risk."
+          : "Shared UTC window and synchronized crosshair. Compare observations and propagation delays; alignment alone does not establish cause and effect. Local TEC uses northern / central / southern hourly means from measured GOPI code TEC.";
 
   const hasDriverData = Boolean(helio || timelines);
   const hasLocalData = Boolean(timelines || vtec.length > 0);
@@ -910,45 +876,13 @@ export default function CauseEffectTimelineStack({
           {showLocal && (
             <>
               <Panel
-                title={`${nVtec} · Zimbabwe VTEC`}
-                subtitle="Live CORS stations · local ionospheric response"
+                title={`${nVtec} · Mean daily TEC — northern, central and southern Zimbabwe`}
+                subtitle="Hourly GOPI regional means · observed ± std · dashed DLR global TEC"
                 analysis={analyses.vtec}
                 open={openPanel === "vtec"}
                 onToggle={() => setOpenPanel((p) => (p === "vtec" ? null : "vtec"))}
               >
-                {vtecPanel ? (
-                  <LineChart
-                    labels={vtecPanel.labels}
-                    yLabel="VTEC (TECU)"
-                    height={190}
-                    toggleableLegend
-                    xValues={vtecPanel.epochs}
-                    epochMs={vtecPanel.epochs}
-                    {...timeAxis}
-                    {...syncProps}
-                    datasets={Object.entries(vtecPanel.series).map(([station, data]) => {
-                      const code = station.toLowerCase().replace(/_+$/, "");
-                      return {
-                        label: `${station.toUpperCase()} VTEC`,
-                        data,
-                        color: STATION_COLORS[code] ?? "#94a3b8",
-                      };
-                    })}
-                  />
-                ) : (
-                  <div className="banner banner-info">
-                    {vtecLoading
-                      ? "Loading station VTEC…"
-                      : vtecRefreshFailed
-                        ? "Station VTEC observations are unavailable. Retrying automatically."
-                        : "No VTEC measurements received in this time range. Online station status does not supply TEC data; a configured NTRIP collector is required."}
-                  </div>
-                )}
-                {openPanel === "vtec" && (
-                  <div style={{ marginTop: "0.65rem" }}>
-                    <TecPrimerBlock compact />
-                  </div>
-                )}
+                <ZimbabweMeanDiurnalTec embedded />
               </Panel>
 
               {typeof afterVtec === "function" ? afterVtec({ timeDomain, ...syncProps }) : afterVtec}

@@ -193,6 +193,10 @@ export function buildSpaceWeatherLayman(
         : `Solar wind ${fmtNum(wind, 0)} km/s (near-Earth plasma context)`,
     );
   }
+  readout.push(
+    `Live coupling: Kp ${fmtNum(kp)} · Dst ${fmtNum(dst, 0)} nT` +
+      (vtec != null ? ` · Zimbabwe VTEC ${fmtNum(vtec, 1)} TECU` : ""),
+  );
 
   return {
     headline: headlines[tone],

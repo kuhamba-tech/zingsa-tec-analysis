@@ -1383,7 +1383,6 @@ export default function SpaceWeatherClient({
                         fallback={sectionFallback}
                       >
                         <TecGradientMaps />
-                        <ZimbabweMeanDiurnalTec />
                       </DeferredMount>
                     </>
                   )}

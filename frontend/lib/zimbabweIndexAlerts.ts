@@ -111,6 +111,105 @@ export function orientationWords(bz: number): string {
   return "Mixed";
 }
 
+export type ZingsaSpaceWeatherUpdate = {
+  title: string;
+  body: string;
+  /** Live Bz / Kp / Dst sentence — no “read the indices” wording. */
+  couplingLine: string;
+  localLine: string;
+};
+
+type SolarBriefLike = {
+  earth_facing_region_count?: number | null;
+  spotted_region_count?: number | null;
+  m_percent?: number | null;
+  x_percent?: number | null;
+  c_percent?: number | null;
+} | null;
+
+function fmtLive(value: number | null | undefined, digits: number, suffix = ""): string {
+  if (!finite(value)) return "unavailable";
+  const text = value.toFixed(digits);
+  return suffix ? `${text} ${suffix}` : text;
+}
+
+/**
+ * Public ZINGSA Space Weather Update. Live Bz, Kp and Dst are written into the
+ * sentence — never replaced with “read Bz / Kp / Dst”.
+ */
+export function buildZingsaSpaceWeatherUpdate(
+  sw: SpaceWeatherCurrent | null,
+  solar: SolarActivityFull | null,
+  brief: SolarBriefLike = null,
+): ZingsaSpaceWeatherUpdate {
+  const windFresh = feedFresh(solar, "solar_wind_plasma");
+  const magFresh = feedFresh(solar, "solar_wind_mag");
+  const speed = windFresh && finite(solar?.solar_wind?.speed) && solar.solar_wind.speed > 0
+    ? solar.solar_wind.speed
+    : finite(sw?.plasma_speed) && sw.plasma_speed > 0
+      ? sw.plasma_speed
+      : null;
+  const bz = magFresh && finite(solar?.solar_wind?.bz) ? solar.solar_wind.bz : null;
+  const kp = finite(sw?.kp) ? sw.kp : null;
+  const dst = finite(sw?.dst) ? sw.dst : null;
+  const vtec = finite(sw?.mean_vtec) ? sw.mean_vtec : null;
+  const s4 = finite(sw?.s4) ? sw.s4 : null;
+
+  const regions = brief?.earth_facing_region_count ?? brief?.spotted_region_count ?? null;
+  const flareBits = [
+    brief?.c_percent != null ? `C-class ${brief.c_percent}%` : null,
+    brief?.m_percent != null ? `M-class ${brief.m_percent}%` : null,
+    brief?.x_percent != null ? `X-class ${brief.x_percent}%` : null,
+  ].filter(Boolean);
+
+  const windSentence = speed == null
+    ? "Solar wind speed at L1 is unavailable from the current NOAA/SWPC sample."
+    : speed >= 700
+      ? `Solar wind at L1 is ${fmtLive(speed, 0, "km/s")} (NOAA/SWPC), above 700 km/s.`
+      : speed >= WIND_LIMIT
+        ? `Solar wind at L1 is ${fmtLive(speed, 0, "km/s")} (NOAA/SWPC), above the fast-stream threshold of ${WIND_LIMIT} km/s.`
+        : `Solar wind at L1 is ${fmtLive(speed, 0, "km/s")} (NOAA/SWPC).`;
+
+  const sunSentence = regions == null
+    ? "Earth-facing sunspot region count is unavailable."
+    : `${regions} Earth-facing sunspot region${regions === 1 ? "" : "s"}${
+        flareBits.length ? ` · flare chances ${flareBits.join(", ")}` : ""
+      }.`;
+
+  const bzText = bz == null
+    ? "IMF Bz unavailable"
+    : `IMF Bz ${fmtLive(bz, 1, "nT")} (${orientationWords(bz)})`;
+  const kpText = kp == null
+    ? "Kp unavailable"
+    : `Kp ${fmtLive(kp, 1)} (${kpWords(kp)})`;
+  const dstText = dst == null
+    ? "Dst unavailable"
+    : `Dst ${fmtLive(dst, 0, "nT")}`;
+
+  const couplingLine = speed != null && speed >= WIND_LIMIT
+    ? `High speed alone is not a geomagnetic storm: ${bzText}, ${kpText}, ${dstText}.`
+    : `Geomagnetic coupling now: ${bzText}, ${kpText}, ${dstText}.`;
+
+  const localLine = `Zimbabwe VTEC is ${
+    vtec == null ? "unavailable" : `${fmtLive(vtec, 1, "TECU")}`
+  } and S4 is ${
+    s4 == null ? "unavailable" : fmtLive(s4, 2)
+  }. Local impact is confirmed only when measured CORS TEC or S4 changes with the disturbance.`;
+
+  return {
+    title: "ZINGSA Space Weather Update",
+    body: [
+      windSentence,
+      sunSentence,
+      "A flare’s radio/HF effects on the sunlit ionosphere begin when the flare light reaches Earth (GOES detection already includes that travel time).",
+      couplingLine,
+      localLine,
+    ].join(" "),
+    couplingLine,
+    localLine,
+  };
+}
+
 function flareLetter(flareClass: string | null | undefined): "C" | "M" | "X" | null {
   const match = (flareClass || "").trim().match(/^([CMX])/i);
   if (!match) return null;
@@ -209,7 +308,11 @@ export function buildZimbabweIndexAlerts(
       limitText: `${WIND_LIMIT} km/s (fast).`,
       severity: speed >= 700 ? "Severe" : "High",
       meaning: `Solar wind speed is ${signed(speed, 0)} km/s, above the fast-wind threshold of ${WIND_LIMIT} km/s.`,
-      explanation: "A fast stream can elevate geomagnetic activity when the interplanetary field turns south. Zimbabwe impact is confirmed only on measured TEC and S4.",
+      explanation: `A fast stream can elevate geomagnetic activity when Bz is southward. Now: IMF Bz ${
+        bz == null ? "unavailable" : `${signed(bz, 1)} nT (${orientationWords(bz)})`
+      }, Kp ${finite(sw?.kp) ? signed(sw.kp, 1) : "unavailable"}, Dst ${
+        finite(sw?.dst) ? `${signed(sw.dst, 0)} nT` : "unavailable"
+      }. Zimbabwe impact is confirmed only on measured TEC and S4.`,
     }, validity(windTime, 15, now));
   }
 

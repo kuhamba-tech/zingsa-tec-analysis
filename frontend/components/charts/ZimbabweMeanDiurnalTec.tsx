@@ -249,7 +249,12 @@ async function loadRegionalDailyRows(
   return lastRows;
 }
 
-export default function ZimbabweMeanDiurnalTec() {
+export default function ZimbabweMeanDiurnalTec({
+  embedded = false,
+}: {
+  /** Hide the outer title when the parent panel already names the chart. */
+  embedded?: boolean;
+} = {}) {
   const [rows, setRows] = useState<LiveStationVtecSeries[] | null>(null);
   const [globalRows, setGlobalRows] = useState<LiveStationVtecSeries[] | null>(null);
   const [failed, setFailed] = useState(false);
@@ -406,19 +411,28 @@ export default function ZimbabweMeanDiurnalTec() {
 
   return (
     <section className="station-vtec-plots" aria-label="Mean daily TEC by Zimbabwe region">
-      <div className="station-vtec-plots-header">
-        <div>
-          <h2 className="metric-label" style={{ marginBottom: 4, whiteSpace: "normal", overflow: "visible" }}>
-            Mean daily TEC — {regionTitle}
-          </h2>
-          <p className="sw-supporting-text" style={{ margin: 0 }}>
-            Mean GOPI code TEC at each Universal Time hour. {regionNote} The solid line is the
-            observed mean. The bars are the standard deviation of the measured samples in that
-            hour. The dashed line is DLR global TEC at the same stations. Surveyor General sites
-            are not included. Period: {period}.
-          </p>
+      {!embedded && (
+        <div className="station-vtec-plots-header">
+          <div>
+            <h2 className="metric-label" style={{ marginBottom: 4, whiteSpace: "normal", overflow: "visible" }}>
+              Mean daily TEC — {regionTitle}
+            </h2>
+            <p className="sw-supporting-text" style={{ margin: 0 }}>
+              Mean GOPI code TEC at each Universal Time hour. {regionNote} The solid line is the
+              observed mean. The bars are the standard deviation of the measured samples in that
+              hour. The dashed line is DLR global TEC at the same stations. Surveyor General sites
+              are not included. Period: {period}.
+            </p>
+          </div>
         </div>
-      </div>
+      )}
+      {embedded && (
+        <p className="sw-supporting-text" style={{ margin: "0 0 0.55rem" }}>
+          Mean GOPI code TEC at each Universal Time hour. {regionNote} Solid = observed mean;
+          bars = standard deviation; dashed = DLR global TEC. Surveyor General sites excluded.
+          Period: {period}.
+        </p>
+      )}
       {days.length > 0 && (
         <div className="station-vtec-plots-controls">
           <div className="station-vtec-day-filters" role="group" aria-label="UTC day">
