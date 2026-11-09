@@ -133,9 +133,98 @@ function fmtLive(value: number | null | undefined, digits: number, suffix = ""):
   return suffix ? `${text} ${suffix}` : text;
 }
 
+function windMeaning(speed: number): string {
+  if (speed >= 700) {
+    return "This is a very fast stream: solar-wind pressure on Earth’s magnetic field is elevated, but a geomagnetic storm still needs sustained southward Bz plus rising Kp or falling Dst.";
+  }
+  if (speed >= WIND_LIMIT) {
+    return `This is a fast stream (ZINGSA fast threshold ${WIND_LIMIT} km/s): coupling can strengthen if Bz turns south, yet speed alone does not open a G-scale storm.`;
+  }
+  if (speed >= 450) {
+    return "This is a moderately enhanced wind: near-Earth plasma is slightly elevated, with storm risk still set by Bz, Kp and Dst.";
+  }
+  return "This is a typical or slow wind: background solar-wind drive is modest unless Bz, Kp or Dst show a disturbance.";
+}
+
+function bzMeaning(bz: number): string {
+  const orient = orientationWords(bz);
+  if (bz <= -10) {
+    return `Bz ${fmtLive(bz, 1, "nT")} (${orient}) means strong southward coupling: the solar wind can efficiently transfer energy into the magnetosphere and raise storm odds.`;
+  }
+  if (bz <= BZ_LIMIT) {
+    return `Bz ${fmtLive(bz, 1, "nT")} (${orient}) means southward coupling above ZINGSA’s ${BZ_LIMIT} nT watch line: geomagnetic activity can build if it holds.`;
+  }
+  if (bz < 0) {
+    return `Bz ${fmtLive(bz, 1, "nT")} (${orient}) means mild southward orientation: some coupling is possible, but it is below the ZINGSA southward watch line of ${BZ_LIMIT} nT.`;
+  }
+  if (bz >= 0.5) {
+    return `Bz ${fmtLive(bz, 1, "nT")} (${orient}) means northward field: coupling is weak and a high-speed stream is less likely to drive a storm while Bz stays north.`;
+  }
+  return `Bz ${fmtLive(bz, 1, "nT")} (${orient}) means near-zero north–south field: coupling is weak or intermittent.`;
+}
+
+function kpMeaning(kp: number): string {
+  const label = kpWords(kp);
+  if (kp < 3) {
+    return `Kp ${fmtLive(kp, 1)} (${label}) means planetary geomagnetic activity is quiet (below unsettled Kp 3 and well below G1 at Kp 5).`;
+  }
+  if (kp < 4) {
+    return `Kp ${fmtLive(kp, 1)} (${label}) means unsettled planetary activity: elevated for quiet days, still below Active (Kp 4) and G1 (Kp 5).`;
+  }
+  if (kp < 5) {
+    return `Kp ${fmtLive(kp, 1)} (${label}) means active geomagnetic conditions: write Active, not storm — NOAA G1 starts at Kp 5.`;
+  }
+  if (kp < 6) {
+    return `Kp ${fmtLive(kp, 1)} (${label}) means a minor planetary storm (NOAA G1): global geomagnetic activity is elevated; Zimbabwe impact still needs local TEC/S4 confirmation.`;
+  }
+  return `Kp ${fmtLive(kp, 1)} (${label}) means a stronger planetary storm level: treat global storm context as elevated and confirm Zimbabwe CORS TEC and S4 before claiming local GNSS impact.`;
+}
+
+function dstMeaning(dst: number): string {
+  if (dst <= -100) {
+    return `Dst ${fmtLive(dst, 0, "nT")} means an intense ring-current depression: a strong main-phase geomagnetic storm signature at low latitudes.`;
+  }
+  if (dst <= -50) {
+    return `Dst ${fmtLive(dst, 0, "nT")} means a moderate storm-time depression (through about −50 nT): main-phase storm context, not a NOAA G-scale label by itself.`;
+  }
+  if (dst <= DST_LIMIT) {
+    return `Dst ${fmtLive(dst, 0, "nT")} is past ZINGSA’s ${DST_LIMIT} nT watch line: weak-to-moderate ring-current disturbance is under way.`;
+  }
+  if (dst <= -20) {
+    return `Dst ${fmtLive(dst, 0, "nT")} is a mild negative shift: slight ring-current activity, still short of ZINGSA’s ${DST_LIMIT} nT watch line.`;
+  }
+  return `Dst ${fmtLive(dst, 0, "nT")} is near quiet ring-current levels: no storm-main-phase signature in Dst right now.`;
+}
+
+function vtecMeaning(vtec: number): string {
+  if (vtec >= 100) {
+    return `Network VTEC ${fmtLive(vtec, 1, "TECU")} is storm/extreme for many quiet-day bands: expect larger ionospheric delay and verify precision GNSS.`;
+  }
+  if (vtec >= VTEC_LIMIT) {
+    return `Network VTEC ${fmtLive(vtec, 1, "TECU")} is above ZINGSA’s ${VTEC_LIMIT} TECU operating watch line: ionospheric delay is elevated for RTK/CORS users until compared with the diurnal quiet band.`;
+  }
+  if (vtec >= 10) {
+    return `Network VTEC ${fmtLive(vtec, 1, "TECU")} is in a typical daytime/quiet band for many Zimbabwe hours: ordinary ionospheric delay, not by itself a storm claim.`;
+  }
+  return `Network VTEC ${fmtLive(vtec, 1, "TECU")} is low (often night-side or sparse coverage): small absolute delay, still check for rapid change versus the quiet diurnal curve.`;
+}
+
+function s4Meaning(s4: number): string {
+  if (s4 >= 0.7) {
+    return `S4 ${fmtLive(s4, 2)} means strong amplitude scintillation: GNSS fading risk is high on affected links.`;
+  }
+  if (s4 >= S4_LIMIT) {
+    return `S4 ${fmtLive(s4, 2)} is at or above ZINGSA’s ${S4_LIMIT} scintillation watch line: positioning quality can degrade even if Kp is quiet.`;
+  }
+  if (s4 >= 0.15) {
+    return `S4 ${fmtLive(s4, 2)} is mild scintillation: usually tolerable for many users, still watch post-sunset seasons.`;
+  }
+  return `S4 ${fmtLive(s4, 2)} is quiet scintillation: no elevated fading indicated in the current network sample.`;
+}
+
 /**
- * Public ZINGSA Space Weather Update. Live Bz, Kp and Dst are written into the
- * sentence — never replaced with “read Bz / Kp / Dst”.
+ * Public ZINGSA Space Weather Update. Live values are stated with what they
+ * entail for geomagnetic coupling and Zimbabwe GNSS — never “read the indices”.
  */
 export function buildZingsaSpaceWeatherUpdate(
   sw: SpaceWeatherCurrent | null,
@@ -164,37 +253,38 @@ export function buildZingsaSpaceWeatherUpdate(
 
   const windSentence = speed == null
     ? "Solar wind speed at L1 is unavailable from the current NOAA/SWPC sample."
-    : speed >= 700
-      ? `Solar wind at L1 is ${fmtLive(speed, 0, "km/s")} (NOAA/SWPC), above 700 km/s.`
-      : speed >= WIND_LIMIT
-        ? `Solar wind at L1 is ${fmtLive(speed, 0, "km/s")} (NOAA/SWPC), above the fast-stream threshold of ${WIND_LIMIT} km/s.`
-        : `Solar wind at L1 is ${fmtLive(speed, 0, "km/s")} (NOAA/SWPC).`;
+    : `Solar wind at L1 is ${fmtLive(speed, 0, "km/s")} (NOAA/SWPC). ${windMeaning(speed)}`;
 
   const sunSentence = regions == null
     ? "Earth-facing sunspot region count is unavailable."
     : `${regions} Earth-facing sunspot region${regions === 1 ? "" : "s"}${
         flareBits.length ? ` · flare chances ${flareBits.join(", ")}` : ""
-      }.`;
+      }. Those chances are NOAA whole-disk probabilities, not a guarantee of an Earth-directed eruption.`;
 
-  const bzText = bz == null
-    ? "IMF Bz unavailable"
-    : `IMF Bz ${fmtLive(bz, 1, "nT")} (${orientationWords(bz)})`;
-  const kpText = kp == null
-    ? "Kp unavailable"
-    : `Kp ${fmtLive(kp, 1)} (${kpWords(kp)})`;
-  const dstText = dst == null
-    ? "Dst unavailable"
-    : `Dst ${fmtLive(dst, 0, "nT")}`;
+  const bzSentence = bz == null
+    ? "IMF Bz is unavailable, so southward coupling cannot be confirmed from this sample."
+    : bzMeaning(bz);
+  const kpSentence = kp == null
+    ? "Kp is unavailable, so the NOAA G-scale cannot be assigned from this sample."
+    : kpMeaning(kp);
+  const dstSentence = dst == null
+    ? "Dst is unavailable, so ring-current storm phase cannot be confirmed from this sample."
+    : dstMeaning(dst);
 
-  const couplingLine = speed != null && speed >= WIND_LIMIT
-    ? `High speed alone is not a geomagnetic storm: ${bzText}, ${kpText}, ${dstText}.`
-    : `Geomagnetic coupling now: ${bzText}, ${kpText}, ${dstText}.`;
+  const couplingLine = [
+    speed != null && speed >= WIND_LIMIT
+      ? "High solar-wind speed alone is not a geomagnetic storm."
+      : "Geomagnetic coupling is set by Bz with Kp and Dst.",
+    bzSentence,
+    kpSentence,
+    dstSentence,
+  ].join(" ");
 
-  const localLine = `Zimbabwe VTEC is ${
-    vtec == null ? "unavailable" : `${fmtLive(vtec, 1, "TECU")}`
-  } and S4 is ${
-    s4 == null ? "unavailable" : fmtLive(s4, 2)
-  }. Local impact is confirmed only when measured CORS TEC or S4 changes with the disturbance.`;
+  const localLine = [
+    vtec == null ? "Zimbabwe network VTEC is unavailable." : vtecMeaning(vtec),
+    s4 == null ? "S4 is unavailable." : s4Meaning(s4),
+    "Local Zimbabwe impact is confirmed only when measured CORS TEC or S4 changes with the disturbance — not from Kp or solar-wind speed alone.",
+  ].join(" ");
 
   return {
     title: "ZINGSA Space Weather Update",
