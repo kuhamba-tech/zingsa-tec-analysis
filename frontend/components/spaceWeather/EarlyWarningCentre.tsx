@@ -186,10 +186,10 @@ export default function EarlyWarningCentre({
           <span className={styles.feedStatus} role="status"><span />{loading ? "Updating feeds" : unavailable ? "Feed unavailable" : "Snapshot available"}</span>
         </div>
         <div className={styles.stats}>
-          <div><span>Current alerts</span><strong>{count(summary?.active_count ?? active.length)}</strong><small>{snapshot ? `Highest severity: ${summary?.highest_severity ?? "unavailable"}` : "Awaiting alert data"}</small></div>
-          <div><span>Developing watches</span><strong>{count(watches.length)}</strong><small>Early signals and advisories</small></div>
-          <div><span>Zimbabwe GNSS</span><strong>{count(summary?.by_authority?.zimbabwe_gnss ?? 0)}</strong><small>Locally measured impact alerts</small></div>
-          <div><span>Resolved events</span><strong>{count(resolved.length)}</strong><small>Within the last 7 days</small></div>
+          <article className={styles.stat}><span>Current alerts</span><strong>{count(summary?.active_count ?? active.length)}</strong><small>{snapshot ? `Highest severity: ${summary?.highest_severity ?? "unavailable"}` : "Awaiting alert data"}</small></article>
+          <article className={styles.stat}><span>Developing watches</span><strong>{count(watches.length)}</strong><small>Early signals and advisories</small></article>
+          <article className={styles.stat}><span>Zimbabwe GNSS</span><strong>{count(summary?.by_authority?.zimbabwe_gnss ?? 0)}</strong><small>Locally measured impact alerts</small></article>
+          <article className={styles.stat}><span>Resolved events</span><strong>{count(resolved.length)}</strong><small>Within the last 7 days</small></article>
         </div>
       </section>
 

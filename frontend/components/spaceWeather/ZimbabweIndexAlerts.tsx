@@ -122,7 +122,7 @@ export default function ZimbabweIndexAlerts({
   const update = buildZingsaSpaceWeatherUpdate(sw, solar, brief);
 
   return (
-    <section className={`card ${styles.panel}`} aria-labelledby="zimbabwe-index-alerts-title">
+    <section className={`card card-accent ${styles.panel}`} aria-labelledby="zimbabwe-index-alerts-title">
       <header className={styles.header}>
         <div className={styles.brand}>
           <div className={styles.mark} aria-hidden>

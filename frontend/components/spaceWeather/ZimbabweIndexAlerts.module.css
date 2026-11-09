@@ -2,13 +2,17 @@
   display: flex;
   flex-direction: column;
   gap: 1.35rem;
+  font-family: "Inter", system-ui, sans-serif;
+  color: #ffffff;
   background:
-    linear-gradient(165deg, rgba(14, 42, 72, 0.62) 0%, rgba(8, 16, 32, 0.22) 48%, rgba(8, 16, 32, 0) 100%),
-    var(--card, #0a1929);
-  border: 1px solid rgba(56, 189, 248, 0.32);
+    linear-gradient(165deg, rgba(14, 42, 72, 0.55) 0%, rgba(8, 16, 32, 0.18) 48%, rgba(8, 16, 32, 0) 100%),
+    var(--surface, #0a0f1a);
+  border: 1px solid var(--border, #244d73);
+  border-left: 3px solid var(--accent, #168bd2);
+  border-radius: 10px;
   box-shadow:
-    inset 0 1px 0 rgba(148, 210, 255, 0.1),
-    0 10px 28px rgba(2, 8, 20, 0.28);
+    inset 0 1px 0 rgba(148, 210, 255, 0.08),
+    0 8px 22px rgba(2, 8, 20, 0.22);
 }
 
 .header {
@@ -52,7 +56,7 @@
 .titleBlock p {
   margin: 0.28rem 0 0;
   max-width: 42rem;
-  color: #9db2c7;
+  color: #ffffff;
   font-size: 0.84rem;
   line-height: 1.45;
 }
@@ -132,7 +136,7 @@
   border-left: 3px solid rgba(56, 189, 248, 0.35);
   border-radius: 0.55rem;
   padding: 0.55rem 0.65rem;
-  background: rgba(2, 12, 27, 0.55);
+  background: rgba(0, 0, 0, 0.94);
   min-height: 3.6rem;
 }
 
@@ -140,12 +144,12 @@
   border-left-color: var(--fact-accent, #38bdf8);
   background:
     linear-gradient(90deg, color-mix(in srgb, var(--fact-accent, #38bdf8) 14%, transparent), transparent 55%),
-    rgba(2, 12, 27, 0.55);
+    rgba(0, 0, 0, 0.94);
 }
 
 .fact span {
   display: block;
-  color: #8aa0b3;
+  color: #ffffff;
   font-size: 0.66rem;
   font-weight: 700;
   letter-spacing: 0.07em;
@@ -157,13 +161,13 @@
   margin-top: 0.28rem;
   font-size: 0.95rem;
   font-weight: 700;
-  color: #f1f5f9;
+  color: #ffffff;
   line-height: 1.25;
 }
 
 .copy {
   margin: 0;
-  color: #cbd5e1;
+  color: #ffffff;
   font-size: 0.88rem;
   line-height: 1.55;
 }
@@ -190,11 +194,11 @@
 }
 
 .alert {
-  border: 1px solid rgba(56, 189, 248, 0.2);
+  border: 1px solid var(--border, #244d73);
   border-left: 3px solid #38bdf8;
-  border-radius: 0.65rem;
+  border-radius: 10px;
   padding: 0.85rem 0.9rem;
-  background: rgba(2, 12, 27, 0.45);
+  background: rgba(0, 0, 0, 0.94);
   display: flex;
   flex-direction: column;
   gap: 0.45rem;
@@ -255,25 +259,25 @@
   flex-wrap: wrap;
   gap: 0.75rem 1.1rem;
   font-size: 0.84rem;
-  color: #e2e8f0;
+  color: #ffffff;
 }
 
 .metrics strong {
-  color: #94a3b8;
+  color: #7dd3fc;
   font-weight: 700;
   margin-right: 0.3rem;
 }
 
 .body {
   margin: 0;
-  color: #cbd5e1;
+  color: #ffffff;
   font-size: 0.88rem;
   line-height: 1.5;
 }
 
 .validity {
   margin: 0;
-  color: #94a3b8;
+  color: #ffffff;
   font-size: 0.78rem;
   line-height: 1.45;
 }
@@ -283,6 +287,7 @@
   padding: 0.75rem 0.85rem;
   border-radius: 0.55rem;
   border: 1px dashed rgba(148, 163, 184, 0.35);
-  color: #94a3b8;
+  background: rgba(0, 0, 0, 0.94);
+  color: #ffffff;
   font-size: 0.88rem;
 }
