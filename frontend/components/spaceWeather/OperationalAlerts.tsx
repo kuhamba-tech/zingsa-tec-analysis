@@ -37,9 +37,9 @@ function kindTone(kind: string): { color: string; className: string } {
   if (kind === "ALERT") return { color: "#ef4444", className: "is-alert" };
   if (kind === "WARNING") return { color: "#f97316", className: "is-warning" };
   if (kind === "WATCH") return { color: "#eab308", className: "is-watch" };
-  if (kind === "CANCEL") return { color: "#94a3b8", className: "is-cancel" };
+  if (kind === "CANCEL") return { color: "#ffffff", className: "is-cancel" };
   if (kind === "SUMMARY") return { color: "#38bdf8", className: "is-summary" };
-  return { color: "#94a3b8", className: "is-bulletin" };
+  return { color: "#ffffff", className: "is-bulletin" };
 }
 
 export default function OperationalAlerts({

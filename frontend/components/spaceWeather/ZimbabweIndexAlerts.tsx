@@ -1,11 +1,10 @@
 "use client";
 
 import { useEffect, useState, type CSSProperties } from "react";
-import { getSolarBrief, type SolarBriefResponse } from "@/lib/api";
-import type { SolarActivityFull, SpaceWeatherCurrent } from "@/lib/types";
+import { getLiveVtecByStation, getSolarBrief, type SolarBriefResponse } from "@/lib/api";
+import type { LiveStationVtecSeries, SolarActivityFull, SpaceWeatherCurrent } from "@/lib/types";
 import {
   buildZimbabweIndexAlerts,
-  buildZingsaSpaceWeatherUpdate,
   densityWords,
   fieldWords,
   formatAlertUtc,
@@ -14,6 +13,11 @@ import {
   windWords,
   type ZimbabweAlertSeverity,
 } from "@/lib/zimbabweIndexAlerts";
+import {
+  buildZingsaBulletin,
+  type RegionalTecReading,
+  type ZingsaBulletin,
+} from "@/lib/zingsaSpaceWeatherBulletin";
 import {
   dstColor,
   flareProbabilityColor,
@@ -35,8 +39,7 @@ function numberText(value: number | null | undefined, digits: number, suffix: st
 
 function forecastSentence(
   brief: SolarBriefResponse,
-  sw: SpaceWeatherCurrent | null,
-  solar: SolarActivityFull | null,
+  bulletin: ZingsaBulletin,
 ): string {
   const parts: string[] = [];
   if (brief.earth_directed_cme === false) {
@@ -54,8 +57,10 @@ function forecastSentence(
     const window = brief.expected_kp_window ? ` for ${brief.expected_kp_window}` : "";
     parts.push(`Greatest expected 3-hour Kp${window}: ${brief.expected_kp}${scale}.`);
   }
-  const update = buildZingsaSpaceWeatherUpdate(sw, solar, brief);
-  parts.push(update.couplingLine, update.localLine);
+  parts.push(
+    bulletin.sections.geomagnetic.bullets.join(" "),
+    bulletin.sections.gnssGuidance.action,
+  );
   return parts.join(" ");
 }
 
@@ -71,6 +76,13 @@ function severityTextClass(severity: ZimbabweAlertSeverity): string {
   return styles.severityModerate;
 }
 
+function regionStatusClass(status: RegionalTecReading["status"]): string {
+  if (status === "above_expected") return styles.regionAbove;
+  if (status === "below_expected") return styles.regionBelow;
+  if (status === "within_expected") return styles.regionOk;
+  return styles.regionUnavailable;
+}
+
 export default function ZimbabweIndexAlerts({
   sw,
   solar,
@@ -82,6 +94,7 @@ export default function ZimbabweIndexAlerts({
 }) {
   const [brief, setBrief] = useState<SolarBriefResponse | null>(null);
   const [briefFailed, setBriefFailed] = useState(false);
+  const [stationSeries, setStationSeries] = useState<LiveStationVtecSeries[] | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -109,8 +122,36 @@ export default function ZimbabweIndexAlerts({
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      // Short real window — latest CORS samples only; never fabricate missing bands.
+      getLiveVtecByStation(2, 5, 45_000)
+        .then((rows) => {
+          if (!cancelled) setStationSeries(rows);
+        })
+        .catch(() => {
+          if (!cancelled) setStationSeries(null);
+        });
+    };
+    load();
+    const timer = window.setInterval(load, 5 * 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
+
   const clock = new Date(now);
   const alerts = buildZimbabweIndexAlerts(sw, solar, clock);
+  const bulletin = buildZingsaBulletin({
+    sw,
+    solar,
+    brief,
+    stationSeries,
+    alerts,
+    now: clock,
+  });
   const retrieved = formatAlertUtc(sw?.updated_utc) ?? formatAlertUtc(solar?.updated);
   const plasmaFresh = Boolean(solar?.feed_status?.solar_wind_plasma?.fresh);
   const magFresh = Boolean(solar?.feed_status?.solar_wind_mag?.fresh);
@@ -119,7 +160,7 @@ export default function ZimbabweIndexAlerts({
   const bt = magFresh ? solar?.solar_wind?.bt : null;
   const bz = magFresh ? solar?.solar_wind?.bz : null;
   const regionCount = brief?.earth_facing_region_count ?? brief?.spotted_region_count ?? null;
-  const update = buildZingsaSpaceWeatherUpdate(sw, solar, brief);
+  const regionalShown = bulletin.sections.zimbabweTec.regions.filter((r) => r.meanTecu != null);
 
   return (
     <section className={`card card-accent ${styles.panel}`} aria-labelledby="zimbabwe-index-alerts-title">
@@ -144,17 +185,32 @@ export default function ZimbabweIndexAlerts({
 
       <div className={styles.section}>
         <h3 className={styles.heading}>
-          {update.title}
+          {bulletin.title}
           {retrieved ? <span className={styles.headingMeta}> · {retrieved}</span> : null}
         </h3>
-        <p className={styles.copy}>{update.body}</p>
+        <p className={styles.headline}>{bulletin.headline}</p>
+        <p className={styles.copy}>{bulletin.situation}</p>
+      </div>
+
+      <div className={styles.section}>
+        <h3 className={styles.heading}>{bulletin.sections.solarWind.title}</h3>
+        <ul className={styles.bulletList}>
+          {bulletin.sections.solarWind.bullets.map((line) => (
+            <li key={line}>{line}</li>
+          ))}
+        </ul>
       </div>
 
       <div className={styles.section}>
         <h3 className={styles.heading}>
-          Geomagnetic conditions
+          {bulletin.sections.geomagnetic.title}
           {retrieved ? <span className={styles.headingMeta}> · {retrieved}</span> : null}
         </h3>
+        <ul className={styles.bulletList}>
+          {bulletin.sections.geomagnetic.bullets.map((line) => (
+            <li key={line}>{line}</li>
+          ))}
+        </ul>
         <div className={styles.facts}>
           <Fact
             label="Kp"
@@ -200,15 +256,53 @@ export default function ZimbabweIndexAlerts({
       </div>
 
       <div className={styles.section}>
+        <h3 className={styles.heading}>{bulletin.sections.zimbabweTec.title}</h3>
+        <ul className={styles.bulletList}>
+          {bulletin.sections.zimbabweTec.bullets.slice(0, 1).map((line) => (
+            <li key={line}>{line}</li>
+          ))}
+        </ul>
+        {regionalShown.length === 0 ? (
+          <p className={styles.empty}>
+            North, Central and South CORS TEC means are unavailable until measured samples arrive for those latitudes.
+          </p>
+        ) : (
+          <div className={styles.regionFacts}>
+            {regionalShown.map((region) => (
+              <div
+                key={region.id}
+                className={`${styles.fact} ${styles.factTinted} ${regionStatusClass(region.status)}`}
+              >
+                <span>{region.label.replace(" Zimbabwe", "")}</span>
+                <strong>{region.meanTecu!.toFixed(1)} TECU</strong>
+                <em className={styles.regionMeta}>
+                  {region.stationCount} station{region.stationCount === 1 ? "" : "s"} · {region.statusLabel}
+                </em>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className={styles.section}>
+        <h3 className={styles.heading}>{bulletin.sections.gnssGuidance.title}</h3>
+        <p className={styles.copy}>{bulletin.sections.gnssGuidance.status}</p>
+        <p className={styles.copy}>{bulletin.sections.gnssGuidance.action}</p>
+      </div>
+
+      <div className={styles.section}>
         <h3 className={styles.heading}>Solar activity</h3>
+        <ul className={styles.bulletList}>
+          {bulletin.sections.solarActivity.bullets.map((line) => (
+            <li key={line}>{line}</li>
+          ))}
+        </ul>
         <p className={styles.copy}>
           {regionCount == null
             ? briefFailed
               ? "Earth-facing sunspot summary is unavailable."
               : "Loading Earth-facing sunspot summary…"
-            : `${regionCount} Earth-facing sunspot region${regionCount === 1 ? "" : "s"}${
-                brief?.sunspot_number != null ? ` · sunspot number ${brief.sunspot_number}` : ""
-              }.`}
+            : null}
         </p>
         <h3 className={styles.heading}>Flaring probabilities</h3>
         <div className={styles.flareRow}>
@@ -236,7 +330,7 @@ export default function ZimbabweIndexAlerts({
         </p>
         <h3 className={styles.heading}>Outlook</h3>
         <p className={styles.copy}>
-          {brief ? forecastSentence(brief, sw, solar) : "Solar outlook is loading…"}
+          {brief ? forecastSentence(brief, bulletin) : "Solar outlook is loading…"}
         </p>
       </div>
 
@@ -282,21 +376,15 @@ function Fact({
   value: string;
   valueColor?: string;
 }) {
-  const elevated = Boolean(valueColor && valueColor !== "#94a3b8" && valueColor !== "#ffffff");
+  const shown = valueColor === "#94a3b8" ? "#ffffff" : valueColor;
+  const elevated = Boolean(shown && shown !== "#ffffff");
   return (
     <div
       className={`${styles.fact}${elevated ? ` ${styles.factTinted}` : ""}`}
-      style={
-        valueColor
-          ? ({
-              ["--fact-accent" as string]: valueColor,
-              borderColor: `${valueColor}55`,
-            } as CSSProperties)
-          : undefined
-      }
+      style={shown ? ({ ["--fact-accent" as string]: shown } as CSSProperties) : undefined}
     >
       <span>{label}</span>
-      <strong style={valueColor ? { color: valueColor } : undefined}>{value}</strong>
+      <strong style={shown ? { color: shown } : undefined}>{value}</strong>
     </div>
   );
 }

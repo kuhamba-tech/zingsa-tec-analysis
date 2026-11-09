@@ -1026,6 +1026,47 @@ body {
   color: #ffffff;
 }
 
+.alerts-centre-page {
+  color: #ffffff;
+}
+.alerts-centre-page :is(
+  .metric-label,
+  .sw-supporting-text,
+  .body-copy,
+  .anomaly-guide-item p,
+  .anomaly-guide-title,
+  .storm-summary-label,
+  .storm-summary-sub,
+  .storm-summary-rule,
+  .storm-summary-muted,
+  .storm-summary-banner,
+  .small-note,
+  .sw-alerts-watch-title,
+  .sw-alerts-watch-issued,
+  .sw-alert-bulletin-headline,
+  .sw-alert-bulletin-body,
+  .sw-alert-bulletin-code,
+  .operations-chart-title
+) {
+  color: #ffffff;
+}
+.alerts-centre-page .sw-alerts-kind-chip.is-cancel,
+.alerts-centre-page .sw-alerts-kind-chip.is-bulletin {
+  color: #ffffff;
+}
+.alerts-centre-page :is(.card, .storm-summary-metric, .anomaly-guide-item) {
+  background: rgba(0, 0, 0, 0.94);
+  border: 1px solid #244d73;
+  border-radius: 8px;
+}
+.alerts-centre-page .storm-summary-metric {
+  text-align: center;
+}
+.alerts-centre-page .storm-summary-metric strong {
+  color: #38bdf8;
+  font-weight: 900;
+}
+
 .gic-report-period-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
@@ -8351,7 +8392,7 @@ a.home-map-layer-btn {
   white-space: nowrap;
 }
 .sw-alert-bulletin-headline {
-  color: #cbd5e1;
+  color: #ffffff;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -8361,7 +8402,7 @@ a.home-map-layer-btn {
   display: grid;
   gap: 0.35rem;
   padding: 0.15rem 0 0.45rem;
-  color: #94a3b8;
+  color: #ffffff;
 }
 .sw-alert-bulletin-body p { margin: 0; line-height: 1.4; }
 .sw-alerts-bulletin-list .sw-alert-bulletin pre {
@@ -8439,7 +8480,7 @@ a.home-map-layer-btn {
 .sw-alerts-kind-chip.is-watch { color: #eab308; background: rgba(234, 179, 8, 0.12); }
 .sw-alerts-kind-chip.is-summary { color: #38bdf8; background: rgba(56, 189, 248, 0.12); }
 .sw-alerts-kind-chip.is-cancel,
-.sw-alerts-kind-chip.is-bulletin { color: #94a3b8; background: rgba(148, 163, 184, 0.1); }
+.sw-alerts-kind-chip.is-bulletin { color: #ffffff; background: rgba(255, 255, 255, 0.08); }
 .sw-alerts-bulletin-list {
   display: flex;
   flex-direction: column;

@@ -223,8 +223,7 @@ function s4Meaning(s4: number): string {
 }
 
 /**
- * Public ZINGSA Space Weather Update. Live values are stated with what they
- * entail for geomagnetic coupling and Zimbabwe GNSS — never “read the indices”.
+ * Legacy paragraph form. Prefer buildZingsaBulletin for structured UI.
  */
 export function buildZingsaSpaceWeatherUpdate(
   sw: SpaceWeatherCurrent | null,
@@ -261,23 +260,19 @@ export function buildZingsaSpaceWeatherUpdate(
         flareBits.length ? ` · flare chances ${flareBits.join(", ")}` : ""
       }. Those chances are NOAA whole-disk probabilities, not a guarantee of an Earth-directed eruption.`;
 
-  const bzSentence = bz == null
-    ? "IMF Bz is unavailable, so southward coupling cannot be confirmed from this sample."
-    : bzMeaning(bz);
-  const kpSentence = kp == null
-    ? "Kp is unavailable, so the NOAA G-scale cannot be assigned from this sample."
-    : kpMeaning(kp);
-  const dstSentence = dst == null
-    ? "Dst is unavailable, so ring-current storm phase cannot be confirmed from this sample."
-    : dstMeaning(dst);
-
   const couplingLine = [
     speed != null && speed >= WIND_LIMIT
       ? "High solar-wind speed alone is not a geomagnetic storm."
       : "Geomagnetic coupling is set by Bz with Kp and Dst.",
-    bzSentence,
-    kpSentence,
-    dstSentence,
+    bz == null
+      ? "IMF Bz is unavailable, so southward coupling cannot be confirmed from this sample."
+      : bzMeaning(bz),
+    kp == null
+      ? "Kp is unavailable, so the NOAA G-scale cannot be assigned from this sample."
+      : kpMeaning(kp),
+    dst == null
+      ? "Dst is unavailable, so ring-current storm phase cannot be confirmed from this sample."
+      : dstMeaning(dst),
   ].join(" ");
 
   const localLine = [
@@ -287,7 +282,7 @@ export function buildZingsaSpaceWeatherUpdate(
   ].join(" ");
 
   return {
-    title: "ZINGSA Space Weather Update",
+    title: "ZINGSA Space Weather Bulletin",
     body: [
       windSentence,
       sunSentence,

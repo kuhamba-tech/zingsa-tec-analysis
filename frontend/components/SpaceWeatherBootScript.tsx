@@ -1,10 +1,7 @@
-import Script from "next/script";
-
 /**
- * Loads /zgiis-sw-boot.js before the app bundle (Next beforeInteractive).
- * Avoid a client <script> whose props flip on hydrate — that becomes a
- * HostHoistable fiber and triggers null.removeChild on client navigations.
+ * Loads /zgiis-sw-boot.js from the server layout.
+ * A client-rendered <script> is ignored by React 19 and logs a console error.
  */
 export default function SpaceWeatherBootScript() {
-  return <Script id="zgiis-sw-boot" src="/zgiis-sw-boot.js" strategy="beforeInteractive" />;
+  return <script id="zgiis-sw-boot" src="/zgiis-sw-boot.js" />;
 }

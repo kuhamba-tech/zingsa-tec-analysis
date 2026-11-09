@@ -21,7 +21,7 @@ export default function StormWatchPage() {
   } = useStormWatchFeed(168);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "1.4rem" }}>
+    <div className="alerts-centre-page" style={{ display: "flex", flexDirection: "column", gap: "1.4rem" }}>
       <header className={styles.pageHeader}>
         <div><span className={styles.eyebrow}>ZINGSA / Space weather intelligence</span>
           <h1>Alerts Centre</h1>
@@ -45,7 +45,7 @@ export default function StormWatchPage() {
 
       <StormWatchGuidePanel />
 
-      <p style={{ fontSize: "0.82rem", color: "var(--text-muted)", margin: 0 }}>
+      <p style={{ fontSize: "0.82rem", color: "#ffffff", margin: 0 }}>
         Broader solar and heliospheric context stays on{" "}
         <Link href="/space-weather/">Space Weather</Link>.
       </p>

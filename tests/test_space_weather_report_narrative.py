@@ -56,8 +56,24 @@ def test_missing_and_empty_archives_are_not_low_risk():
         report = report_for(rows)
         assert report["impact"]["risk"] == "Unknown"
         assert "cannot be classified" in report["executive_summary"]
-        assert len(report["sections"]) == 6
+        assert len(report["sections"]) == 7  # daily includes Bulletin snapshot
         assert "Unavailable parameters" in prose(report)
+        assert any(section["id"] == "bulletin" for section in report["sections"])
+
+
+def test_daily_bulletin_snapshot_uses_measured_values_only():
+    report = report_for([
+        {"time": "2026-11-09T10:00:00Z", "kp": 2.0, "dst": -15, "plasma_speed": 620, "mean_vtec": 28.0},
+    ])
+    bulletin = next(section for section in report["sections"] if section["id"] == "bulletin")
+    text = " ".join(bulletin["paragraphs"])
+    assert bulletin["title"] == "Bulletin snapshot"
+    assert "Elevated Solar Wind — Geomagnetic Conditions Currently Quiet" in text
+    assert "620 km/s" in text
+    assert "not a geomagnetic storm" in text
+    assert "28.0 TECU" in text
+    assert "North/Central/South" in text
+    assert "S4 is unavailable" in text
 
 
 def test_negative_dst_trend_uses_direction_not_sign_of_baseline():

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { replaceHistoryUrl } from "@/lib/routerHistory";
 
 const RELOAD_KEY = "zgiis:rsc-fetch-reload";
 
@@ -66,7 +67,7 @@ export default function RouterFetchRecovery() {
         !here.pathname.split("/").pop()?.includes(".")
       ) {
         here.pathname = `${here.pathname}/`;
-        window.history.replaceState(window.history.state, "", here.toString());
+        replaceHistoryUrl(here.toString());
       }
     } catch {
       /* ignore */

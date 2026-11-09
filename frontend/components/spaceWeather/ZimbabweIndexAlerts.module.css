@@ -4,15 +4,9 @@
   gap: 1.35rem;
   font-family: "Inter", system-ui, sans-serif;
   color: #ffffff;
-  background:
-    linear-gradient(165deg, rgba(14, 42, 72, 0.55) 0%, rgba(8, 16, 32, 0.18) 48%, rgba(8, 16, 32, 0) 100%),
-    var(--surface, #0a0f1a);
-  border: 1px solid var(--border, #244d73);
-  border-left: 3px solid var(--accent, #168bd2);
+  background: var(--surface, #0a0f1a);
+  border: 1px solid #244d73;
   border-radius: 10px;
-  box-shadow:
-    inset 0 1px 0 rgba(148, 210, 255, 0.08),
-    0 8px 22px rgba(2, 8, 20, 0.22);
 }
 
 .header {
@@ -69,7 +63,7 @@
   border-radius: 999px;
   border: 1px solid rgba(148, 163, 184, 0.35);
   background: rgba(15, 23, 42, 0.65);
-  color: #dbe7f3;
+  color: #ffffff;
   font-size: 0.74rem;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -107,7 +101,7 @@
 }
 
 .headingMeta {
-  color: #94a3b8;
+  color: #ffffff;
   font-weight: 600;
   letter-spacing: 0.02em;
   text-transform: none;
@@ -132,19 +126,16 @@
 }
 
 .fact {
-  border: 1px solid rgba(56, 189, 248, 0.16);
-  border-left: 3px solid rgba(56, 189, 248, 0.35);
-  border-radius: 0.55rem;
-  padding: 0.55rem 0.65rem;
+  border: 1px solid #244d73;
+  border-radius: 8px;
+  padding: 0.7rem 0.65rem;
   background: rgba(0, 0, 0, 0.94);
-  min-height: 3.6rem;
+  min-height: 4.4rem;
+  text-align: center;
 }
 
 .factTinted {
-  border-left-color: var(--fact-accent, #38bdf8);
-  background:
-    linear-gradient(90deg, color-mix(in srgb, var(--fact-accent, #38bdf8) 14%, transparent), transparent 55%),
-    rgba(0, 0, 0, 0.94);
+  background: rgba(0, 0, 0, 0.94);
 }
 
 .fact span {
@@ -170,6 +161,63 @@
   color: #ffffff;
   font-size: 0.88rem;
   line-height: 1.55;
+}
+
+.headline {
+  margin: 0;
+  color: #e0f2fe;
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.bulletList {
+  margin: 0;
+  padding-left: 1.1rem;
+  color: #ffffff;
+  font-size: 0.88rem;
+  line-height: 1.55;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.regionFacts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+
+@media (max-width: 960px) {
+  .regionFacts {
+    grid-template-columns: 1fr;
+  }
+}
+
+.regionMeta {
+  display: block;
+  margin-top: 0.35rem;
+  font-style: normal;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #cbd5e1;
+  line-height: 1.35;
+}
+
+.regionOk {
+  border-color: rgba(34, 197, 94, 0.45);
+}
+
+.regionAbove {
+  border-color: rgba(249, 115, 22, 0.55);
+}
+
+.regionBelow {
+  border-color: rgba(168, 85, 247, 0.5);
+}
+
+.regionUnavailable {
+  border-color: #244d73;
 }
 
 .flareRow {
@@ -284,10 +332,11 @@
 
 .empty {
   margin: 0;
-  padding: 0.75rem 0.85rem;
-  border-radius: 0.55rem;
-  border: 1px dashed rgba(148, 163, 184, 0.35);
+  padding: 0.85rem;
+  border-radius: 8px;
+  border: 1px solid #244d73;
   background: rgba(0, 0, 0, 0.94);
   color: #ffffff;
   font-size: 0.88rem;
+  text-align: center;
 }

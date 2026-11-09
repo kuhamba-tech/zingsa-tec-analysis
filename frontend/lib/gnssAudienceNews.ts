@@ -7,6 +7,7 @@ import {
   ZINGSA_NAVIGATION_WARNING_ACTION,
   ZINGSA_PHONE,
 } from "./zingsaContact";
+import { buildZingsaBulletin } from "./zingsaSpaceWeatherBulletin";
 
 export type AudienceId = "farmer" | "surveyor" | "citizen" | "driver" | "aviation" | "scientist";
 
@@ -155,19 +156,19 @@ export function buildSpaceWeatherLayman(
   const risk = sw?.gnss_risk;
   const vtec = sw?.mean_vtec;
 
+  // Light reuse of the shared ZINGSA bulletin headline / situation for consistency.
+  const bulletin = buildZingsaBulletin({ sw, solar: null, brief: null, alerts: [] });
+
   const headlines: Record<ForecastStatus, string> = {
-    excellent: "Quiet global conditions — Zimbabwe GNSS looking normal so far",
-    moderate: "Watch conditions — separate global storm status from local Zimbabwe GNSS impact",
-    warning: "Elevated caution — confirm Zimbabwe CORS / ionosphere before precision work",
+    excellent: bulletin.headline,
+    moderate: bulletin.headline,
+    warning: bulletin.headline,
   };
 
   const explainers: Record<ForecastStatus, string> = {
-    excellent:
-      "ZINGSA tracks the chain from the Sun to Zimbabwe GNSS. A quiet Kp does not rule out local post-sunset irregularities; validated ΔTEC/ROTI will catch those later.",
-    moderate:
-      "Global indices may be unsettled, but geomagnetic storm ≠ automatic Zimbabwe ionospheric disturbance, and ionospheric disturbance ≠ automatic GNSS failure.",
-    warning:
-      "Conditions favour degraded positioning for some users. Treat planetary G-scale as context; decide from Zimbabwe CORS evidence when available.",
+    excellent: bulletin.situation,
+    moderate: bulletin.situation,
+    warning: bulletin.situation,
   };
 
   const impacts: Record<ForecastStatus, string> = {

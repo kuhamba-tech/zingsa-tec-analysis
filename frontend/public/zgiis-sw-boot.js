@@ -117,9 +117,12 @@
         // Drop cache-bust param after a successful paint so URLs stay clean.
         try {
           var clean = new URL(window.location.href);
-          if (clean.searchParams.has("_chunk")) {
+          var routerHistory = window.history.state;
+          if (clean.searchParams.has("_chunk") && routerHistory && routerHistory.__NA === true) {
             clean.searchParams.delete("_chunk");
-            window.history.replaceState({}, "", clean.pathname + clean.search + clean.hash);
+            // Preserve Next's internal history entry. Passing {} asks its
+            // patched History API to dispatch a restore, which can race boot/HMR.
+            window.history.replaceState(routerHistory, "", clean.pathname + clean.search + clean.hash);
           }
         } catch (e) {}
       }, 12000);

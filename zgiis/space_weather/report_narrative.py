@@ -170,7 +170,83 @@ def _diurnal_tec_assessment(df: pd.DataFrame) -> tuple[list[str], list[dict[str,
     return paragraphs, cards
 
 
-def scientific_assessment(df: pd.DataFrame) -> dict:
+def _bulletin_snapshot(df: pd.DataFrame) -> str:
+    """Operational bulletin snapshot for daily reports — measured archive values only."""
+    def latest(key: str) -> float | None:
+        series = pd.to_numeric(df.get(key, pd.Series(dtype=float)), errors="coerce").dropna()
+        if series.empty:
+            return None
+        return float(series.iloc[-1])
+
+    speed = latest("plasma_speed")
+    kp = latest("kp")
+    dst = latest("dst")
+    tec = latest("mean_vtec")
+    s4 = latest("s4")
+
+    wind_limit = 550.0
+    kp_storm = 5.0
+    dst_storm = -50.0
+
+    fast = speed is not None and speed >= wind_limit
+    storm_kp = kp is not None and kp >= kp_storm
+    storm_dst = dst is not None and dst <= dst_storm
+    quiet_geo = (kp is None or kp < 3) and (dst is None or dst > -30)
+
+    if storm_kp or storm_dst:
+        headline = "Geomagnetic Storm Conditions Observed — Confirm Zimbabwe CORS Impact"
+    elif fast and quiet_geo:
+        headline = "Elevated Solar Wind — Geomagnetic Conditions Currently Quiet"
+    elif fast:
+        headline = "Elevated Solar Wind — Assess Kp and Dst Together"
+    elif quiet_geo:
+        headline = "Quiet Geomagnetic Conditions — Routine Zimbabwe Monitoring"
+    else:
+        headline = "ZINGSA Space Weather Bulletin — Archived Daily Conditions"
+
+    bits = [f"Bulletin snapshot: {headline}."]
+    if speed is None:
+        bits.append("Latest solar-wind speed is unavailable in this archive window.")
+    else:
+        bits.append(
+            f"Latest solar-wind speed is {speed:.0f} km/s"
+            + (
+                f" (at or above the ZINGSA {wind_limit:.0f} km/s fast-stream watch line)."
+                if fast
+                else "."
+            )
+        )
+        if fast and not storm_kp and not storm_dst:
+            bits.append(
+                "Elevated solar-wind speed alone is not a geomagnetic storm; "
+                "storm classification still requires Kp, Dst or measured local TEC/S4."
+            )
+    if kp is None:
+        bits.append("Latest Kp is unavailable.")
+    else:
+        bits.append(f"Latest Kp is {kp:.1f}.")
+    if dst is None:
+        bits.append("Latest Dst is unavailable.")
+    else:
+        bits.append(f"Latest Dst is {dst:.0f} nT.")
+    if tec is None:
+        bits.append("Network-mean TEC is unavailable — regional North/Central/South means are not invented.")
+    else:
+        bits.append(
+            f"Latest network-mean TEC is {tec:.1f} TECU. "
+            "North/Central/South band means require station-level CORS samples and are omitted here when unavailable."
+        )
+    if s4 is None:
+        bits.append("S4 is unavailable and is not treated as quiet by default.")
+    else:
+        bits.append(f"Latest S4 is {s4:.3f}.")
+    bits.append(
+        "Local Zimbabwe GNSS impact is confirmed only when measured CORS TEC or S4 changes with the disturbance."
+    )
+    return " ".join(bits)
+
+
+def scientific_assessment(df: pd.DataFrame, *, period: str | None = None) -> dict:
     def values(key: str) -> pd.Series:
         return pd.to_numeric(df.get(key, pd.Series(dtype=float)), errors="coerce").dropna()
 
@@ -306,18 +382,25 @@ def scientific_assessment(df: pd.DataFrame) -> dict:
         "physical cause. This is an automated scientific assessment; no individual scientist review is recorded."
     )
 
+    section_rows: list[tuple[str, str, list[str]]] = [
+        ("geomagnetic", "Geomagnetic response", geomagnetic),
+        ("drivers", "Solar and solar-wind context", drivers),
+        ("ionosphere", "Ionospheric conditions and diurnal TEC trends", ionosphere),
+        ("operations", "Implications for Zimbabwe", operations),
+        ("outlook", "Monitoring priorities and outlook", outlook),
+        ("methods", "Data basis and assessment limits", methods),
+    ]
+    if period == "daily":
+        section_rows.insert(
+            0,
+            ("bulletin", "Bulletin snapshot", [_bulletin_snapshot(df)]),
+        )
+
     return {
         "executive_summary": overview,
         "sections": [
             {"id": key, "title": title, "paragraphs": paragraphs}
-            for key, title, paragraphs in [
-                ("geomagnetic", "Geomagnetic response", geomagnetic),
-                ("drivers", "Solar and solar-wind context", drivers),
-                ("ionosphere", "Ionospheric conditions and diurnal TEC trends", ionosphere),
-                ("operations", "Implications for Zimbabwe", operations),
-                ("outlook", "Monitoring priorities and outlook", outlook),
-                ("methods", "Data basis and assessment limits", methods),
-            ]
+            for key, title, paragraphs in section_rows
         ],
         "diurnal_cards": diurnal_cards,
         "references": REPORT_REFERENCES,

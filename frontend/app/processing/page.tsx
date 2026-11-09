@@ -1,6 +1,7 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
 import dynamic from "next/dynamic";
+import { replaceHistoryUrl } from "@/lib/routerHistory";
 import {
   uploadCmn, uploadRinex, getSessionSummary, getSessionHourly, getSessionTecPlot, getSessionBias,
   getStations, downloadSessionRaw, getLivePipelineStatus, getSessionStatus,
@@ -663,14 +664,14 @@ export default function ProcessingPage() {
   useEffect(() => {
     if (tab === "converter") {
       if (window.location.hash !== "#converter") {
-        window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#converter`);
+        replaceHistoryUrl(`${window.location.pathname}${window.location.search}#converter`);
       }
     } else if (tab === "download") {
       if (window.location.hash !== "#download") {
-        window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#download`);
+        replaceHistoryUrl(`${window.location.pathname}${window.location.search}#download`);
       }
     } else if (window.location.hash === "#converter" || window.location.hash === "#download" || window.location.hash === "#rinex-data") {
-      window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+      replaceHistoryUrl(`${window.location.pathname}${window.location.search}`);
     }
   }, [tab]);
 

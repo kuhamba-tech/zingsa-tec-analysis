@@ -26,6 +26,7 @@ static/data/*.sqlite-journal
 static/data/tec_capture_outbox.sqlite*
 static/data/trignet_tec.json
 static/data/storm_notify_state.json
+.whatsapp-alerts/
 static/data/broadcast_recipients.private.json
 static/data/facebook_credentials.private.json
 static/data/navigation_news_cache.json
