@@ -66,12 +66,12 @@ export default function GicGauge({ value, min, max, segments, valueText, label, 
             </g>
           );
         })()}
-        <text x={polar(rOuter + 2, 0)[0]} y={cy + 12} fill="var(--text-muted)" fontSize="9">{min}</text>
-        <text x={polar(rOuter + 2, 1)[0] - 10} y={cy + 12} fill="var(--text-muted)" fontSize="9">{max}</text>
+        <text x={polar(rOuter + 2, 0)[0]} y={cy + 12} fill="#ffffff" fontSize="9">{min}</text>
+        <text x={polar(rOuter + 2, 1)[0] - 10} y={cy + 12} fill="#ffffff" fontSize="9">{max}</text>
       </svg>
       <div style={{ fontSize: "1.25rem", fontWeight: 800, lineHeight: 1 }}>{valueText}</div>
       {label && (
-        <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+        <div style={{ fontSize: "0.7rem", color: "#ffffff", textTransform: "uppercase", letterSpacing: "0.05em" }}>
           {label}
         </div>
       )}

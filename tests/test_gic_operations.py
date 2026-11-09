@@ -14,7 +14,7 @@ from zgiis.gic.quality import canonical_record
 from zgiis.gic.operations import StationConfiguration, coverage, validate_ekf
 from zgiis.gic.analysis import detect_events, build_report, report_to_csv
 from zgiis.gic.climatology import climatology
-from scripts.gic_gateway_upload import upload_file
+from scripts.gic_gateway_upload import upload_file, ingestion_url
 
 
 def frame(currents, offsets=None):
@@ -76,6 +76,12 @@ def test_failed_batch_does_not_advance_gateway_checkpoint(tmp_path):
     assert not state.exists()
 
 
+def test_gateway_uses_the_existing_vercel_group_router():
+    assert ingestion_url('http://127.0.0.1:8000')=='http://127.0.0.1:8000/gic/ingest'
+    assert ingestion_url('https://zingsa-gnss-tec.vercel.app').endswith('/api/core-router?__zr=%2Fgic%2Fingest')
+    assert ingestion_url('https://custom.example','https://custom.example/api/gateway')=='https://custom.example/api/gateway'
+
+
 def test_coverage_and_events_exclude_faults_and_long_gaps():
     df=frame([11,12,40,-15], [0,60,3600,3660])
     config={"expected_cadence_seconds":60}
@@ -94,6 +100,7 @@ def test_custom_thresholds_require_engineering_approval():
     with pytest.raises(ValueError): StationConfiguration(thresholds_a=[2,4,8,16])
     with pytest.raises(ValueError): StationConfiguration(thresholds_a=[5,5,25,35])
     with pytest.raises(ValueError): StationConfiguration(commissioned=True)
+    with pytest.raises(ValueError): StationConfiguration(engineer_approval_reference="incomplete")
     approved=StationConfiguration(thresholds_a=[2,4,8,16],transformer_id="T1",engineer_approved_by="Engineer",engineer_approval_reference="ZETDC/approval",engineer_approved_at="2026-01-01T00:00:00Z")
     assert approved.thresholds_a==[2,4,8,16]
 
@@ -118,6 +125,14 @@ def test_csv_preserves_polarity_and_quality_metadata():
     rows=list(csv.reader(io.StringIO(report_to_csv(report,df))))
     assert any('-40' in row and '"a,b"' in ' '.join(row) for row in rows)
     assert any("No operational EKF prediction warnings" in note for note in report["interpretation"])
+
+
+def test_context_correlation_is_retained_without_causal_claim():
+    df=frame([float(i+1) for i in range(12)], [i*600 for i in range(12)])
+    weather=pd.DataFrame({'time':df.time, 'kp':[float(i)/3 for i in range(12)], 'dst':[-i for i in range(12)]})
+    report=build_report(df,station_id='DEMA_001',period='daily',sw_df=weather)
+    assert report['kp_correlation']['kp_r']==pytest.approx(1.)
+    assert any('does not establish storm causation' in note for note in report['interpretation'])
 
 
 def test_climatology_storm_context_is_not_weather_causality():

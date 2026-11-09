@@ -1016,6 +1016,16 @@ body {
   .gic-dash-row1 .gic-dash-chart { grid-column: auto; }
 }
 
+.gic-monitor-page {
+  color: #ffffff;
+}
+.gic-monitor-page .metric-label,
+.gic-monitor-page .page-subtitle,
+.gic-monitor-page .operations-source,
+.gic-monitor-page .operations-chart-title {
+  color: #ffffff;
+}
+
 .gic-report-period-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));

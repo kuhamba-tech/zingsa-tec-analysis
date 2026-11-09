@@ -4,7 +4,7 @@ import GicGuidePanel from "@/components/gic/GicGuidePanel";
 
 export default function GicMonitorPage() {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "1.4rem" }}>
+    <div className="gic-monitor-page" style={{ display: "flex", flexDirection: "column", gap: "1.4rem" }}>
       <div className="dashboard-header-copy">
         <h1 className="page-title">🧲 GIC Monitor — ZETDC Grid &amp; ZPC Generation</h1>
         <p className="page-subtitle">

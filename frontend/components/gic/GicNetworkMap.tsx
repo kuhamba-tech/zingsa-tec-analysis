@@ -341,7 +341,7 @@ export default function GicNetworkMap({ network, stationStatus, height = 460, on
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.6rem" }}>
-        <span style={{ fontSize: "0.75rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-muted)" }}>
+        <span style={{ fontSize: "0.75rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "#ffffff" }}>
           Map Layer
         </span>
         {LAYERS.map((l) => (
@@ -354,7 +354,7 @@ export default function GicNetworkMap({ network, stationStatus, height = 460, on
             {l}
           </button>
         ))}
-        <span style={{ marginLeft: "auto", display: "flex", gap: "0.9rem", fontSize: "0.72rem", color: "var(--text-muted)", flexWrap: "wrap" }}>
+        <span style={{ marginLeft: "auto", display: "flex", gap: "0.9rem", fontSize: "0.72rem", color: "#ffffff", flexWrap: "wrap" }}>
           <span><span style={{ color: "#c81e1e" }}>▲</span> Substation</span>
           <span><span style={{ color: "#06b6d4" }}>◆</span> ZPC hydro</span>
           <span><span style={{ color: "#f59e0b" }}>◆</span> ZPC coal (operational)</span>

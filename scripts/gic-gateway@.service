@@ -1,0 +1,16 @@
+[Unit]
+Description=ZINGSA genuine CR1000 file uploader (%i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/zingsa-tec-analysis
+EnvironmentFile=/etc/zingsa/gic-%i.env
+ExecStart=/opt/zingsa-tec-analysis/.venv/bin/python scripts/gic_gateway_upload.py --watch
+Restart=on-failure
+RestartSec=30
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

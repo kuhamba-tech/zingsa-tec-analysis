@@ -3,7 +3,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import LineChart from "@/components/charts/LineChart";
 import GicGauge from "./GicGauge";
 import { getEkfAlertLog, getGicLiveModel, getGicSeries, getSpaceWeather } from "@/lib/api";
-import { peekSpaceWeather } from "@/lib/spaceWeatherStore";
 import type {
   EkfAlert,
   GicLiveModel,
@@ -44,7 +43,7 @@ interface Props {
  *  show N/A until field measurements arrive. */
 export default function GicLiveDashboard({ stationId, stationStatus, network, series: externalSeries }: Props) {
   const [internalSeries, setInternalSeries] = useState<GicSeriesResponse | null>(null);
-  const [sw, setSw] = useState<SpaceWeatherCurrent | null>(() => peekSpaceWeather());
+  const [sw, setSw] = useState<SpaceWeatherCurrent | null>(null);
   const [alerts, setAlerts] = useState<EkfAlert[]>([]);
   const [liveModel, setLiveModel] = useState<GicLiveModel | null>(null);
 
@@ -135,7 +134,7 @@ export default function GicLiveDashboard({ stationId, stationStatus, network, se
     display: "flex", justifyContent: "space-between", gap: "0.6rem",
     fontSize: "0.78rem", padding: "0.18rem 0",
   };
-  const kvKey: React.CSSProperties = { color: "var(--text-muted)" };
+  const kvKey: React.CSSProperties = { color: "#ffffff" };
 
   return (
     <div className="card card-accent">
@@ -169,13 +168,13 @@ export default function GicLiveDashboard({ stationId, stationStatus, network, se
                 thresholds={(series?.monitoring_bands ?? []).flatMap(b => b.min_abs_a > 0 ? [{ value: b.min_abs_a, label: `${b.level} category`, color: b.color }, { value: -b.min_abs_a, label: `Negative ${b.level}`, color: b.color }] : [])}
               />
               {hasEkf && (
-                <p style={{ fontSize: "0.68rem", color: "var(--text-muted)", marginTop: "0.35rem" }}>
+                <p style={{ fontSize: "0.68rem", color: "#ffffff", marginTop: "0.35rem" }}>
                   Solid: measured transformer-neutral current. Dashed: EKF one-step-ahead prediction.
                 </p>
               )}
             </>
           ) : (
-            <p style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
+            <p style={{ fontSize: "0.78rem", color: "#ffffff" }}>
               No measurements in the last 24 h and the live magnetometer feed is unreachable
               {liveModel?.reason ? ` (${liveModel.reason})` : ""} — nothing is simulated.
             </p>
@@ -235,7 +234,7 @@ export default function GicLiveDashboard({ stationId, stationStatus, network, se
               </tbody>
             </table>
           ) : (
-            <p style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>No readings stored yet.</p>
+            <p style={{ fontSize: "0.78rem", color: "#ffffff" }}>No readings stored yet.</p>
           )}
         </div>
 
@@ -255,7 +254,7 @@ export default function GicLiveDashboard({ stationId, stationStatus, network, se
               thresholds={(series?.monitoring_bands ?? []).flatMap(b => b.min_abs_a > 0 ? [{ value: b.min_abs_a, label: `${b.level} category`, color: b.color }, { value: -b.min_abs_a, label: `Negative ${b.level}`, color: b.color }] : [])}
             />
           ) : (
-            <p style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>Awaiting field data.</p>
+            <p style={{ fontSize: "0.78rem", color: "#ffffff" }}>Awaiting field data.</p>
           )}
         </div>
 
@@ -267,12 +266,12 @@ export default function GicLiveDashboard({ stationId, stationStatus, network, se
               gicAlerts.slice(0, 4).map((a) => (
                 <div key={a.alert_id} style={{ display: "flex", gap: "0.4rem", fontSize: "0.72rem", padding: "0.15rem 0", alignItems: "baseline" }}>
                   <span style={{ color: SEVERITY_COLOR[a.severity] ?? "var(--text)" }}>⚠</span>
-                  <span style={{ color: "var(--text-muted)", whiteSpace: "nowrap" }}>{a.timestamp.slice(11, 16)}</span>
+                  <span style={{ color: "#ffffff", whiteSpace: "nowrap" }}>{a.timestamp.slice(11, 16)}</span>
                   <span>{a.parameter_label} deviation ({a.severity})</span>
                 </div>
               ))
             ) : (
-              <p style={{ fontSize: "0.74rem", color: "var(--text-muted)", margin: 0 }}>
+              <p style={{ fontSize: "0.74rem", color: "#ffffff", margin: 0 }}>
                 No historical GIC residual records in the last 24 h; prediction warnings disabled.
               </p>
             )}

@@ -22,13 +22,17 @@ def _noaa(name, url, field):
         response.raise_for_status()
         values = []
         for row in response.json():
+            if row.get('active') is False:
+                continue
             value = float(row[field]) if row.get(field) is not None else None
             if value is not None and math.isfinite(value):
                 # SWPC time_tag is explicitly UTC, even when no suffix is supplied.
                 stamp = pd.Timestamp(row['time_tag'])
                 stamp = stamp.tz_localize('UTC') if stamp.tzinfo is None else stamp.tz_convert('UTC')
                 values.append({'t': stamp.isoformat(), 'value': value})
-        result = {'points': sorted(values, key=lambda r: r['t']), 'fetch_failed': False}
+        # Select the active upstream instrument; never mix inactive backup values.
+        unique = {point['t']: point for point in values}
+        result = {'points': [unique[t] for t in sorted(unique)], 'fetch_failed': False}
         with _lock:
             _cache[name] = (time.monotonic(), result)
         return result

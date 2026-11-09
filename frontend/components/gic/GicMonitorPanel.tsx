@@ -245,12 +245,12 @@ export default function GicMonitorPanel() {
   const reportPanel = (
     <div className="card card-accent" id="gic-reports">
       <div className="operations-chart-title">GIC Report Generator</div>
-      <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "0.7rem" }}>
+      <p style={{ fontSize: "0.8rem", color: "#ffffff", marginBottom: "0.7rem" }}>
         Generate hourly, daily, weekly, monthly, or yearly reports for the selected monitoring station.
         Reports use raw stored observations for signed peaks, provisional category occupancy, event intervals and coverage. Gaps, quality flags and missing cadence limit interpretation; current excursions alone do not establish a storm cause.
       </p>
       <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap", alignItems: "center", marginBottom: "0.85rem" }}>
-        <label style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>Station</label>
+        <label style={{ fontSize: "0.78rem", color: "#ffffff" }}>Station</label>
         <select
           value={stationId}
           onChange={(e) => {
@@ -304,7 +304,7 @@ export default function GicMonitorPanel() {
 
       {report && !reportBusy && (
         <div style={{ display: "flex", flexDirection: "column", gap: "0.9rem" }}>
-          <div style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>
+          <div style={{ fontSize: "0.82rem", color: "#ffffff" }}>
             <b style={{ color: "var(--text)" }}>{report.period_label}</b> · {report.station_id} ·{" "}
             {report.window_start.slice(0, 16).replace("T", " ")} → {report.window_end.slice(0, 16).replace("T", " ")} UTC ·{" "}
             {report.sample_count} samples · generated {report.generated_utc.slice(0, 19).replace("T", " ")} UTC
@@ -383,7 +383,7 @@ export default function GicMonitorPanel() {
           </div>
 
           {report.kp_correlation && (
-            <p style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
+            <p style={{ fontSize: "0.78rem", color: "#ffffff" }}>
               |GIC| vs Kp: r = {report.kp_correlation.kp_r ?? "N/A"}
               {report.kp_correlation.dst_r != null && <> · |GIC| vs Dst: r = {report.kp_correlation.dst_r}</>}
               {" "}({report.kp_correlation.samples} co-sampled bins)
@@ -453,7 +453,7 @@ export default function GicMonitorPanel() {
       {/* ── ZETDC network map ── */}
       <div className="card card-accent">
         <div className="operations-chart-title">ZETDC Transmission Network &amp; GIC Sensors</div>
-        <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "0.6rem" }}>
+        <p style={{ fontSize: "0.8rem", color: "#ffffff", marginBottom: "0.6rem" }}>
           Schematic HV substations and 330/400 kV connections with registered Dema and Alaska sites. Coordinates are approximate and line routes are not surveyed. Authoritative ZETDC coordinate and topology approval is not recorded. Click features for existing metadata.
         </p>
         <GicNetworkMap
@@ -478,7 +478,7 @@ export default function GicMonitorPanel() {
       <div className="card card-accent">
         <div className="operations-chart-title">GIC Time Series / measured current; prediction overlay withheld</div>
         <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap", alignItems: "center", margin: "0.5rem 0 0.9rem" }}>
-          <label style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>Station</label>
+          <label style={{ fontSize: "0.78rem", color: "#ffffff" }}>Station</label>
           <select
             value={stationId}
             onChange={(e) => setStationId(e.target.value)}
@@ -504,7 +504,7 @@ export default function GicMonitorPanel() {
         </div>
 
         {seriesLoading && !chartData && (
-          <p style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>Loading series…</p>
+          <p style={{ fontSize: "0.85rem", color: "#ffffff" }}>Loading series…</p>
         )}
 
         {!seriesLoading && (!chartData || chartData.observed.every((v) => v == null)) && (
@@ -586,11 +586,11 @@ export default function GicMonitorPanel() {
       {/* ── GIC EKF deviation alerts ── */}
       <div className="card card-accent">
         <div className="operations-chart-title">Historical GIC EKF Residual Records / research only</div>
-        <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "0.75rem" }}>
+        <p style={{ fontSize: "0.8rem", color: "#ffffff", marginBottom: "0.75rem" }}>
           Prediction-residual warnings are disabled pending independent validation. Existing records below are historical research flags, not operational warnings. Observed-current flags are shown separately above.
         </p>
         {gicAlerts.length === 0 ? (
-          <p style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
+          <p style={{ fontSize: "0.85rem", color: "#ffffff" }}>
             No GIC deviation alerts in the last 7 days.
           </p>
         ) : (
@@ -633,7 +633,7 @@ export default function GicMonitorPanel() {
                   </td>
                   <td style={{ padding: "0.35rem 0.5rem" }}>
                     {alert.acknowledged_status ? (
-                      <span style={{ color: "var(--text-muted)" }}>Acknowledged</span>
+                      <span style={{ color: "#ffffff" }}>Acknowledged</span>
                     ) : (
                       <button
                         type="button"
@@ -687,7 +687,7 @@ export default function GicMonitorPanel() {
       {/* ── Data ingest ── */}
       <div className="card card-accent">
           <div className="operations-chart-title">Upload Datalogger File</div>
-          <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "0.7rem" }}>
+          <p style={{ fontSize: "0.8rem", color: "#ffffff", marginBottom: "0.7rem" }}>
             Offline path: Campbell CR1000 TOA5 files or CSV with TIMESTAMP + GIC current columns.
             Duplicate timestamps are skipped automatically.
           </p>

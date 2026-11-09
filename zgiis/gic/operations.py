@@ -37,7 +37,8 @@ class StationConfiguration(BaseModel):
             except (KeyError, ValueError) as exc:
                 raise ValueError("Unknown IANA logger timezone") from exc
         custom = self.thresholds_a != [5, 10, 25, 35]
-        if custom and not all((self.engineer_approved_by, self.engineer_approval_reference, self.engineer_approved_at, self.transformer_id)):
+        approval_requested = custom or any((self.engineer_approved_by, self.engineer_approval_reference, self.engineer_approved_at))
+        if approval_requested and not all((self.engineer_approved_by, self.engineer_approval_reference, self.engineer_approved_at, self.transformer_id)):
             raise ValueError("Custom thresholds require transformer identity and recorded ZETDC engineering approval")
         if self.engineer_approved_at:
             approval = pd.Timestamp(self.engineer_approved_at)

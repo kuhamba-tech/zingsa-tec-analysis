@@ -12,6 +12,7 @@ import os
 import sys
 import time
 from pathlib import Path
+from urllib.parse import urlsplit, urlencode
 import requests
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path: sys.path.insert(0, str(ROOT))
@@ -27,12 +28,21 @@ def _save_state(path: Path, state: dict):
     temporary.replace(path)
 
 
+def ingestion_url(base_url: str, explicit_url: str | None = None) -> str:
+    if explicit_url:
+        return explicit_url
+    parts = urlsplit(base_url)
+    if (parts.hostname or "").endswith(".vercel.app"):
+        return f"{parts.scheme}://{parts.netloc}/api/core-router?" + urlencode({"__zr": "/gic/ingest"})
+    return base_url.rstrip("/") + "/gic/ingest"
+
+
 def upload_file(*, path: Path, station_id: str, base_url: str, api_key: str,
                 state_file: Path, batch_size: int = 120, logger_timezone=None,
-                calibration_id=None, units=None, post=requests.post) -> dict:
+                calibration_id=None, units=None, post=requests.post, endpoint_url=None) -> dict:
     if not 1 <= batch_size <= 10000: raise ValueError("Batch size must be 1..10000")
     content = path.read_bytes()
-    identity = hashlib.sha256(json.dumps([str(path.resolve()), station_id, logger_timezone, calibration_id, units]).encode()+content).hexdigest()
+    identity = hashlib.sha256(json.dumps([str(path.resolve()), station_id, logger_timezone, calibration_id, units, ingestion_url(base_url, endpoint_url)]).encode()+content).hexdigest()
     try: state = json.loads(state_file.read_text(encoding="utf-8"))
     except (OSError, ValueError): state = {}
     if state.get("completed_fingerprint") == identity:
@@ -45,7 +55,7 @@ def upload_file(*, path: Path, station_id: str, base_url: str, api_key: str,
         batch = rows[offset:offset+batch_size]
         payload = {"station_id": station_id.upper(), "readings": [{k:v for k,v in row.items() if k not in {"station_id", "source"}} for row in batch]}
         headers = {"X-API-Key": api_key} if api_key else {}
-        response = post(base_url.rstrip("/")+"/gic/ingest", json=payload, headers=headers, timeout=30)
+        response = post(ingestion_url(base_url, endpoint_url), json=payload, headers=headers, timeout=30)
         response.raise_for_status()
         receipt = response.json()
         if receipt.get("received") != len(batch) or receipt.get("station_id") != station_id.upper():
@@ -71,7 +81,7 @@ def main():
             result = upload_file(path=Path(os.environ["GIC_DATA_FILE"]), station_id=os.environ["GIC_STATION_ID"],
                 base_url=os.getenv("GIC_GATEWAY_URL", "http://127.0.0.1:8000"), api_key=os.getenv("API_KEY", ""),
                 state_file=Path(os.getenv("GIC_STATE_FILE", ".gic_gateway_state")), batch_size=int(os.getenv("GIC_BATCH_SIZE", "120")),
-                logger_timezone=os.getenv("GIC_LOGGER_TIMEZONE"), calibration_id=os.getenv("GIC_CALIBRATION_ID"), units=os.getenv("GIC_UNITS"))
+                logger_timezone=os.getenv("GIC_LOGGER_TIMEZONE"), calibration_id=os.getenv("GIC_CALIBRATION_ID"), units=os.getenv("GIC_UNITS"), endpoint_url=os.getenv("GIC_INGEST_URL"))
             log.info("Station %s: %s", os.environ["GIC_STATION_ID"], result)
             failures = 0
             if not args.watch: return 0
