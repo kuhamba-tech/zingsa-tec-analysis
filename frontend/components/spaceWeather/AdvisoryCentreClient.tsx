@@ -139,12 +139,18 @@ export default function AdvisoryCentreClient() {
 
   return (
     <div className={styles.page}>
-      <header>
-        <h1 style={{ margin: "0 0 0.35rem", fontSize: "1.45rem" }}>Zimbabwe Space Weather Advisory Centre</h1>
-        <p style={{ margin: 0, lineHeight: 1.5, maxWidth: "58rem" }}>
-          Operational decision-support for ZINGSA. Global geomagnetic hazard and Zimbabwe GNSS reliability
-          are assessed as separate tracks. Solar-wind speed alone never confirms a geomagnetic storm.
-        </p>
+      <header className={styles.pageHeader}>
+        <div>
+          <span className={styles.eyebrow}>ZINGSA / Space weather intelligence</span>
+          <h1>Advisory Centre</h1>
+          <p>
+            Operational decision-support for ZINGSA. Global geomagnetic hazard and Zimbabwe GNSS reliability
+            are assessed as separate tracks. Solar-wind speed alone never confirms a geomagnetic storm.
+          </p>
+        </div>
+        <Link className={styles.contextLink} href="/space-weather/">
+          View live space weather <span aria-hidden="true">{"\u2197"}</span>
+        </Link>
       </header>
 
       {error ? <div className="banner banner-warn">{error}</div> : null}
@@ -155,8 +161,10 @@ export default function AdvisoryCentreClient() {
         <>
           <div className={styles.hero}>
             <section className={`${styles.levelCard} ${levelClass(assessment.advisory_level)}`} aria-live="polite">
-              <div className={styles.levelCode}>Current advisory level · {assessment.advisory_level}</div>
-              <h2 className={styles.levelTitle}>{assessment.advisory_label}</h2>
+              <span className={styles.levelCode}>
+                Current advisory level · {assessment.advisory_level}
+              </span>
+              <h3 className={styles.levelTitle}>{assessment.advisory_label}</h3>
               <p className={styles.meta}>
                 {assessment.statement.status_line}
                 <br />
@@ -166,7 +174,7 @@ export default function AdvisoryCentreClient() {
                 <br />
                 Confidence: {assessment.confidence.label} — {assessment.confidence.rationale}
               </p>
-              <p style={{ margin: "0.75rem 0 0", lineHeight: 1.55 }}>{assessment.statement.body}</p>
+              <p className={styles.meta} style={{ marginTop: "0.75rem" }}>{assessment.statement.body}</p>
               <div className={styles.actions}>
                 <button type="button" className="btn btn-primary" onClick={() => void load(false)} disabled={busy}>
                   Refresh assessment
@@ -193,7 +201,7 @@ export default function AdvisoryCentreClient() {
             </section>
 
             <section className={styles.card}>
-              <h3>Separated indicators</h3>
+              <h3 className={styles.cardTitle}>Separated indicators</h3>
               <p className={styles.meta}>{assessment.separation.note}</p>
               <ul className={styles.list}>
                 <li>
@@ -225,9 +233,10 @@ export default function AdvisoryCentreClient() {
             </section>
           </div>
 
+          <h2 className={styles.sectionTitle}>Monitoring tracks</h2>
           <div className={styles.grid}>
             <section className={styles.card}>
-              <h3>Solar wind monitoring</h3>
+              <h3 className={styles.cardTitle}>Solar wind monitoring</h3>
               <p className={styles.meta}>
                 Speed {fmt(obs.plasma_speed as number | null, 0, "km/s")} · Density{" "}
                 {fmt(obs.density as number | null, 1, "cm⁻³")} · Bt {fmt(obs.bt as number | null, 1, "nT")} · Bz{" "}
@@ -240,7 +249,7 @@ export default function AdvisoryCentreClient() {
               </ul>
             </section>
             <section className={styles.card}>
-              <h3>Geomagnetic storm monitoring</h3>
+              <h3 className={styles.cardTitle}>Geomagnetic storm monitoring</h3>
               <p className={styles.meta}>
                 Observed Kp {fmt(obs.kp as number | null, 1)} · Dst {fmt(obs.dst as number | null, 0, "nT")}
               </p>
@@ -251,7 +260,7 @@ export default function AdvisoryCentreClient() {
               </ul>
             </section>
             <section className={styles.card}>
-              <h3>Zimbabwe ionosphere / GNSS</h3>
+              <h3 className={styles.cardTitle}>Zimbabwe ionosphere / GNSS</h3>
               <p className={styles.meta}>
                 VTEC {fmt(obs.mean_vtec as number | null, 1, "TECU")} · S4 {fmt(obs.s4 as number | null, 2)} · Risk{" "}
                 {fmt(obs.gnss_risk as string | null)}
@@ -265,11 +274,11 @@ export default function AdvisoryCentreClient() {
           </div>
 
           <section className={styles.card}>
-            <h3>Stakeholder impact assessment</h3>
+            <h3 className={styles.cardTitle}>Stakeholder impact assessment</h3>
             <div className={styles.grid}>
               {assessment.stakeholders.map((item) => (
                 <article key={item.id}>
-                  <strong>{item.title}</strong>
+                  <h4>{item.title}</h4>
                   <p className={styles.meta} style={{ marginTop: "0.35rem" }}>{item.advice}</p>
                 </article>
               ))}
@@ -277,12 +286,12 @@ export default function AdvisoryCentreClient() {
           </section>
 
           <section className={styles.card}>
-            <h3>Automated advisory statement</h3>
+            <h3 className={styles.cardTitle}>Automated advisory statement</h3>
             <pre className={styles.statement}>{assessment.statement.plain_text}</pre>
           </section>
 
           <section className={styles.card}>
-            <h3>Scientific approval / publication</h3>
+            <h3 className={styles.cardTitle}>Scientific approval / publication</h3>
             <p className={styles.meta}>
               Drafts can be archived automatically. Public release of new or escalated advisories requires
               scientific approval (admin key). Delivery to WhatsApp/Facebook is via share links unless a
@@ -316,7 +325,7 @@ export default function AdvisoryCentreClient() {
           </section>
 
           <section className={styles.card}>
-            <h3>Advisory history</h3>
+            <h3 className={styles.cardTitle}>Advisory history</h3>
             {history.length === 0 ? (
               <p className={styles.meta}>No archived advisories yet. Use Save draft after an assessment.</p>
             ) : (

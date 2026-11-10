@@ -40,7 +40,7 @@ class AdvisoryCentreDB:
             dsn = database_dsn()
             if not dsn:
                 return
-            conn = psycopg2.connect(dsn)
+            conn = psycopg2.connect(dsn, connect_timeout=5)
             conn.autocommit = True
             with conn.cursor() as cur:
                 for stmt in DDL.strip().split(";"):
@@ -63,7 +63,7 @@ class AdvisoryCentreDB:
         dsn = database_dsn()
         if not dsn:
             raise RuntimeError("database unavailable")
-        conn = psycopg2.connect(dsn)
+        conn = psycopg2.connect(dsn, connect_timeout=5)
         conn.autocommit = True
         return conn, RealDictCursor
 

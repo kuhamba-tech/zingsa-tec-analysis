@@ -1,8 +1,66 @@
 .page {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 1.4rem;
   color: #ffffff;
+  width: 100%;
+  font-family: "Inter", system-ui, sans-serif;
+}
+
+.pageHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1.5rem;
+  padding: 0.65rem 0 0.35rem;
+}
+
+.pageHeader h1 {
+  font-size: clamp(1.9rem, 3.5vw, 2.8rem);
+  letter-spacing: -0.045em;
+  font-weight: 800;
+  margin: 0.35rem 0;
+  line-height: 1.15;
+  color: #ffffff;
+  text-transform: none;
+}
+
+.pageHeader p {
+  color: #ffffff;
+  font-size: 0.94rem;
+  line-height: 1.6;
+  margin: 0;
+  max-width: 58rem;
+}
+
+.eyebrow {
+  display: block;
+  color: #7dd3fc;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.contextLink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  flex-shrink: 0;
+  border: 1px solid var(--border, #244d73);
+  background: var(--surface, #0a0f1a);
+  color: #ffffff;
+  padding: 0.75rem 1rem;
+  border-radius: 10px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.contextLink:hover {
+  border-color: var(--accent, #168bd2);
+  background: rgba(22, 139, 210, 0.12);
 }
 
 .hero {
@@ -15,32 +73,42 @@
   .hero {
     grid-template-columns: 1fr;
   }
+
+  .pageHeader {
+    flex-direction: column;
+  }
 }
 
 .levelCard {
-  border-radius: 12px;
+  border-radius: 8px;
   border: 1px solid #244d73;
-  padding: 1.2rem 1.3rem;
+  padding: 1.1rem 1.3rem;
   background: rgba(0, 0, 0, 0.94);
 }
 
-.levelGreen { border-left: 6px solid #22c55e; }
-.levelYellow { border-left: 6px solid #eab308; }
-.levelOrange { border-left: 6px solid #f97316; }
-.levelRed { border-left: 6px solid #ef4444; }
+.levelGreen { border-left: 3px solid #22c55e; }
+.levelYellow { border-left: 3px solid #eab308; }
+.levelOrange { border-left: 3px solid #f97316; }
+.levelRed { border-left: 3px solid #ef4444; }
 
 .levelCode {
-  font-size: 0.75rem;
+  display: block;
+  color: #7dd3fc;
+  font-size: 0.68rem;
   font-weight: 800;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  margin-bottom: 0.35rem;
+  margin-bottom: 0.2rem;
 }
 
 .levelTitle {
-  font-size: clamp(1.35rem, 2.5vw, 1.9rem);
-  font-weight: 800;
-  margin: 0 0 0.5rem;
+  margin: 0.15rem 0 0.55rem;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1.35;
+  text-transform: none;
+  color: #ffffff;
 }
 
 .grid {
@@ -57,22 +125,35 @@
 
 .card {
   border: 1px solid #244d73;
-  border-radius: 10px;
+  border-radius: 8px;
   background: rgba(0, 0, 0, 0.94);
-  padding: 0.9rem 1rem;
+  padding: 1.1rem 1.3rem;
 }
 
-.card h3 {
-  margin: 0 0 0.45rem;
-  font-size: 0.78rem;
+.cardTitle {
+  margin: 0.15rem 0 0.4rem;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1.35;
+  text-transform: none;
+  color: #ffffff;
+}
+
+.sectionTitle {
+  margin: 0 0 0.65rem;
+  font-size: 0.85rem;
+  font-weight: 800;
   letter-spacing: 0.08em;
+  line-height: 1.35;
   text-transform: uppercase;
-  color: #7dd3fc;
+  color: #ffffff;
 }
 
 .meta {
-  font-size: 0.8rem;
-  line-height: 1.45;
+  font-size: 0.84rem;
+  line-height: 1.55;
+  color: #ffffff;
   opacity: 0.95;
 }
 
@@ -81,6 +162,7 @@
   padding-left: 1.1rem;
   font-size: 0.86rem;
   line-height: 1.5;
+  color: #ffffff;
 }
 
 .actions {
@@ -95,12 +177,15 @@
   font-size: 0.9rem;
   line-height: 1.6;
   margin: 0;
+  color: #ffffff;
+  font-family: "Inter", system-ui, sans-serif;
 }
 
 .historyItem {
   border-top: 1px solid #244d73;
   padding: 0.65rem 0;
   font-size: 0.84rem;
+  color: #ffffff;
 }
 
 .badge {
@@ -117,3 +202,10 @@
 .badgeYELLOW { background: rgba(234, 179, 8, 0.2); color: #fde047; }
 .badgeORANGE { background: rgba(249, 115, 22, 0.2); color: #fdba74; }
 .badgeRED { background: rgba(239, 68, 68, 0.2); color: #fca5a5; }
+
+@media (max-width: 768px) {
+  .card,
+  .levelCard {
+    padding: 0.9rem 0.85rem;
+  }
+}

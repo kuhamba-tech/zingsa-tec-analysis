@@ -2,11 +2,28 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+from typing import Any, Callable
 
 from zgiis.space_weather.advisory_centre import assess_advisory
 
 log = logging.getLogger(__name__)
+
+_SW_TIMEOUT_S = 6.0
+_SOLAR_TIMEOUT_S = 4.0
+_DB_TIMEOUT_S = 3.0
+
+
+def _call_with_timeout(label: str, fn: Callable[[], Any], timeout_s: float, default: Any) -> Any:
+    try:
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(fn).result(timeout=timeout_s)
+    except FuturesTimeout:
+        log.warning("advisory centre %s timed out after %.1fs", label, timeout_s)
+        return default
+    except Exception as exc:
+        log.warning("advisory centre %s failed: %s", label, exc)
+        return default
 
 
 def _solar_fields() -> dict[str, Any]:
@@ -17,7 +34,8 @@ def _solar_fields() -> dict[str, Any]:
         "speed": None,
         "available": False,
     }
-    try:
+
+    def _load() -> dict[str, Any]:
         from zgiis.space_weather.solar_activity import get_solar_activity
 
         sa = get_solar_activity(force_refresh=False) or {}
@@ -25,23 +43,28 @@ def _solar_fields() -> dict[str, Any]:
         feed = sa.get("feed_status") or {}
         plasma_fresh = bool((feed.get("solar_wind_plasma") or {}).get("fresh"))
         mag_fresh = bool((feed.get("solar_wind_mag") or {}).get("fresh"))
+        payload = dict(out)
         if plasma_fresh:
-            out["speed"] = wind.get("speed")
-            out["density"] = wind.get("density")
-            out["available"] = True
+            payload["speed"] = wind.get("speed")
+            payload["density"] = wind.get("density")
+            payload["available"] = True
         if mag_fresh:
-            out["bz"] = wind.get("bz")
-            out["bt"] = wind.get("bt")
-            out["available"] = True
-    except Exception as exc:
-        log.debug("solar activity unavailable for advisory centre: %s", exc)
-    return out
+            payload["bz"] = wind.get("bz")
+            payload["bt"] = wind.get("bt")
+            payload["available"] = True
+        return payload
+
+    return _call_with_timeout("solar_activity", _load, _SOLAR_TIMEOUT_S, out)
 
 
 def build_live_advisory(*, persist_draft: bool = False) -> dict[str, Any]:
-    from zgiis.space_weather.fetch_indices import get_space_weather
+    def _load_sw() -> dict[str, Any]:
+        from zgiis.space_weather.fetch_indices import get_space_weather
 
-    sw = get_space_weather(use_third_party=False) or {}
+        # Match Early Warning: skip slow ionosphere/third-party enrichments on the page path.
+        return get_space_weather(use_third_party=False, fetch_ionosphere=False) or {}
+
+    sw = _call_with_timeout("space_weather", _load_sw, _SW_TIMEOUT_S, {})
     solar = _solar_fields()
     speed = solar.get("speed")
     if speed is None:
@@ -74,16 +97,16 @@ def build_live_advisory(*, persist_draft: bool = False) -> dict[str, Any]:
     )
 
     if persist_draft:
-        try:
+        def _archive() -> bool:
             from zgiis.db.advisory_centre_db import AdvisoryCentreDB
 
             db = AdvisoryCentreDB()
-            if db.ready:
-                db.save_draft(assessment)
-                assessment["archived"] = True
-            else:
-                assessment["archived"] = False
-        except Exception as exc:
-            log.warning("advisory draft archive failed: %s", exc)
-            assessment["archived"] = False
+            if not db.ready:
+                return False
+            db.save_draft(assessment)
+            return True
+
+        assessment["archived"] = bool(
+            _call_with_timeout("archive_draft", _archive, _DB_TIMEOUT_S, False)
+        )
     return assessment
