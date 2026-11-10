@@ -140,6 +140,7 @@ def run_early_warning_cycle(*, persist: bool = True) -> dict[str, Any]:
     inserted = 0
     touched = 0
     resolved = 0
+    newly_opened: list[dict[str, Any]] = []
     active_payload = [alert.to_dict() for alert in candidates]
 
     if persist:
@@ -159,7 +160,9 @@ def run_early_warning_cycle(*, persist: bool = True) -> dict[str, Any]:
                         )
                         touched += 1
                     continue
-                db.insert_alert(alert.to_dict())
+                row = alert.to_dict()
+                db.insert_alert(row)
+                newly_opened.append(row)
                 inserted += 1
             resolved = db.resolve_missing(active_rules, resolved_at=now.isoformat().replace("+00:00", "Z"))
             active_payload = db.active_alerts()
@@ -176,6 +179,10 @@ def run_early_warning_cycle(*, persist: bool = True) -> dict[str, Any]:
 
     summary = summarise_alerts(active_payload)
     diagnostics.update({"inserted": inserted, "touched": touched, "resolved": resolved})
+    if newly_opened:
+        from zgiis.space_weather.slack_alerts import broadcast_early_warning_alerts
+
+        diagnostics["slack"] = broadcast_early_warning_alerts(newly_opened)
     return {
         "summary": summary,
         "active": [row for row in active_payload if row.get("status") in {"active", "watch"}],

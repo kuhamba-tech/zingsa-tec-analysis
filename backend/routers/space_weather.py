@@ -1007,6 +1007,7 @@ def early_warning_snapshot(
         history=history,
         diagnostics=payload.get("diagnostics") or {},
         authority_legend=payload.get("authority_legend") or {},
+        notification_settings=_alert_notification_settings(),
     )
 
 
@@ -1025,7 +1026,24 @@ def early_warning_evaluate(_=Depends(require_api_key)):
         history=history,
         diagnostics=payload.get("diagnostics") or {},
         authority_legend=payload.get("authority_legend") or {},
+        notification_settings=_alert_notification_settings(),
     )
+
+
+def _alert_notification_settings() -> dict[str, object]:
+    from zgiis.space_weather.storm_notifier import channels_configured
+
+    channels = channels_configured()
+    return {
+        "dashboard": True,
+        "email": bool(channels.get("email")),
+        "whatsapp": bool(channels.get("whatsapp")),
+        "slack": bool(channels.get("slack")),
+        "note": (
+            "Dashboard notifications are enabled. Email, WhatsApp, and Slack send when their credentials are set. "
+            "STORM_ALERT_DRY_RUN=true logs the message without posting."
+        ),
+    }
 
 
 def _float_or_none(value: object) -> float | None:

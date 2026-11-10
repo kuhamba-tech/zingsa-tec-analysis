@@ -220,7 +220,7 @@ export default function EarlyWarningCentre({
         {tab === "settings" ? (
           <div className={styles.settings}>
             <h3>Notification channels</h3><p>{snapshot?.notification_settings?.note ?? "Channel configuration is unavailable until the alert feed loads."}</p>
-            {([['Dashboard', snapshot?.notification_settings?.dashboard], ['Email', snapshot?.notification_settings?.email], ['WhatsApp / messaging', snapshot?.notification_settings?.whatsapp]] as const).map(([label, enabled]) => <div key={label}><strong>{label}</strong><span>{enabled == null ? "Unknown" : enabled ? "Enabled" : "Off"}</span></div>)}
+            {([['Dashboard', snapshot?.notification_settings?.dashboard], ['Email', snapshot?.notification_settings?.email], ['WhatsApp / messaging', snapshot?.notification_settings?.whatsapp], ['Slack', snapshot?.notification_settings?.slack]] as const).map(([label, enabled]) => <div key={label}><strong>{label}</strong><span>{enabled == null ? "Unknown" : enabled ? "Enabled" : "Off"}</span></div>)}
           </div>
         ) : <>
           <div className={styles.filters}>

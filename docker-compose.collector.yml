@@ -1,0 +1,36 @@
+# Live TEC collector for the VPS that already runs Supabase in Docker.
+# One copy only. Stop the collector on any other computer before starting this.
+#
+#   docker network ls
+#   SUPABASE_DOCKER_NETWORK=supabase_default \
+#   SUPABASE_DOCKER_DB_HOST=db \
+#   docker compose -f docker-compose.collector.yml up -d --build
+#
+# backend/.env is read on the server and is not copied into the image.
+# SUPABASE_DOCKER_DB_HOST is the Postgres service name on the Supabase network.
+
+services:
+  tec-collector:
+    build:
+      context: .
+      dockerfile: Dockerfile.collector
+    image: zingsa-tec-collector:latest
+    restart: unless-stopped
+    env_file:
+      - backend/.env
+    environment:
+      ZGIIS_SKIP_DB_SCHEMA_INIT: "1"
+      SUPABASE_DOCKER_DB_HOST: ${SUPABASE_DOCKER_DB_HOST:-db}
+      SUPABASE_DOCKER_DB_PORT: ${SUPABASE_DOCKER_DB_PORT:-5432}
+    volumes:
+      - tec-collector-data:/app/static/data
+    networks:
+      - supabase
+
+networks:
+  supabase:
+    external: true
+    name: ${SUPABASE_DOCKER_NETWORK:-supabase_default}
+
+volumes:
+  tec-collector-data:

@@ -1,4 +1,4 @@
-"""Geomagnetic storm alert notifications — SMS, WhatsApp, and email.
+"""Geomagnetic storm alert notifications — SMS, WhatsApp, email, and Slack.
 
 Dispatched when EKF deviation alerts fire or Kp crosses storm thresholds.
 Credentials come from environment variables; STORM_ALERT_DRY_RUN=true logs only.
@@ -63,6 +63,7 @@ def channels_configured() -> dict[str, bool]:
             and os.getenv("WHATSAPP_ACCESS_TOKEN", "").strip()
             and os.getenv("WHATSAPP_PHONE_NUMBER_ID", "").strip()
         ),
+        "slack": _slack_configured(),
     }
 
 
@@ -202,6 +203,18 @@ def _send_sms(body: str) -> tuple[bool, str]:
         return False, str(exc)
 
 
+def _slack_configured() -> bool:
+    from zgiis.space_weather.slack_alerts import slack_configured
+
+    return slack_configured()
+
+
+def _send_slack(body: str) -> tuple[bool, str]:
+    from zgiis.space_weather.slack_alerts import post_slack
+
+    return post_slack(body)
+
+
 def _send_whatsapp(body: str) -> tuple[bool, str]:
     from zgiis.navigation.broadcast_agent.channels import WhatsAppCloudChannel
 
@@ -239,7 +252,7 @@ def dispatch_storm_notifications(
     geomagnetic_changed: bool = False,
     geomagnetic: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    """Send SMS / WhatsApp / email for EKF alerts or Kp/Dst storm transitions."""
+    """Send SMS / WhatsApp / email / Slack for EKF alerts or Kp/Dst storm transitions."""
     geo = geomagnetic or classify_geomagnetic_activity(kp, dst)
     if not new_alerts and not geomagnetic_changed:
         return []
@@ -285,6 +298,7 @@ def _dispatch_all(subject: str, body: str) -> list[dict[str, Any]]:
         ("email", configured["email"], lambda: _send_email(subject, body)),
         ("sms", configured["sms"], lambda: _send_sms(body)),
         ("whatsapp", configured["whatsapp"], lambda: _send_whatsapp(body)),
+        ("slack", configured["slack"], lambda: _send_slack(body)),
     )
     for name, enabled, fn in channels:
         if not enabled:

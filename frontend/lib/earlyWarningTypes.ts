@@ -48,6 +48,7 @@ export type EarlyWarningSnapshot = {
     dashboard: boolean;
     email: boolean;
     whatsapp: boolean;
+    slack?: boolean;
     note: string;
   };
 };

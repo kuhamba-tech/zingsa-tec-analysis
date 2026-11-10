@@ -483,7 +483,8 @@ class EarlyWarningSnapshotOut(BaseModel):
         "dashboard": True,
         "email": False,
         "whatsapp": False,
-        "note": "Dashboard notifications are enabled. Email and messaging stay off until approved integrations are configured.",
+        "slack": False,
+        "note": "Dashboard notifications are enabled. Email, WhatsApp, and Slack send when their credentials are set.",
     }
 
 class StationOut(BaseModel):
