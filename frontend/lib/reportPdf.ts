@@ -368,3 +368,66 @@ export async function downloadAnomalyReportPdf(days: AnomalyDay[], thresholdPct:
   addFooter(doc);
   triggerDownload(doc.output("blob"), `tec_anomalies_${thresholdPct}pct.pdf`);
 }
+
+/** ZINGSA Space Weather Advisory Centre statement PDF (measurement-traceable text only). */
+export async function downloadAdvisoryCentrePdf(assessment: {
+  advisory_id: string;
+  issued_utc: string;
+  issued_cat: string;
+  advisory_level: string;
+  advisory_label: string;
+  confidence: { label: string; rationale: string };
+  statement: { body: string; plain_text?: string; attribution?: string };
+  tracks: Record<string, { evidence?: string[] }>;
+  stakeholders: { title: string; advice: string }[];
+  next_review_utc?: string;
+  forecast_note?: string;
+}) {
+  const doc = await createDoc(
+    "Space Weather Advisory",
+    `${assessment.advisory_level} — ${assessment.advisory_label}`,
+  );
+  let y = 40;
+  const write = (text: string, bold = false, size = 9) => {
+    doc.setFont("helvetica", bold ? "bold" : "normal");
+    doc.setFontSize(size);
+    const lines: string[] = doc.splitTextToSize(text, 182);
+    for (const line of lines) {
+      if (y > 276) {
+        doc.addPage();
+        y = 20;
+      }
+      doc.text(line, 14, y);
+      y += bold ? 5.2 : 4.6;
+    }
+    y += 2.5;
+  };
+
+  write(`Reference: ${assessment.advisory_id}`, true, 11);
+  write(`Issued: ${fmtUtc(assessment.issued_utc)} · ${assessment.issued_cat}`);
+  write(`Status: ${assessment.advisory_level} — ${assessment.advisory_label}`, true, 11);
+  write(assessment.statement.body);
+  if (assessment.forecast_note) {
+    write("Forecast note", true);
+    write(assessment.forecast_note);
+  }
+  write("Evidence (observed tracks)", true);
+  for (const track of Object.values(assessment.tracks || {})) {
+    for (const line of track.evidence || []) write(`• ${line}`);
+  }
+  write("Stakeholder guidance", true);
+  for (const item of assessment.stakeholders || []) {
+    write(item.title, true);
+    write(item.advice);
+  }
+  write("Confidence", true);
+  write(`${assessment.confidence.label} — ${assessment.confidence.rationale}`);
+  if (assessment.next_review_utc) write(`Next review: ${fmtUtc(assessment.next_review_utc)}`);
+  write(assessment.statement.attribution || "ZINGSA Space Science Department — Space Weather Advisory Centre");
+  write(
+    "This product separates global geomagnetic hazard from Zimbabwe GNSS reliability. Solar-wind speed alone is never classified as a geomagnetic storm.",
+  );
+
+  addFooter(doc);
+  triggerDownload(doc.output("blob"), `${assessment.advisory_id}.pdf`);
+}

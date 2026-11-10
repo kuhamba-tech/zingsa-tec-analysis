@@ -644,6 +644,83 @@ export const getEarlyWarningSnapshot = (hours = 168, evaluate = false) =>
     hours,
     evaluate: evaluate ? "true" : "false",
   });
+
+export type AdvisoryCentreAssessment = {
+  advisory_id: string;
+  issued_utc: string;
+  issued_cat: string;
+  advisory_level: "GREEN" | "YELLOW" | "ORANGE" | "RED";
+  advisory_label: string;
+  tracks: {
+    solar_watch: { level: string; status: string; evidence: string[]; watch_active?: boolean };
+    geomagnetic: {
+      level: string;
+      status: string;
+      evidence: string[];
+      observed_storm?: boolean;
+      g_scale?: { code: string | null; title: string | null; note?: string };
+    };
+    zimbabwe_gnss: {
+      level: string;
+      status: string;
+      evidence: string[];
+      confirmed_local_impact?: boolean;
+    };
+  };
+  separation: {
+    global_geomagnetic_level: string;
+    zimbabwe_gnss_level: string;
+    solar_watch_level: string;
+    note: string;
+  };
+  observations: Record<string, number | string | null | undefined>;
+  stakeholders: { id: string; title: string; advice: string }[];
+  confidence: { label: string; rationale: string };
+  statement: {
+    title: string;
+    reference: string;
+    status_line: string;
+    body: string;
+    plain_text: string;
+    observed_conditions?: string[];
+    attribution?: string;
+  };
+  forecast_note?: string;
+  next_review_utc?: string;
+  publication?: { state: string };
+  thresholds?: Record<string, unknown>;
+};
+
+export const getAdvisoryCentre = (persist = false) =>
+  get<AdvisoryCentreAssessment>("/space-weather/advisory-centre", {
+    persist: persist ? "true" : "false",
+    _ts: Date.now(),
+  });
+
+export const getAdvisoryCentreHistory = (limit = 50, level?: string) =>
+  get<{ items: Array<{ advisory_id: string; issued_utc: string; level: string; state: string; statement?: AdvisoryCentreAssessment["statement"] }> }>(
+    "/space-weather/advisory-centre/history",
+    { limit, ...(level ? { level } : {}), _ts: Date.now() },
+  );
+
+export async function postAdvisoryCentreAction(
+  action: "approve" | "publish" | "withdraw",
+  advisoryId: string,
+  adminKey?: string,
+  reviewer?: string,
+) {
+  const res = await fetchWithTimeout(apiUrl(`/space-weather/advisory-centre/${action}`), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(KEY ? { "X-API-Key": KEY } : {}),
+      ...(adminKey ? { "X-Broadcast-Admin-Key": adminKey } : {}),
+    },
+    body: JSON.stringify({ advisory_id: advisoryId, reviewer }),
+  });
+  if (!res.ok) throw new Error(`API POST /space-weather/advisory-centre/${action} → ${res.status}`);
+  return res.json() as Promise<{ ok: boolean; state: string }>;
+}
 export const ackEkfAlert = (alertId: string) =>
   fetch(apiUrl(`/space-weather/ekf/alerts/${alertId}/ack`), {
     method: "POST",

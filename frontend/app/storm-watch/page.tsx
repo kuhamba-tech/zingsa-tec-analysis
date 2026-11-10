@@ -21,7 +21,7 @@ export default function StormWatchPage() {
   } = useStormWatchFeed(168);
 
   return (
-    <div className="alerts-centre-page" style={{ display: "flex", flexDirection: "column", gap: "1.4rem" }}>
+    <div className="alerts-centre-page">
       <header className={styles.pageHeader}>
         <div><span className={styles.eyebrow}>ZINGSA / Space weather intelligence</span>
           <h1>Alerts Centre</h1>

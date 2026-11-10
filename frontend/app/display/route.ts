@@ -1,4 +1,5 @@
 import type { NextRequest } from "next/server";
+import { monitoringFreshness } from "@/lib/monitoringStatus";
 
 export const dynamic = "force-dynamic";
 
@@ -126,7 +127,7 @@ type MetricCard = {
   note?: string;
   source: string;
   scaleHtml?: string;
-  freshness: "LIVE" | "UNAVAILABLE";
+  freshness: "LIVE" | "DELAYED" | "UNAVAILABLE";
 };
 
 export async function GET(request: NextRequest) {
@@ -215,11 +216,11 @@ export async function GET(request: NextRequest) {
     {
       icon: "🛰️",
       label: "Estimated GNSS Risk",
-      value: "Check locally",
-      valueColor: "#168bd2",
-      note: "TEC and Kp alone do not verify positioning accuracy",
-      source: "Operator check",
-      freshness: "LIVE",
+      value: typeof weather?.gnss_risk === "string" && weather.gnss_risk ? weather.gnss_risk : "Unavailable",
+      valueColor: typeof weather?.gnss_risk_color === "string" ? weather.gnss_risk_color : "#94a3b8",
+      note: "Provisional estimate · local positioning impact has not been verified",
+      source: "ZGIIS risk label",
+      freshness: monitoringFreshness(observed, Date.now(), Boolean(weather?.gnss_risk)),
     },
   ];
 
@@ -269,6 +270,7 @@ h1{font-size:32px;margin:0;line-height:1.15}
 .meta{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:6px 10px;margin-top:10px;font-size:12px;color:#94a3b8}
 .fresh{font-weight:800;letter-spacing:.04em;text-transform:uppercase}
 .fresh-live{color:#00ff88}
+.fresh-delayed{color:#eab308}
 .fresh-unavailable{color:#94a3b8}
 .scale{display:flex;width:100%;gap:4px;margin-top:12px}
 .scale-item{flex:1;min-width:0;text-align:center}

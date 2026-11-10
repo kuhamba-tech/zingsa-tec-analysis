@@ -119,12 +119,6 @@
   }
 }
 
-@media (max-width: 520px) {
-  .facts {
-    grid-template-columns: 1fr;
-  }
-}
-
 .fact {
   border: 1px solid #244d73;
   border-radius: 8px;
@@ -154,6 +148,7 @@
   font-weight: 700;
   color: #ffffff;
   line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
 .copy {
@@ -200,7 +195,7 @@
   font-style: normal;
   font-size: 0.72rem;
   font-weight: 600;
-  color: #cbd5e1;
+  color: #ffffff;
   line-height: 1.35;
 }
 
@@ -226,7 +221,27 @@
   gap: 0.5rem;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 768px) {
+  .header {
+    flex-direction: column;
+  }
+
+  .statusChip {
+    align-self: flex-start;
+  }
+
+  .facts,
+  .flareRow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .severity {
+    margin-left: 0;
+  }
+}
+
+@media (max-width: 380px) {
+  .facts,
   .flareRow {
     grid-template-columns: 1fr;
   }

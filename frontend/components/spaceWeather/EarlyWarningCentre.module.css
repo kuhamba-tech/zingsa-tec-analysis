@@ -507,57 +507,105 @@
   font-weight: 700;
 }
 
+@media (min-width: 1400px) {
+  .stat {
+    min-height: 9.4rem;
+  }
+  .stat strong {
+    font-size: 2.35rem;
+  }
+}
+
 @media (max-width: 1100px) {
-  .domains {
+  .stats,
+  .domains,
+  .streams {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
-@media (max-width: 700px) {
+@media (max-width: 768px) {
   .pageHeader,
-  .overviewHeading {
-    align-items: flex-start;
+  .overviewHeading,
+  .sectionHeading {
+    align-items: stretch;
     flex-direction: column;
+  }
+
+  .contextLink {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .pageHeader h1 {
+    font-size: clamp(1.65rem, 8vw, 2.1rem);
+  }
+
+  .overviewHeading {
+    padding: 0.95rem 0.85rem 0.7rem;
   }
 
   .stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
+    padding: 0 0.85rem 0.9rem;
   }
 
-  .overviewHeading {
-    padding: 1.05rem 1.1rem 0.85rem;
+  .stat {
+    min-height: 7.4rem;
+    padding: 0.7rem 0.5rem;
   }
 
-  .stats {
-    padding: 0 1.1rem 1.05rem;
+  .stat strong {
+    font-size: 1.45rem;
   }
 
-  .sectionHeading {
-    align-items: flex-start;
+  .domains {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
   }
 
   .sectionHeading > span {
-    text-align: right;
-    max-width: 9rem;
+    text-align: left;
+    max-width: none;
   }
 
-  .workspace {
-    padding: 1rem 1.1rem;
+  .workspace,
+  .explainer {
+    padding: 0.9rem 0.85rem;
+  }
+
+  .tabs {
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    overscroll-behavior-x: contain;
+  }
+
+  .tabs button,
+  .filters input,
+  .filters select,
+  .empty button {
+    min-height: 44px;
+  }
+
+  .filters input,
+  .filters select {
+    font-size: 16px;
   }
 
   .filters,
   .streams {
     grid-template-columns: 1fr;
   }
+
+  .alertCard {
+    padding: 0.85rem;
+  }
 }
 
-@media (max-width: 420px) {
-  .domains,
-  .stats {
+@media (max-width: 380px) {
+  .stats,
+  .domains {
     grid-template-columns: 1fr;
-  }
-
-  .tabs button {
-    padding: 0.75rem 0.55rem;
   }
 }

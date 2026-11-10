@@ -8,8 +8,9 @@ import time
 from concurrent.futures import Future, ThreadPoolExecutor, TimeoutError as FuturesTimeout
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 
-from backend.deps import require_api_key
+from backend.deps import require_api_key, require_broadcast_admin
 from backend.schemas import (
     CorrelationPair,
     EarlyWarningAlertOut,
@@ -1044,6 +1045,114 @@ def _alert_notification_settings() -> dict[str, object]:
             "STORM_ALERT_DRY_RUN=true logs the message without posting."
         ),
     }
+
+
+class AdvisoryActionBody(BaseModel):
+    advisory_id: str = Field(min_length=8, max_length=64)
+    reviewer: str | None = Field(default=None, max_length=120)
+
+
+@router.get("/advisory-centre")
+def advisory_centre_current(
+    persist: bool = Query(False, description="Persist this assessment as a draft when true"),
+    _=Depends(require_api_key),
+):
+    """Live ZINGSA Space Weather Advisory Centre assessment (draft by default)."""
+    from zgiis.space_weather.advisory_centre_service import build_live_advisory
+
+    return build_live_advisory(persist_draft=persist)
+
+
+@router.get("/advisory-centre/history")
+def advisory_centre_history(
+    limit: int = Query(50, ge=1, le=200),
+    level: str | None = Query(None),
+    _=Depends(require_api_key),
+):
+    from zgiis.db.advisory_centre_db import AdvisoryCentreDB
+
+    db = AdvisoryCentreDB()
+    if not db.ready:
+        return {"items": [], "note": "Advisory archive database is unavailable."}
+    rows = db.history(limit=limit, level=level)
+    items = []
+    for row in rows:
+        payload = row.get("payload") or {}
+        if isinstance(payload, str):
+            import json
+
+            try:
+                payload = json.loads(payload)
+            except json.JSONDecodeError:
+                payload = {}
+        items.append(
+            {
+                "advisory_id": row.get("advisory_id"),
+                "issued_utc": str(row.get("issued_utc")),
+                "level": row.get("level"),
+                "state": row.get("state"),
+                "approved_by": row.get("approved_by"),
+                "published_at": str(row.get("published_at")) if row.get("published_at") else None,
+                "statement": (payload.get("statement") if isinstance(payload, dict) else None),
+            }
+        )
+    return {"items": items}
+
+
+@router.get("/advisory-centre/latest-published")
+def advisory_centre_latest_published(_=Depends(require_api_key)):
+    from zgiis.db.advisory_centre_db import AdvisoryCentreDB
+
+    db = AdvisoryCentreDB()
+    if not db.ready:
+        return {"item": None, "note": "Advisory archive database is unavailable."}
+    row = db.latest_published()
+    if not row:
+        return {"item": None}
+    payload = row.get("payload") or {}
+    return {"item": payload if isinstance(payload, dict) else None, "state": row.get("state")}
+
+
+@router.post("/advisory-centre/approve")
+def advisory_centre_approve(body: AdvisoryActionBody, admin=Depends(require_broadcast_admin)):
+    from zgiis.db.advisory_centre_db import AdvisoryCentreDB
+
+    db = AdvisoryCentreDB()
+    if not db.ready:
+        raise HTTPException(status_code=503, detail="Advisory archive database is unavailable")
+    row = db.set_state(body.advisory_id, "approved", approved_by=body.reviewer or "scientific_reviewer")
+    if not row:
+        raise HTTPException(status_code=404, detail="Draft advisory not found or not approvable")
+    return {"ok": True, "advisory_id": body.advisory_id, "state": "approved", "admin": bool(admin)}
+
+
+@router.post("/advisory-centre/publish")
+def advisory_centre_publish(body: AdvisoryActionBody, _=Depends(require_broadcast_admin)):
+    from zgiis.db.advisory_centre_db import AdvisoryCentreDB
+
+    db = AdvisoryCentreDB()
+    if not db.ready:
+        raise HTTPException(status_code=503, detail="Advisory archive database is unavailable")
+    row = db.set_state(body.advisory_id, "published")
+    if not row:
+        raise HTTPException(
+            status_code=409,
+            detail="Advisory must be approved before publication, or was not found",
+        )
+    return {"ok": True, "advisory_id": body.advisory_id, "state": "published"}
+
+
+@router.post("/advisory-centre/withdraw")
+def advisory_centre_withdraw(body: AdvisoryActionBody, _=Depends(require_broadcast_admin)):
+    from zgiis.db.advisory_centre_db import AdvisoryCentreDB
+
+    db = AdvisoryCentreDB()
+    if not db.ready:
+        raise HTTPException(status_code=503, detail="Advisory archive database is unavailable")
+    row = db.set_state(body.advisory_id, "withdrawn")
+    if not row:
+        raise HTTPException(status_code=404, detail="Advisory not found")
+    return {"ok": True, "advisory_id": body.advisory_id, "state": "withdrawn"}
 
 
 def _float_or_none(value: object) -> float | None:

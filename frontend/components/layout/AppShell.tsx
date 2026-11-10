@@ -43,6 +43,7 @@ const NAV_GROUPS: { section: string; items: NavItem[] }[] = [
     section: "Space Weather",
     items: [
       { href: "/space-weather/", label: "Live Space Weather", icon: "🌌" },
+      { href: "/space-weather/advisory-centre/", label: "Advisory Centre", icon: "🛡️" },
       { href: "/space-weather/gnss-intelligence/", label: "Navigation Weather", icon: "🛰️" },
       { href: "/anomaly-detection/", label: "TEC Anomaly", icon: "🔮" },
       { href: "/gic-monitor/", label: "GIC Monitor", icon: "🧲" },
