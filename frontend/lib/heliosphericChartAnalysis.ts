@@ -41,11 +41,11 @@ export function analyzeGoesXrayExplanation(opts?: {
   if (opts?.sampleCount) {
     liveBits.push(`${opts.sampleCount} samples in the displayed window`);
   }
-  if (opts?.latest != null && Number.isFinite(opts.latest)) {
-    liveBits.push(`latest ${opts.latest.toFixed(3)} ×10⁻⁷ W/m²`);
+  if (opts?.latest != null && Number.isFinite(opts.latest) && opts.latest > 0) {
+    liveBits.push(`latest ${opts.latest.toExponential(2)} W/m²`);
   }
-  if (opts?.peak != null && Number.isFinite(opts.peak)) {
-    liveBits.push(`peak ${opts.peak.toFixed(3)} ×10⁻⁷ W/m²`);
+  if (opts?.peak != null && Number.isFinite(opts.peak) && opts.peak > 0) {
+    liveBits.push(`peak ${opts.peak.toExponential(2)} W/m²`);
   }
 
   return {

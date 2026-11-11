@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime
+import math
 import os
 from typing import Any, Dict, List, Optional
 
@@ -13,6 +14,7 @@ except ImportError:
     _REQUESTS_AVAILABLE = False
 
 NOAA_XRAY_1D_URL = "https://services.swpc.noaa.gov/json/goes/primary/xrays-1-day.json"
+NOAA_XRAY_7D_URL = "https://services.swpc.noaa.gov/json/goes/primary/xrays-7-day.json"
 NOAA_PLASMA_1D_URL = "https://services.swpc.noaa.gov/json/rtsw/rtsw_wind_1m.json"
 NOAA_MAG_1D_URL = "https://services.swpc.noaa.gov/json/rtsw/rtsw_mag_1m.json"
 NOAA_ALERTS_URL = "https://services.swpc.noaa.gov/products/alerts.json"
@@ -331,6 +333,31 @@ def xray_class(flux: float) -> str:
     return f"A{max(value / 1e-8, 0.1):.1f}"
 
 
+def build_xray_timeline(rows: list[Any] | None) -> list[dict[str, Any]]:
+    """Merge GOES long/short bands onto shared UTC timestamps (W/m²)."""
+    by_time: dict[str, dict[str, Any]] = {}
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        stamp = str(row.get("time_tag") or "").strip()
+        energy = str(row.get("energy") or "").strip()
+        try:
+            flux = float(row.get("flux"))
+        except (TypeError, ValueError):
+            continue
+        if not stamp or not math.isfinite(flux) or flux <= 0:
+            continue
+        slot = by_time.get(stamp)
+        if slot is None:
+            slot = {"t": stamp, "long": None, "short": None}
+            by_time[stamp] = slot
+        if energy == "0.1-0.8nm":
+            slot["long"] = flux
+        elif energy == "0.05-0.4nm":
+            slot["short"] = flux
+    return [by_time[key] for key in sorted(by_time)]
+
+
 def _recent_swpc_alerts(alerts: Any) -> list[dict]:
     """Newest NOAA bulletins, with the message code and validity parsed out.
 
@@ -574,6 +601,7 @@ def fetch_solar_activity() -> Dict[str, Any]:
         _, using_demo = _nasa_api_key()
         jobs: dict[str, tuple[str, int]] = {
             "xrays": (NOAA_XRAY_1D_URL, TIMEOUT_SECONDS),
+            "xrays_7d": (NOAA_XRAY_7D_URL, TIMEOUT_SECONDS),
             "plasma": (NOAA_PLASMA_1D_URL, TIMEOUT_SECONDS),
             "mag": (NOAA_MAG_1D_URL, TIMEOUT_SECONDS),
             "alerts": (NOAA_ALERTS_URL, TIMEOUT_SECONDS),
@@ -595,6 +623,7 @@ def fetch_solar_activity() -> Dict[str, Any]:
                 results[futures[fut]] = fut.result()
 
         xrays = results["xrays"]
+        xrays_7d = results.get("xrays_7d")
         plasma_rows = results["plasma"]
         mag_rows = results["mag"]
         alerts = results["alerts"]
@@ -605,25 +634,27 @@ def fetch_solar_activity() -> Dict[str, Any]:
         )
         event_feed_source = _event_feed_source(event_sources, donki_status)
 
-        noaa_ok = any(results[k] is not None for k in ("xrays", "plasma", "mag", "alerts"))
+        noaa_ok = any(results[k] is not None for k in ("xrays", "xrays_7d", "plasma", "mag", "alerts"))
         donki_parts = [name for name in ("flares", "cmes", "storms") if results.get(name) is not None]
         if not noaa_ok and not event_sources:
             raise RuntimeError("All NOAA/NASA solar feeds failed or timed out")
 
-        # GOES publishes both X-ray bands interleaved.  The operational flare
-        # class is defined from the 0.1–0.8 nm band, so never use whichever
-        # band happens to be the final array item.
+        # Prefer the 7-day product for chart history; fall back to 1-day.
+        # GOES publishes both X-ray bands interleaved. Operational flare class
+        # is defined from the 0.1–0.8 nm (long) band only.
+        xray_rows = xrays_7d if isinstance(xrays_7d, list) and xrays_7d else xrays
         long_band_rows = [
-            row for row in (xrays or [])
+            row for row in (xray_rows or [])
             if isinstance(row, dict) and row.get("energy") == "0.1-0.8nm" and row.get("time_tag")
         ]
         xray_latest = max(long_band_rows, key=lambda row: str(row["time_tag"])) if long_band_rows else {}
         flux = float(xray_latest.get("flux") or 0) if xray_latest else 0.0
         flare_class = xray_class(flux) if xray_latest else "Unavailable"
+        xray_timeline = build_xray_timeline(xray_rows if isinstance(xray_rows, list) else [])
         xray_series = [
-            float(row.get("flux") or 0)
-            for row in (xrays or [])
-            if isinstance(row, dict) and row.get("energy") == "0.1-0.8nm"
+            float(point["long"])
+            for point in xray_timeline
+            if point.get("long") is not None
         ][-36:]
 
         plasma_latest = _latest_product_row(plasma_rows)
@@ -673,6 +704,7 @@ def fetch_solar_activity() -> Dict[str, Any]:
             flare_class = "Unavailable"
             flux = 0.0
             xray_series = []
+            xray_timeline = []
         if not plasma_fresh:
             speed = density = temperature = 0.0
             plasma_latest = None
@@ -688,7 +720,9 @@ def fetch_solar_activity() -> Dict[str, Any]:
         )
 
         routes = []
-        if results["xrays"] is not None:
+        if results.get("xrays_7d") is not None:
+            routes.append("NOAA SWPC goes/primary/xrays-7-day")
+        elif results["xrays"] is not None:
             routes.append("NOAA SWPC goes/primary/xrays-1-day")
         if results["plasma"] is not None or results["mag"] is not None:
             routes.append("NOAA SWPC solar-wind/plasma + mag")
@@ -709,6 +743,7 @@ def fetch_solar_activity() -> Dict[str, Any]:
             "flareClass": flare_class,
             "flux": flux if xray_latest else None,
             "xraySeries": xray_series,
+            "xrayTimeline": xray_timeline,
             "solarWind": {
                 "speed": speed if plasma_latest is not None else None,
                 "density": density if plasma_latest is not None else None,

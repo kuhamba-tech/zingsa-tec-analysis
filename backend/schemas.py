@@ -224,12 +224,19 @@ class SolarWindDetail(BaseModel):
     southward_duration_minutes: int | None = None
 
 
+class GoesXrayTimelinePoint(BaseModel):
+    t: str
+    long: float | None = None
+    short: float | None = None
+
+
 class SolarActivityFull(BaseModel):
     mode: str = "unavailable"
     updated: str = ""
     flare_class: str = "Unavailable"
     flux: float | None = None
     xray_series: list[float] = []
+    xray_timeline: list[GoesXrayTimelinePoint] = []
     solar_wind: SolarWindDetail = SolarWindDetail()
     alerts: list[dict[str, Any]] = []
     donki_flares: list[dict[str, Any]] = []

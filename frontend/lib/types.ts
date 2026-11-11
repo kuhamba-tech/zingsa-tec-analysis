@@ -302,12 +302,20 @@ export interface SolarWindDetail {
   southward_duration_minutes?: number | null;
 }
 
+export interface GoesXrayTimelinePoint {
+  t: string;
+  long: number | null;
+  short: number | null;
+}
+
 export interface SolarActivityFull {
   mode: string;
   updated: string;
   flare_class: string;
   flux: number | null;
   xray_series: number[];
+  /** Timed GOES long/short-band flux (W/m²) for NOAA-style charts. */
+  xray_timeline?: GoesXrayTimelinePoint[];
   solar_wind: SolarWindDetail;
   alerts: Record<string, unknown>[];
   donki_flares: Record<string, unknown>[];

@@ -509,9 +509,18 @@ export default function LineChart({
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 label: (ctx: any) => {
                   const val = ctx.parsed.y;
-                  let line = `${ctx.dataset.label}: ${val ?? "N/A"}`;
-                  const detail = drawTooltipDetails?.[ctx.dataIndex];
-                  if (detail) line += ` — ${detail}`;
+                  let rendered: string;
+                  if (typeof val !== "number" || !Number.isFinite(val)) {
+                    rendered = "N/A";
+                  } else if (yLogScale || (Math.abs(val) > 0 && Math.abs(val) < 1e-3)) {
+                    rendered = val.toExponential(2);
+                  } else if (formatYTick) {
+                    rendered = formatYTick(val) || String(val);
+                  } else {
+                    rendered = String(val);
+                  }
+                  let line = `${ctx.dataset.label}: ${rendered}`;
+                  // Extra detail (flare class, geomagnetic condition, downtime) goes in afterBody.
                   const meta = ctx.dataset.meta?.[ctx.dataIndex];
                   if (meta) {
                     if (meta.error != null) line += ` · error ${meta.error.toFixed(2)}`;

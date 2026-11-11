@@ -49,8 +49,6 @@ import {
   formatUtcAxisTick,
   parseTimelineEpoch,
   sharedTimeDomain,
-  startOfUtcDay,
-  utcTimeAxisProps,
 } from "@/lib/chartTimeAxis";
 import { alignEkfToPoints } from "@/lib/ekfAlign";
 import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
@@ -477,7 +475,7 @@ export default function SpaceWeatherClient({
   const [imfPoints, setImfPoints] = useState<TimelinePoint[] | null>(null);
   // Always start at 0 so SSR HTML matches the first client paint; URL ?tab= is applied in useEffect.
   const [tab, setTab] = useState(0);
-  const [xrayRange, setXrayRange] = useState<"6H" | "24H">("24H");
+  const [xrayRange, setXrayRange] = useState<"6H" | "1D" | "3D" | "7D">("1D");
 
   useEffect(() => {
     try {
@@ -955,49 +953,24 @@ export default function SpaceWeatherClient({
   const conditionLabel   = kp === null ? "Geomagnetic data unavailable" : kp >= 5 ? "Storm Active" : kp !== null && kp >= 3 ? "Disturbed" : "Quiet";
   const conditionVariant = kp !== null && kp >= 5 ? "alert" : kp !== null && kp >= 3 ? "warn" : "info";
 
-  // ── X-Ray series for charts ───────────────────────────────────────────────
-  const xrayRaw = sa?.xray_series ?? [];
-  // Scale ×10⁻⁷ and round so Chart.js never prints 2.9000000000000004
-  const xrayScaledAll = xrayRaw.map((v) => Math.round(v * 1e7 * 1000) / 1000);
-  const xraySampleStepMs = 40 * 60 * 1000;
-  const xrayEndMs = parseTimelineEpoch(sa?.updated ?? "") ?? Date.now();
-  const xrayEpochsAll = xrayScaledAll.map(
-    (_, i) => xrayEndMs - (xrayScaledAll.length - 1 - i) * xraySampleStepMs,
-  );
-  const xrayWindow = useMemo(() => {
-    if (xrayRange === "6H") {
-      const end = xrayEndMs;
-      const start = end - 6 * ONE_H_MS;
-      return { start, end, majorHours: 1 as const };
-    }
-    // 24H = UTC calendar day of the latest sample, 00:00 → 24:00
-    const start = startOfUtcDay(xrayEndMs);
-    return { start, end: start + 24 * ONE_H_MS, majorHours: 4 as const };
-  }, [xrayRange, xrayEndMs]);
-  const xrayPairs = xrayEpochsAll
-    .map((ms, i) => ({ ms, v: xrayScaledAll[i] }))
-    .filter((p) => p.ms >= xrayWindow.start && p.ms <= xrayWindow.end);
-  const xraySlice = xrayPairs.map((p) => p.v);
-  const xrayEpochs = xrayPairs.map((p) => p.ms);
-  const xrayLabels = xrayEpochs.map((ms) => new Date(ms).toISOString());
-  const xrayDomain = { min: xrayWindow.start, max: xrayWindow.end };
-  const xrayAxis = utcTimeAxisProps(xrayDomain, {
-    rangeHours: xrayRange === "6H" ? 6 : 24,
-    majorHours: xrayWindow.majorHours,
-  });
+  // ── X-Ray series for charts (timed W/m² timeline; NOAA-style log card) ────
+  const xrayTimeline = sa?.xray_timeline ?? [];
   const xrayAnalysis = useMemo<ChartAnalysisBlock>(() => {
-    if (!xraySlice.length) {
+    const longVals = xrayTimeline
+      .map((p) => p.long)
+      .filter((v): v is number => v != null && Number.isFinite(v) && v > 0);
+    if (!longVals.length) {
       return analyzeGoesXrayExplanation({ flareClass });
     }
-    const peak = Math.max(...xraySlice);
-    const latest = xraySlice[xraySlice.length - 1];
+    const peak = Math.max(...longVals);
+    const latest = longVals[longVals.length - 1];
     return analyzeGoesXrayExplanation({
       flareClass,
-      sampleCount: xraySlice.length,
+      sampleCount: longVals.length,
       latest,
       peak,
     });
-  }, [xraySlice, flareClass]);
+  }, [xrayTimeline, flareClass]);
   const xrayExplanationOpen = selectedGraph === "xray";
 
   // ── GNSS Impact ───────────────────────────────────────────────────────────
@@ -1053,8 +1026,10 @@ export default function SpaceWeatherClient({
     },
     xray: {
       title: "GOES X-Ray Flux",
-      summary: xraySlice.length > 0 ? `${xraySlice.length} recent X-ray samples are loaded.` : "X-ray flux data is unavailable.",
-      detail: `${FLARE_BEAT} The trace is NOAA GOES 0.1–0.8 nm flux, scaled ×10⁻⁷ W/m², so a chart value of 4.3 is the same B4.3 class as the flare card. The A/B boundary is 10?? W/m? (chart value 1); values below it include both A-class flux and still lower background.`,
+      summary: xrayTimeline.length > 0
+        ? `${xrayTimeline.length} timed GOES X-ray samples are loaded (long + short bands).`
+        : "X-ray flux data is unavailable.",
+      detail: `${FLARE_BEAT} The NOAA-style chart plots 0.1–0.8 nm (long) and 0.05–0.4 nm (short) flux on a log scale with A–X class bands. Hover a point for UTC time, flux in W/m², and flare class.`,
     },
     wind: {
       title: "Solar Wind",
@@ -1300,11 +1275,10 @@ export default function SpaceWeatherClient({
                 fallback={sectionFallback}
               >
                 <GoesSolarXrayCard
-                  title="1 · SOLAR X-RAY FLUX (GOES-16) · 0.1–0.8 nm"
-                  xraySlice={xraySlice}
-                  xrayLabels={xrayLabels}
-                  xrayEpochs={xrayEpochs}
-                  xrayAxis={xrayAxis}
+                  title="1 · GOES X-ray flux (NOAA SWPC)"
+                  timeline={xrayTimeline}
+                  fallbackSeries={sa?.xray_series}
+                  fallbackUpdated={sa?.updated}
                   xrayRange={xrayRange}
                   onRangeChange={setXrayRange}
                   explanationOpen={xrayExplanationOpen}
@@ -1407,10 +1381,10 @@ export default function SpaceWeatherClient({
           </div>
 
           <GoesSolarXrayCard
-            xraySlice={xraySlice}
-            xrayLabels={xrayLabels}
-            xrayEpochs={xrayEpochs}
-            xrayAxis={xrayAxis}
+            title="GOES X-ray flux (NOAA SWPC)"
+            timeline={xrayTimeline}
+            fallbackSeries={sa?.xray_series}
+            fallbackUpdated={sa?.updated}
             xrayRange={xrayRange}
             onRangeChange={setXrayRange}
             explanationOpen={xrayExplanationOpen}

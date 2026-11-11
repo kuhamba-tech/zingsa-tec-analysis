@@ -1,66 +1,41 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
-import SwSectionBanner from "@/components/spaceWeather/SwSectionBanner";
 import { getSolarActivity } from "@/lib/api";
-import { xrayScaledFluxColor } from "@/lib/solarEventColors";
-import { loadLineChart } from "@/lib/loadLineChart";
-
-const LineChart = dynamic(() => loadLineChart().then((m) => m.default), {
-  ssr: false,
-  loading: () => (
-    <div className="banner banner-info" role="status">
-      Loading chart…
-    </div>
-  ),
-});
-import {
-  ONE_H_MS,
-  parseTimelineEpoch,
-  startOfUtcDay,
-  utcTimeAxisProps,
-} from "@/lib/chartTimeAxis";
 import { peekSolarActivity, subscribeSolarActivity } from "@/lib/solarActivityStore";
 import type { SolarActivityFull } from "@/lib/types";
+import { loadGoesSolarXrayCard } from "@/lib/loadGoesSolarXrayCard";
 
-function displayFlux(flux: number | null | undefined): string | null {
-  if (flux == null || !Number.isFinite(flux)) return null;
-  return `${flux.toExponential(2)} W/m²`;
-}
-
-const SAMPLE_STEP_MS = 40 * 60 * 1000;
+const GoesSolarXrayCard = dynamic(
+  () => loadGoesSolarXrayCard().then((m) => m.default),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="banner banner-info" role="status">
+        Loading GOES X-ray chart…
+      </div>
+    ),
+  },
+);
 
 /**
- * GOES long-band flux for the last ~day (scaled ×10⁻⁷), shown as the
- * companion chart after the logarithmic driver-timeline X-ray panel.
- * X-axis uses the same HH:mm UTC labels as Live NOAA Kp Timeline.
+ * Compact GOES companion chart (Cause→Effect stack): NOAA-style log dual-band
+ * flux with hover tooltips for UTC time, W/m², and flare class.
  */
 export default function GoesXrayLastDayChart() {
   const [sa, setSa] = useState<SolarActivityFull | null>(() => peekSolarActivity());
-  const [loading, setLoading] = useState(!peekSolarActivity());
-  const [error, setError] = useState<string | null>(null);
+  const [range, setRange] = useState<"6H" | "1D" | "3D" | "7D">("1D");
 
   useEffect(() => {
-    const unsub = subscribeSolarActivity((next) => {
-      setSa(next);
-      setLoading(false);
-    });
+    const unsub = subscribeSolarActivity((next) => setSa(next));
     let cancelled = false;
     getSolarActivity()
       .then((payload) => {
-        if (!cancelled) {
-          setSa(payload);
-          setError(null);
-        }
+        if (!cancelled) setSa(payload);
       })
-      .catch((err: unknown) => {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "GOES X-ray feed unavailable");
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
+      .catch(() => {
+        /* store/banner elsewhere — card shows unavailable if empty */
       });
     return () => {
       cancelled = true;
@@ -68,83 +43,14 @@ export default function GoesXrayLastDayChart() {
     };
   }, []);
 
-  const chart = useMemo(() => {
-    const raw = sa?.xray_series ?? [];
-    if (!raw.length) return null;
-    const endMs =
-      parseTimelineEpoch(sa?.updated ?? "") ??
-      Date.now();
-    const epochsAll = raw.map((_, i) => endMs - (raw.length - 1 - i) * SAMPLE_STEP_MS);
-    const dataAll = raw.map((v) => Math.round(v * 1e7 * 1000) / 1000);
-    const dayStart = startOfUtcDay(endMs);
-    const dayEnd = dayStart + 24 * ONE_H_MS;
-    const pairs = epochsAll
-      .map((ms, i) => ({ ms, v: dataAll[i] }))
-      .filter((p) => p.ms >= dayStart && p.ms <= dayEnd);
-    const epochs = pairs.map((p) => p.ms);
-    const data = pairs.map((p) => p.v);
-    const labels = epochs.map((ms) => new Date(ms).toISOString());
-    const domain = { min: dayStart, max: dayEnd };
-    return {
-      labels,
-      data,
-      epochs,
-      axis: utcTimeAxisProps(domain, { rangeHours: 24, majorHours: 4 }),
-    };
-  }, [sa?.xray_series, sa?.updated]);
-
-  const flareRaw = sa?.flare_class?.trim();
-  const flareClass =
-    loading && !sa
-      ? "Loading…"
-      : !flareRaw || flareRaw.toUpperCase() === "N/A"
-        ? "Unavailable"
-        : flareRaw;
-  const fluxLabel = displayFlux(sa?.flux);
-  const live = Boolean(chart);
-
   return (
-    <div className="card" style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-      <SwSectionBanner
-        icon="☀️"
-        title="GOES X-Ray Flux — Last Day"
-        as="h3"
-        tone={live ? "ok" : loading ? "warn" : "off"}
-        meta={
-          <span>
-            NOAA SWPC GOES · class {flareClass}
-            {fluxLabel ? ` · ${fluxLabel}` : ""}
-          </span>
-        }
-      />
-      {chart ? (
-        <>
-          <LineChart
-            labels={chart.labels}
-            datasets={[{
-              label: "X-Ray Flux (×10⁻⁷ W/m²)",
-              data: chart.data,
-              color: "#eab308",
-              valueColor: xrayScaledFluxColor,
-            }]}
-            yLabel="Flux ×10⁻⁷"
-            height={150}
-            xValues={chart.epochs}
-            epochMs={chart.epochs}
-            {...chart.axis}
-          />
-          <div style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
-            0.1–0.8 nm band · Source: NOAA SWPC GOES primary · Current class {flareClass}
-            {fluxLabel ? ` · ${fluxLabel}` : ""}
-          </div>
-        </>
-      ) : (
-        <div className="banner banner-info" style={{ fontSize: "0.85rem" }} role="status">
-          {loading
-            ? "Loading GOES X-ray flux…"
-            : error || "X-ray flux data unavailable."}
-        </div>
-      )}
-    </div>
+    <GoesSolarXrayCard
+      title="GOES X-ray flux — companion (NOAA SWPC)"
+      timeline={sa?.xray_timeline}
+      fallbackSeries={sa?.xray_series}
+      fallbackUpdated={sa?.updated}
+      xrayRange={range}
+      onRangeChange={setRange}
+    />
   );
 }
