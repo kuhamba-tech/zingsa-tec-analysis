@@ -1053,14 +1053,54 @@ class AdvisoryActionBody(BaseModel):
 
 
 @router.get("/advisory-centre")
-def advisory_centre_current(
+async def advisory_centre_current(
     persist: bool = Query(False, description="Persist this assessment as a draft when true"),
     _=Depends(require_api_key),
 ):
-    """Live ZINGSA Space Weather Advisory Centre assessment (draft by default)."""
+    """Live ZINGSA Space Weather Advisory Centre assessment (draft by default).
+
+    Observed values are taken from the same `/space-weather/current` snapshot used by
+    Live Space Weather and the touchscreen display, with CORS connected mean VTEC
+    preferred when available (same precedence as `/display`).
+    """
     from zgiis.space_weather.advisory_centre_service import build_live_advisory
 
-    return build_live_advisory(persist_draft=persist)
+    now = time.monotonic()
+    cached, age = _current_snapshot(now)
+    if cached is not None and age < _CURRENT_FRESH_S:
+        current = cached
+    elif cached is not None and age < _CURRENT_STALE_S:
+        _start_current_refresh()
+        current = cached
+    else:
+        current = await _start_current_refresh()
+
+    observed: dict[str, object] = {
+        "kp": current.kp,
+        "dst": current.dst,
+        "plasma_speed": current.plasma_speed,
+        "mean_vtec": current.mean_vtec,
+        "s4": current.s4,
+        "gnss_risk": current.gnss_risk,
+        "stations_online": current.stations_online,
+        "stations_total": current.stations_total,
+        "updated_utc": current.updated_utc,
+        "vtec_source": "space_weather_current",
+    }
+
+    # Match /display: prefer CORS connected network mean VTEC when present.
+    try:
+        from backend.routers.cors_network import _cached_fresh_connections
+
+        fresh = _cached_fresh_connections() or {}
+        vals = [float(v) for v in fresh.values() if v is not None and float(v) > 1.0]
+        if vals:
+            observed["mean_vtec"] = round(sum(vals) / len(vals), 2)
+            observed["vtec_source"] = "cors_connected_mean"
+    except Exception:
+        log.debug("advisory-centre CORS VTEC overlay skipped", exc_info=True)
+
+    return await asyncio.to_thread(build_live_advisory, persist_draft=persist, observed=observed)
 
 
 @router.get("/advisory-centre/history")

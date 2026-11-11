@@ -264,6 +264,9 @@ export default function AdvisoryCentreClient() {
               <p className={styles.meta}>
                 VTEC {fmt(obs.mean_vtec as number | null, 1, "TECU")} · S4 {fmt(obs.s4 as number | null, 2)} · Risk{" "}
                 {fmt(obs.gnss_risk as string | null)}
+                {obs.stations_online != null && obs.stations_total != null
+                  ? ` · CORS ${obs.stations_online}/${obs.stations_total}`
+                  : ""}
               </p>
               <ul className={styles.list}>
                 {assessment.tracks.zimbabwe_gnss.evidence.map((line) => (
