@@ -183,6 +183,13 @@ def run_early_warning_cycle(*, persist: bool = True) -> dict[str, Any]:
         from zgiis.space_weather.slack_alerts import broadcast_early_warning_alerts
 
         diagnostics["slack"] = broadcast_early_warning_alerts(newly_opened)
+    try:
+        from zgiis.space_weather.power_grid_slack import dispatch_threshold_alert
+
+        diagnostics["power_grid_alert"] = dispatch_threshold_alert()
+    except Exception as exc:
+        diagnostics["power_grid_alert_error"] = str(exc)
+        log.warning("power-grid threshold alert skipped: %s", exc)
     return {
         "summary": summary,
         "active": [row for row in active_payload if row.get("status") in {"active", "watch"}],

@@ -8,6 +8,14 @@
 .venv/
 .vercel/
 .vscode/
+.whatsapp-alerts/
+scripts/whatsapp-group/
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+!**/.env.example
 __pycache__/
 docs/
 tests/

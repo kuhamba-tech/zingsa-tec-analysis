@@ -54,6 +54,29 @@ def test_live_post_sends_the_alert_text(monkeypatch):
     assert captured["timeout"] == 15
 
 
+def test_live_post_attaches_the_dashboard_image(monkeypatch):
+    monkeypatch.setenv("SLACK_WEBHOOK_URL", "https://hooks.slack.com/services/T/B/secret")
+    monkeypatch.setenv("STORM_ALERT_DRY_RUN", "false")
+    captured = {}
+
+    class Response:
+        status_code = 200
+
+    def capture(url, json, timeout):
+        captured["json"] = json
+        return Response()
+
+    monkeypatch.setattr(slack_alerts.requests, "post", capture)
+    ok, detail = slack_alerts.post_slack(
+        "Advisory",
+        image_url="https://api.supabase.zingsa.cloud/storage/v1/object/public/advisory-snapshots/space-weather/demo.png",
+    )
+    assert ok is True
+    assert detail == "slack sent"
+    assert captured["json"]["text"] == "Advisory"
+    assert captured["json"]["attachments"][0]["image_url"].endswith("demo.png")
+
+
 def test_early_warning_message_names_the_alert():
     text = slack_alerts.format_early_warning_alert({
         "authority": "zimbabwe_gnss",

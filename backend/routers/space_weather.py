@@ -641,6 +641,15 @@ def solar_activity(
         flare_class=sa.get("flareClass") or "Unavailable",
         flux=sa.get("flux"),
         xray_series=[float(v) for v in (sa.get("xraySeries") or []) if v is not None],
+        xray_timeline=[
+            {
+                "t": str(point.get("t") or ""),
+                "long": point.get("long"),
+                "short": point.get("short"),
+            }
+            for point in (sa.get("xrayTimeline") or [])
+            if isinstance(point, dict) and point.get("t")
+        ],
         solar_wind=SolarWindDetail(
             speed=sw_data.get("speed"),
             density=sw_data.get("density"),
@@ -1029,6 +1038,17 @@ def early_warning_evaluate(_=Depends(require_api_key)):
         authority_legend=payload.get("authority_legend") or {},
         notification_settings=_alert_notification_settings(),
     )
+
+
+@router.post("/power-grid-advisory/dispatch")
+def power_grid_advisory_dispatch(
+    brief: bool = Query(False, description="Send the 15-minute live update"),
+    _=Depends(require_api_key),
+):
+    """Post one live ZESA / ZETDC advisory to Slack."""
+    from zgiis.space_weather.power_grid_slack import dispatch_power_grid_advisory
+
+    return dispatch_power_grid_advisory(brief=brief)
 
 
 def _alert_notification_settings() -> dict[str, object]:

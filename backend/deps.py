@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 import os
 
 from fastapi import HTTPException, Request, Security, status
@@ -14,12 +15,23 @@ def _is_production() -> bool:
     return environment in {"production", "prod"} or bool(os.getenv("VERCEL"))
 
 
+def cron_request_authorized(request: Request) -> bool:
+    """True when the Vercel cron route forwarded its CRON_SECRET."""
+    secret = os.getenv("CRON_SECRET", "").strip()
+    provided = (request.headers.get("x-cron-secret") or "").strip()
+    if not secret or not provided:
+        return False
+    return hmac.compare_digest(provided, secret)
+
+
 async def require_api_key(request: Request, key: str | None = Security(_header)) -> str:
     expected = os.getenv("API_KEY")
     if not expected:
         # Public dashboards need unauthenticated reads. Never silently expose
         # mutating production endpoints when deployment secrets are missing.
         if _is_production() and request.method.upper() not in {"GET", "HEAD", "OPTIONS"}:
+            if cron_request_authorized(request):
+                return ""
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="API write protection is not configured",

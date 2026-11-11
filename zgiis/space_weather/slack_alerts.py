@@ -30,14 +30,20 @@ def _dry_run() -> bool:
     return raw in {"1", "true", "yes", "on"}
 
 
-def post_slack(text: str) -> tuple[bool, str]:
+def post_slack(text: str, *, image_url: str | None = None) -> tuple[bool, str]:
     """Send one alert text. Returns (ok, detail) and never includes the webhook URL."""
     if not slack_configured():
         return False, "SLACK_WEBHOOK_URL not set"
-    return post_slack_to(slack_webhook_url(), text, dry_run=_dry_run())
+    return post_slack_to(slack_webhook_url(), text, dry_run=_dry_run(), image_url=image_url)
 
 
-def post_slack_to(url: str, text: str, *, dry_run: bool) -> tuple[bool, str]:
+def post_slack_to(
+    url: str,
+    text: str,
+    *,
+    dry_run: bool,
+    image_url: str | None = None,
+) -> tuple[bool, str]:
     """Send one message to a given incoming webhook. The URL is never logged."""
     message = text.strip()
     if not message:
@@ -45,10 +51,20 @@ def post_slack_to(url: str, text: str, *, dry_run: bool) -> tuple[bool, str]:
     if dry_run:
         log.info("DRY-RUN slack len=%d", len(message))
         return True, "dry-run slack"
+    payload: dict[str, Any] = {"text": message}
+    picture = (image_url or "").strip()
+    if picture.startswith("https://") and " " not in picture:
+        payload["attachments"] = [
+            {
+                "fallback": "ZINGSA live Space Weather platform",
+                "text": "Live Space Weather platform",
+                "image_url": picture,
+            }
+        ]
     try:
         response = requests.post(
             url,
-            json={"text": message},
+            json=payload,
             timeout=15,
         )
     except Exception:
