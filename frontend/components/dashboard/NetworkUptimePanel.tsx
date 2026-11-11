@@ -461,7 +461,11 @@ export default function NetworkUptimePanel({
             <MetricCard label="Offline share" value={`${analysis.offline_pct.toFixed(1)}%`} />
             <MetricCard label="Unknown share" value={`${analysis.unknown_pct.toFixed(1)}%`} />
             <MetricCard label="Samples" value={String(analysis.samples)} />
-            <MetricCard label="Offline transitions" value={String(analysis.outage_events)} />
+            <MetricCard
+              label={`Outages (≥${analysis.outage_min_minutes ?? 10} min)`}
+              value={String(analysis.outage_events)}
+            />
+            <MetricCard label="Short drops" value={String(analysis.short_drops ?? 0)} />
             <MetricCard label="Bucket" value={`${analysis.bucket_minutes} min`} />
           </div>}
 
@@ -540,6 +544,10 @@ export default function NetworkUptimePanel({
                 {" · "}
                 {new Set(analysis.outage_intervals!.map((r) => r.station_code)).size} sites
               </div>
+              <p className="uptime-tab-hint" style={{ marginTop: 0 }}>
+                Outages are periods offline for {analysis.outage_min_minutes ?? 10} minutes or more, the same rule as
+                the CORS Slack alerts. {analysis.short_drops ?? 0} shorter drops are not listed.
+              </p>
               <div className="uptime-report-table-scroll" role="region" aria-label="Outage durations" tabIndex={0}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.82rem", marginBottom: "1rem" }}>
                 <thead>
@@ -555,12 +563,14 @@ export default function NetworkUptimePanel({
                     <tr key={`${row.station_code}-${row.started_at}-${row.ended_at ?? "ongoing"}`} style={{ borderBottom: "1px solid rgba(36,77,115,0.35)" }}>
                       <td style={{ padding: "0.35rem 0.5rem" }}>{row.station_code.toUpperCase()}</td>
                       <td style={{ padding: "0.35rem 0.5rem", whiteSpace: "nowrap" }}>
+                        {row.start_exact === false ? "Before " : ""}
                         {row.started_at.replace("T", " ").slice(0, 19)}
                       </td>
                       <td style={{ padding: "0.35rem 0.5rem", whiteSpace: "nowrap", color: row.ongoing ? "#ff8c00" : undefined }}>
                         {row.ongoing ? "Still offline" : row.ended_at?.replace("T", " ").slice(0, 19) ?? "—"}
                       </td>
                       <td style={{ padding: "0.35rem 0.5rem", fontWeight: 600 }}>
+                        {row.start_exact === false ? "≥ " : ""}
                         {formatDurationMin(row.duration_min)}
                       </td>
                     </tr>

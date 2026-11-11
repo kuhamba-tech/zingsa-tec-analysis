@@ -306,6 +306,77 @@ class StationStatusDBTests(unittest.TestCase):
         self.assertIs(read_sql.call_args_list[1].args[1], replacement)
         db._init_pg.assert_called_once_with()
 
+    def _event(self, hours_ago: float, code: str, kind: str, status: str, prev: str | None = None) -> None:
+        self.db.insert_event(
+            {
+                "time": _hours_ago(hours_ago),
+                "station_code": code,
+                "status": status,
+                "previous_status": prev,
+                "event_type": kind,
+                "api_reachable": True,
+                "message": None,
+                "source": "test",
+            }
+        )
+
+    def test_short_drops_are_not_outages(self) -> None:
+        """Same 10-minute rule as the Slack alerts."""
+        with patch.dict("os.environ", {"CORS_OFFLINE_ALERT_MINUTES": "10"}):
+            self._event(5.0, "bing", "site_down", "offline", "online")
+            self._event(5.0 - 1 / 60, "bing", "site_up", "online", "offline")  # 1 min blip
+            self._event(3.0, "bing", "site_down", "offline", "online")
+            self._event(2.5, "bing", "site_up", "online", "offline")  # 30 min outage
+            analysis = self.db.uptime_analysis(hours=24, station_code="bing", bucket_minutes=60)
+        self.assertEqual(analysis["outage_events"], 1)
+        self.assertEqual(analysis["short_drops"], 1)
+        self.assertEqual(analysis["outage_min_minutes"], 10.0)
+        self.assertEqual(len(analysis["outage_intervals"]), 1)
+        self.assertAlmostEqual(analysis["outage_intervals"][0]["duration_min"], 30.0, delta=0.2)
+
+    def test_outage_from_before_window_is_ongoing(self) -> None:
+        self._event(24 * 20, "chim", "site_down", "offline", "online")
+        self._event(24 * 10, "chim", "initial_state", "offline")  # a restart while down
+        intervals = self.db.outage_intervals(hours=24 * 7, station_code="chim", limit=10)
+        self.assertEqual(len(intervals), 1)
+        self.assertTrue(intervals[0]["ongoing"])
+        self.assertTrue(intervals[0]["start_exact"])
+        self.assertAlmostEqual(intervals[0]["duration_min"], 20 * 24 * 60, delta=2)
+
+    def test_offline_since_only_baselines_is_not_exact(self) -> None:
+        self._event(24 * 9, "nkay", "initial_state", "offline")
+        self._event(24 * 8, "nkay", "initial_state", "offline")
+        intervals = self.db.outage_intervals(hours=24 * 7, station_code="nkay", limit=10)
+        self.assertEqual(len(intervals), 1)
+        self.assertFalse(intervals[0]["start_exact"])
+        self.assertEqual(pd.Timestamp(intervals[0]["started_at"]).floor("min"),
+                         pd.Timestamp(_hours_ago(24 * 9)).floor("min"))
+
+    def test_restart_finding_site_online_ends_outage(self) -> None:
+        self._event(6, "gokw", "site_down", "offline", "online")
+        self._event(4, "gokw", "initial_state", "online")
+        intervals = self.db.outage_intervals(hours=24, station_code="gokw", limit=10)
+        self.assertEqual(len(intervals), 1)
+        self.assertFalse(intervals[0]["ongoing"])
+        self.assertAlmostEqual(intervals[0]["duration_min"], 120.0, delta=0.5)
+
+
+class StationStatusLoggerSeedTests(unittest.TestCase):
+    def test_restart_resumes_last_archived_status(self) -> None:
+        from backend import station_status_logger as logger
+
+        db = Mock()
+        db.latest_snapshots.return_value = {
+            "bing": {"status": "online"},
+            "tsho": {"status": "offline"},
+        }
+        with patch.object(logger, "get_db", return_value=db), \
+                patch.object(logger, "_last_station_status", {}), \
+                patch.object(logger, "_seeded_from_archive", False):
+            logger._log_status_changes({"bing": "offline", "tsho": "offline", "gokw": "online"}, source="test")
+        kinds = {c.args[0]["station_code"]: c.args[0]["event_type"] for c in db.insert_event.call_args_list}
+        self.assertEqual(kinds, {"bing": "site_down", "gokw": "initial_state"})
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -493,6 +493,8 @@ export interface StationOutageInterval {
   ended_at: string | null;
   duration_min: number;
   ongoing: boolean;
+  /** false: offline since at least started_at (the drop predates the archive). */
+  start_exact?: boolean;
 }
 
 export interface StationActivityStrip {
@@ -522,6 +524,8 @@ export interface StationUptimeAnalysis {
   offline_pct: number;
   unknown_pct: number;
   outage_events: number;
+  short_drops?: number;
+  outage_min_minutes?: number;
   network_online_pct: number;
   stations: StationUptimeRow[];
   timeline: StationUptimeTimelinePoint[];

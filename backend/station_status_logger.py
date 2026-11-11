@@ -22,6 +22,11 @@ _stop = threading.Event()
 _last_poll_at: float | None = None
 
 _last_station_status: dict[str, str] = {}
+_seeded_from_archive = False
+
+# A restart keeps the last archived status when it is this recent, so the
+# archive records real transitions instead of a fresh baseline each restart.
+_SEED_MAX_AGE_HOURS = float(os.getenv("STATION_STATUS_SEED_MAX_AGE_HOURS", "1"))
 
 _MIN_POLL_GAP_SEC = float(os.getenv("STATION_STATUS_MIN_GAP_SEC", "45"))
 
@@ -79,6 +84,25 @@ def _counts(statuses: dict[str, str]) -> dict[str, int]:
     return c
 
 
+def _seed_from_archive(db) -> None:
+    """Load the latest archived status once per process (before the first poll)."""
+    global _seeded_from_archive
+    if _seeded_from_archive or _last_station_status:
+        return
+    _seeded_from_archive = True
+    try:
+        latest = db.latest_snapshots(hours=_SEED_MAX_AGE_HOURS)
+    except Exception as exc:
+        log.warning("station status seed from archive failed: %s", exc)
+        return
+    for code, row in latest.items():
+        status = str(row.get("status") or "")
+        if status in {"online", "offline"}:
+            _last_station_status[code] = status
+    if _last_station_status:
+        log.info("Station status resumed from archive for %d sites", len(_last_station_status))
+
+
 def _log_status_changes(
     current: dict[str, str],
     *,
@@ -87,6 +111,7 @@ def _log_status_changes(
 ) -> int:
     global _last_station_status
     db = get_db()
+    _seed_from_archive(db)
     when = _now_iso()
     changes = 0
     counts = _counts(current)

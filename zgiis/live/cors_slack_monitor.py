@@ -40,6 +40,12 @@ log = logging.getLogger(__name__)
 
 CAT = timezone(timedelta(hours=2), "CAT")
 _DASHBOARD = "https://zingsa-gnss-tec.vercel.app/"
+
+
+def _links(uptime_range: str = "1w") -> str:
+    """Live map, then the Station Uptime page, which uses the same outage rule."""
+    return f"{_DASHBOARD}cors\nStation Uptime: {_DASHBOARD}reports/?type=uptime&range={uptime_range}"
+
 STATE_VERSION = 2
 
 Message = Union[str, Callable[[], str]]
@@ -60,8 +66,13 @@ def _env_int(name: str, default: int) -> int:
 
 
 def offline_alert_seconds() -> float:
-    """How long a station must stay offline before it is reported (default 10 minutes)."""
-    return max(0.0, _env_float("CORS_OFFLINE_ALERT_MINUTES", 10.0) * 60.0)
+    """How long a station must stay offline before it is reported (default 10 minutes).
+
+    The Station Uptime page uses the same rule, so outage counts match.
+    """
+    from zgiis.cors.outage_rules import offline_alert_seconds as shared
+
+    return shared()
 
 
 def cors_webhook_url() -> str:
@@ -623,7 +634,7 @@ class CorsSlackMonitor:
                     rec = self._record(code)
                     up = f" · 7-day uptime {rec['uptime_pct']}%" if rec else ""
                     lines.append(f"• {self._label(code)}: offline since {_fmt_clock(at, now)}{up}")
-                lines += ["", tally, footer, _DASHBOARD + "cors"]
+                lines += ["", tally, footer, _links()]
                 return "\n".join(line for line in lines if line is not None)
 
             blocks: list[str] = []
@@ -648,7 +659,7 @@ class CorsSlackMonitor:
                     f"• *Also offline now:* {', '.join(others)} ({len(others)})" if others else "• *Also offline now:* none"
                 )
                 blocks.append("\n".join(rows))
-            return "\n\n".join(blocks + ["\n".join(x for x in (tally, footer, _DASHBOARD + "cors") if x)])
+            return "\n\n".join(blocks + ["\n".join(x for x in (tally, footer, _links()) if x)])
 
         return build
 
@@ -672,7 +683,7 @@ class CorsSlackMonitor:
                 if line:
                     rows.append(line)
                 blocks.append("\n".join(rows))
-            return "\n\n".join(blocks + [tally])
+            return "\n\n".join(blocks + [tally + "\n" + _links()])
 
         return build
 
@@ -704,7 +715,7 @@ class CorsSlackMonitor:
             lines = [":hourglass_flowing_sand: *Still offline*"]
             for code, since, age in sorted(due, key=lambda d: -d[2]):
                 lines.append(f"• {self._label(code)}: offline for *{_fmt_duration(age)}*, since {_fmt_time(since)}")
-            lines.append(_DASHBOARD + "cors")
+            lines.append(_links())
             return "\n".join(lines)
 
         return [build]
@@ -790,7 +801,7 @@ class CorsSlackMonitor:
         if missing:
             lines.append("")
             lines.append(f"Not in Spider, so not monitored: {', '.join(c.upper() for c in missing)}.")
-        lines.append(_DASHBOARD + "cors")
+        lines.append(_links("1d"))
         return "\n".join(lines)
 
     def _daily_report(self, statuses: dict[str, str], now: float, day_label: str) -> str:
@@ -845,9 +856,9 @@ class CorsSlackMonitor:
         lines.append(
             "Uptime is the share of Spider readings that were online. Outages count only drops lasting "
             f"{_fmt_duration(self.offline_alert_s)} or more (the alert threshold); downtime counts only time "
-            "the collector was watching."
+            "the collector was watching. The Station Uptime page uses the same rule."
         )
-        lines.append(_DASHBOARD + "cors")
+        lines.append(_links("1w"))
         return "\n".join(lines)
 
     def _maybe_reports(self, now: float) -> list[Message]:

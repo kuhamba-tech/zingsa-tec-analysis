@@ -603,6 +603,7 @@ class StationOutageInterval(BaseModel):
     ended_at: str | None = None
     duration_min: float
     ongoing: bool = False
+    start_exact: bool = True
 
 
 class StationActivityStrip(BaseModel):
@@ -632,6 +633,8 @@ class StationUptimeAnalysis(BaseModel):
     offline_pct: float
     unknown_pct: float
     outage_events: int
+    short_drops: int = 0
+    outage_min_minutes: float = 10.0
     network_online_pct: float
     stations: list[StationUptimeRow]
     timeline: list[StationUptimeTimelinePoint]

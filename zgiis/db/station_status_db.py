@@ -631,20 +631,120 @@ class StationStatusDB:
         *,
         station_code: str | None = None,
         limit: int = 100,
+        min_duration_min: float | None = None,
     ) -> list[dict[str, Any]]:
-        """Pair site_down / offline transitions with the next site_up / online recovery."""
+        """Outages that lasted at least the shared alert period (default 10 min).
+
+        Same rule as the Slack CORS alerts, so both list the same outages.
+        """
+        intervals, _short = self._outage_scan(
+            hours, station_code=station_code, min_duration_min=min_duration_min
+        )
+        return intervals[: max(1, int(limit))]
+
+    def _offline_before(
+        self, cutoff: datetime, station_code: str | None = None
+    ) -> dict[str, tuple[str, bool]]:
+        """Stations already offline when the window starts: code -> (started_at, exact).
+
+        exact=False means the drop happened before the oldest logged reading,
+        so the station has been offline since at least that time.
+        """
+        lookback = cutoff - timedelta(days=90)
+        clauses = ["time < ?", "time >= ?"]
+        params: list[Any] = [cutoff.isoformat(), lookback.isoformat()]
+        if station_code:
+            clauses.append("station_code = ?")
+            params.append(station_code.lower())
+        sql = f"""
+        SELECT time, station_code, status, previous_status, event_type
+        FROM station_status_events
+        WHERE {' AND '.join(clauses)}
+        ORDER BY time DESC
+        LIMIT 20000
+        """
+
+        def _do() -> pd.DataFrame:
+            if self._is_pg:
+                return pd.read_sql(sql.replace("?", "%s"), self._conn, params=params)
+            return pd.read_sql_query(sql, self._conn, params=params)
+
+        try:
+            df = self._with_reconnect(_do)
+        except Exception as exc:
+            log.warning("Earlier outage lookup failed: %s", exc)
+            return {}
+        out: dict[str, tuple[str, bool]] = {}
+        done: set[str] = set()
+        earliest: dict[str, str] = {}
+        for _, row in df.iterrows():  # newest first
+            code = str(row.get("station_code") or "").lower().rstrip("_")
+            if not code or code in done:
+                continue
+            status = _normalize_stored_status(str(row.get("status") or ""))
+            when = str(row.get("time") or "")
+            if status != "offline":
+                done.add(code)
+                if code in earliest:
+                    out[code] = (earliest.pop(code), False)
+                continue
+            kind = str(row.get("event_type") or "")
+            prev_raw = row.get("previous_status")
+            prev = _normalize_stored_status(str(prev_raw)) if prev_raw else None
+            if kind == "site_down" or (kind == "status_change" and prev != "offline"):
+                out[code] = (when, True)
+                earliest.pop(code, None)
+                done.add(code)
+            else:
+                earliest[code] = when  # baseline reading: keep looking further back
+        for code, when in earliest.items():
+            out.setdefault(code, (when, False))
+        return out
+
+    def _outage_scan(
+        self,
+        hours: float,
+        *,
+        station_code: str | None = None,
+        min_duration_min: float | None = None,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """(outages lasting at least the alert period, number of shorter drops)."""
+        from zgiis.cors.outage_rules import offline_alert_minutes
         from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
 
+        if min_duration_min is None:
+            min_min = offline_alert_minutes()
+        else:
+            min_min = max(0.0, float(min_duration_min))
         code_filter = station_code.lower().rstrip("_") if station_code else None
+        now = datetime.now(tz=timezone.utc).replace(microsecond=0)
         df = self.query_events(hours=hours, station_code=code_filter, limit=5000)
-        if df.empty:
-            return []
+        open_outages = self._offline_before(now - timedelta(hours=hours), code_filter)
 
         names = {s.code.lower().rstrip("_"): s.name for s in ZIMBABWE_CORS_STATIONS}
-        open_outages: dict[str, str] = {}
         intervals: list[dict[str, Any]] = []
+        short_drops = 0
 
-        work = df.sort_values("time")
+        def close(code: str, ended: str) -> None:
+            nonlocal short_drops
+            started, exact = open_outages.pop(code)
+            duration_min = self._minutes_between(started, ended)
+            if duration_min < min_min:
+                short_drops += 1
+                return
+            intervals.append(
+                {
+                    "station_code": code,
+                    "station_name": names.get(code, code.upper()),
+                    "started_at": started,
+                    "ended_at": ended,
+                    "duration_min": duration_min,
+                    "ongoing": False,
+                    "start_exact": exact,
+                }
+            )
+
+        work = df.sort_values("time") if not df.empty else df
         for _, row in work.iterrows():
             code = str(row.get("station_code") or "").lower().rstrip("_")
             if not code:
@@ -664,41 +764,37 @@ class StationStatusDB:
                     and prev != "offline"
                 )
             )
-            came_up = event_type == "site_up" or (
-                event_type == "status_change" and status == "online" and prev == "offline"
+            came_up = (
+                event_type == "site_up"
+                or (event_type == "status_change" and status == "online" and prev == "offline")
+                # A restart that finds the site online ends the outage there.
+                or (event_type == "initial_state" and status == "online")
             )
 
             if went_down and code not in open_outages:
-                open_outages[code] = when
+                open_outages[code] = (when, True)
             elif came_up and code in open_outages:
-                started = open_outages.pop(code)
-                duration_min = self._minutes_between(started, when)
-                intervals.append(
-                    {
-                        "station_code": code,
-                        "station_name": names.get(code, code.upper()),
-                        "started_at": started,
-                        "ended_at": when,
-                        "duration_min": duration_min,
-                        "ongoing": False,
-                    }
-                )
+                close(code, when)
 
-        now_iso = datetime.now(tz=timezone.utc).replace(microsecond=0).isoformat()
-        for code, started in open_outages.items():
+        now_iso = now.isoformat()
+        for code, (started, exact) in open_outages.items():
+            duration_min = self._minutes_between(started, now_iso)
+            if duration_min < min_min:
+                continue  # not reported yet, same as Slack
             intervals.append(
                 {
                     "station_code": code,
                     "station_name": names.get(code, code.upper()),
                     "started_at": started,
                     "ended_at": None,
-                    "duration_min": self._minutes_between(started, now_iso),
+                    "duration_min": duration_min,
                     "ongoing": True,
+                    "start_exact": exact,
                 }
             )
 
         # Ongoing / longest outages first so every still-down site (0% uptime)
-        # surfaces ahead of short recovered flaps that would otherwise crowd the list.
+        # surfaces ahead of short recovered outages that would otherwise crowd the list.
         intervals.sort(
             key=lambda r: (
                 0 if r.get("ongoing") else 1,
@@ -706,7 +802,7 @@ class StationStatusDB:
                 str(r.get("started_at") or ""),
             )
         )
-        return intervals[: max(1, int(limit))]
+        return intervals, short_drops
 
     @staticmethod
     def _minutes_between(start_iso: str, end_iso: str) -> float:
@@ -729,6 +825,7 @@ class StationStatusDB:
         bucket_minutes: int | None = None,
     ) -> dict[str, Any]:
         """Summary metrics + timeline + per-station rows for dashboard analysis."""
+        from zgiis.cors.outage_rules import offline_alert_minutes
         from zgiis.cors.stations import ZIMBABWE_CORS_STATIONS
 
         code = station_code.lower().rstrip("_") if station_code else None
@@ -776,20 +873,11 @@ class StationStatusDB:
             else:
                 online_pct = offline_pct = unknown_pct = 0.0
 
-        events = self.query_events(hours=hours, station_code=code, limit=2000)
-        outage_events = 0
-        if not events.empty:
-            status = events["status"].map(_normalize_stored_status)
-            et = events["event_type"].astype(str)
-            outage_mask = (
-                et.isin(["site_down", "connection_lost"])
-                | ((events["event_type"] == "status_change") & (status == "offline"))
-            )
-            outage_events = int(outage_mask.sum())
-
-        # Cap high enough to include every CORS site's outages in network view
-        # (short recovered flaps + ongoing downtime for all registered stations).
-        outages = self.outage_intervals(hours=hours, station_code=code, limit=500)
+        # Outages use the same 10-minute rule as the Slack CORS alerts.
+        all_outages, short_drops = self._outage_scan(hours, station_code=code)
+        outage_events = len(all_outages)
+        # Cap high enough to include every CORS site's outages in network view.
+        outages = all_outages[:500]
 
         network_with = [r for r in stations if int(r["samples"]) > 0]
         network_online_pct = (
@@ -808,6 +896,8 @@ class StationStatusDB:
             "offline_pct": offline_pct,
             "unknown_pct": unknown_pct,
             "outage_events": outage_events,
+            "short_drops": short_drops,
+            "outage_min_minutes": offline_alert_minutes(),
             "outage_intervals": outages,
             "network_online_pct": network_online_pct,
             "stations": stations,

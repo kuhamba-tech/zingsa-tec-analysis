@@ -178,7 +178,7 @@ export async function downloadUptimeReportPdf(analysis: StationUptimeAnalysis, s
   doc.text(`Period: ${analysis.hours} hours · Bucket: ${analysis.bucket_minutes} min`, 14, y);
   y += 5;
   doc.text(
-    `Network online: ${fmtNum(analysis.network_online_pct, 1)}% · Outage events: ${analysis.outage_events}`,
+    `Network online: ${fmtNum(analysis.network_online_pct, 1)}% · Outages (≥${analysis.outage_min_minutes ?? 10} min): ${analysis.outage_events} · Short drops: ${analysis.short_drops ?? 0}`,
     14,
     y,
   );

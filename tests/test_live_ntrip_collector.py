@@ -73,9 +73,25 @@ class LiveNtripCollectorTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             lock_path = Path(tmpdir) / ".live_ntrip_collector.lock"
-            lock_path.write_text(f"{os.getpid()}\n", encoding="utf-8")
+            # Another live process (the test runner's parent) named in the file.
+            lock_path.write_text(f"{os.getppid()}\n", encoding="utf-8")
             with patch.object(collector, "_COLLECTOR_LOCK", lock_path):
                 self.assertFalse(collector._acquire_collector_lock())
+
+    def test_acquire_collector_lock_ignores_own_pid_after_restart(self) -> None:
+        """A restarted container can reuse the PID written by its previous run."""
+        import scripts.live_ntrip_collector as collector
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            lock_path = Path(tmpdir) / ".live_ntrip_collector.lock"
+            lock_path.write_text(f"{os.getpid()}\n", encoding="utf-8")
+            with patch.object(collector, "_COLLECTOR_LOCK", lock_path):
+                try:
+                    self.assertTrue(collector._acquire_collector_lock())
+                finally:
+                    handle = collector.__dict__.pop("_COLLECTOR_LOCK_HANDLE", None)
+                    if handle is not None:
+                        handle.close()
 
     @patch("zgiis.live.spider_site_status.get_cached_spider_site_statuses")
     def test_snapshot_rows_prefer_spider_status(self, spider_statuses) -> None:
