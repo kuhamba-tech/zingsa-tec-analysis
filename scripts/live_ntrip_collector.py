@@ -479,7 +479,12 @@ def main() -> int:
                 log.warning("Station status archive write failed: %s", exc)
             if cors_monitor is not None:
                 try:
-                    seen = [row["last_seen"].timestamp() for row in status.values() if row.get("last_seen")]
+                    seen_by = {
+                        str(code).lower(): row["last_seen"].timestamp()
+                        for code, row in status.items()
+                        if row.get("last_seen")
+                    }
+                    seen = list(seen_by.values())
                     rejects = [row["last_reject_at"] for row in status.values() if row.get("last_reject_at")]
                     post_messages_in_background(
                         cors_monitor.evaluate(
@@ -488,6 +493,7 @@ def main() -> int:
                             tec_checked=tec_checked,
                             last_data_at=max(seen) if seen else None,
                             last_reject_at=max(rejects) if rejects else None,
+                            last_seen_by_station=seen_by,
                         )
                     )
                 except Exception as exc:
