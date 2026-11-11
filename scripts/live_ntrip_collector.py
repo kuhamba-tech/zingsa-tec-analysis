@@ -81,6 +81,10 @@ def _acquire_collector_lock() -> bool:
                     stale_pid = int(candidate)
                 except ValueError:
                     stale_pid = None
+            if stale_pid is not None and stale_pid == os.getpid():
+                # A restarted container often gets the same PID as last time.
+                # The lock file on the volume then names this very process.
+                stale_pid = None
             if stale_pid is not None:
                 try:
                     from zgiis.live.process_health import pid_alive

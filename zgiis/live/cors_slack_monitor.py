@@ -59,6 +59,11 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def offline_alert_seconds() -> float:
+    """How long a station must stay offline before it is reported (default 10 minutes)."""
+    return max(0.0, _env_float("CORS_OFFLINE_ALERT_MINUTES", 10.0) * 60.0)
+
+
 def cors_webhook_url() -> str:
     return os.getenv("SLACK_CORS_WEBHOOK_URL", "").strip()
 
@@ -175,12 +180,14 @@ def summarise_samples(
     *,
     now: float,
     min_run: int = 3,
+    min_duration_s: float = 0.0,
     gap_s: float = 900.0,
 ) -> dict[str, Any] | None:
     """Uptime and outages from time-ordered (epoch, status) Spider samples.
 
-    An outage is a run of at least ``min_run`` offline samples, the same
-    confirmation the Slack alerts use, so one-reading blips are not counted.
+    An outage is a run of at least ``min_run`` offline samples lasting at least
+    ``min_duration_s``, the same rule the Slack alerts use, so short drops that
+    were never reported are not counted.
     A gap in readings longer than ``gap_s`` (collector down) does not split an
     outage, but the unobserved time is not counted as downtime either.
     """
@@ -205,12 +212,14 @@ def summarise_samples(
                 run_start, run_n, run_s = t, 0, 0.0
             run_n += 1
         elif run_start is not None:
-            if run_n >= min_run:
+            if run_n >= min_run and run_s >= min_duration_s:
                 outages.append((run_start, run_s, False))
             run_start, run_n, run_s = None, 0, 0.0
         prev_t = t
     if run_start is not None and run_n >= min_run and prev_t is not None:
-        outages.append((run_start, run_s + step(prev_t, now), True))
+        open_s = run_s + step(prev_t, now)
+        if open_s >= min_duration_s:
+            outages.append((run_start, open_s, True))
 
     last_recovered = None
     run_open = False
@@ -263,7 +272,7 @@ class DbStationHistory:
                 if ts is not None:
                     samples.append((ts, str(s or "").lower()))
             samples.sort()
-            return summarise_samples(samples, now=time.time())
+            return summarise_samples(samples, now=time.time(), min_duration_s=offline_alert_seconds())
         except Exception as exc:
             log.warning("CORS history for %s unavailable: %s", code, exc)
             return None
@@ -318,6 +327,7 @@ class CorsSlackMonitor:
             }}
         self.history: StationHistory | None = history if history is not None else DbStationHistory()
         self.confirm_checks = max(1, _env_int("CORS_ALERT_CONFIRM_CHECKS", 3))
+        self.offline_alert_s = offline_alert_seconds()
         self.spider_stale_s = _env_float("CORS_SPIDER_STALE_SECONDS", 300)
         self.spider_alert_s = _env_float("CORS_SPIDER_ALERT_SECONDS", 600)
         self.mass_outage_n = max(2, _env_int("CORS_MASS_OUTAGE_MIN", 4))
@@ -537,6 +547,8 @@ class CorsSlackMonitor:
                 rec["pending_count"] = int(rec.get("pending_count") or 0) + 1
             if rec["pending_count"] < self.confirm_checks:
                 continue
+            if status == "offline" and now - float(rec.get("pending_since") or now) < self.offline_alert_s:
+                continue  # not down long enough to report; a quick recovery sends nothing
             # Confirmed change. Date it from the first reading that showed it.
             changed_at = float(rec.get("pending_since") or now)
             previous_since = float(rec.get("since") or changed_at)
@@ -830,7 +842,11 @@ class CorsSlackMonitor:
         missing = [c.upper() for c, r in rows if not r]
         if missing:
             lines.append(f"No archive data for: {', '.join(missing)}.")
-        lines.append("Uptime is the share of Spider readings that were online. Outages count only drops confirmed over 3 readings; downtime counts only time the collector was watching.")
+        lines.append(
+            "Uptime is the share of Spider readings that were online. Outages count only drops lasting "
+            f"{_fmt_duration(self.offline_alert_s)} or more (the alert threshold); downtime counts only time "
+            "the collector was watching."
+        )
         lines.append(_DASHBOARD + "cors")
         return "\n".join(lines)
 

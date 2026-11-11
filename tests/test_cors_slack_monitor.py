@@ -51,6 +51,7 @@ ALL_UP = {c: "online" for c in ("beit", "lupa", "kwek", "chir", "gutu")}
 @pytest.fixture
 def make(tmp_path, monkeypatch):
     monkeypatch.setenv("CORS_DAILY_SUMMARY_HOUR", "")
+    monkeypatch.setenv("CORS_OFFLINE_ALERT_MINUTES", "0")  # most tests check the 3-reading rule alone
     # 10:00 CAT, away from the daily summary hour.
     clock = Clock(datetime(2026, 11, 11, 8, 0, tzinfo=timezone.utc).timestamp())
 
@@ -328,3 +329,36 @@ def test_collector_gap_does_not_split_or_inflate_an_outage():
     assert rec["outages"] == 1
     assert rec["downtime_s"] == 120 + 150  # observed time only
     assert rec["last_recovered_at"] == t0 + 36150
+
+
+def test_short_outage_below_the_alert_period_sends_nothing(make, monkeypatch):
+    monkeypatch.setenv("CORS_OFFLINE_ALERT_MINUTES", "10")
+    mon, clock = make()
+    mon.evaluate(payload(clock, ALL_UP))
+    down = {**ALL_UP, "lupa": "offline"}
+    assert run(mon, clock, down, 16) == []  # 8 minutes offline
+    assert run(mon, clock, ALL_UP, 10) == []  # recovers: no offline or online message
+
+
+def test_offline_alert_after_the_period_dated_from_first_reading(make, monkeypatch):
+    monkeypatch.setenv("CORS_OFFLINE_ALERT_MINUTES", "10")
+    mon, clock = make()
+    mon.evaluate(payload(clock, ALL_UP))
+    down = {**ALL_UP, "lupa": "offline"}
+    first = clock.t + 30
+    msgs = run(mon, clock, down, 19)  # 9.5 minutes
+    assert msgs == []
+    msgs = run(mon, clock, down, 2)
+    assert len(msgs) == 1 and "CORS station offline: LUPA" in msgs[0]
+    assert cm._fmt_time(first) in msgs[0]
+    up = run(mon, clock, ALL_UP, 3)
+    assert len(up) == 1 and "back online" in up[0]
+
+
+def test_history_ignores_drops_shorter_than_the_alert_period():
+    t0 = 1_000_000.0
+    seq = ["online"] * 3 + ["offline"] * 6 + ["online"] * 3 + ["offline"] * 30 + ["online"]
+    samples = [(t0 + 30 * i, s) for i, s in enumerate(seq)]
+    rec = cm.summarise_samples(samples, now=samples[-1][0], min_duration_s=600)
+    assert rec["outages"] == 1  # the 3-minute drop is not counted
+    assert rec["downtime_s"] == 900
