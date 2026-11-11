@@ -248,6 +248,7 @@ class StationStream(threading.Thread):
         self._max_session_s = float(max_session_s) if max_session_s and max_session_s > 0 else None
         self._hold_back = hold_back
         self._consecutive_failures = 0
+        self._last_reject_at: Optional[float] = None
 
         self._stop = threading.Event()
         self._lock = threading.Lock()
@@ -288,6 +289,12 @@ class StationStream(threading.Thread):
         with self._lock:
             return self._msg_count
 
+    @property
+    def last_reject_at(self) -> Optional[float]:
+        """Epoch seconds of the caster's most recent refusal, if any."""
+        with self._lock:
+            return self._last_reject_at
+
     def mean_latency_ms(self) -> Optional[float]:
         with self._lock:
             return (sum(self._latencies) / len(self._latencies)) if self._latencies else None
@@ -317,6 +324,9 @@ class StationStream(threading.Thread):
                 self._stream(sock)
             except Exception as exc:
                 rejected = "too many concurrent" in str(exc).lower() or "rejected" in str(exc).lower()
+                if rejected:
+                    with self._lock:
+                        self._last_reject_at = time.time()
                 if rejected and self._slots is not None:
                     # A long freeze here parked every connected station. The
                     # previous socket just closed; a few seconds is enough
@@ -544,6 +554,7 @@ class LiveNtripManager:
                 "last_seen": s.last_seen,
                 "msg_count": s.msg_count,
                 "latency_ms": s.mean_latency_ms(),
+                "last_reject_at": s.last_reject_at,
             }
             for sid, s in self._streams.items()
         }

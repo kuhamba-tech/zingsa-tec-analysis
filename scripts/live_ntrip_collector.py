@@ -184,7 +184,7 @@ def _status_push_url() -> str:
     return raw
 
 
-def _status_snapshot_rows(streams: dict[str, dict]) -> list[dict]:
+def _status_snapshot_rows(streams: dict[str, dict], payload_out: dict | None = None) -> list[dict]:
     """Build snapshots using Spider as the map's authoritative status source.
 
     The public dashboard intentionally matches Leica Spider Site Status.  NTRIP
@@ -195,6 +195,8 @@ def _status_snapshot_rows(streams: dict[str, dict]) -> list[dict]:
     from zgiis.live.spider_site_status import get_cached_spider_site_statuses
 
     spider_payload = get_cached_spider_site_statuses(refresh=True)
+    if payload_out is not None:
+        payload_out.update(spider_payload or {})
     spider_by_station = spider_payload.get("by_station") or {}
     if spider_by_station:
         try:
@@ -372,19 +374,36 @@ def main() -> int:
     heartbeat_n = 0
     last_tec_recovery = 0.0
 
-    def _recover_live_tec_if_stale() -> None:
-        """A quiet caster or a dead database connection used to leave hours with no TEC."""
+    from zgiis.live.cors_slack_monitor import (
+        cors_slack_configured,
+        get_monitor,
+        post_messages_in_background,
+    )
+
+    cors_monitor = None
+    if cors_slack_configured():
+        cors_monitor = get_monitor(ROOT / "static" / "data" / "cors_alert_state.json")
+        log.info("CORS Slack monitoring enabled")
+    else:
+        log.info("CORS Slack monitoring off (SLACK_CORS_WEBHOOK_URL not set)")
+
+    def _recover_live_tec_if_stale() -> tuple[bool, float | None]:
+        """A quiet caster or a dead database connection used to leave hours with no TEC.
+
+        Returns (checked, age_s) for the CORS monitor. checked is False when the
+        database could not be asked, so a query error is not reported as stale TEC.
+        """
         nonlocal last_tec_recovery
         try:
             age = db.newest_live_obs_age_s(hours=6.0)
         except Exception as exc:
             log.warning("Live TEC age check failed: %s", exc)
-            age = None
+            return False, None
         if age is not None and age <= 180:
-            return
+            return True, age
         now_m = time.monotonic()
         if now_m - last_tec_recovery < 300:
-            return
+            return True, age
         last_tec_recovery = now_m
         log.warning(
             "Live TEC is not reaching the database (age_s=%s). Refreshing ephemeris and flushing.",
@@ -403,13 +422,14 @@ def main() -> int:
                 log.info("Ephemeris recovery updated %d GPS satellite(s)", updated)
         except Exception as exc:
             log.warning("Ephemeris recovery failed: %s", exc)
+        return True, age
 
     try:
         while not stop:
             time.sleep(30)
             _refresh_connected_stations(refresh=False)
             pipeline.flush_db()
-            _recover_live_tec_if_stale()
+            tec_checked, tec_age = _recover_live_tec_if_stale()
             heartbeat_n += 1
             if heartbeat_n >= prune_every:
                 heartbeat_n = 0
@@ -439,10 +459,12 @@ def main() -> int:
                 _kick_graph_logging()
             except Exception as exc:
                 log.warning("Graph logging failed to start: %s", exc)
+            # Spider reading shared by the archive, the snapshot push and the CORS monitor.
+            spider_payload: dict = {}
             try:
                 # Same Spider-first map the dashboard and snapshot push use.
                 # NTRIP-only logging painted connected Spider sites as connecting.
-                snapshot_rows = _status_snapshot_rows(status)
+                snapshot_rows = _status_snapshot_rows(status, spider_payload)
                 status_map = {
                     str(row["station_code"]): str(row["status"])
                     for row in snapshot_rows
@@ -455,6 +477,21 @@ def main() -> int:
                 station_status_logger.log_status_map(status_map, source=archive_source)
             except Exception as exc:
                 log.warning("Station status archive write failed: %s", exc)
+            if cors_monitor is not None:
+                try:
+                    seen = [row["last_seen"].timestamp() for row in status.values() if row.get("last_seen")]
+                    rejects = [row["last_reject_at"] for row in status.values() if row.get("last_reject_at")]
+                    post_messages_in_background(
+                        cors_monitor.evaluate(
+                            spider_payload,
+                            tec_age_s=tec_age,
+                            tec_checked=tec_checked,
+                            last_data_at=max(seen) if seen else None,
+                            last_reject_at=max(rejects) if rejects else None,
+                        )
+                    )
+                except Exception as exc:
+                    log.warning("CORS Slack monitor failed: %s", exc)
             try:
                 _push_status_snapshots(status)
             except Exception as exc:
