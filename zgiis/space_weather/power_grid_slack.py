@@ -611,10 +611,10 @@ def _region_sentence(brief: dict[str, Any]) -> str | None:
     if not isinstance(count, int):
         return None
     if count == 0:
-        return "The Earth-facing Sun shows no spotted region in the latest NOAA summary."
+        return "The Earth-facing Sun has no visible sunspot regions."
     if count == 1:
-        return "The Earth-facing Sun has one visible sunspot region in the latest NOAA summary."
-    return f"The Earth-facing Sun has {count} visible sunspot regions in the latest NOAA summary."
+        return "The Earth-facing Sun has one visible sunspot region."
+    return f"The Earth-facing Sun has {count} visible sunspot regions."
 
 
 def format_solar_forecast(
@@ -647,9 +647,9 @@ def format_solar_forecast(
         lines.append(region)
     cme = brief.get("earth_directed_cme")
     if cme is False:
-        lines.append("No Earth-directed coronal mass ejections (CMEs) are reported in the current NOAA discussion.")
+        lines.append("No Earth-directed coronal mass ejections (CMEs) are seen from the NASA SDO.")
     elif cme is True:
-        lines.append("NOAA reports an Earth-directed coronal mass ejection.")
+        lines.append("An Earth-directed coronal mass ejection is seen from the NASA SDO.")
     lines.extend(["", "Solar Flare Probabilities"])
     chances = (
         ("C-class flares", brief.get("c_percent")),
@@ -725,7 +725,7 @@ def format_solar_forecast(
             "",
             "Live metrics and solar activity images for this message follow.",
             "",
-            "Source: NOAA SWPC solar discussion, flare probabilities and GOES flare list, with ZINGSA live monitoring readings.",
+            "Source: NOAA SWPC solar discussion, flare probabilities and GOES flare list, NASA SDO, with ZINGSA live monitoring readings.",
             "",
             "Issued by:",
             "ZINGSA Space Science Department",

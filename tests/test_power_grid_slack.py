@@ -113,7 +113,9 @@ def test_quarter_hours_alternate_and_a_past_arrival_is_not_a_new_forecast():
         },
         issued_at=issued,
     )
-    assert "one visible sunspot region" in text
+    assert "one visible sunspot region." in text
+    assert "seen from the NASA SDO" in text
+    assert "NASA SDO, with ZINGSA" in text
     assert "C-class flares: 20%" in text
     assert "511 km/s" in text
     assert "31 October" not in text
