@@ -1,5 +1,6 @@
 "use client";
 
+import { useId, useMemo, useState } from "react";
 import type { StationActivityBoard as Board } from "@/lib/types";
 import styles from "./StationActivityBoard.module.css";
 
@@ -36,6 +37,97 @@ function activityClass(activity: string): string {
   return styles.activityQuiet;
 }
 
+function fmtCat(dt: Date): string {
+  return `${CAT.format(dt)} CAT`;
+}
+
+function durationLabel(bucketCount: number, bucketMinutes: number): string {
+  const minutes = bucketCount * bucketMinutes;
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const rem = minutes % 60;
+  return rem ? `${hours} h ${rem} min` : `${hours} h`;
+}
+
+type CellMeta = {
+  index: number;
+  cell: string;
+  start: Date;
+  end: Date;
+  runStart: number;
+  runEnd: number;
+  lastReceiveBefore: Date | null;
+  nextReceiveAfter: Date | null;
+};
+
+function buildCellMeta(board: Board, cells: string): CellMeta[] {
+  const chars = cells.split("");
+  const starts = chars.map((_, index) => bucketTime(board.start, index, board.bucket_minutes));
+  const ends = chars.map((_, index) => bucketTime(board.start, index + 1, board.bucket_minutes));
+
+  const runStart: number[] = new Array(chars.length);
+  const runEnd: number[] = new Array(chars.length);
+  let i = 0;
+  while (i < chars.length) {
+    let j = i;
+    while (j + 1 < chars.length && chars[j + 1] === chars[i]) j += 1;
+    for (let k = i; k <= j; k += 1) {
+      runStart[k] = i;
+      runEnd[k] = j;
+    }
+    i = j + 1;
+  }
+
+  return chars.map((cell, index) => {
+    let lastReceiveBefore: Date | null = null;
+    for (let k = runStart[index] - 1; k >= 0; k -= 1) {
+      if (chars[k] === "o") {
+        lastReceiveBefore = ends[k];
+        break;
+      }
+    }
+    let nextReceiveAfter: Date | null = null;
+    for (let k = runEnd[index] + 1; k < chars.length; k += 1) {
+      if (chars[k] === "o") {
+        nextReceiveAfter = starts[k];
+        break;
+      }
+    }
+    return {
+      index,
+      cell,
+      start: starts[index],
+      end: ends[index],
+      runStart: runStart[index],
+      runEnd: runEnd[index],
+      lastReceiveBefore,
+      nextReceiveAfter,
+    };
+  });
+}
+
+function tooltipLines(meta: CellMeta, code: string, board: Board): string[] {
+  const runBuckets = meta.runEnd - meta.runStart + 1;
+  const downStart = bucketTime(board.start, meta.runStart, board.bucket_minutes);
+  const downEnd = bucketTime(board.start, meta.runEnd + 1, board.bucket_minutes);
+  const lines = [
+    `${code.toUpperCase()} · ${cellLabel(meta.cell)}`,
+    `Down: ${fmtCat(downStart)} → ${fmtCat(downEnd)}`,
+    `Duration: ${durationLabel(runBuckets, board.bucket_minutes)}`,
+  ];
+  if (meta.lastReceiveBefore) {
+    lines.push(`Last recorded: ${fmtCat(meta.lastReceiveBefore)}`);
+  } else {
+    lines.push("Last recorded: no receive-data sample before this gap");
+  }
+  if (meta.nextReceiveAfter) {
+    lines.push(`Recorded again: ${fmtCat(meta.nextReceiveAfter)}`);
+  } else if (meta.cell === "f") {
+    lines.push("Recorded again: still down / not yet restored in this window");
+  }
+  return lines;
+}
+
 function Strip({
   board,
   code,
@@ -47,17 +139,37 @@ function Strip({
   name: string;
   cells: string;
 }) {
+  const tipId = useId();
+  const meta = useMemo(() => buildCellMeta(board, cells), [board, cells]);
+  const [hover, setHover] = useState<number | null>(null);
+
   return (
     <span className={styles.strip} aria-label={`${name} activity`}>
-      {cells.split("").map((cell, index) => {
-        const start = bucketTime(board.start, index, board.bucket_minutes);
-        const end = bucketTime(board.start, index + 1, board.bucket_minutes);
+      {meta.map((cell) => {
+        const lines = tooltipLines(cell, code, board);
+        const plain = lines.join(" · ");
+        const isConnecting = cell.cell === "f";
+        const showTip = isConnecting && hover === cell.index;
         return (
           <i
-            key={`${code}-${index}`}
-            className={cellClass(cell)}
-            title={`${code.toUpperCase()} · ${CAT.format(start)}–${CAT.format(end)} CAT · ${cellLabel(cell)}`}
-          />
+            key={`${code}-${cell.index}`}
+            className={`${cellClass(cell.cell)} ${isConnecting ? styles.tipHost : ""}`}
+            title={plain}
+            aria-describedby={showTip ? tipId : undefined}
+            onMouseEnter={() => setHover(cell.index)}
+            onMouseLeave={() => setHover((current) => (current === cell.index ? null : current))}
+            onFocus={() => setHover(cell.index)}
+            onBlur={() => setHover((current) => (current === cell.index ? null : current))}
+            tabIndex={isConnecting ? 0 : undefined}
+          >
+            {showTip ? (
+              <span id={tipId} className={styles.tooltip} role="tooltip">
+                {lines.map((line) => (
+                  <span key={line}>{line}</span>
+                ))}
+              </span>
+            ) : null}
+          </i>
         );
       })}
     </span>
@@ -156,7 +268,7 @@ export default function StationActivityBoard({ board }: { board: Board }) {
         ))}
       </div>
       <p className={styles.note}>
-        Comm activity and the right-hand tip follow live Spider Site Status (same as the map). The rest of each bar is archived history. Times are CAT. Each block is {board.bucket_minutes} min.
+        Comm activity and the right-hand tip follow live Spider Site Status (same as the map). The rest of each bar is archived history. Hover a red block for downtime and last/next recorded times (CAT). Each block is {board.bucket_minutes} min.
       </p>
     </div>
   );

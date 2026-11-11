@@ -58,8 +58,10 @@
 }
 
 .row {
+  position: relative;
   font-size: 0.78rem;
   border-top: 1px solid rgba(36, 77, 115, 0.28);
+  overflow: visible;
 }
 
 .name {
@@ -110,9 +112,10 @@
 }
 
 .strip {
+  position: relative;
   display: flex;
   height: 14px;
-  overflow: hidden;
+  overflow: visible;
   border-radius: 2px;
   background: #13283c;
   min-width: 0;
@@ -124,6 +127,48 @@
   width: auto;
   height: 100%;
   border-radius: 0;
+}
+
+.tipHost {
+  cursor: help;
+  position: relative;
+  z-index: 1;
+  overflow: visible;
+}
+
+.tipHost:hover,
+.tipHost:focus-visible {
+  outline: 1px solid #ffe08a;
+  outline-offset: -1px;
+  z-index: 2;
+}
+
+.tooltip {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  transform: translateX(-50%);
+  z-index: 20;
+  min-width: 14rem;
+  max-width: 20rem;
+  padding: 0.45rem 0.55rem;
+  border-radius: 6px;
+  border: 1px solid #3a7ab5;
+  background: rgba(4, 14, 26, 0.97);
+  color: #f8fbff;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  white-space: normal;
+}
+
+.tooltip span {
+  display: block;
+}
+
+.tooltip span + span {
+  margin-top: 0.18rem;
 }
 
 .receive {
