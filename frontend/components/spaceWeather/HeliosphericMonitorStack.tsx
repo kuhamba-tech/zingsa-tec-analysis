@@ -117,7 +117,7 @@ function PanelShell({
   );
 }
 
-export default function HeliosphericMonitorStack() {
+export default function HeliosphericMonitorStack({ only }: { only?: "kp" } = {}) {
   const [data, setData] = useState<HeliosphericMonitorResponse | null>(null);
   const [brief, setBrief] = useState<SolarBriefResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -251,6 +251,49 @@ export default function HeliosphericMonitorStack() {
       ),
     };
   }, [data]);
+
+  if (only === "kp") {
+    return (
+      <div
+        className="card"
+        data-capture={data?.kp.labels.length ? "ready" : "loading"}
+        style={{ background: "#07111c", color: "#e8eef5", padding: "1rem" }}
+      >
+        <div style={{ fontWeight: 700, marginBottom: "0.25rem" }}>
+          GFZ / NOAA planetary Kp · observed & forecast
+        </div>
+        <div style={{ fontSize: "0.75rem", color: "#8aa0b3", marginBottom: "0.7rem", lineHeight: 1.4 }}>
+          NOAA planetary K-index forecast · observed (green) · estimated (amber) · predicted (cyan) · Kyoto Dst (white line, right axis) · time axis UTC
+        </div>
+        {data && data.kp.labels.length > 0 ? (
+          <>
+            <HeliosphericKpBars
+              labels={data.kp.labels}
+              times={data.kp.times}
+              epochMs={data.kp.epoch_ms}
+              observed={data.kp.observed}
+              estimated={data.kp.estimated}
+              predicted={data.kp.predicted}
+              dst={data.dst?.dst}
+              dstLabels={data.dst?.labels}
+              dstTimes={data.dst?.times}
+              dstEpochMs={data.dst?.epoch_ms}
+            />
+            <SymhRingCurrentChart
+              dst={data.dst?.dst}
+              labels={data.dst?.labels}
+              times={data.dst?.times}
+              epochMs={data.dst?.epoch_ms}
+            />
+          </>
+        ) : (
+          <div className="banner banner-info">
+            {loading ? "Loading live Kp…" : `Kp forecast unavailable${data?.errors?.kp ? `: ${data.errors.kp}` : "."}`}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="card" style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}>

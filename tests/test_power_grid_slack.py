@@ -3,8 +3,11 @@
 from datetime import datetime, timezone  # noqa: F401
 
 from zgiis.space_weather.power_grid_slack import (
+    advisory_kind,
     classify_power_grid_level,
     format_power_grid_advisory,
+    format_power_grid_quarter,
+    format_solar_forecast,
 )
 
 
@@ -88,3 +91,51 @@ def test_threshold_alert_requires_a_sustained_crossing():
     assert "580" not in text
     assert "hypothetical" not in text.lower()
     assert "13:15" in text
+
+
+def test_quarter_hours_alternate_and_a_past_arrival_is_not_a_new_forecast():
+    issued = datetime(2026, 11, 11, 12, 0, tzinfo=timezone.utc)
+    assert advisory_kind(issued) == "grid"
+    assert advisory_kind(issued.replace(minute=15)) == "solar"
+    text = format_solar_forecast(
+        {"speed": 511, "bz": -0.7, "bt": 4, "density": 1.89, "kp": 1, "dst": -12},
+        {
+            "spotted_region_count": 1,
+            "earth_directed_cme": False,
+            "c_percent": 20,
+            "m_percent": 5,
+            "x_percent": 1,
+            "flares_today": {"c_count": 1, "m_count": 0, "x_count": 0},
+            "flares_yesterday": {"c_count": 1, "m_count": 0, "x_count": 0},
+            "coronal_hole_stream": True,
+            "expected_kp_window": "31 October",
+            "expected_kp": 4,
+        },
+        issued_at=issued,
+    )
+    assert "one visible sunspot region" in text
+    assert "C-class flares: 20%" in text
+    assert "511 km/s" in text
+    assert "31 October" not in text
+    assert "arrival date has passed" in text
+    assert "illustrative" not in text.lower()
+
+
+def test_quarter_advisory_uses_live_tec_against_the_night_band():
+    issued = datetime(2026, 11, 11, 18, 0, tzinfo=timezone.utc)
+    text = format_power_grid_quarter(
+        {"speed": 512, "bz": -2.0, "bt": 3.9, "density": 1.81, "kp": 1, "dst": -11, "vtec": 18.4, "gnss_risk": "Low"},
+        issued_at=issued,
+    )
+    assert "Ionospheric TEC" in text
+    assert "Observed VTEC: 18.4 TECU" in text
+    assert "1–12 TECU" in text
+    assert "TEC status: Elevated" in text
+    assert "Nighttime / post-sunset" in text
+    assert "[Live ZINGSA TEC]" not in text
+    missing = format_power_grid_quarter(
+        {"speed": 512, "bz": -2.0, "bt": 3.9, "density": 1.81, "kp": 1, "dst": -11},
+        issued_at=issued,
+    )
+    assert "TEC status: Unavailable" in missing
+    assert "18.4" not in missing

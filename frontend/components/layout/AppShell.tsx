@@ -145,6 +145,7 @@ function isNavActive(
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const captureShot = pathname.includes("/space-weather/capture/");
   const searchParams = useSearchParams();
   const searchQuery = searchParams.toString();
   const [collapsed, setCollapsed] = useState(false);
@@ -271,7 +272,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
       {mobileOpen && <div className="app-overlay" onClick={closeMobile} />}
 
-      <aside
+      {!captureShot && <aside
         ref={sidebarRef}
         id="app-navigation"
         aria-label="Main navigation"
@@ -336,7 +337,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
           <div className="app-sidebar-footer">© 2026 ZINGSA</div>
         </div>
-      </aside>
+      </aside>}
 
       <main
         ref={mainRef}

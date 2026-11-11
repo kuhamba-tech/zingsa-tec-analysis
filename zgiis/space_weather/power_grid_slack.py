@@ -350,6 +350,9 @@ def collect_power_grid_readings() -> dict[str, Any]:
         if isinstance(current, dict):
             readings["kp"] = _float_or_none(current.get("kp"))
             readings["dst"] = _float_or_none(current.get("dst"))
+            readings["vtec"] = _float_or_none(current.get("mean_vtec"))
+            risk = current.get("gnss_risk")
+            readings["gnss_risk"] = str(risk).strip() if isinstance(risk, str) and risk.strip() else None
             readings["index_time"] = current.get("updated_utc")
             if readings.get("speed") is None:
                 readings["speed"] = _float_or_none(current.get("plasma_speed"))
@@ -358,7 +361,90 @@ def collect_power_grid_readings() -> dict[str, Any]:
     return readings
 
 
-    return text, image_url
+# Quiet-day Zimbabwe network-mean VTEC bands (CAT), the same envelopes used in
+# the archived assessments. Hours outside these windows have no published band.
+_TEC_BANDS = (
+    ((6, 7, 8, 9, 10), "Morning", 8.0, 30.0, "After sunrise, TEC normally rises as solar EUV ionises the ionosphere."),
+    ((11, 12, 13, 14, 15), "Daytime", 12.0, 45.0, "Daytime TEC normally peaks near local noon and afternoon."),
+    ((16, 17, 18, 19), "Evening / post-sunset", None, None, "After sunset, TEC normally falls as solar ionisation diminishes. A separate quiet-day band is not published for these hours."),
+    ((20, 21, 22, 23, 0, 1, 2, 3), "Nighttime / post-sunset", 1.0, 12.0, "At night, TEC normally decreases as solar ionisation diminishes. Elevated nighttime TEC can still occur from the equatorial ionisation anomaly, seasonal effects, and post-sunset dynamics."),
+    ((4, 5), "Pre-sunrise", None, None, "TEC is usually near its nighttime minimum before sunrise. A separate quiet-day band is not published for these hours."),
+)
+
+
+def _tec_block(readings: dict[str, Any], issued_cat: datetime) -> list[str]:
+    """Zimbabwe TEC lines. A missing live value is reported as unavailable."""
+    hour = issued_cat.hour
+    period = "Unspecified"
+    low = high = None
+    note = "A quiet-day expected band is not published for this hour."
+    for hours, name, band_low, band_high, text in _TEC_BANDS:
+        if hour in hours:
+            period, low, high, note = name, band_low, band_high, text
+            break
+    vtec = _float_or_none(readings.get("vtec"))
+    lines = [
+        "🛰️ ZIMBABWE IONOSPHERIC TEC ASSESSMENT",
+        "",
+        f"Observation time: {issued_cat.strftime('%H:%M')} CAT",
+        f"Ionospheric period: {period}",
+    ]
+    if vtec is None:
+        lines.extend(
+            [
+                "Observed VTEC: unavailable",
+                "Expected VTEC: unavailable",
+                "TEC deviation: unavailable",
+                "TEC status: Unavailable",
+                "",
+                "No TEC anomaly can be confirmed until a validated live VTEC measurement is available.",
+            ]
+        )
+        return lines
+    lines.append(f"Observed VTEC: {_num(vtec, 1)} TECU")
+    if low is None or high is None:
+        lines.extend(
+            [
+                "Expected VTEC: no published quiet-day band for this hour",
+                "TEC deviation: not calculated",
+                "TEC status: Unavailable",
+                "",
+                note,
+            ]
+        )
+    else:
+        if vtec < low:
+            deviation = vtec - low
+            status = "Anomalous" if (low - vtec) > (high - low) else "Depressed"
+        elif vtec > high:
+            deviation = vtec - high
+            status = "Anomalous" if (vtec - high) > (high - low) else "Elevated"
+        else:
+            deviation = 0.0
+            status = "Normal"
+        lines.extend(
+            [
+                f"Expected VTEC: {_num(low, 0)}–{_num(high, 0)} TECU (quiet-day {period.lower()} band)",
+                f"TEC deviation: {_signed(deviation, 1)} TECU from the nearest edge of that band",
+                f"TEC status: {status}",
+                "",
+                note,
+            ]
+        )
+        if status in {"Elevated", "Anomalous"} and deviation > 0:
+            lines.append(
+                f"The observed value is {_num(deviation, 1)} TECU above the quiet-day band. Duration is not stated because this issue uses the current network mean only."
+            )
+    risk = readings.get("gnss_risk")
+    lines.extend(
+        [
+            "",
+            "Elevated TEC alone does not confirm GNSS interference. TEC gradients, ROTI, cycle slips and RTK positioning performance should also be examined.",
+        ]
+    )
+    if isinstance(risk, str) and risk:
+        lines.append(f"Live GNSS risk on the platform: {risk}.")
+    return lines
 
 
 def format_power_grid_quarter(readings: dict[str, Any], *, issued_at: datetime | None = None) -> str:
@@ -379,7 +465,7 @@ def format_power_grid_quarter(readings: dict[str, Any], *, issued_at: datetime |
     emoji, label = _LEVELS[level]
     lines = [
         f"{emoji} ZINGSA SPACE WEATHER ADVISORY",
-        "Geomagnetic Disturbance & Power Grid Monitoring",
+        "Geomagnetic Disturbance, Ionospheric TEC & Power Grid Monitoring",
         "",
         f"📅 Date: {issued_cat.strftime('%d %B %Y').lstrip('0')}, {issued_cat.strftime('%H:%M')} CAT",
         "🏢 Stakeholders: ZESA Holdings / ZETDC",
@@ -411,7 +497,15 @@ def format_power_grid_quarter(readings: dict[str, Any], *, issued_at: datetime |
             "",
             f"Assessment: {_assessment(level, readings)}",
             "",
+            *_tec_block(readings, issued_cat),
+            "",
             "⚡ POTENTIAL POWER GRID IMPACTS",
+            "",
+            (
+                "Current grid assessment: no GIC-related disturbance is confirmed by these measurements."
+                if level in {"GREEN", "YELLOW"}
+                else "Current grid assessment: geomagnetic indices meet a storm screening level. A GIC impact is not confirmed without measured transformer neutral current."
+            ),
             "",
             "If geomagnetic disturbances intensify, geomagnetically induced currents (GICs) may contribute to:",
             "",
@@ -437,15 +531,201 @@ def format_power_grid_quarter(readings: dict[str, Any], *, issued_at: datetime |
             "• Dst/SYM-H indicates intensifying geomagnetic activity",
             "• Local geomagnetic field variations increase significantly",
             "• Abnormal GIC-related measurements are detected",
+            "• Significant TEC gradients or ionospheric irregularities affect GNSS reliability",
             "",
             f"📢 CURRENT ADVISORY: {label}",
             "",
             _current_line(level),
             "",
-            "This live update is sent every 15 minutes. Daily briefs remain at 06:00, 12:00, 18:00 and 00:00 CAT. A separate alert is sent when a threshold is newly crossed.",
+            "This power-grid watch alternates every 15 minutes with the solar activity forecast. Daily briefs remain at 06:00, 12:00, 18:00 and 00:00 CAT. A separate alert is sent when a threshold is newly crossed.",
             "",
             "🔗 ZINGSA Space Weather Monitoring Platform:",
             "https://zingsa-gnss-tec.vercel.app/space-weather/",
+            "",
+            "Issued by:",
+            "ZINGSA Space Science Department",
+            "Zimbabwe National Geospatial and Space Agency",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def advisory_kind(issued_at: datetime) -> str:
+    """Quarter-hour posts alternate. :00 and :30 stay the power-grid watch; :15 and :45 are the solar forecast."""
+    issued = issued_at if issued_at.tzinfo else issued_at.replace(tzinfo=CAT)
+    slot = issued.astimezone(CAT).minute // 15
+    return "solar" if slot % 2 else "grid"
+
+
+_MONTH_NUMBERS = {
+    "january": 1, "jan": 1, "february": 2, "feb": 2, "march": 3, "mar": 3,
+    "april": 4, "apr": 4, "may": 5, "june": 6, "jun": 6, "july": 7, "jul": 7,
+    "august": 8, "aug": 8, "september": 9, "sep": 9, "october": 10, "oct": 10,
+    "november": 11, "nov": 11, "december": 12, "dec": 12,
+}
+
+
+def _window_is_past(window: str, issued: datetime) -> bool:
+    """True when the outlook names a calendar day already behind the issue time."""
+    import re
+
+    text = (window or "").lower()
+    issued_day = issued.astimezone(CAT).date()
+    for name, month in _MONTH_NUMBERS.items():
+        if name not in text:
+            continue
+        for match in re.finditer(r"(\d{1,2})", text):
+            day = int(match.group(1))
+            if not 1 <= day <= 31:
+                continue
+            try:
+                when = datetime(issued_day.year, month, day).date()
+            except ValueError:
+                continue
+            age = (issued_day - when).days
+            if 1 <= age < 200:
+                return True
+    return False
+
+
+def _flare_clause(day: dict[str, Any] | None) -> str | None:
+    if not isinstance(day, dict):
+        return None
+    parts: list[str] = []
+    for key, name in (("c_count", "C-class"), ("m_count", "M-class"), ("x_count", "X-class")):
+        count = day.get(key)
+        if isinstance(count, int) and count > 0:
+            noun = "flare" if count == 1 else "flares"
+            parts.append(f"{count} {name} {noun}")
+    if parts:
+        return " and ".join(parts) + " reported"
+    if day.get("label"):
+        return str(day["label"])
+    return None
+
+
+def _region_sentence(brief: dict[str, Any]) -> str | None:
+    count = brief.get("spotted_region_count")
+    if count is None:
+        count = brief.get("earth_facing_region_count")
+    if not isinstance(count, int):
+        return None
+    if count == 0:
+        return "The Earth-facing Sun shows no spotted region in the latest NOAA summary."
+    if count == 1:
+        return "The Earth-facing Sun has one visible sunspot region in the latest NOAA summary."
+    return f"The Earth-facing Sun has {count} visible sunspot regions in the latest NOAA summary."
+
+
+def format_solar_forecast(
+    readings: dict[str, Any],
+    brief: dict[str, Any],
+    *,
+    issued_at: datetime | None = None,
+) -> str:
+    """Solar-activity forecast. Uses the supplied live brief and readings only."""
+    issued = issued_at or datetime.now(CAT)
+    if issued.tzinfo is None:
+        issued = issued.replace(tzinfo=CAT)
+    issued_cat = issued.astimezone(CAT)
+    level = classify_power_grid_level(readings)
+    emoji, label = _LEVELS[level]
+    speed = _float_or_none(readings.get("speed"))
+    bz = _float_or_none(readings.get("bz"))
+    bt = _float_or_none(readings.get("bt"))
+    density = _float_or_none(readings.get("density"))
+    kp = _float_or_none(readings.get("kp"))
+    dst = _float_or_none(readings.get("dst"))
+    lines = [
+        "☀️ SOLAR ACTIVITY & SPACE WEATHER FORECAST",
+        "",
+        f"Solar Activity Summary — {issued_cat.strftime('%d %B %Y').lstrip('0')}, {issued_cat.strftime('%H:%M')} CAT",
+        "",
+    ]
+    region = _region_sentence(brief)
+    if region:
+        lines.append(region)
+    cme = brief.get("earth_directed_cme")
+    if cme is False:
+        lines.append("No Earth-directed coronal mass ejections (CMEs) are reported in the current NOAA discussion.")
+    elif cme is True:
+        lines.append("NOAA reports an Earth-directed coronal mass ejection.")
+    lines.extend(["", "Solar Flare Probabilities"])
+    chances = (
+        ("C-class flares", brief.get("c_percent")),
+        ("M-class flares", brief.get("m_percent")),
+        ("X-class flares", brief.get("x_percent")),
+    )
+    wrote_chance = False
+    for name, value in chances:
+        if isinstance(value, (int, float)):
+            lines.append(f"- {name}: {int(value)}%")
+            wrote_chance = True
+    if not wrote_chance:
+        lines.append("- NOAA flare probabilities are not available for this issue.")
+    lines.extend(["", "Solar Flaring Activity"])
+    today = _flare_clause(brief.get("flares_today") if isinstance(brief.get("flares_today"), dict) else None)
+    yesterday = _flare_clause(brief.get("flares_yesterday") if isinstance(brief.get("flares_yesterday"), dict) else None)
+    lines.append(f"- Today: {today or 'GOES flare count unavailable'}")
+    lines.append(f"- Yesterday: {yesterday or 'GOES flare count unavailable'}")
+    lines.extend(["", "🌍 GEOMAGNETIC CONDITIONS", ""])
+    if kp is not None:
+        quiet = "Quiet" if kp < 3 else "Unsettled" if kp < 4 else "Active" if kp < 5 else "Storm level"
+        lines.append(f"- Planetary Kp Index: {_num(kp, 1)} — {quiet}")
+    if speed is not None:
+        watch = "Above monitoring threshold" if speed >= WIND_WATCH_KMS else "Below monitoring threshold"
+        lines.append(f"- Solar Wind Speed: {_num(speed, 0)} km/s — {watch}")
+    if density is not None:
+        band = "Low" if density < 3 else "Elevated" if density >= DENSITY_ELEVATED_CM3 else "Moderate"
+        lines.append(f"- Solar Wind Density: {_num(density, 2)} cm⁻³ — {band}")
+    if bt is not None:
+        band = "Weak" if bt < 5 else "Elevated" if bt >= BT_ELEVATED_NT else "Moderate"
+        lines.append(f"- IMF Bt: {_num(bt, 1)} nT — {band}")
+    if bz is not None:
+        if bz <= -0.5:
+            facing = "Weakly southward" if bz > BZ_SOUTH_WATCH_NT else "Southward"
+        elif bz >= 0.5:
+            facing = "Northward"
+        else:
+            facing = "Near zero"
+        lines.append(f"- IMF Bz: {_signed(bz, 1)} nT — {facing}")
+    if dst is not None:
+        storm = "No geomagnetic storm indicated" if dst > DST_STORM_NT else "Storm range"
+        lines.append(f"- Dst Index: {_signed(dst, 0)} nT — {storm}")
+    lines.extend(["", "🔮 SPACE WEATHER FORECAST", ""])
+    window = str(brief.get("expected_kp_window") or "")
+    expected = _float_or_none(brief.get("expected_kp"))
+    if expected is not None and window and not _window_is_past(window, issued_cat):
+        lines.append(f"NOAA's greatest expected 3-hour Kp for {window} is {_num(expected, 1)}.")
+    elif brief.get("coronal_hole_stream") and _window_is_past(window, issued_cat):
+        lines.append("A coronal-hole high-speed stream was in an earlier NOAA note. That arrival date has passed and is not a new forecast.")
+    elif brief.get("coronal_hole_stream"):
+        lines.append("The current NOAA discussion includes a coronal-hole high-speed solar wind stream.")
+    if speed is not None and kp is not None:
+        wind = "elevated solar wind speed" if speed >= WIND_WATCH_KMS else "solar wind near background levels"
+        geo = "quiet geomagnetic conditions" if kp < 4 else "active geomagnetic conditions"
+        lines.append(f"The latest measurements show {wind} but {geo}.")
+    lines.append("Further geomagnetic activity is possible if stronger and sustained southward IMF Bz develops.")
+    lines.extend(
+        [
+            "",
+            "⚡ IMPLICATIONS FOR ZIMBABWE'S POWER GRID",
+            "",
+            "Current Assessment: No geomagnetic storm is confirmed by these measurements." if level == "YELLOW" or level == "GREEN" else "Current Assessment: Geomagnetic conditions meet a storm screening level. Check the indices above.",
+            "",
+            "The available measurements are for monitoring. They do not by themselves establish a GIC impact on ZESA/ZETDC infrastructure.",
+            "",
+            "Continued monitoring of solar wind conditions, geomagnetic indices and available local GIC measurements is recommended.",
+            "",
+            f"ZINGSA Advisory: {label}",
+            "",
+            "Yellow is a ZINGSA operational monitoring classification when it is shown. It is not a confirmed geomagnetic storm.",
+            "",
+            "This solar forecast alternates with the power-grid watch every 15 minutes.",
+            "",
+            "Live metrics and solar activity images for this message follow.",
+            "",
+            "Source: NOAA SWPC solar discussion, flare probabilities and GOES flare list, with ZINGSA live monitoring readings.",
             "",
             "Issued by:",
             "ZINGSA Space Science Department",
@@ -468,26 +748,58 @@ def _attach_dashboard(text: str, issued_at: datetime | None = None) -> tuple[str
     return text, image_url
 
 
-def dispatch_power_grid_advisory(*, issued_at: datetime | None = None, brief: bool = False) -> dict[str, Any]:
+def _attach_message_views(text: str, issued_at: datetime | None = None) -> tuple[str, list[tuple[str, str]]]:
+    """Add the fresh live-metrics chart and solar-activity image for this send."""
+    try:
+        from zgiis.space_weather.dashboard_snapshot import publish_message_views
+
+        views = publish_message_views(issued_at)
+    except Exception:
+        views = []
+    if views:
+        text = text.rstrip() + "\n\n" + "\n".join(f"{label}:" for label, _url in views)
+    return text, views
+
+
+def dispatch_power_grid_advisory(
+    *,
+    issued_at: datetime | None = None,
+    brief: bool = False,
+    kind: str | None = None,
+) -> dict[str, Any]:
     """Collect live readings, post one Slack advisory, and return a secret-free result."""
     readings = collect_power_grid_readings()
+    issued = issued_at or datetime.now(CAT)
+    if kind not in {None, "solar", "grid", "daily"}:
+        kind = None
+    if kind is None:
+        kind = advisory_kind(issued) if brief else "daily"
     try:
-        text = (
-            format_power_grid_quarter(readings, issued_at=issued_at)
-            if brief
-            else format_power_grid_advisory(readings, issued_at=issued_at)
-        )
+        if kind == "solar":
+            from zgiis.space_weather.solar_brief import build_solar_brief
+
+            text = format_solar_forecast(readings, build_solar_brief(), issued_at=issued)
+        elif brief:
+            text = format_power_grid_quarter(readings, issued_at=issued)
+        else:
+            text = format_power_grid_advisory(readings, issued_at=issued)
     except ValueError as exc:
         return {"ok": False, "detail": str(exc), "level": None}
-    issued = issued_at or datetime.now(CAT)
-    text, image_url = _attach_dashboard(text, issued)
-    ok, detail = post_slack(text, image_url=image_url)
+    if brief:
+        text, views = _attach_message_views(text, issued)
+        ok, detail = post_slack(text, image_urls=views)
+        image = bool(views)
+    else:
+        text, image_url = _attach_dashboard(text, issued)
+        ok, detail = post_slack(text, image_url=image_url)
+        image = bool(image_url)
     return {
         "ok": ok,
         "detail": detail,
         "level": classify_power_grid_level(readings),
-        "image": bool(image_url),
-        "issued_cat": (issued_at or datetime.now(CAT)).astimezone(CAT).strftime("%Y-%m-%d %H:%M"),
+        "kind": kind,
+        "image": image,
+        "issued_cat": issued.astimezone(CAT).strftime("%Y-%m-%d %H:%M"),
     }
 
 

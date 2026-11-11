@@ -30,11 +30,22 @@ def _dry_run() -> bool:
     return raw in {"1", "true", "yes", "on"}
 
 
-def post_slack(text: str, *, image_url: str | None = None) -> tuple[bool, str]:
+def post_slack(
+    text: str,
+    *,
+    image_url: str | None = None,
+    image_urls: list[tuple[str, str]] | None = None,
+) -> tuple[bool, str]:
     """Send one alert text. Returns (ok, detail) and never includes the webhook URL."""
     if not slack_configured():
         return False, "SLACK_WEBHOOK_URL not set"
-    return post_slack_to(slack_webhook_url(), text, dry_run=_dry_run(), image_url=image_url)
+    return post_slack_to(
+        slack_webhook_url(),
+        text,
+        dry_run=_dry_run(),
+        image_url=image_url,
+        image_urls=image_urls,
+    )
 
 
 def post_slack_to(
@@ -43,6 +54,7 @@ def post_slack_to(
     *,
     dry_run: bool,
     image_url: str | None = None,
+    image_urls: list[tuple[str, str]] | None = None,
 ) -> tuple[bool, str]:
     """Send one message to a given incoming webhook. The URL is never logged."""
     message = text.strip()
@@ -52,15 +64,17 @@ def post_slack_to(
         log.info("DRY-RUN slack len=%d", len(message))
         return True, "dry-run slack"
     payload: dict[str, Any] = {"text": message}
-    picture = (image_url or "").strip()
-    if picture.startswith("https://") and " " not in picture:
-        payload["attachments"] = [
-            {
-                "fallback": "ZINGSA live Space Weather platform",
-                "text": "Live Space Weather platform",
-                "image_url": picture,
-            }
-        ]
+    pictures: list[tuple[str, str]] = list(image_urls or [])
+    single = (image_url or "").strip()
+    if not pictures and single.startswith("https://") and " " not in single:
+        pictures = [("Live Space Weather platform", single)]
+    attachments = []
+    for label, picture in pictures:
+        clean = picture.strip()
+        if clean.startswith("https://") and " " not in clean:
+            attachments.append({"fallback": label, "text": label, "image_url": clean})
+    if attachments:
+        payload["attachments"] = attachments
     try:
         response = requests.post(
             url,

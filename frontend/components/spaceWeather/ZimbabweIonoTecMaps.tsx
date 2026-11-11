@@ -68,15 +68,24 @@ function utcStamp(raw: string | null | undefined): string | null {
   return `${date.getUTCFullYear()}-${month}-${day} ${hour}:${minute} UTC`;
 }
 
+function tecRangeComment(value: number): string {
+  if (value < 10) return "below the platform's typical magnitude range (10 ≤ TEC < 40 TECU)";
+  if (value < 40) return "within the platform's typical magnitude range (10 ≤ TEC < 40 TECU)";
+  return `above the platform's typical magnitude range (10 ≤ TEC < 40 TECU), in the ${tecScaleFromVtec(value).title} magnitude band`;
+}
+
 function fieldSentence(name: string, field: IonoVtecField | undefined): string {
-  if (!field) return `${name} has no measured grid yet.`;
+  if (!field) return `${name} has no measured grid yet; whether TEC was within or above the typical range cannot be assessed.`;
   const low = tecu(field.min_tecu);
   const high = tecu(field.max_tecu);
   const mean = tecu(field.mean_tecu);
   if (!field.available || low == null || high == null || mean == null) {
-    return `${name}${field.label ? ` (${field.label})` : ""}: ${field.message || "no measured grid in this 15-minute window."}`;
+    return `${name}${field.label ? ` (${field.label})` : ""}: ${field.message || "no measured grid in this 15-minute window."} Whether TEC was within or above the typical range cannot be assessed.`;
   }
-  return `${name} (${field.label}) runs from ${low} to ${high} TECU, mean ${mean} TECU, from ${field.pierce_points} pierce points.`;
+  const peakComment = field.mean_tecu! < 40 && field.max_tecu! >= 40
+    ? ` The mean was below 40 TECU, but the map maximum reached ${high} TECU, above the typical range.`
+    : "";
+  return `${name} (${field.label}) runs from ${low} to ${high} TECU, mean ${mean} TECU, from ${field.pierce_points} pierce points. The window mean was ${tecRangeComment(field.mean_tecu!)}.${peakComment}`;
 }
 
 export function zimbabweIonoMeasuredText(
@@ -90,7 +99,7 @@ export function zimbabweIonoMeasuredText(
   const level = measured == null ? null : tecScaleFromVtec(measured);
   const head = measured == null || level == null
     ? "Live network VTEC is unavailable."
-    : `Network VTEC is ${measured.toFixed(1)} TECU${when ? ` at ${when}` : ""}. The magnitude band is ${level.title}, ${level.range} TECU.`;
+    : `Network VTEC is ${measured.toFixed(1)} TECU${when ? ` at ${when}` : ""}. The current network mean is ${tecRangeComment(measured)}. These magnitude bands are descriptive, not validated local storm or GNSS safety limits.`;
   if (failed) {
     return `${head} The yesterday and current map grids could not be loaded from the TEC database.`;
   }

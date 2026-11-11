@@ -99,11 +99,14 @@ export default function EarthsideSolarNews({
   solar,
   kp,
   includeGeomagnetics = true,
+  diskOnly = false,
 }: {
   solar: SolarActivityFull | null;
   kp: number | null;
   /** Solar Activity tab keeps Kp and solar wind. A metric-card click stays on the Sun. */
   includeGeomagnetics?: boolean;
+  /** Capture page: the labeled AIA 193 disk only. */
+  diskOnly?: boolean;
 }) {
   const [brief, setBrief] = useState<SolarBriefResponse | null>(null);
   const [failed, setFailed] = useState(false);
@@ -144,6 +147,24 @@ export default function EarthsideSolarNews({
   const density = wind?.density;
   const bt = wind?.bt;
   const bz = wind?.bz;
+
+  if (diskOnly) {
+    const frames = (brief?.monitor_images ?? []).filter((image) => image.key === "aia193");
+    const shown = frames.length > 0 ? frames : (brief?.monitor_images ?? []).slice(0, 1);
+    return (
+      <section
+        aria-label="Solar activity"
+        data-capture={shown.length > 0 ? "ready" : "loading"}
+        style={{ background: "#07111c", color: "#e8eef5", padding: "1rem", maxWidth: "760px" }}
+      >
+        {shown.length > 0 && brief ? (
+          <SolarDiskBoard images={shown} regions={brief.monitor_regions ?? []} issued={brief.monitor_issued} />
+        ) : (
+          <p>{failed ? "Solar activity image unavailable." : "Loading the latest solar disk…"}</p>
+        )}
+      </section>
+    );
+  }
 
   return (
     <section className="card" aria-label="Earth-facing solar news">
