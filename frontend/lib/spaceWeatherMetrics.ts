@@ -1,4 +1,5 @@
 import { monitoringFreshness } from "./monitoringStatus";
+import { GNSS_RISK_BANDS, gnssRiskBandOf } from "./gnssRiskWatch";
 import type { SolarActivityFull, SpaceWeatherCurrent } from "./types";
 import type { LiveStationCounts } from "./liveStationStatus";
 import { connectedStreamCount, formatCorsConnectedDisplay } from "./liveStationStatus";
@@ -631,7 +632,8 @@ export function buildMetricCards(
   const wind = sw?.plasma_speed ?? opts?.solar?.solar_wind?.speed ?? null;
   const online = sw?.stations_online ?? null;
   const total = sw?.stations_total ?? null;
-  const riskColor = sw?.gnss_risk_color ?? "#94a3b8";
+  const riskBand = GNSS_RISK_BANDS.find((band) => band.id === gnssRiskBandOf(sw?.gnss_risk));
+  const riskColor = riskBand ? sw?.gnss_risk_color ?? riskBand.color : "#94a3b8";
   const liveCounts = opts?.liveStationCounts;
   const sa = opts?.solar;
   const feeds = sa?.feed_status ?? {};
@@ -900,12 +902,12 @@ export function buildMetricCards(
       key: "gnss_risk",
       icon: "🛰️",
       label: "Estimated GNSS Risk",
-      value: sw?.gnss_risk ?? (indicesLoading ? "Updating…" : "Unavailable"),
-      note: "",
+      value: riskBand?.label ?? (indicesLoading ? "Updating…" : "Not assessed"),
+      note: riskBand ? "Provisional estimate" : "No valid GNSS risk estimate is available for this snapshot.",
       valueColor: riskColor,
-      source: "ZGIIS risk label",
+      source: riskBand ? "ZGIIS risk label" : "Awaiting risk assessment",
       observedAt: swObserved ? `Snapshot ${swObserved}` : null,
-      freshness: sw?.gnss_risk ? indicesFresh : "UNAVAILABLE",
+      freshness: riskBand ? indicesFresh : "UNAVAILABLE",
     },
     {
       key: "stations",
