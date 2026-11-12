@@ -11,15 +11,51 @@ import { gradientContourSegments, sampleGradient } from "@/lib/tecGradientContou
 
 const SATELLITE_URL =
   "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
-const LABEL_URL =
-  "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}";
-const TRANSPORT_URL =
-  "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}";
 
 const EMPTY_GRID: Array<Array<number | null>> = [];
-// All TEC panels use the same imagery: reuse decoded tiles and in-flight loads.
+/** Shared Esri XYZ sources so all TEC panels reuse one tile cache / in-flight loads. */
 const sharedTileSources = new Map<string, InstanceType<Awaited<ReturnType<typeof loadOpenLayers>>["XYZ"]>>();
+/** Serialize OpenLayers Map construction so four panels do not contend on first paint. */
+let mapInitChain: Promise<void> = Promise.resolve();
 let lastCompletedMaps: TecGradientMapsResponse | null = null;
+
+function enqueueMapInit(task: () => Promise<void>): Promise<void> {
+  const next = mapInitChain.then(task, task);
+  mapInitChain = next.then(
+    () => undefined,
+    () => undefined,
+  );
+  return next;
+}
+
+/** Instant empty-state outline — no Esri tiles, no OpenLayers. */
+function ZimbabweOutlinePlaceholder() {
+  const lons = ZIMBABWE_LAND.map(([lon]) => lon);
+  const lats = ZIMBABWE_LAND.map(([, lat]) => lat);
+  const minLon = Math.min(...lons);
+  const maxLon = Math.max(...lons);
+  const minLat = Math.min(...lats);
+  const maxLat = Math.max(...lats);
+  const pad = 0.45;
+  const points = ZIMBABWE_LAND.map(([lon, lat]) => `${lon},${-lat}`).join(" ");
+  return (
+    <svg
+      className="tec-gradient-placeholder"
+      viewBox={`${minLon - pad} ${-(maxLat + pad)} ${maxLon - minLon + 2 * pad} ${maxLat - minLat + 2 * pad}`}
+      aria-hidden="true"
+      preserveAspectRatio="xMidYMid meet"
+    >
+      <rect
+        x={minLon - pad}
+        y={-(maxLat + pad)}
+        width={maxLon - minLon + 2 * pad}
+        height={maxLat - minLat + 2 * pad}
+        fill="#07111c"
+      />
+      <polygon points={points} fill="rgba(36, 77, 115, 0.4)" stroke="#ff6464" strokeWidth={0.07} />
+    </svg>
+  );
+}
 const recent = (maps: TecGradientMapsResponse) => {
   const age = Date.now() - Date.parse(maps.window_end);
   return age >= 0 && age < 5 * 60_000;
@@ -113,6 +149,8 @@ export function GradientHybridMap({
   scaleMax?: number | null;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
+  // Start the map code during render so the four panels do not wait for an effect.
+  void loadOpenLayers().catch(() => {});
   const masked = useMemo(() => grid.map((row, i) =>
     row.map((cell, j) =>
       cell != null && Number.isFinite(cell) && cellIntersectsZimbabwe(lat0 + i, lon0 + j) ? cell : null,
@@ -135,27 +173,66 @@ export function GradientHybridMap({
     ? [temporalColor(limit, limit), temporalColor(0, limit), temporalColor(-limit, limit)]
     : [1, 0.75, 0.5, 0.25, 0].map((fraction) => spatialColor(limit * fraction, limit));
 
-  const contours = useMemo(() => contourLevels.map(level => ({ level, segments: gradientContourSegments(masked, level) })), [masked, limit, diverging]);
+  const hasPaint = values.length > 0;
+  const contours = useMemo(
+    () => (hasPaint ? contourLevels.map((level) => ({ level, segments: gradientContourSegments(masked, level) })) : []),
+    [masked, limit, diverging, hasPaint],
+  );
   const renderState = useRef({ masked, limit, lat0, lon0, nlat, nlon, contours });
   renderState.current = { masked, limit, lat0, lon0, nlat, nlon, contours };
   const sourceRef = useRef<{ changed: () => void } | null>(null);
+  const [nearViewport, setNearViewport] = useState(false);
   useEffect(() => { sourceRef.current?.changed(); }, [masked, limit, lat0, lon0]);
 
+  // Mount OpenLayers only when this panel is near the viewport — empty panels stay SVG-only.
   useEffect(() => {
+    if (!hasPaint) {
+      setNearViewport(false);
+      return;
+    }
+    const host = hostRef.current;
+    if (!host) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setNearViewport(true);
+      return;
+    }
+    let armed = false;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (armed) return;
+        if (entries.some((entry) => entry.isIntersecting)) {
+          armed = true;
+          io.disconnect();
+          setNearViewport(true);
+        }
+      },
+      { root: null, rootMargin: "160px 0px", threshold: 0.01 },
+    );
+    io.observe(host);
+    return () => io.disconnect();
+  }, [hasPaint]);
+
+  useEffect(() => {
+    if (!hasPaint || !nearViewport) return;
     const host = hostRef.current;
     if (!host) return;
     let disposed = false;
     let map: { setTarget: (target?: HTMLElement) => void; dispose: () => void } | null = null;
     let resizeObserver: ResizeObserver | null = null;
 
-    (async () => {
+    void enqueueMapInit(async () => {
       const ol = await loadOpenLayers();
       if (disposed || !hostRef.current) return;
       const { Map, View, TileLayer, XYZ, ImageLayer, ImageCanvas, fromLonLat } = ol;
       const tileSource = (url: string, attributions: string) => {
         let source = sharedTileSources.get(url);
         if (!source) {
-          source = new XYZ({ url, attributions });
+          // One satellite layer only (no labels/roads) — cuts tile requests ~3× vs hybrid.
+          source = new XYZ({
+            url,
+            attributions,
+            transition: 0,
+          });
           sharedTileSources.set(url, source);
         }
         return source;
@@ -216,9 +293,8 @@ export function GradientHybridMap({
                 const py1 = ((maxY - y1) / spanY) * height;
                 const cellW = Math.abs(px1 - px0);
                 const cellH = Math.abs(py1 - py0);
-                // Interpolate the display inside supported cells only. The API
-                // grid and all reported statistics retain their 1-degree resolution.
-                const steps = Math.max(1, Math.min(8, Math.ceil(Math.max(cellW, cellH) / 8)));
+                // Cap sub-cell sampling — these panels are ~1° science grids, not print-quality.
+                const steps = Math.max(1, Math.min(4, Math.ceil(Math.max(cellW, cellH) / 12)));
                 for (let sy = 0; sy < steps; sy++) {
                   for (let sx = 0; sx < steps; sx++) {
                     const sample = sampleGradient(masked, j + (sx + 0.5) / steps - 0.5, i + (sy + 0.5) / steps - 0.5);
@@ -279,13 +355,16 @@ export function GradientHybridMap({
       const southWest = project(Math.min(...landLons), Math.min(...landLats));
       const northEast = project(Math.max(...landLons), Math.max(...landLats));
       const created = new Map({
-        pixelRatio: Math.min(window.devicePixelRatio || 1, 1.5),
+        // Cap at 1 — four retina maps were downloading 4–9× the tile pixels needed.
+        pixelRatio: 1,
         target: hostRef.current,
         layers: [
-          new TileLayer({ source: tileSource(SATELLITE_URL, "Esri") }),
+          new TileLayer({
+            source: tileSource(SATELLITE_URL, "Esri"),
+            preload: 1,
+            cacheSize: 512,
+          }),
           overlay,
-          new TileLayer({ source: tileSource(TRANSPORT_URL, "Esri Reference") }),
-          new TileLayer({ source: tileSource(LABEL_URL, "Esri Reference") }),
         ],
         view: new View({
           center: project(
@@ -293,6 +372,8 @@ export function GradientHybridMap({
             (Math.min(...landLats) + Math.max(...landLats)) / 2,
           ),
           zoom: 6,
+          maxZoom: 8,
+          minZoom: 5,
         }),
       });
       const fitToZimbabwe = () => {
@@ -311,8 +392,8 @@ export function GradientHybridMap({
       map = created;
       resizeObserver = new ResizeObserver(fitToZimbabwe);
       resizeObserver.observe(host);
-    })().catch(() => {
-      /* The section text already says when the gradient itself failed. */
+    }).catch(() => {
+      /* Section copy already covers gradient / feed failure. */
     });
 
     return () => {
@@ -322,7 +403,7 @@ export function GradientHybridMap({
       map?.dispose();
       sourceRef.current = null;
     };
-  }, [diverging]);
+  }, [diverging, hasPaint, nearViewport]);
 
   return (
     <figure className="tec-gradient-map">
@@ -330,17 +411,27 @@ export function GradientHybridMap({
         {title} ({unit})
       </figcaption>
       <div className="tec-gradient-frame">
-        <div ref={hostRef} className="tec-gradient-hybrid" aria-label={`${title} on the hybrid map, ${unit}`} />
-        {values.length > 0 && <div className="tec-gradient-inset-scale" aria-label={`Colour scale in ${unit}`}>
-          <strong>{unit}</strong>
-          <span>{limit.toFixed(limit < 0.01 ? 3 : 2)}</span>
-          <i style={{ background: `linear-gradient(180deg, ${scaleColors.join(", ")})` }} />
-          {diverging && <span className="tec-gradient-inset-zero">0</span>}
-          <span>{(diverging ? -limit : 0).toFixed(limit < 0.01 ? 3 : 2)}</span>
-        </div>}
-        {values.length === 0 && <div className="tec-gradient-map-empty" role="status">
-          {emptyMessage || "No supported gradient cells in this window."}
-        </div>}
+        <div
+          ref={hostRef}
+          className="tec-gradient-hybrid"
+          aria-label={`${title} on the hybrid map, ${unit}`}
+        >
+          {!hasPaint && <ZimbabweOutlinePlaceholder />}
+        </div>
+        {hasPaint && (
+          <div className="tec-gradient-inset-scale" aria-label={`Colour scale in ${unit}`}>
+            <strong>{unit}</strong>
+            <span>{limit.toFixed(limit < 0.01 ? 3 : 2)}</span>
+            <i style={{ background: `linear-gradient(180deg, ${scaleColors.join(", ")})` }} />
+            {diverging && <span className="tec-gradient-inset-zero">0</span>}
+            <span>{(diverging ? -limit : 0).toFixed(limit < 0.01 ? 3 : 2)}</span>
+          </div>
+        )}
+        {!hasPaint && (
+          <div className="tec-gradient-map-empty" role="status">
+            {emptyMessage || "No supported gradient cells in this window."}
+          </div>
+        )}
         <div className="tec-gradient-map-key">Red outline: Zimbabwe · Clear: outside Zimbabwe</div>
       </div>
     </figure>

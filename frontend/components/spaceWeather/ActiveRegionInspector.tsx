@@ -25,6 +25,26 @@ function complexityCode(value: string | null | undefined): string {
   return code;
 }
 
+function heliographicLocation(latitude: string, longitude: string): string | null {
+  const lat = latitude.trim().match(/^(\d+)\s*([NS])$/i);
+  const lon = longitude.trim().match(/^(\d+)\s*([EW])$/i);
+  if (lat && lon) {
+    return `${lat[2].toUpperCase()}${lat[1].padStart(2, "0")}${lon[2].toUpperCase()}${lon[1].padStart(2, "0")}`;
+  }
+  const raw = [latitude, longitude].map((part) => part.trim()).filter((part) => part && part !== "—");
+  return raw.length ? raw.join(" ") : null;
+}
+
+function flarePotential(magnetic: string | null | undefined): string | null {
+  const text = classText(magnetic);
+  if (!text) return null;
+  if (text.includes("delta")) return "High flare potential";
+  if (text.includes("gamma")) return "Moderate flare potential";
+  if (text.includes("beta")) return "Low flare potential";
+  if (text.includes("alpha")) return "Quiet flare potential";
+  return null;
+}
+
 function earthFacingSpots(brief: SolarBriefResponse | null): SolarMonitorRegion[] {
   return (brief?.monitor_regions ?? []).filter((region) => {
     if (region.kind !== "spot") return false;
@@ -64,6 +84,8 @@ export default function ActiveRegionInspector() {
     return tally;
   }, [regions]);
   const chosen = regions.find((region) => region.number === selected) ?? null;
+  const chosenLocation = chosen ? heliographicLocation(chosen.latitude, chosen.longitude) : null;
+  const chosenPotential = chosen ? flarePotential(chosen.magnetic_class) : null;
   const loading = !brief && !failed;
 
   return (
@@ -110,14 +132,29 @@ export default function ActiveRegionInspector() {
         </div>
       ) : null}
       {chosen ? (
-        <p className={styles.detail}>
-          AR {chosen.number}
-          {chosen.magnetic_class ? ` · ${chosen.magnetic_class}` : ""}
-          {chosen.latitude || chosen.longitude ? ` · ${chosen.latitude} ${chosen.longitude}` : ""}
-          {chosen.spot_count != null ? ` · ${chosen.spot_count} spots` : ""}
-          {chosen.area_millionths != null ? ` · area ${chosen.area_millionths}` : ""}
-          {chosen.flare_today ? ` · flare today ${chosen.flare_today}` : ""}
-        </p>
+        <div className={styles.selected}>
+          <div className={styles.section}>Selected region</div>
+          <div className={styles.selectedNumber}>AR {chosen.number}</div>
+          {chosenPotential ? <div className={styles.potential}>{chosenPotential}</div> : null}
+          <div className={styles.field}>
+            <div className={styles.fieldLabel}>Heliographic location</div>
+            <div className={styles.fieldValue}>{chosenLocation ?? "Unavailable"}</div>
+          </div>
+          <div className={styles.field}>
+            <div className={styles.fieldLabel}>Magnetic classification</div>
+            <div className={styles.fieldValue}>{complexityCode(chosen.magnetic_class) || chosen.magnetic_class || "Unavailable"}</div>
+          </div>
+          <div className={styles.field}>
+            <div className={styles.fieldLabel}>Visible spots</div>
+            <div className={styles.fieldValue}>{chosen.spot_count != null ? chosen.spot_count : "Unavailable"}</div>
+          </div>
+          <p className={styles.report}>
+            {chosenLocation
+              ? `NOAA reports this Earth-facing region at ${chosenLocation}.`
+              : "NOAA reports this Earth-facing region. The heliographic location is unavailable."}
+            {chosen.flare_today ? ` Flare today ${chosen.flare_today}.` : ""}
+          </p>
+        </div>
       ) : null}
     </section>
   );

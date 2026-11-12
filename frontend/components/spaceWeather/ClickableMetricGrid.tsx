@@ -642,7 +642,10 @@ function ExplanationPanel({
       )}
       {metricKey === "solar_flare" && (
         <div style={{ marginTop: "0.85rem" }}>
-          <FlareActivityTable solar={solar ?? null} />
+          <ActiveRegionInspector />
+          <div style={{ marginTop: "0.85rem" }}>
+            <FlareActivityTable solar={solar ?? null} />
+          </div>
         </div>
       )}
       {(metricKey === "solar_flare" || metricKey === "donki_flares") && (

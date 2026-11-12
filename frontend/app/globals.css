@@ -3050,9 +3050,13 @@ a.home-map-layer-btn {
   }
 }
 
-@media (max-width: 1100px) {
+@media (max-width: 1280px) {
   .dashboard-metric-grid.home-metric-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .dashboard-metric-grid.sw-metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -3802,18 +3806,18 @@ a.home-map-layer-btn {
   white-space: nowrap;
 }
 .sw-metric-bz-scale .sw-metric-flare-scale-letter {
-  font-size: 0.5rem;
-  letter-spacing: -0.03em;
-  white-space: nowrap;
+  font-size: 0.62rem;
+  letter-spacing: 0;
+  white-space: normal;
 }
 .sw-metric-bz-scale .sw-metric-flare-scale-desc {
   display: block;
   white-space: normal;
   overflow: visible;
   text-overflow: unset;
-  font-size: 0.48rem;
-  line-height: 1.15;
-  min-height: 2.4em;
+  font-size: 0.58rem;
+  line-height: 1.2;
+  min-height: 0;
 }
 .sw-metric-chip-scale {
   width: 100%;
@@ -3837,9 +3841,9 @@ a.home-map-layer-btn {
   display: inline-flex;
   align-items: center;
   gap: 0.22rem;
-  font-size: 0.58rem;
+  font-size: 0.68rem;
   font-weight: 650;
-  line-height: 1.2;
+  line-height: 1.25;
   opacity: 0.72;
 }
 .sw-metric-chip.is-active {
@@ -4292,11 +4296,23 @@ a.home-map-layer-btn {
 }
 
 .home-live-tec-below-stations {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.45rem;
   font-size: 0.78rem;
   font-weight: 700;
-  line-height: 1.45;
-  margin-top: 0.25rem;
+  line-height: 1.35;
+  margin-top: 0.45rem;
   color: #ffffff;
+}
+
+.home-live-tec-station {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.28rem 0.5rem;
+  border-radius: 4px;
+  background: rgba(15, 23, 42, 0.72);
+  border: 1px solid rgba(36, 77, 115, 0.9);
 }
 
 .home-live-tec-below-waiting {
@@ -4890,6 +4906,15 @@ a.home-map-layer-btn {
   border-radius: 8px;
   overflow: hidden;
   background: #07111c;
+  position: relative;
+}
+.tec-gradient-placeholder {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
 }
 .tec-gradient-frame { position: relative; min-width: 0; }
 .tec-gradient-inset-scale {
@@ -8774,6 +8799,23 @@ a.home-map-layer-btn {
   }
 }
 
+@media (max-width: 700px) {
+  .map-status-note {
+    display: none;
+  }
+
+  .space-weather-page .sw-metric-card.sw-metric-card-summary,
+  .space-weather-page .sw-metric-card.sw-metric-card-flare,
+  .space-weather-page .sw-metric-card.sw-metric-card-wind,
+  .space-weather-page .sw-metric-card.sw-metric-card-events,
+  .space-weather-page .sw-metric-card.sw-metric-card-bz,
+  .space-weather-page .sw-metric-card.sw-metric-card-dst,
+  .space-weather-page .sw-metric-card.sw-metric-card-gstorm,
+  .space-weather-page .sw-metric-card.sw-metric-card-tec {
+    grid-column: 1 / -1;
+  }
+}
+
 @media (max-width: 560px) {
   .dashboard-metric-grid.sw-metric-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -9317,4 +9359,32 @@ a.home-map-layer-btn {
   .uptime-controls-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .uptime-controls-actions .home-map-layer-btn { min-width: 0; padding: 0.5rem 0.3rem; overflow-wrap: anywhere; }
   .uptime-workspace .banner { overflow-wrap: anywhere; }
+}
+
+/* Responsive workspace refinements: readable controls and balanced map panels. */
+.sw-report-header-copy { min-width: 0; }
+.sw-report-header-actions { flex-wrap: wrap; }
+.sw-report-control-label { min-width: 0; }
+.tec-gradient-map figcaption { min-height: 2.6em; }
+
+@media (min-width: 769px) and (max-width: 1099px) {
+  .tec-gradient-map-row-wide { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tec-gradient-map-row-single { max-width: calc((100% - 0.85rem) / 2); }
+}
+
+@media (max-width: 768px) {
+  .sw-report-controls { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .sw-report-controls :is(select, input),
+  .sw-report-select, .sw-report-date { width: 100%; min-width: 0; font-size: 16px; min-height: 44px; }
+  .sw-report-header-actions { width: 100%; }
+  .sw-report-header-actions .btn { flex: 1 1 auto; min-height: 44px; }
+  .sw-report-generate-btn { width: 100%; min-height: 44px; }
+  .tec-gradient-map-row-single { max-width: none; }
+  .tec-gradient-map figcaption { font-size: 0.85rem; line-height: 1.45; min-height: 0; }
+  .tec-gradient-map-empty { padding: 0.65rem; font-size: 0.85rem; line-height: 1.45; }
+  .tec-gradient-hybrid .ol-zoom button { width: 44px; height: 44px; }
+}
+
+@media (min-width: 1800px) {
+  .app-main { max-width: 1680px; }
 }

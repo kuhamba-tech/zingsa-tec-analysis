@@ -714,7 +714,7 @@ def _dense_window_counts(after: datetime, until: datetime) -> list[tuple[datetim
     try:
         conn = checkout(dsn)
         with conn.cursor() as cur:
-            cur.execute("SET statement_timeout = 15000")
+            cur.execute("SET statement_timeout = 6000")
             cur.execute(
                 f"""
                 SELECT date_trunc('hour', time AT TIME ZONE 'UTC')
@@ -903,15 +903,30 @@ def _compute_iono_vtec_pair(moment: datetime) -> dict[str, Any]:
         }
     points = placed or []
     built: dict[str, Any] = {}
+    pending: list[tuple[str, str, datetime, dict[str, Any]]] = []
     for key, title, _hour, _minute in _YESTERDAY_PERIODS:
         start, end, label = periods[key]
         if key in saved:
             built[key] = saved[key]
-        else:
-            field = _vtec_field(points, start, end, label=f"{title} · {label}")
-            if not field.get("available"):
-                field = _later_vtec_field(title, end) or field
+            continue
+        field = _vtec_field(points, start, end, label=f"{title} · {label}")
+        if field.get("available"):
             built[key] = field
+        else:
+            pending.append((key, title, end, field))
+    if pending:
+        workers = min(3, len(pending))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            jobs = {
+                pool.submit(_later_vtec_field, title, after): (key, field)
+                for key, title, after, field in pending
+            }
+            for job, (key, field) in jobs.items():
+                try:
+                    built[key] = job.result() or field
+                except Exception:
+                    log.warning("Later TEC window failed for %s", key, exc_info=True)
+                    built[key] = field
     built["current"] = _vtec_field(points, current_start, moment)
     _store_yesterday_fields(moment, periods, built)
     message = ""

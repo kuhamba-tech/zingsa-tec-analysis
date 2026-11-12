@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { GradientHybridMap } from "@/components/maps/TecGradientMaps";
 import { getIonoVtecPair, peekIonoVtecPair } from "@/lib/api";
+import { loadOpenLayers } from "@/lib/loadOpenLayers";
 import { tecScaleFromVtec } from "@/lib/spaceWeatherMetrics";
 import type { IonoVtecField, IonoVtecPairResponse } from "@/lib/types";
 
@@ -124,6 +125,11 @@ export default function ZimbabweIonoTecMaps({
   useEffect(() => {
     onPairRef.current?.(pair, failed);
   }, [pair, failed]);
+
+  // Warm the OpenLayers chunk early so the first painted window mounts quickly.
+  useEffect(() => {
+    void loadOpenLayers().catch(() => {});
+  }, []);
 
   useEffect(() => {
     let cancelled = false;

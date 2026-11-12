@@ -791,7 +791,13 @@ export default function CorsMapWithLayers({
             </span>
           </div>
           <div className="home-live-tec-below-stations">
-            {trignetLines.length > 0 ? trignetLines.join(" · ") : "Reading the TrigNet sourcetable."}
+            {trignetLines.length > 0
+              ? trignetLines.map((line) => (
+                  <span className="home-live-tec-station" key={line}>
+                    {line}
+                  </span>
+                ))
+              : "Reading the TrigNet sourcetable."}
           </div>
           <div className="home-live-tec-below-updated">
             TEC is shown only for the live time. A TrigNet station with no sample in that window is offline.
@@ -821,7 +827,11 @@ export default function CorsMapWithLayers({
               </div>
               <div className="home-live-tec-below-stations">
                 {connectedTec.lines.length > 0
-                  ? connectedTec.lines.join(" · ")
+                  ? connectedTec.lines.map((line) => (
+                      <span className="home-live-tec-station" key={line}>
+                        {line}
+                      </span>
+                    ))
                   : "No connected station has a measured code TEC sample in this window."}
               </div>
               {heatmap.updated_at && (
