@@ -224,6 +224,7 @@ export function GradientHybridMap({
             attributions,
             maxZoom: 6,
             cacheSize: 128,
+            transition: 0,
           });
           sharedTileSources.set(url, source);
         }
@@ -362,7 +363,6 @@ export function GradientHybridMap({
           new TileLayer({
             source: tileSource(SATELLITE_URL, "Esri"),
             preload: 0,
-            transition: 0,
           }),
           overlay,
         ],
@@ -390,7 +390,7 @@ export function GradientHybridMap({
       map = created;
       resizeObserver = new ResizeObserver(fitToZimbabwe);
       resizeObserver.observe(host);
-    }).catch(() => {
+    })().catch(() => {
       /* Section copy already covers gradient / feed failure. */
     });
 
