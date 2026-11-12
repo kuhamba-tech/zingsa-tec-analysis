@@ -9388,3 +9388,19 @@ a.home-map-layer-btn {
 @media (min-width: 1800px) {
   .app-main { max-width: 1680px; }
 }
+
+/* Keep scientific status text legible without squeezing neighbouring cards. */
+.sw-metric-card { min-width: 0; overflow-wrap: anywhere; }
+.sw-metric-meta { flex-wrap: wrap; }
+.sw-metric-card:focus-visible { outline: 2px solid #38bdf8; outline-offset: 3px; }
+@media (max-width: 560px) {
+  .space-weather-page .sw-metric-card[data-metric="gnss_risk"],
+  .space-weather-page .sw-metric-card[data-metric="stations"] { grid-column: 1 / -1; }
+  .space-weather-page .sw-metric-note,
+  .space-weather-page .sw-metric-meta { font-size: 0.75rem; line-height: 1.45; }
+  .space-weather-page .sw-metric-value { overflow-wrap: normal; word-break: normal; }
+}
+@media (max-width: 360px) {
+  .space-weather-page .sw-metric-bz-scale .sw-metric-flare-scale-letter { font-size: 0.7rem; }
+  .space-weather-page .sw-metric-bz-scale .sw-metric-flare-scale-desc { font-size: 0.65rem; }
+}

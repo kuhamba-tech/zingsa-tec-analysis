@@ -370,6 +370,7 @@ function MetricCardButton({
       onClick={onClick}
       disabled={disabled}
       aria-pressed={selected}
+      data-metric={metricKey}
       aria-label={`${label}: ${value}. What does this graph mean?.`}
       suppressHydrationWarning
     >
