@@ -6,7 +6,7 @@ import DeferredMount from "./DeferredMount";
 import SpaceWeatherCorsMap from "./SpaceWeatherCorsMap";
 import SwSectionBanner from "./SwSectionBanner";
 import dynamic from "next/dynamic";
-import { getHeliosphericMonitor, getLiveVtecByStation, getTimelines } from "@/lib/api";
+import { getHeliosphericMonitor, getTimelines } from "@/lib/api";
 import { getLoadProfile } from "@/lib/loadBudget";
 import { peekHeliosphericMonitor } from "@/lib/heliosphericStore";
 import {
@@ -21,7 +21,6 @@ import { BZ_BEAT, DST_BEAT, FLARE_BEAT, KP_BEAT, TEC_BEAT, WIND_BEAT, ZIMBABWE_T
 import { xrayFluxColor } from "@/lib/solarEventColors";
 import type {
   HeliosphericMonitorResponse,
-  LiveStationVtecSeries,
   SpaceWeatherTimelines,
 } from "@/lib/types";
 
@@ -276,9 +275,6 @@ export default function CauseEffectTimelineStack({
   const showChrome =
     (includeChrome ?? true) && (variant === "full" || variant === "overview");
   const showTimelineSection = variant !== "overview";
-  // Overview shows the readings strip and map. It does not draw the VTEC
-  // history charts, so it must not start that database read.
-  const fetchVtec = showTimelineSection && (showLocal || showChrome);
   const isLiveMetric = variant === "liveMetric";
   // Live Metric chronological numbers: 1 X-ray · 2 F10.7 · 3 wind · 4 IMF · 5 geo · 6 VTEC · 7 CORS · 8 GNSS
   const nWind = isLiveMetric ? 3 : 2;
@@ -289,31 +285,15 @@ export default function CauseEffectTimelineStack({
 
   const [helio, setHelio] = useState<HeliosphericMonitorResponse | null>(null);
   const [timelines, setTimelines] = useState<SpaceWeatherTimelines | null>(null);
-  const [vtec, setVtec] = useState<LiveStationVtecSeries[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [vtecLoading, setVtecLoading] = useState(true);
   const [syncHoverMs, setSyncHoverMs] = useState<number | null>(null);
   const [geoTab, setGeoTab] = useState<GeoTab>("kp");
   const loadProfile = useMemo(() => getLoadProfile(), []);
   const [rangeHours, setRangeHours] = useState<6 | 24 | 72 | 168>(
     variant === "local" ? 24 : loadProfile.defaultRangeHours,
   );
-  // Chart history. The readings strip uses a separate 30-minute request so
-  // "stations contributing" paints before this longer bin returns.
-  const vtecHours = showChrome && !showLocal ? Math.min(rangeHours, 6) : rangeHours;
-  const vtecResample =
-    showChrome && !showLocal
-      ? 10
-      : rangeHours >= 72
-        ? 30
-        : rangeHours >= 24
-          ? Math.max(loadProfile.vtecResampleMinutes, 10)
-          : loadProfile.vtecResampleMinutes;
-  const readingsHours = 0.5;
-  const readingsResample = 2;
   const [now, setNow] = useState(0);
-  const [vtecRefreshFailed, setVtecRefreshFailed] = useState(false);
   const [openPanel, setOpenPanel] = useState<string | null>(null);
 
   useEffect(() => {
@@ -331,7 +311,6 @@ export default function CauseEffectTimelineStack({
       inFlight = true;
       failures = 0;
       feedCount = 0;
-      if (showLocal && !cancelled) setVtecLoading(true);
       // Resolve each feed independently so Zimbabwe VTEC / GNSS panels paint
       // as soon as their JSON arrives instead of waiting on the slowest feed.
       const tasks: Promise<void>[] = [];
@@ -361,66 +340,6 @@ export default function CauseEffectTimelineStack({
             .then(() => undefined),
         );
       }
-      if (fetchVtec) {
-        feedCount += 1;
-        if (!cancelled) setVtecLoading(true);
-        tasks.push(
-          (async () => {
-            let painted = false;
-            let readingsFailed = false;
-            const chartHasPoints = (v: LiveStationVtecSeries[] | undefined) =>
-              Array.isArray(v) && v.some((station) => station.points?.length);
-            try {
-              const readings = await getLiveVtecByStation(readingsHours, readingsResample, 45_000);
-              if (cancelled) return;
-              if (chartHasPoints(readings)) {
-                setVtec(readings);
-                setVtecRefreshFailed(false);
-                markPainted();
-                painted = true;
-              }
-            } catch {
-              readingsFailed = true;
-            } finally {
-              if (!cancelled) setVtecLoading(false);
-            }
-            // The chart window waits until the short readings query has settled.
-            // A failed chart request must not wipe readings that already arrived,
-            // and a chart that does arrive clears the feed failure.
-            if (cancelled || !showLocal || vtecHours <= readingsHours) {
-              if (!cancelled && readingsFailed && !painted) {
-                failures += 1;
-                setVtecRefreshFailed(true);
-              }
-              return;
-            }
-            const chartTimeout = vtecHours >= 6 ? 90_000 : 45_000;
-            const loadChartWindow = () =>
-              getLiveVtecByStation(vtecHours, vtecResample, chartTimeout).then((v) => {
-                if (chartHasPoints(v)) return v;
-                return getLiveVtecByStation(vtecHours, vtecResample, chartTimeout);
-              });
-            let chartFailed = false;
-            try {
-              const chart = await loadChartWindow().catch(() => loadChartWindow());
-              if (cancelled) return;
-              if (chartHasPoints(chart)) {
-                setVtec(chart);
-                setVtecRefreshFailed(false);
-                return;
-              }
-            } catch {
-              chartFailed = true;
-            }
-            if (!cancelled && readingsFailed && chartFailed && !painted) {
-              failures += 1;
-              setVtecRefreshFailed(true);
-            }
-          })(),
-        );
-      } else if (!cancelled) {
-        setVtecLoading(false);
-      }
       await Promise.allSettled(tasks);
       inFlight = false;
       if (cancelled) return;
@@ -436,7 +355,7 @@ export default function CauseEffectTimelineStack({
     const poll = window.setInterval(() => { void refresh(); }, 60_000);
     const clock = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => { cancelled = true; window.clearInterval(poll); window.clearInterval(clock); };
-  }, [rangeHours, showDrivers, showLocal, fetchVtec, showChrome, vtecHours, vtecResample]);
+  }, [showDrivers, showLocal]);
 
   const syncProps = {
     syncHoverMs,
@@ -631,7 +550,7 @@ export default function CauseEffectTimelineStack({
           : "Shared UTC window and synchronized crosshair. Compare observations and propagation delays; alignment alone does not establish cause and effect. Local TEC uses northern / central / southern hourly means from measured GOPI code TEC.";
 
   const hasDriverData = Boolean(helio || timelines);
-  const hasLocalData = Boolean(timelines || vtec.length > 0);
+  const hasLocalData = Boolean(timelines);
   const showTimelineBody =
     showTimelineSection && (
       (showDrivers && (hasDriverData || !loading)) ||
@@ -685,7 +604,7 @@ export default function CauseEffectTimelineStack({
       />
       <p className="sw-supporting-text">{bannerSupport}</p>
 
-      {loading && !helio && !timelines && vtec.length === 0 && (
+      {loading && !helio && !timelines && (
         <div className="banner banner-info">Loading synchronized timelines…</div>
       )}
       {error && <div className="banner banner-warn">{error}</div>}
