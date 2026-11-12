@@ -15,18 +15,7 @@ const SATELLITE_URL =
 const EMPTY_GRID: Array<Array<number | null>> = [];
 /** Shared Esri XYZ sources so all TEC panels reuse one tile cache / in-flight loads. */
 const sharedTileSources = new Map<string, InstanceType<Awaited<ReturnType<typeof loadOpenLayers>>["XYZ"]>>();
-/** Serialize OpenLayers Map construction so four panels do not contend on first paint. */
-let mapInitChain: Promise<void> = Promise.resolve();
 let lastCompletedMaps: TecGradientMapsResponse | null = null;
-
-function enqueueMapInit(task: () => Promise<void>): Promise<void> {
-  const next = mapInitChain.then(task, task);
-  mapInitChain = next.then(
-    () => undefined,
-    () => undefined,
-  );
-  return next;
-}
 
 /** Instant empty-state outline — no Esri tiles, no OpenLayers. */
 function ZimbabweOutlinePlaceholder() {
@@ -220,18 +209,21 @@ export function GradientHybridMap({
     let map: { setTarget: (target?: HTMLElement) => void; dispose: () => void } | null = null;
     let resizeObserver: ResizeObserver | null = null;
 
-    void enqueueMapInit(async () => {
+    void (async () => {
       const ol = await loadOpenLayers();
       if (disposed || !hostRef.current) return;
       const { Map, View, TileLayer, XYZ, ImageLayer, ImageCanvas, fromLonLat } = ol;
       const tileSource = (url: string, attributions: string) => {
         let source = sharedTileSources.get(url);
         if (!source) {
-          // One satellite layer only (no labels/roads) — cuts tile requests ~3× vs hybrid.
+          // Zoom 6 already covers Zimbabwe. A closer view stretches these tiles
+          // instead of downloading a second, denser set. Roads and place-name
+          // tiles are omitted; the red outline carries the boundary.
           source = new XYZ({
             url,
             attributions,
-            transition: 0,
+            maxZoom: 6,
+            cacheSize: 128,
           });
           sharedTileSources.set(url, source);
         }
@@ -354,36 +346,42 @@ export function GradientHybridMap({
       const landLats = ZIMBABWE_LAND.map(([, lat]) => lat);
       const southWest = project(Math.min(...landLons), Math.min(...landLats));
       const northEast = project(Math.max(...landLons), Math.max(...landLats));
+      const view = new View({
+        center: project(
+          (Math.min(...landLons) + Math.max(...landLons)) / 2,
+          (Math.min(...landLats) + Math.max(...landLats)) / 2,
+        ),
+        zoom: 6,
+        maxZoom: 6,
+        minZoom: 5,
+      });
       const created = new Map({
         // Cap at 1 — four retina maps were downloading 4–9× the tile pixels needed.
         pixelRatio: 1,
-        target: hostRef.current,
         layers: [
           new TileLayer({
             source: tileSource(SATELLITE_URL, "Esri"),
-            preload: 1,
-            cacheSize: 512,
+            preload: 0,
+            transition: 0,
           }),
           overlay,
         ],
-        view: new View({
-          center: project(
-            (Math.min(...landLons) + Math.max(...landLons)) / 2,
-            (Math.min(...landLats) + Math.max(...landLats)) / 2,
-          ),
-          zoom: 6,
-          maxZoom: 8,
-          minZoom: 5,
-        }),
+        view,
       });
       const fitToZimbabwe = () => {
-        created.updateSize();
-        created.getView().fit([southWest[0], southWest[1], northEast[0], northEast[1]], {
+        const frame = hostRef.current;
+        const width = frame?.clientWidth || 640;
+        const height = frame?.clientHeight || 420;
+        if (created.getTarget()) created.updateSize();
+        view.fit([southWest[0], southWest[1], northEast[0], northEast[1]], {
           padding: [24, 88, 24, 24],
-          maxZoom: 7.2,
+          maxZoom: 6,
+          size: [width, height],
         });
       };
+      // Fit before the map is attached so the first request is the final zoom.
       fitToZimbabwe();
+      created.setTarget(hostRef.current);
       if (disposed) {
         created.setTarget(undefined);
         created.dispose();

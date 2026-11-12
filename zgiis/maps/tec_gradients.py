@@ -483,22 +483,30 @@ def _query_rows(now: datetime, *, since: datetime | None = None) -> list[tuple]:
 
 
 def _place(rows: list[tuple]) -> list[tuple[datetime, float, float, float]] | None:
-    from zgiis.space_weather.iono_response_figures import _place_rows
+    from zgiis.space_weather.iono_response_figures import _place_rows, wait_for_broadcast_ephemeris
 
-    grouped: dict[Any, list[tuple]] = {}
-    for stamp, station, prn, tec, elev in rows:
-        grouped.setdefault(stamp.date(), []).append((stamp, station, prn, tec, elev))
-    placed: list[tuple[datetime, float, float, float]] = []
-    missing = False
-    for day, day_rows in grouped.items():
-        hours = {int(item[0].hour) for item in day_rows}
-        result = _place_rows(day_rows, day, hours)
-        if result is None:
-            missing = True
-            continue
-        placed.extend(item for item in result if _screen(item[1], item[2], item[3]))
-    if not placed and missing:
-        return None
+    def once() -> list[tuple[datetime, float, float, float]] | None:
+        grouped: dict[Any, list[tuple]] = {}
+        for stamp, station, prn, tec, elev in rows:
+            grouped.setdefault(stamp.date(), []).append((stamp, station, prn, tec, elev))
+        placed: list[tuple[datetime, float, float, float]] = []
+        missing = False
+        for day, day_rows in grouped.items():
+            hours = {int(item[0].hour) for item in day_rows}
+            result = _place_rows(day_rows, day, hours)
+            if result is None:
+                missing = True
+                continue
+            placed.extend(item for item in result if _screen(item[1], item[2], item[3]))
+        if not placed and missing:
+            return None
+        return placed
+
+    placed = once()
+    if placed is None and rows:
+        days = {stamp.date() for stamp, *_rest in rows}
+        wait_for_broadcast_ephemeris(days)
+        placed = once()
     return placed
 
 
@@ -896,10 +904,15 @@ def _compute_iono_vtec_pair(moment: datetime) -> dict[str, Any]:
 
     placed = _place(rows) if rows else []
     if placed is None and not saved:
+        built = empty_fields()
+        note = "Waiting for GPS broadcast ephemeris before placing pierce points."
+        for field in built.values():
+            if isinstance(field, dict):
+                field["message"] = note
         return {
             "available": False,
-            "message": "Waiting for GPS broadcast ephemeris before placing pierce points.",
-            **empty_fields(),
+            "message": note,
+            **built,
         }
     points = placed or []
     built: dict[str, Any] = {}

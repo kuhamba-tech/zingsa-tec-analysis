@@ -569,6 +569,22 @@ def _nav_frame(day: date):
     return frame
 
 
+def wait_for_broadcast_ephemeris(days: set[date], timeout: float = 11.0) -> None:
+    """Wait for downloads already started by ``_nav_frame``.
+
+    A map request has to place pierce points before it answers. Leaving the
+    download in the background returns an empty map, and on a serverless
+    instance that background work is frozen when the response is sent.
+    """
+    with _state_lock:
+        jobs = [job for day in days if (job := _nav_jobs.get(day)) is not None]
+    for job in jobs:
+        try:
+            job.result(timeout=timeout)
+        except Exception:
+            log.warning("Broadcast ephemeris was not ready for a TEC map", exc_info=True)
+
+
 def _hourly_nav(frame, day: date) -> list[dict[int, dict]]:
     from zgiis.live.broadcast_ephemeris import _latest_per_sv
 
