@@ -17,6 +17,8 @@ const TRANSPORT_URL =
   "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}";
 
 const EMPTY_GRID: Array<Array<number | null>> = [];
+// All TEC panels use the same imagery: reuse decoded tiles and in-flight loads.
+const sharedTileSources = new Map<string, InstanceType<Awaited<ReturnType<typeof loadOpenLayers>>["XYZ"]>>();
 let lastCompletedMaps: TecGradientMapsResponse | null = null;
 const recent = (maps: TecGradientMapsResponse) => {
   const age = Date.now() - Date.parse(maps.window_end);
@@ -150,6 +152,14 @@ export function GradientHybridMap({
       const ol = await loadOpenLayers();
       if (disposed || !hostRef.current) return;
       const { Map, View, TileLayer, XYZ, ImageLayer, ImageCanvas, fromLonLat } = ol;
+      const tileSource = (url: string, attributions: string) => {
+        let source = sharedTileSources.get(url);
+        if (!source) {
+          source = new XYZ({ url, attributions });
+          sharedTileSources.set(url, source);
+        }
+        return source;
+      };
       const project = (lon: number, lat: number): [number, number] => {
         const projected = fromLonLat([lon, lat]);
         return [projected[0] ?? 0, projected[1] ?? 0];
@@ -272,10 +282,10 @@ export function GradientHybridMap({
         pixelRatio: Math.min(window.devicePixelRatio || 1, 1.5),
         target: hostRef.current,
         layers: [
-          new TileLayer({ source: new XYZ({ url: SATELLITE_URL, attributions: "Esri" }) }),
+          new TileLayer({ source: tileSource(SATELLITE_URL, "Esri") }),
           overlay,
-          new TileLayer({ source: new XYZ({ url: TRANSPORT_URL, attributions: "Esri Reference" }) }),
-          new TileLayer({ source: new XYZ({ url: LABEL_URL, attributions: "Esri Reference" }) }),
+          new TileLayer({ source: tileSource(TRANSPORT_URL, "Esri Reference") }),
+          new TileLayer({ source: tileSource(LABEL_URL, "Esri Reference") }),
         ],
         view: new View({
           center: project(

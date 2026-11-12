@@ -61,4 +61,20 @@
   font-size: 1.35rem;
   font-weight: 750;
   line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 520px) {
+  .title {
+    font-size: 1.02rem;
+  }
+
+  .cell {
+    min-height: 3.6rem;
+    padding: 0.6rem 0.55rem 0.55rem;
+  }
+
+  .value {
+    font-size: 1.05rem;
+  }
 }

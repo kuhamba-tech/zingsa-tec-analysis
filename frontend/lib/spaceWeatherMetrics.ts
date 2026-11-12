@@ -325,11 +325,11 @@ export function noaaGScaleFromKp(kp: number | null | undefined, loading = false)
  * −100 nT is Intense, and −200 nT is Severe.
  */
 export const DST_RING_SCALE = [
-  { id: "quiet", range: "> −30", label: "Quiet", status: "Quiet / Weak Disturbance", color: "#22c55e" },
-  { id: "disturbed", range: "−30 to −50", label: "Disturbed", status: "Disturbed", color: "#eab308" },
-  { id: "moderate", range: "−50 to −100", label: "Moderate", status: "Moderate", color: "#f97316" },
-  { id: "intense", range: "−100 to −200", label: "Intense", status: "Intense", color: "#ef4444" },
-  { id: "severe", range: "≤ −200", label: "Severe", status: "Severe", color: "#fb7185" },
+  { id: "quiet", range: "> −30", short: ">−30", label: "Quiet", status: "Quiet / Weak Disturbance", color: "#22c55e" },
+  { id: "disturbed", range: "−30 to −50", short: "−30–−50", label: "Disturbed", status: "Disturbed", color: "#eab308" },
+  { id: "moderate", range: "−50 to −100", short: "−50–−100", label: "Moderate", status: "Moderate", color: "#f97316" },
+  { id: "intense", range: "−100 to −200", short: "−100–−200", label: "Intense", status: "Intense", color: "#ef4444" },
+  { id: "severe", range: "≤ −200", short: "≤−200", label: "Severe", status: "Severe", color: "#fb7185" },
 ] as const;
 
 export type DstRingScaleId = (typeof DST_RING_SCALE)[number]["id"];

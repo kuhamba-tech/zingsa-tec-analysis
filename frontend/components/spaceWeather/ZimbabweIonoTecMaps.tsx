@@ -127,20 +127,30 @@ export default function ZimbabweIonoTecMaps({
 
   useEffect(() => {
     let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const cached = peekIonoVtecPair();
     if (cached) setPair(cached);
     setFailed(false);
-    getIonoVtecPair(retry > 0)
-      .then((payload) => {
+    async function refresh(force: boolean) {
+      try {
+        const payload = await getIonoVtecPair(force);
         if (cancelled) return;
         setPair(payload);
-      })
-      .catch(() => {
+        setFailed(false);
+        // Retry incomplete windows sooner; keep checking live observations.
+        const complete = [payload.night, payload.morning, payload.noon, payload.current]
+          .every((field) => field?.available);
+        timer = setTimeout(() => void refresh(true), complete ? 90_000 : 30_000);
+      } catch {
         if (cancelled) return;
         setFailed(true);
-      });
+        timer = setTimeout(() => void refresh(true), 30_000);
+      }
+    }
+    void refresh(retry > 0);
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
   }, [retry]);
 

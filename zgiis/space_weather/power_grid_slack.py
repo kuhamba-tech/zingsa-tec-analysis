@@ -151,6 +151,11 @@ _STATUS = {
     "RED": "Severe Geomagnetic Alert",
 }
 
+_NEGATIVE_BZ_LINE = (
+    "Negative Bz means the interplanetary magnetic field points southward, "
+    "increasing the chance that solar-wind energy can enter Earth's magnetosphere."
+)
+
 
 def format_power_grid_advisory(readings: dict[str, Any], *, issued_at: datetime | None = None) -> str:
     """Build the ZESA advisory. Raises ValueError when no live reading is available."""
@@ -203,6 +208,8 @@ def format_power_grid_advisory(readings: dict[str, Any], *, issued_at: datetime 
         "",
         "Live readings:",
         *rows,
+        "",
+        _NEGATIVE_BZ_LINE,
     ]
     if source_bits:
         lines.extend(["", " ".join(source_bits) + "."])
@@ -490,6 +497,7 @@ def format_power_grid_quarter(readings: dict[str, Any], *, issued_at: datetime |
         lines.append(f"📉 Dst Index: {_signed(dst, 0)} nT (Storm-context line: \u2264 \u2212{abs(DST_STORM_NT):.0f} nT)")
     if density is not None:
         lines.append(f"💨 Solar Wind Density: {_num(density, 2)} cm⁻³ (Elevated line: \u2265 {DENSITY_ELEVATED_CM3:.0f} cm⁻³)")
+    lines.extend(["", _NEGATIVE_BZ_LINE])
     if readings.get("solar_time") or readings.get("index_time"):
         lines.extend(["", f"Sources: NOAA SWPC RTSW {readings.get('solar_time') or 'unavailable'} UTC. Live Space Weather {readings.get('index_time') or 'unavailable'} UTC."])
     lines.extend(
@@ -692,7 +700,7 @@ def format_solar_forecast(
     if dst is not None:
         storm = "No geomagnetic storm indicated" if dst > DST_STORM_NT else "Storm range"
         lines.append(f"- Dst Index: {_signed(dst, 0)} nT — {storm}")
-    lines.extend(["", "🔮 SPACE WEATHER FORECAST", ""])
+    lines.extend(["", _NEGATIVE_BZ_LINE, "", "🔮 SPACE WEATHER FORECAST", ""])
     window = str(brief.get("expected_kp_window") or "")
     expected = _float_or_none(brief.get("expected_kp"))
     if expected is not None and window and not _window_is_past(window, issued_cat):
@@ -958,6 +966,7 @@ def format_power_grid_threshold_alert(
         lines.append(f"📉 Dst Index: *{_signed(dst, 0)} nT*{_mark('dst_storm' in ids or 'dst_strong' in ids)}")
     if density is not None:
         lines.append(f"💨 Solar Wind Density: *{_num(density, 2)} cm⁻³*{_mark('solar_wind_density' in ids)}")
+    lines.extend(["", _NEGATIVE_BZ_LINE])
     sources = ["NOAA SWPC RTSW"]
     if readings.get("index_time"):
         sources.append("ZINGSA Live Space Weather")

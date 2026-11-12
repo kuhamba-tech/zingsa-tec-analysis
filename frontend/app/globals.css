@@ -5020,6 +5020,9 @@ a.home-map-layer-btn {
     padding: 0.75rem 0.7rem;
     border-radius: 10px;
   }
+  .sw-metric-explain-body {
+    overflow-wrap: break-word;
+  }
   .tec-gradient-maps p { font-size: 0.78rem; }
   .tec-gradient-hybrid { height: min(300px, 72vw); }
   .tec-gradient-hybrid .ol-zoom button {
@@ -8662,6 +8665,7 @@ a.home-map-layer-btn {
 @media (max-width: 768px) {
   .space-weather-page.page-stack {
     gap: 0.75rem;
+    padding-bottom: 4.75rem;
   }
 
   .space-weather-page .dashboard-header {
@@ -8779,7 +8783,11 @@ a.home-map-layer-btn {
   .space-weather-page .sw-metric-card.sw-metric-card-summary,
   .space-weather-page .sw-metric-card.sw-metric-card-flare,
   .space-weather-page .sw-metric-card.sw-metric-card-wind,
-  .space-weather-page .sw-metric-card.sw-metric-card-events {
+  .space-weather-page .sw-metric-card.sw-metric-card-events,
+  .space-weather-page .sw-metric-card.sw-metric-card-bz,
+  .space-weather-page .sw-metric-card.sw-metric-card-dst,
+  .space-weather-page .sw-metric-card.sw-metric-card-gstorm,
+  .space-weather-page .sw-metric-card.sw-metric-card-tec {
     grid-column: 1 / -1;
   }
 
@@ -8794,6 +8802,32 @@ a.home-map-layer-btn {
     line-height: 1.35;
   }
 
+  .space-weather-page .sw-metric-bz-scale .sw-metric-flare-scale-letter {
+    font-size: 0.68rem;
+    letter-spacing: 0;
+    white-space: normal;
+  }
+
+  .space-weather-page .sw-metric-bz-scale .sw-metric-flare-scale-desc {
+    font-size: 0.62rem;
+    line-height: 1.25;
+    min-height: 0;
+  }
+
+  .space-weather-page .sw-metric-chip {
+    font-size: 0.72rem;
+    line-height: 1.35;
+  }
+
+  .space-weather-page .sw-metric-chip-swatch {
+    width: 0.55rem;
+    height: 0.55rem;
+  }
+
+  .space-weather-page .sw-metric-chip-caption {
+    font-size: 0.68rem;
+  }
+
   .cors-map-shell {
     height: min(380px, 48vh) !important;
     min-height: 280px;
@@ -8802,6 +8836,16 @@ a.home-map-layer-btn {
   .home-page .sw-deferred-block,
   .sw-deferred-block {
     contain-intrinsic-size: 220px;
+  }
+}
+
+@media (max-width: 360px) {
+  .space-weather-page .sw-metric-bz-scale .sw-metric-flare-scale-letter {
+    font-size: 0.58rem;
+  }
+
+  .space-weather-page .sw-metric-bz-scale .sw-metric-flare-scale-desc {
+    font-size: 0.54rem;
   }
 }
 

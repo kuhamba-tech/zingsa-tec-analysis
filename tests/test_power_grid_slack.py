@@ -40,6 +40,7 @@ def test_yellow_watch_uses_live_speed_not_a_sample():
     assert "13:00 CAT" in text
     assert "every 15 minutes" in text
     assert "06:00, 12:00, 18:00 and 00:00 CAT" in text
+    assert "Negative Bz means the interplanetary magnetic field points southward" in text
 
 
 def test_quiet_readings_are_green():
@@ -91,6 +92,7 @@ def test_threshold_alert_requires_a_sustained_crossing():
     assert "580" not in text
     assert "hypothetical" not in text.lower()
     assert "13:15" in text
+    assert "Negative Bz means the interplanetary magnetic field points southward" in text
 
 
 def test_quarter_hours_alternate_and_a_past_arrival_is_not_a_new_forecast():
@@ -120,6 +122,7 @@ def test_quarter_hours_alternate_and_a_past_arrival_is_not_a_new_forecast():
     assert "511 km/s" in text
     assert "31 October" not in text
     assert "arrival date has passed" in text
+    assert "Negative Bz means the interplanetary magnetic field points southward" in text
     assert "illustrative" not in text.lower()
 
 
@@ -133,6 +136,7 @@ def test_quarter_advisory_uses_live_tec_against_the_night_band():
     assert "Observed VTEC: 18.4 TECU" in text
     assert "1–12 TECU" in text
     assert "TEC status: Elevated" in text
+    assert "Negative Bz means the interplanetary magnetic field points southward" in text
     assert "Nighttime / post-sunset" in text
     assert "[Live ZINGSA TEC]" not in text
     missing = format_power_grid_quarter(

@@ -171,7 +171,7 @@ function DstScaleLegend({ activeCode }: { activeCode?: string | null }) {
             <div className="sw-metric-flare-scale-letter" style={{ color: band.color }}>
               {band.label}
             </div>
-            <div className="sw-metric-flare-scale-desc">{band.range}</div>
+            <div className="sw-metric-flare-scale-desc">{band.short}</div>
           </div>
         );
       })}
@@ -202,7 +202,7 @@ function BzScaleLegend({ activeCode }: { activeCode?: string | null }) {
             <div className="sw-metric-flare-scale-letter" style={{ color: band.color }}>
               {band.short}
             </div>
-            <div className="sw-metric-flare-scale-desc">{band.label}</div>
+            <div className="sw-metric-flare-scale-desc">{band.label.replaceAll("/", "/\u200b")}</div>
           </div>
         );
       })}
@@ -359,13 +359,14 @@ function MetricCardButton({
   const isGStorm = Boolean(showGScale);
   const isTecIono = Boolean(showTecScale);
   const isBz = Boolean(showBzScale);
+  const isDst = Boolean(showDstScale);
   const isEventCount =
     metricKey === "donki_flares" || metricKey === "donki_cmes" || metricKey === "donki_storms";
 
   return (
     <button
       type="button"
-      className={`sw-metric-card${isSummary ? " sw-metric-card-summary" : ""}${isWindList ? " sw-metric-card-wind" : ""}${isFlare ? " sw-metric-card-flare" : ""}${isGStorm ? " sw-metric-card-gstorm" : ""}${isTecIono ? " sw-metric-card-tec" : ""}${isBz ? " sw-metric-card-bz" : ""}${isEventCount ? " sw-metric-card-events" : ""}${selected ? " sw-metric-card-selected" : ""}${disabled ? " is-loading" : ""}`}
+      className={`sw-metric-card${isSummary ? " sw-metric-card-summary" : ""}${isWindList ? " sw-metric-card-wind" : ""}${isFlare ? " sw-metric-card-flare" : ""}${isGStorm ? " sw-metric-card-gstorm" : ""}${isTecIono ? " sw-metric-card-tec" : ""}${isBz ? " sw-metric-card-bz" : ""}${isDst ? " sw-metric-card-dst" : ""}${isEventCount ? " sw-metric-card-events" : ""}${selected ? " sw-metric-card-selected" : ""}${disabled ? " is-loading" : ""}`}
       onClick={onClick}
       disabled={disabled}
       aria-pressed={selected}
@@ -523,6 +524,14 @@ function ExplanationPanel({
           ? zimbabweIonoMeasuredText(networkVtec, sw?.updated_utc ?? null, ionoPair, ionoFailed)
           : METRIC_EXPLANATIONS[metricKey]}
       </p>
+      {metricKey === "solar_flare" && (
+        <>
+          <div className="sw-metric-explain-heading">How long does solar activity take to reach Earth?</div>
+          <p className="sw-metric-explain-body">
+            Flare radiation arrives in about eight minutes, energetic particles in minutes to hours, and CMEs in roughly one to three days.
+          </p>
+        </>
+      )}
       {(metricKey === "geomagnetic_storm" ||
         metricKey === "dst" ||
         metricKey === "solar_wind" ||

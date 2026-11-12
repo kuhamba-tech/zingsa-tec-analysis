@@ -1,8 +1,12 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
+import { getHeliosphericMonitor } from "@/lib/api";
+import { analyzeImfPanel } from "@/lib/heliosphericChartAnalysis";
+import { peekHeliosphericMonitor } from "@/lib/heliosphericStore";
 import { buildImfBzWatch, BZ_BANDS, imfBzGuideParagraphs } from "@/lib/imfBzWatch";
-import type { SolarActivityFull, TimelinePoint } from "@/lib/types";
+import type { HeliosphericMonitorResponse, SolarActivityFull, TimelinePoint } from "@/lib/types";
 import styles from "./FlareClassMonitor.module.css";
 
 function signed(value: number): string {
@@ -18,6 +22,29 @@ export default function ImfBzClassMonitor({
 }) {
   const watch = useMemo(() => buildImfBzWatch(solar, points), [solar, points]);
   const guide = useMemo(() => imfBzGuideParagraphs(watch), [watch]);
+  const [monitor, setMonitor] = useState<HeliosphericMonitorResponse | null>(null);
+  const [monitorReady, setMonitorReady] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const cached = peekHeliosphericMonitor();
+    if (cached) setMonitor(cached);
+    getHeliosphericMonitor(false, false)
+      .then((payload) => {
+        if (!cancelled) setMonitor(payload);
+      })
+      .catch(() => {
+        /* Keep the cached L1 series when the refresh fails. */
+      })
+      .finally(() => {
+        if (!cancelled) setMonitorReady(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const imfReading = useMemo(() => (monitor ? analyzeImfPanel(monitor) : null), [monitor]);
 
   return (
     <section className={`card ${styles.panel}`} aria-label="IMF Bz class monitor">
@@ -35,6 +62,19 @@ export default function ImfBzClassMonitor({
         auroras. <strong style={{ color: "#22c55e" }}>Northward (positive)</strong> Bz means the
         shield holds strong.
       </p>
+      {imfReading ? (
+        <ChartAnalysisBox
+          block={imfReading}
+          title="What does this graph mean?"
+          afterLeadTitle="Scientific interpretation"
+        />
+      ) : (
+        <p className={styles.body}>
+          {monitorReady
+            ? "The L1 magnetic-field reading is unavailable, so the graph interpretation is not shown."
+            : "Updating the L1 magnetic-field reading…"}
+        </p>
+      )}
       <div className={styles.scale} role="list" aria-label="IMF Bz classes in this series">
         {BZ_BANDS.map((band) => {
           const active = watch.band === band.id;
