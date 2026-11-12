@@ -30,18 +30,28 @@ export async function GET(request: Request) {
       redirect: "manual",
     });
     const body = await response.json().catch(() => null);
+    const delivered = response.ok && body?.ok === true && body?.detail === "slack sent";
+    const outcome = {
+      delivered,
+      backendStatus: response.status,
+      detail: typeof body?.detail === "string" ? body.detail : "No delivery confirmation from backend",
+      issuedCat: body?.issued_cat ?? null,
+    };
+    if (delivered) console.info("15-minute Slack delivery", outcome);
+    else console.error("15-minute Slack delivery failed", outcome);
     return NextResponse.json(
       {
         ok: response.ok && body?.ok === true,
-        sent: body?.ok === true,
+        sent: delivered,
         status: response.status,
         level: body?.level ?? null,
         detail: body?.detail ?? null,
         issued_cat: body?.issued_cat ?? null,
       },
-      { status: response.ok ? 200 : 502 },
+      { status: delivered ? 200 : 502 },
     );
   } catch (error) {
+    console.error("15-minute Slack request failed", { errorType: error instanceof Error ? error.name : "UnknownError" });
     return NextResponse.json(
       {
         ok: false,
