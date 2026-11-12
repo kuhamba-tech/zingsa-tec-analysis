@@ -127,6 +127,8 @@ class SolarBriefResponse(BaseModel):
     region_count: int | None = None
     earth_facing_region_count: int | None = None
     sunspot_number: int | None = None
+    visible_spot_count: int | None = None
+    latest_flare_class: str | None = None
     c_percent: int | None = None
     m_percent: int | None = None
     x_percent: int | None = None

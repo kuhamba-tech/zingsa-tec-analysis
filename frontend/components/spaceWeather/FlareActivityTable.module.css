@@ -1,0 +1,64 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.title {
+  margin: 0;
+  color: #f5d90a;
+  font-size: 1.15rem;
+  font-weight: 750;
+  letter-spacing: 0.01em;
+}
+
+.section {
+  margin: 0;
+  color: #f5d90a;
+  font-size: 0.78rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.55rem;
+}
+
+.cell {
+  position: relative;
+  min-height: 4.4rem;
+  padding: 0.7rem 0.85rem 0.65rem;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 4px;
+  background: rgba(2, 6, 23, 0.35);
+}
+
+.dot {
+  position: absolute;
+  top: 0.55rem;
+  right: 0.6rem;
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 50%;
+  background: #22d3ee;
+  box-shadow: 0 0 6px #22d3ee;
+}
+
+.label {
+  color: #cbd5e1;
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.value {
+  margin-top: 0.35rem;
+  color: #f5d90a;
+  font-size: 1.35rem;
+  font-weight: 750;
+  line-height: 1.15;
+}

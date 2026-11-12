@@ -401,6 +401,8 @@ export type SolarBriefResponse = {
   region_count: number | null;
   earth_facing_region_count: number | null;
   sunspot_number: number | null;
+  visible_spot_count: number | null;
+  latest_flare_class: string | null;
   c_percent: number | null;
   m_percent: number | null;
   x_percent: number | null;

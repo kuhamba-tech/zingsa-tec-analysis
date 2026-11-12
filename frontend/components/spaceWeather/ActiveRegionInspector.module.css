@@ -1,0 +1,89 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.title {
+  margin: 0;
+  color: #f5d90a;
+  font-size: 1.15rem;
+  font-weight: 750;
+}
+
+.section {
+  margin: 0.15rem 0 0;
+  color: #f5d90a;
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.complexity {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.complexCell {
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 4px;
+  padding: 0.55rem 0.35rem 0.45rem;
+  text-align: center;
+  background: rgba(2, 6, 23, 0.35);
+}
+
+.complexLabel {
+  color: #cbd5e1;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.complexValue {
+  margin-top: 0.2rem;
+  font-size: 1.45rem;
+  font-weight: 750;
+  line-height: 1;
+}
+
+.regions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.region {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.7rem;
+  border: 1px solid rgba(34, 211, 238, 0.45);
+  border-radius: 4px;
+  background: rgba(2, 6, 23, 0.55);
+  color: #67e8f9;
+  font-size: 0.82rem;
+  font-weight: 750;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+}
+
+.regionOn {
+  box-shadow: inset 0 0 0 1px #22d3ee;
+  background: rgba(34, 211, 238, 0.12);
+}
+
+.code {
+  color: #e2e8f0;
+  font-weight: 650;
+}
+
+.note,
+.detail {
+  margin: 0;
+  color: #e2e8f0;
+  font-size: 0.84rem;
+  line-height: 1.45;
+}

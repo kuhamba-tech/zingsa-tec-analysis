@@ -72,6 +72,22 @@ export interface MetricCardSpec {
   showTecScale?: boolean;
   /** Active TEC-scale code to emphasize (e.g. "D"). */
   activeTecCode?: string | null;
+  /** Show the north–south Bz scale under the IMF Bz card. */
+  showBzScale?: boolean;
+  /** Active IMF Bz scale id (shield, quiet, mild, moderate, severe). */
+  activeBzCode?: string | null;
+  /** Show the solar-wind speed and Bt scales on the Solar Wind card. */
+  showWindScale?: boolean;
+  /** Active solar-wind speed band (normal, elevated, high, extreme). */
+  activeWindSpeedCode?: string | null;
+  /** Active IMF Bt band (quiet, moderate, elevated, severe). */
+  activeBtCode?: string | null;
+  /** Active solar-wind density band (low, normal, elevated, high). */
+  activeDensityCode?: string | null;
+  /** Show the ZINGSA ring-current scale under the Dst / SYM-H card. */
+  showDstScale?: boolean;
+  /** Active Dst band (quiet, disturbed, moderate, intense, severe). */
+  activeDstCode?: string | null;
 }
 
 export interface MetricCardOptions {
@@ -303,12 +319,38 @@ export function noaaGScaleFromKp(kp: number | null | undefined, loading = false)
   };
 }
 
+/**
+ * Illustrative ZINGSA ring-current scale for the displayed Dst or SYM-H value.
+ * Quiet is above −30 nT. Exactly −30 nT is Disturbed, −50 nT is Moderate,
+ * −100 nT is Intense, and −200 nT is Severe.
+ */
+export const DST_RING_SCALE = [
+  { id: "quiet", range: "> −30", label: "Quiet", status: "Quiet / Weak Disturbance", color: "#22c55e" },
+  { id: "disturbed", range: "−30 to −50", label: "Disturbed", status: "Disturbed", color: "#eab308" },
+  { id: "moderate", range: "−50 to −100", label: "Moderate", status: "Moderate", color: "#f97316" },
+  { id: "intense", range: "−100 to −200", label: "Intense", status: "Intense", color: "#ef4444" },
+  { id: "severe", range: "≤ −200", label: "Severe", status: "Severe", color: "#fb7185" },
+] as const;
+
+export type DstRingScaleId = (typeof DST_RING_SCALE)[number]["id"];
+
+export function dstRingScaleId(dst: number | null | undefined): DstRingScaleId | null {
+  if (dst == null || !Number.isFinite(dst)) return null;
+  if (dst > -30) return "quiet";
+  if (dst > -50) return "disturbed";
+  if (dst > -100) return "moderate";
+  if (dst > -200) return "intense";
+  return "severe";
+}
+
+export function dstRingStatus(dst: number | null | undefined): string | null {
+  const id = dstRingScaleId(dst);
+  return DST_RING_SCALE.find((band) => band.id === id)?.status ?? null;
+}
+
 export function dstColor(dst: number | null): string {
-  if (dst === null) return "#ffffff";
-  if (dst < -100) return "#ef4444";
-  if (dst < -50) return "#f97316";
-  if (dst < -20) return "#eab308";
-  return "#00ff88";
+  if (dst === null || !Number.isFinite(dst)) return "#ffffff";
+  return DST_RING_SCALE.find((band) => band.id === dstRingScaleId(dst))?.color ?? "#ffffff";
 }
 
 function apColor(ap: number | null): string {
@@ -320,44 +362,108 @@ function apColor(ap: number | null): string {
   return "#00ff88";
 }
 
+/** Solar-wind bulk speed bands, km/s. Exactly 500 km/s is High. Exactly 700 km/s is High. */
+export const SOLAR_WIND_SPEED_SCALE = [
+  { id: "normal", range: "<400 km/s", short: "<400", label: "Normal", color: "#22c55e" },
+  { id: "elevated", range: "400–500 km/s", short: "400–500", label: "Elevated", color: "#eab308" },
+  { id: "high", range: "500–700 km/s", short: "500–700", label: "High", color: "#f97316" },
+  { id: "extreme", range: ">700 km/s", short: ">700", label: "Extreme", color: "#fb7185" },
+] as const;
+
+export type SolarWindSpeedScaleId = (typeof SOLAR_WIND_SPEED_SCALE)[number]["id"];
+
+export function solarWindSpeedScaleId(speed: number | null | undefined): SolarWindSpeedScaleId | null {
+  if (speed == null || !Number.isFinite(speed) || speed <= 0) return null;
+  if (speed < 400) return "normal";
+  if (speed < 500) return "elevated";
+  if (speed <= 700) return "high";
+  return "extreme";
+}
+
+/** IMF Bt magnitude bands, nT. Exactly 5 nT is Moderate. Exactly 20 nT is Elevated. */
+export const IMF_BT_SCALE = [
+  { id: "quiet", range: "<5 nT", short: "<5", label: "Quiet", color: "#22c55e" },
+  { id: "moderate", range: "5–10 nT", short: "5–10", label: "Moderate", color: "#eab308" },
+  { id: "elevated", range: "10–20 nT", short: "10–20", label: "Elevated", color: "#f97316" },
+  { id: "severe", range: ">20 nT", short: ">20", label: "Strong/Severe", color: "#fb7185" },
+] as const;
+
+export type ImfBtScaleId = (typeof IMF_BT_SCALE)[number]["id"];
+
+export function imfBtScaleId(bt: number | null | undefined): ImfBtScaleId | null {
+  if (bt == null || !Number.isFinite(bt) || bt <= 0) return null;
+  if (bt < 5) return "quiet";
+  if (bt < 10) return "moderate";
+  if (bt <= 20) return "elevated";
+  return "severe";
+}
+
 export function solarWindColor(speed: number | null): string {
-  if (speed === null) return "#ffffff";
-  if (speed > 700) return "#f97316";
-  if (speed > 500) return "#eab308";
-  return "#38bdf8";
+  if (speed === null || !Number.isFinite(speed) || speed <= 0) return "#ffffff";
+  return SOLAR_WIND_SPEED_SCALE.find((band) => band.id === solarWindSpeedScaleId(speed))?.color ?? "#ffffff";
 }
 
 function solarWindInterpretation(speed: number | null): string {
-  if (speed == null) return "Feed unavailable";
-  if (speed < 350) return "Slow";
-  if (speed < 450) return "Typical";
-  if (speed < 550) return "Enhanced";
-  if (speed < 700) return "Fast";
-  return "Very fast";
+  if (speed == null || !Number.isFinite(speed) || speed <= 0) return "Feed unavailable";
+  return SOLAR_WIND_SPEED_SCALE.find((band) => band.id === solarWindSpeedScaleId(speed))?.label ?? "Feed unavailable";
+}
+
+/**
+ * IMF Bz (GSM, nT) shield scale.
+ * Positive Bz holds the magnetosphere. Southward Bz opens it.
+ * −5 nT is the moderate band, the same line the coupling watch uses.
+ * Values above +20 stay on Strong shield. Values below −10 are severe.
+ */
+export const IMF_BZ_SCALE = [
+  { id: "shield", range: "+5 to +20", short: "≥+5", label: "Strong shield", color: "#22c55e" },
+  { id: "quiet", range: "0 to +5", short: "0–+5", label: "Quiet", color: "#4ade80" },
+  { id: "mild", range: "0 to −5", short: "0–−5", label: "Mild opening", color: "#eab308" },
+  { id: "moderate", range: "−5 to −10", short: "−5–−10", label: "Moderate storm risk", color: "#f97316" },
+  { id: "severe", range: "below −10", short: "<−10", label: "Strong/Severe storm", color: "#ef4444" },
+] as const;
+
+export type ImfBzScaleId = (typeof IMF_BZ_SCALE)[number]["id"];
+
+export function imfBzScaleId(bz: number | null | undefined): ImfBzScaleId | null {
+  if (bz == null || !Number.isFinite(bz)) return null;
+  if (bz >= 5) return "shield";
+  if (bz >= 0) return "quiet";
+  if (bz > -5) return "mild";
+  if (bz >= -10) return "moderate";
+  return "severe";
 }
 
 export function imfBzColor(bz: number | null): string {
   if (bz === null) return "#ffffff";
-  if (bz <= -10) return "#ef4444";
-  if (bz < 0) return "#f97316";
-  if (bz < 5) return "#eab308";
-  return "#00ff88";
+  return IMF_BZ_SCALE.find((band) => band.id === imfBzScaleId(bz))?.color ?? "#ffffff";
+}
+
+/** Solar-wind proton density bands, particles per cm³. Exactly 5 is Normal. Exactly 20 is Elevated. */
+export const SOLAR_WIND_DENSITY_SCALE = [
+  { id: "low", range: "<5 p/cm³", short: "<5", label: "Low", color: "#22c55e" },
+  { id: "normal", range: "5–10 p/cm³", short: "5–10", label: "Normal", color: "#eab308" },
+  { id: "elevated", range: "10–20 p/cm³", short: "10–20", label: "Elevated", color: "#f97316" },
+  { id: "high", range: ">20 p/cm³", short: ">20", label: "High/Extreme", color: "#fb7185" },
+] as const;
+
+export type SolarWindDensityScaleId = (typeof SOLAR_WIND_DENSITY_SCALE)[number]["id"];
+
+export function solarWindDensityScaleId(density: number | null | undefined): SolarWindDensityScaleId | null {
+  if (density == null || !Number.isFinite(density) || density < 0) return null;
+  if (density < 5) return "low";
+  if (density < 10) return "normal";
+  if (density <= 20) return "elevated";
+  return "high";
 }
 
 export function solarWindDensityColor(density: number | null): string {
-  if (density === null) return "#94a3b8";
-  if (density >= 20) return "#ef4444";
-  if (density >= 10) return "#f97316";
-  if (density >= 3) return "#38bdf8";
-  return "#22c55e";
+  if (density === null || !Number.isFinite(density) || density < 0) return "#94a3b8";
+  return SOLAR_WIND_DENSITY_SCALE.find((band) => band.id === solarWindDensityScaleId(density))?.color ?? "#94a3b8";
 }
 
 export function imfBtColor(bt: number | null): string {
-  if (bt === null) return "#94a3b8";
-  if (bt >= 15) return "#ef4444";
-  if (bt >= 10) return "#f97316";
-  if (bt >= 5) return "#eab308";
-  return "#38bdf8";
+  if (bt === null || !Number.isFinite(bt) || bt <= 0) return "#94a3b8";
+  return IMF_BT_SCALE.find((band) => band.id === imfBtScaleId(bt))?.color ?? "#94a3b8";
 }
 
 export function s4Color(s4: number | null): string {
@@ -602,6 +708,7 @@ export function buildMetricCards(
           : solarLoading
             ? "Updating…"
             : "Unavailable",
+      valueColor: density != null && Number.isFinite(density) ? solarWindDensityColor(density) : undefined,
     },
     {
       icon: "proton_temp",
@@ -628,6 +735,7 @@ export function buildMetricCards(
           : solarLoading
             ? "Updating…"
             : "Unavailable",
+      valueColor: bt != null && Number.isFinite(bt) ? imfBtColor(bt) : undefined,
     },
   ];
   if (pdyn != null && Number.isFinite(pdyn)) {
@@ -728,6 +836,10 @@ export function buildMetricCards(
       observedAt: formatObservedShort(feeds.solar_wind_plasma?.timestamp) ?? formatObservedShort(sa?.updated) ?? swObserved,
       freshness: wind == null ? (solarLoading || indicesLoading ? "DELAYED" : "UNAVAILABLE") : sa?.solar_wind?.speed != null ? plasmaFresh : indicesFresh,
       detailRows: windDetailRows,
+      showWindScale: true,
+      activeWindSpeedCode: solarWindSpeedScaleId(wind),
+      activeBtCode: imfBtScaleId(bt),
+      activeDensityCode: solarWindDensityScaleId(density),
     },
     {
       key: "imf_bz",
@@ -739,6 +851,8 @@ export function buildMetricCards(
       source: "NOAA SWPC RTSW",
       observedAt: formatObservedShort(feeds.solar_wind_mag?.timestamp) ?? formatObservedShort(sa?.updated),
       freshness: bz == null ? (solarLoading ? "DELAYED" : "UNAVAILABLE") : magFresh,
+      showBzScale: true,
+      activeBzCode: imfBzScaleId(bz),
     },
     {
       key: "geomagnetic_storm",
@@ -760,11 +874,14 @@ export function buildMetricCards(
       icon: "🌡️",
       label: "Dst / SYM-H",
       value: formatDstDisplay(dst, indicesLoading),
-      note: "Ring current · SYM-H when available",
+      note: "Illustrative ZINGSA scale · Kyoto WDC / NOAA",
+      subtitle: dst == null ? null : dstRingStatus(dst),
       valueColor: dstColor(dst),
       source: "NOAA / Kyoto Dst",
       observedAt: swObserved ? `Snapshot ${swObserved}` : null,
       freshness: dst == null ? (indicesLoading ? "DELAYED" : "UNAVAILABLE") : indicesFresh,
+      showDstScale: true,
+      activeDstCode: dstRingScaleId(dst),
     },
     {
       key: "zimbabwe_iono",
@@ -1038,11 +1155,10 @@ export function interpretMetric(
       }
       {
         let level: string;
-        if (dst > -20) level = "quiet ring-current conditions";
-        else if (dst > -50) level = "weak disturbance";
-        else if (dst > -100) level = "moderate storm-time depression";
-        else if (dst > -200) level = "intense storm-time depression";
-        else level = "severe storm-time depression";
+        const band = dstRingStatus(dst);
+        if (band) level = band;
+        else if (dst > -30) level = "quiet ring-current conditions";
+        else level = "a ring-current disturbance";
         return `Dst ${formatDstDisplay(dst)}: ${level}. Quote it in nT beside Kp. Do not relabel it as a G-scale. A fall through −50 nT, with southward Bz, is the main-phase sentence.`;
       }
 

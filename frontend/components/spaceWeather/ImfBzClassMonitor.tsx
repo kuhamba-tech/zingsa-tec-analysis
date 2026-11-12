@@ -27,6 +27,14 @@ export default function ImfBzClassMonitor({
         <strong>{watch.bz != null ? `${signed(watch.bz)} nT` : "Updating"}</strong>
         {watch.bandLabel ? ` · ${watch.bandLabel}` : ""}. NOAA SWPC RTSW.
       </p>
+      <p className={styles.body}>
+        <strong style={{ color: "#22d3ee" }}>Bz (North-South Field):</strong>{" "}
+        Earth&apos;s magnetic shield. When Bz points{" "}
+        <strong style={{ color: "#f97316" }}>south (negative)</strong>, it opens a gap in our
+        magnetosphere, allowing solar wind energy to pour in — triggering geomagnetic storms and
+        auroras. <strong style={{ color: "#22c55e" }}>Northward (positive)</strong> Bz means the
+        shield holds strong.
+      </p>
       <div className={styles.scale} role="list" aria-label="IMF Bz classes in this series">
         {BZ_BANDS.map((band) => {
           const active = watch.band === band.id;

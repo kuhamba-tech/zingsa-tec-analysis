@@ -23,6 +23,19 @@ export default function SolarWindClassMonitor({
         <strong>{watch.speed != null ? `${Math.round(watch.speed)} km/s` : "Updating"}</strong>
         {watch.bandLabel ? ` · ${watch.bandLabel}` : ""}. NOAA SWPC RTSW.
       </p>
+      <p className={styles.body}>
+        <strong style={{ color: "#22d3ee" }}>Speed:</strong>{" "}
+        How fast the solar wind is traveling.
+        Normal speed is ~400 km/s. Above 500 km/s is elevated; above 700 km/s is a high-speed stream.
+      </p>
+      <p className={styles.body}>
+        <strong style={{ color: "#22d3ee" }}>Bt (Total Field):</strong>{" "}
+        The overall strength of the interplanetary magnetic field. Higher Bt with southward Bz = more intense geomagnetic activity.
+      </p>
+      <p className={styles.body}>
+        <strong style={{ color: "#22d3ee" }}>Density:</strong>{" "}
+        How dense the solar wind is. Higher density + higher speed = greater impact force on Earth&apos;s magnetosphere.
+      </p>
       <div className={styles.scale} role="list" aria-label="Solar wind speed classes in this series">
         {WIND_BANDS.map((band) => {
           const active = watch.band === band.id;

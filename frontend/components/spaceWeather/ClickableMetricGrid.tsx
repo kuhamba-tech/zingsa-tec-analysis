@@ -7,6 +7,8 @@ import type { LiveStationCounts } from "@/lib/liveStationStatus";
 import { FLARE_SCALE } from "@/lib/solarEventColors";
 import { flareLetterOf } from "@/lib/flareEruption";
 import FlareClassMonitor from "./FlareClassMonitor";
+import FlareActivityTable from "./FlareActivityTable";
+import ActiveRegionInspector from "./ActiveRegionInspector";
 import CmeClassMonitor from "./CmeClassMonitor";
 import SolarWindClassMonitor from "./SolarWindClassMonitor";
 import ImfBzClassMonitor from "./ImfBzClassMonitor";
@@ -17,7 +19,12 @@ import GnssRiskClassMonitor from "./GnssRiskClassMonitor";
 import { BARUAH_2024 } from "@/lib/scientistBulletin";
 import {
   METRIC_EXPLANATIONS,
+  DST_RING_SCALE,
+  IMF_BT_SCALE,
+  IMF_BZ_SCALE,
   NOAA_G_SCALE,
+  SOLAR_WIND_DENSITY_SCALE,
+  SOLAR_WIND_SPEED_SCALE,
   TEC_VTEC_SCALE,
   buildMetricCards,
   interpretMetric,
@@ -104,6 +111,101 @@ function FlareScaleLegend({ activeLetter }: { activeLetter?: string | null }) {
           <div className="sw-metric-flare-scale-desc">{f.desc}</div>
         </div>
       ))}
+    </div>
+  );
+}
+
+function ChipScale({
+  caption,
+  bands,
+  activeCode,
+}: {
+  caption: string;
+  bands: readonly { id: string; range: string; label: string; color: string }[];
+  activeCode?: string | null;
+}) {
+  return (
+    <div className="sw-metric-chip-scale" aria-label={`${caption} scale`}>
+      <div className="sw-metric-chip-caption">{caption}</div>
+      <div className="sw-metric-chip-row">
+        {bands.map((band) => {
+          const active = activeCode === band.id;
+          return (
+            <span
+              className={`sw-metric-chip${active ? " is-active" : ""}`}
+              key={band.id}
+              style={{ color: band.color }}
+              title={`${band.range} · ${band.label}`}
+              aria-current={active ? "true" : undefined}
+            >
+              <span className="sw-metric-chip-swatch" style={{ background: band.color }} />
+              {band.range} {band.label}
+            </span>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function DstScaleLegend({ activeCode }: { activeCode?: string | null }) {
+  return (
+    <div className="sw-metric-flare-scale sw-metric-bz-scale" aria-label="Dst ring-current scale">
+      {DST_RING_SCALE.map((band) => {
+        const active = activeCode === band.id;
+        return (
+          <div
+            className={`sw-metric-flare-scale-item${active ? " is-active" : ""}`}
+            key={band.id}
+            title={`${band.label}: ${band.range} nT`}
+            aria-current={active ? "true" : undefined}
+          >
+            <div
+              className="sw-metric-flare-scale-bar"
+              style={{
+                background: band.color,
+                height: active ? 4 : 2,
+                opacity: active || !activeCode ? 1 : 0.55,
+              }}
+            />
+            <div className="sw-metric-flare-scale-letter" style={{ color: band.color }}>
+              {band.label}
+            </div>
+            <div className="sw-metric-flare-scale-desc">{band.range}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function BzScaleLegend({ activeCode }: { activeCode?: string | null }) {
+  return (
+    <div className="sw-metric-flare-scale sw-metric-bz-scale" aria-label="IMF Bz scale in nT">
+      {IMF_BZ_SCALE.map((band) => {
+        const active = activeCode === band.id;
+        return (
+          <div
+            className={`sw-metric-flare-scale-item${active ? " is-active" : ""}`}
+            key={band.id}
+            title={`${band.range} nT · ${band.label}`}
+            aria-current={active ? "true" : undefined}
+          >
+            <div
+              className="sw-metric-flare-scale-bar"
+              style={{
+                background: band.color,
+                height: active ? 4 : 2,
+                opacity: active || !activeCode ? 1 : 0.55,
+              }}
+            />
+            <div className="sw-metric-flare-scale-letter" style={{ color: band.color }}>
+              {band.short}
+            </div>
+            <div className="sw-metric-flare-scale-desc">{band.label}</div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -211,6 +313,14 @@ function MetricCardButton({
   activeKpBand,
   showTecScale,
   activeTecCode,
+  showBzScale,
+  activeBzCode,
+  showDstScale,
+  activeDstCode,
+  showWindScale,
+  activeWindSpeedCode,
+  activeBtCode,
+  activeDensityCode,
   selected,
   disabled,
   onClick,
@@ -231,6 +341,14 @@ function MetricCardButton({
   activeKpBand?: string | null;
   showTecScale?: boolean;
   activeTecCode?: string | null;
+  showBzScale?: boolean;
+  activeBzCode?: string | null;
+  showDstScale?: boolean;
+  activeDstCode?: string | null;
+  showWindScale?: boolean;
+  activeWindSpeedCode?: string | null;
+  activeBtCode?: string | null;
+  activeDensityCode?: string | null;
   selected: boolean;
   disabled: boolean;
   onClick: () => void;
@@ -240,13 +358,14 @@ function MetricCardButton({
   const isFlare = Boolean(showFlareScale);
   const isGStorm = Boolean(showGScale);
   const isTecIono = Boolean(showTecScale);
+  const isBz = Boolean(showBzScale);
   const isEventCount =
     metricKey === "donki_flares" || metricKey === "donki_cmes" || metricKey === "donki_storms";
 
   return (
     <button
       type="button"
-      className={`sw-metric-card${isSummary ? " sw-metric-card-summary" : ""}${isWindList ? " sw-metric-card-wind" : ""}${isFlare ? " sw-metric-card-flare" : ""}${isGStorm ? " sw-metric-card-gstorm" : ""}${isTecIono ? " sw-metric-card-tec" : ""}${isEventCount ? " sw-metric-card-events" : ""}${selected ? " sw-metric-card-selected" : ""}${disabled ? " is-loading" : ""}`}
+      className={`sw-metric-card${isSummary ? " sw-metric-card-summary" : ""}${isWindList ? " sw-metric-card-wind" : ""}${isFlare ? " sw-metric-card-flare" : ""}${isGStorm ? " sw-metric-card-gstorm" : ""}${isTecIono ? " sw-metric-card-tec" : ""}${isBz ? " sw-metric-card-bz" : ""}${isEventCount ? " sw-metric-card-events" : ""}${selected ? " sw-metric-card-selected" : ""}${disabled ? " is-loading" : ""}`}
       onClick={onClick}
       disabled={disabled}
       aria-pressed={selected}
@@ -262,10 +381,21 @@ function MetricCardButton({
         {value}
       </div>
       {subtitle ? <div className="sw-metric-subtitle">{subtitle}</div> : null}
+      {showWindScale ? (
+        <ChipScale caption="Speed" bands={SOLAR_WIND_SPEED_SCALE} activeCode={activeWindSpeedCode ?? null} />
+      ) : null}
       {detailRows?.length ? <DetailRows rows={detailRows} /> : null}
+      {showWindScale ? (
+        <ChipScale caption="Density" bands={SOLAR_WIND_DENSITY_SCALE} activeCode={activeDensityCode ?? null} />
+      ) : null}
+      {showWindScale ? (
+        <ChipScale caption="Bt" bands={IMF_BT_SCALE} activeCode={activeBtCode ?? null} />
+      ) : null}
       {showFlareScale ? <FlareScaleLegend activeLetter={flareLetterOf(value)} /> : null}
       {showGScale ? <GScaleLegend activeCode={activeGCode ?? null} /> : null}
       {showTecScale ? <TecScaleLegend activeCode={activeTecCode} /> : null}
+      {showBzScale ? <BzScaleLegend activeCode={activeBzCode ?? null} /> : null}
+      {showDstScale ? <DstScaleLegend activeCode={activeDstCode ?? null} /> : null}
       {note ? <div className="sw-metric-note">{note}</div> : null}
       <div className="sw-metric-meta">
         {freshness && freshness !== "DELAYED" && (
@@ -475,6 +605,11 @@ function ExplanationPanel({
           </p>
         </>
       )}
+      {metricKey === "solar_activity" && (
+        <div style={{ marginTop: "0.85rem" }}>
+          <ActiveRegionInspector />
+        </div>
+      )}
       {metricKey === "solar_activity" && <VisibleSolarDisk embedded />}
       {metricKey === "solar_activity" && (
         <EarthsideSolarNews solar={solar ?? null} kp={sw?.kp ?? null} includeGeomagnetics={false} />
@@ -494,6 +629,11 @@ function ExplanationPanel({
               </Link>
             </li>
           </ul>
+        </div>
+      )}
+      {metricKey === "solar_flare" && (
+        <div style={{ marginTop: "0.85rem" }}>
+          <FlareActivityTable solar={solar ?? null} />
         </div>
       )}
       {(metricKey === "solar_flare" || metricKey === "donki_flares") && (
@@ -676,6 +816,14 @@ export default function ClickableMetricGrid({
             activeKpBand={card.activeKpBand}
             showTecScale={card.showTecScale}
             activeTecCode={card.activeTecCode}
+            showBzScale={card.showBzScale}
+            activeBzCode={card.activeBzCode}
+            showDstScale={card.showDstScale}
+            activeDstCode={card.activeDstCode}
+            showWindScale={card.showWindScale}
+            activeWindSpeedCode={card.activeWindSpeedCode}
+            activeBtCode={card.activeBtCode}
+            activeDensityCode={card.activeDensityCode}
             selected={selected === card.key}
             disabled={false}
             onClick={() => setSelected((prev) => (prev === card.key ? null : card.key))}

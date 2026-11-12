@@ -182,6 +182,25 @@ def count_flare_days(events: list[dict[str, Any]] | None, now: datetime) -> dict
     return {"today": pack(today, buckets[today]), "yesterday": pack(yesterday, buckets[yesterday])}
 
 
+def latest_flare_class(events: list[dict[str, Any]] | None) -> str | None:
+    """Newest GOES X-ray flare class in the list, by peak time."""
+    best_time: datetime | None = None
+    best_class: str | None = None
+    for event in events or []:
+        stamp = str(event.get("max_time") or event.get("time_tag") or "")
+        try:
+            when = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        label = str(event.get("max_class") or "").strip()
+        if not label:
+            continue
+        if best_time is None or when > best_time:
+            best_time = when
+            best_class = label
+    return best_class
+
+
 def _class_rank(label: str) -> tuple[int, float]:
     text = (label or "").strip().upper()
     if not text:
@@ -323,6 +342,8 @@ def _empty() -> dict[str, Any]:
         "region_count": None,
         "earth_facing_region_count": None,
         "sunspot_number": None,
+        "visible_spot_count": None,
+        "latest_flare_class": None,
         "c_percent": None,
         "m_percent": None,
         "x_percent": None,
@@ -418,6 +439,7 @@ def _load() -> dict[str, Any]:
         disk = parse_solar_region_summary(srs)
         payload["earth_facing_region_count"] = disk["active_region_count"]
         payload["sunspot_number"] = disk["sunspot_number"]
+        payload["visible_spot_count"] = disk["visible_spot_count"]
         payload["spotted_region_count"] = len(disk["regions"])
         payload["plage_count"] = len(disk.get("plages") or [])
         payload["monitor_issued"] = disk["issued"]
@@ -430,6 +452,7 @@ def _load() -> dict[str, Any]:
         counted = count_flare_days(flares, now)
         payload["flares_today"] = counted["today"]
         payload["flares_yesterday"] = counted["yesterday"]
+        payload["latest_flare_class"] = latest_flare_class(flares)
     payload["images"] = solarham_images(now)
     payload["monitor_images"] = stable_monitor_frames()
     has_chances = payload["c_percent"] is not None or payload["m_percent"] is not None

@@ -101,6 +101,7 @@ def parse_solar_region_summary(text: str) -> dict[str, Any]:
         "regions": regions,
         "plages": plages,
         "active_region_count": groups,
+        "visible_spot_count": spots,
         "sunspot_number": 10 * groups + spots,
     }
 

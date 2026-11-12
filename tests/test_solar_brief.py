@@ -6,6 +6,7 @@ from zgiis.space_weather.solar_brief import (
     assign_region_flares,
     choose_solarham_images,
     count_flare_days,
+    latest_flare_class,
     monitor_region_rows,
     parse_daypre,
     parse_forecast_outlook,
@@ -81,6 +82,17 @@ def test_a_quiet_utc_day_is_not_reported_as_a_c_flare():
     counted = count_flare_days([{"max_time": "2026-10-31T06:13:00Z", "max_class": "B3.4"}], now)
     assert counted["today"]["label"] == "No C-flares or higher"
     assert counted["yesterday"]["label"] == "No C-flares or higher"
+
+
+def test_latest_flare_is_the_newest_peak_not_the_largest_class():
+    label = latest_flare_class(
+        [
+            {"max_time": "2026-10-31T09:14:00Z", "max_class": "B6.3"},
+            {"max_time": "2026-10-31T11:02:00Z", "max_class": "C1.4"},
+            {"max_time": "2026-10-30T18:00:00Z", "max_class": "M1.1"},
+        ]
+    )
+    assert label == "C1.4"
 
 
 def test_solarham_picture_names_follow_the_site_dates():

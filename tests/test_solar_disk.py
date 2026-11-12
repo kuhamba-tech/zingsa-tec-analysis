@@ -25,6 +25,7 @@ def test_limb_region_is_omitted_and_eastern_regions_sit_on_the_left():
     assert parsed["active_region_count"] == 2
     # 10×groups + spots = 10×2 + (4+1)
     assert parsed["sunspot_number"] == 25
+    assert parsed["visible_spot_count"] == 5
     by_number = {row["number"]: row for row in parsed["regions"]}
     assert by_number[4565]["x"] < 0.5
     assert by_number[4564]["x"] < 0.5

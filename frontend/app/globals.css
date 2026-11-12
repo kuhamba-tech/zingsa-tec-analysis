@@ -3801,6 +3801,57 @@ a.home-map-layer-btn {
   letter-spacing: 0.01em;
   white-space: nowrap;
 }
+.sw-metric-bz-scale .sw-metric-flare-scale-letter {
+  font-size: 0.5rem;
+  letter-spacing: -0.03em;
+  white-space: nowrap;
+}
+.sw-metric-bz-scale .sw-metric-flare-scale-desc {
+  display: block;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
+  font-size: 0.48rem;
+  line-height: 1.15;
+  min-height: 2.4em;
+}
+.sw-metric-chip-scale {
+  width: 100%;
+  margin-top: 0.35rem;
+  text-align: left;
+}
+.sw-metric-chip-caption {
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 0.15rem;
+}
+.sw-metric-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.45rem;
+}
+.sw-metric-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.22rem;
+  font-size: 0.58rem;
+  font-weight: 650;
+  line-height: 1.2;
+  opacity: 0.72;
+}
+.sw-metric-chip.is-active {
+  font-weight: 800;
+  opacity: 1;
+}
+.sw-metric-chip-swatch {
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 2px;
+  flex: 0 0 auto;
+}
 .sw-metric-tec-scale .sw-metric-flare-scale-letter {
   font-size: 0.52rem;
   letter-spacing: 0;
