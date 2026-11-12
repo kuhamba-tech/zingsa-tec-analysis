@@ -223,8 +223,6 @@ export function GradientHybridMap({
             url,
             attributions,
             maxZoom: 6,
-            cacheSize: 128,
-            transition: 0,
           });
           sharedTileSources.set(url, source);
         }
