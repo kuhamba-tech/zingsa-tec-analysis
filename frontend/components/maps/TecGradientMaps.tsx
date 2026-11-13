@@ -253,6 +253,7 @@ export function GradientHybridMap({
               const [x, y] = project(lon, lat);
               return [((x - minX) / spanX) * width, ((maxY - y) / spanY) * height];
             };
+            const contourLabels: Array<{ text: string; x: number; y: number }> = [];
             ctx.save();
             ctx.beginPath();
             ZIMBABWE_LAND.forEach(([lon, lat], index) => {
@@ -315,14 +316,11 @@ export function GradientHybridMap({
               ctx.lineWidth = 1;
               ctx.stroke();
               if (label && label.length > 18) {
-                const text = level.toFixed(limit < 0.1 ? 3 : 2);
-                ctx.font = "bold 11px system-ui";
-                ctx.textAlign = "center";
-                ctx.lineWidth = 3;
-                ctx.strokeStyle = "rgba(0,0,0,0.85)";
-                ctx.strokeText(text, label.x, label.y);
-                ctx.fillStyle = "#fff";
-                ctx.fillText(text, label.x, label.y);
+                contourLabels.push({
+                  text: level.toFixed(limit < 0.1 ? 3 : 2),
+                  x: label.x,
+                  y: label.y,
+                });
               }
             }
             ctx.restore();
@@ -335,6 +333,22 @@ export function GradientHybridMap({
             ctx.strokeStyle = "#ff6464";
             ctx.lineWidth = 2;
             ctx.stroke();
+            ctx.font = "bold 11px system-ui";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.lineJoin = "round";
+            for (const label of contourLabels) {
+              const halfWidth = ctx.measureText(label.text).width / 2;
+              const minX = 6 + halfWidth;
+              const maxX = Math.max(minX, width - 82 - halfWidth);
+              const x = Math.max(minX, Math.min(maxX, label.x));
+              const y = Math.max(8, Math.min(height - 8, label.y));
+              ctx.lineWidth = 4;
+              ctx.strokeStyle = "rgba(0,0,0,0.9)";
+              ctx.strokeText(label.text, x, y);
+              ctx.fillStyle = "#fff";
+              ctx.fillText(label.text, x, y);
+            }
             return canvas;
           },
         });
