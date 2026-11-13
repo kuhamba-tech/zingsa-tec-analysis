@@ -92,13 +92,14 @@ class HeliosphericMonitorParseTests(unittest.TestCase):
         self.assertLess(parsed["epoch_ms"][0], parsed["epoch_ms"][1])
         self.assertTrue(parsed["times"][0] < parsed["times"][1])
 
-    def test_xray_series_keeps_long_band_only(self):
+    def test_xray_series_aligns_long_and_short_bands(self):
         rows = [
             {"time_tag": "2026-09-16T12:00:00Z", "energy": "0.1-0.8nm", "flux": 1.2e-6},
             {"time_tag": "2026-09-16T12:00:00Z", "energy": "0.05-0.4nm", "flux": 9.0e-7},
         ]
         parsed = parse_xray_series(rows)
         self.assertEqual(parsed["flux"], [1.2e-6])
+        self.assertEqual(parsed["short_flux"], [9.0e-7])
         self.assertEqual(len(parsed["epoch_ms"]), 1)
 
     def test_dst_series_accepts_dict_rows(self):

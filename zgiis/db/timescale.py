@@ -454,11 +454,21 @@ class TecDB:
         prns: Optional[list[str]] = None,
         elev_min: float = 0.0,
         limit: int = 10000,
+        start: str | None = None,
+        end: str | None = None,
     ) -> pd.DataFrame:
         """Per-satellite VTEC rows from the live database (excludes empty PRNs)."""
-        since = (datetime.now(tz=timezone.utc) - timedelta(hours=hours)).isoformat()
+        since = pd.to_datetime(start, utc=True).isoformat() if start else (datetime.now(tz=timezone.utc) - timedelta(hours=hours)).isoformat()
         clauses = ["time >= ?", "prn IS NOT NULL", "prn != ''", "UPPER(prn) != 'ALL'"]
         params: list = [since]
+        if end:
+            bound = pd.to_datetime(end, utc=True)
+            if len(end) == 10:
+                clauses.append("time < ?")
+                bound += pd.Timedelta(days=1)
+            else:
+                clauses.append("time <= ?")
+            params.append(bound.isoformat())
         if station:
             clauses.append("LOWER(station) = LOWER(?)")
             params.append(station)

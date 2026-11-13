@@ -86,7 +86,7 @@ def _stride(rows: list[dict[str, Any]], max_points: int) -> list[dict[str, Any]]
 def iter_monitor_rows(payload: dict[str, Any]):
     """Yield (metric, time, value) for one heliospheric monitor payload."""
     panels = (
-        ("xray", {"xray_flux": "flux"}),
+        ("xray", {"xray_flux": "flux", "xray_short_flux": "short_flux"}),
         ("imf", {"imf_bt": "bt", "imf_by": "by", "imf_bz": "bz"}),
         (
             "solar_wind",
@@ -262,7 +262,7 @@ def extend_monitor_payload(
     merged = dict(payload)
     merged["xray"] = _merge_panel(
         payload.get("xray") or {},
-        {"xray_flux": "flux"},
+        {"xray_flux": "flux", "xray_short_flux": "short_flux"},
         stored,
         live_points=_LIVE_POINTS,
     )
@@ -337,6 +337,7 @@ def _read_archive() -> dict[str, list[tuple[datetime, float]]]:
     since = datetime.now(tz=timezone.utc) - timedelta(hours=ARCHIVE_HOURS)
     metrics = [
         "xray_flux",
+        "xray_short_flux",
         "imf_bt",
         "imf_by",
         "imf_bz",

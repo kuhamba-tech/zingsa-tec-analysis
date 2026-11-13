@@ -239,25 +239,31 @@ def parse_solar_wind_speed_series(rows: list[Any], *, max_points: int | None = 2
 
 
 def parse_xray_series(rows: list[Any], *, max_points: int | None = 360) -> dict[str, Any]:
-    """GOES 0.1–0.8 nm long-band flux with ISO times (W/m²)."""
-    points: list[dict[str, Any]] = []
+    """GOES long- and short-band flux with ISO times (W/m²)."""
+    by_time: dict[str, dict[str, Any]] = {}
     for row in rows:
         if not isinstance(row, dict):
             continue
-        if str(row.get("energy") or "") != "0.1-0.8nm":
+        energy = str(row.get("energy") or "")
+        if energy not in {"0.1-0.8nm", "0.05-0.4nm"}:
             continue
         stamp = _parse_utc(row.get("time_tag"))
         flux = _float_or_none(row.get("flux"))
         if stamp is None or flux is None or flux <= 0:
             continue
-        points.append(
+        key = stamp.isoformat().replace("+00:00", "Z")
+        point = by_time.setdefault(
+            key,
             {
-                "t": stamp.isoformat().replace("+00:00", "Z"),
+                "t": key,
                 "label": _label_hour(stamp),
-                "flux": flux,
+                "flux": None,
+                "short_flux": None,
                 "epoch_ms": int(stamp.timestamp() * 1000),
-            }
+            },
         )
+        point["flux" if energy == "0.1-0.8nm" else "short_flux"] = flux
+    points = [by_time[key] for key in sorted(by_time)]
     if max_points:
         points = downsample(points, max_points=max_points)
     return {
@@ -265,6 +271,7 @@ def parse_xray_series(rows: list[Any], *, max_points: int | None = 360) -> dict[
         "times": [p["t"] for p in points],
         "epoch_ms": [p["epoch_ms"] for p in points],
         "flux": [p["flux"] for p in points],
+        "short_flux": [p["short_flux"] for p in points],
         "unit": "W/m²",
     }
 

@@ -1093,7 +1093,7 @@ export type RinexArchiveAvailability = {
   files?: unknown[];
 };
 
-export const getRinexArchiveStatus = () => get<RinexArchiveStatus>("/processing/rinex-archive/status");
+export const getRinexArchiveStatus = () => get<RinexArchiveStatus>("/processing/rinex-archive/status", undefined, 30_000);
 
 export const getRinexArchiveAvailability = (opts: {
   stations: string[];
@@ -1106,7 +1106,7 @@ export const getRinexArchiveAvailability = (opts: {
     start: opts.start,
     end: opts.end,
     include_nav: opts.includeNav === false ? "false" : "true",
-  });
+  }, 30_000);
 
 export async function downloadRinexArchive(body: {
   stations: string[];
@@ -1168,6 +1168,21 @@ export async function downloadSessionRaw(id: string): Promise<Blob> {
 }
 
 // ── TEC Analysis ──────────────────────────────────────────────────────────────
+export interface ComparisonDriverRow {
+  time: string;
+  source: string;
+  [field: string]: number | string | null | undefined;
+}
+export interface ComparisonDriversResponse {
+  start: string;
+  end: string;
+  rows: ComparisonDriverRow[];
+  notes: string[];
+  source_url?: string;
+}
+export const getComparisonDrivers = (start: string, end: string) =>
+  get<ComparisonDriversResponse>("/tec/comparison-drivers", { start, end }, ANALYSIS_TIMEOUT_MS);
+
 export const getArchiveMeta = () => get<ArchiveMeta>("/tec/archive-meta", undefined, ANALYSIS_TIMEOUT_MS);
 export const getTimeSeries = (params?: { station?: string; start?: string; end?: string; limit?: number }) =>
   get<TecObservation[]>("/tec/time-series", params, ANALYSIS_TIMEOUT_MS);
@@ -1345,7 +1360,7 @@ export type PrnExplorerParams = {
 };
 
 export const getPrnExplorer = (params?: PrnExplorerParams) =>
-  get<PrnExplorerResponse>("/tec/prn/explorer", params);
+  get<PrnExplorerResponse>("/tec/prn/explorer", params, 60_000);
 
 export const getPrnConstellations = () =>
   get<PrnConstellationPayload>("/theory/prn-constellations");

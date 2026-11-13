@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import BarChart from "@/components/charts/BarChart";
 import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
 import LineChart from "@/components/charts/LineChart";
@@ -222,10 +222,17 @@ export default function PrnExplorerPage() {
   const [elevMin, setElevMin] = useState(ELEVATION_MIN_DEG);
   const [selectedPrns, setSelectedPrns] = useState<string[]>([]);
   const [qualThreshold, setQualThreshold] = useState(70);
+  const requestId = useRef(0);
 
   const constellations = theory?.constellations ?? [];
 
   const load = useCallback(async () => {
+    const id = ++requestId.current;
+    if (start && end && start > end) {
+      setError("Start must be on or before end (UTC).");
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -241,8 +248,10 @@ export default function PrnExplorerPage() {
       if (selectedPrns.length) params.prns = selectedPrns.join(",");
 
       const payload = await getPrnExplorer(params);
+      if (id !== requestId.current) return;
       setData(payload);
     } catch (e) {
+      if (id !== requestId.current) return;
       const detail = e instanceof Error ? e.message : String(e);
       setError(null);
       setData(emptyPrnResponse(
@@ -251,7 +260,7 @@ export default function PrnExplorerPage() {
           : "PRN data is temporarily unavailable. Per-satellite charts will appear when the backend responds or PRN CMN/live data is loaded.",
       ));
     }
-    setLoading(false);
+    if (id === requestId.current) setLoading(false);
   }, [selected, station, start, end, elevMin, selectedPrns]);
 
   useEffect(() => {
@@ -515,7 +524,7 @@ export default function PrnExplorerPage() {
           return (
             <div
               key={c.id}
-              onClick={() => setSelected(c.id)}
+              onClick={() => { setSelectedPrns([]); setSelected(c.id); }}
               style={{
                 cursor: "pointer",
                 textAlign: "center",
@@ -568,6 +577,9 @@ export default function PrnExplorerPage() {
           {theory?.quality_note && tab === "quality" ? ` · ${theory.quality_note}` : ""}
         </div>
       )}
+      <p style={{ color: "#fff", fontSize: "0.8rem" }}>Quality is a derived signal score, not a positioning-accuracy percentage.
+        Position-error and PPP-convergence estimates are unvalidated research proxies.
+        {meta && meta.record_count >= 8000 ? " Results cover the latest 8,000 matching observations; they are not a complete archive count." : ""}</p>
 
       {error && <div className="banner banner-alert">{error}</div>}
       {loading && <div className="banner banner-info">Loading PRN data…</div>}
@@ -658,6 +670,7 @@ export default function PrnExplorerPage() {
           analysis={skyAnalysis}
         >
           <PrnSkyPlot
+            station={station}
             observations={observations}
             prns={chartPrns}
             title=""

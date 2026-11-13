@@ -10,7 +10,11 @@ from zgiis.space_weather.graph_archive import extend_monitor_payload, iter_monit
 class GraphArchiveTests(unittest.TestCase):
     def test_monitor_rows_keep_each_series(self) -> None:
         payload = {
-            "xray": {"times": ["2026-10-26T00:00:00Z"], "flux": [1.2e-6]},
+            "xray": {
+                "times": ["2026-10-26T00:00:00Z"],
+                "flux": [1.2e-6],
+                "short_flux": [9.0e-7],
+            },
             "imf": {"times": ["2026-10-26T00:01:00Z"], "bt": [5.0], "by": [1.0], "bz": [-2.0]},
             "solar_wind": {
                 "times": ["2026-10-26T00:02:00Z"],
@@ -32,6 +36,7 @@ class GraphArchiveTests(unittest.TestCase):
         }
         metrics = {metric for metric, _time, _value in iter_monitor_rows(payload)}
         self.assertIn("xray_flux", metrics)
+        self.assertIn("xray_short_flux", metrics)
         self.assertIn("imf_bz", metrics)
         self.assertIn("solar_wind_speed", metrics)
         self.assertIn("proton_ge10mev", metrics)
@@ -44,6 +49,7 @@ class GraphArchiveTests(unittest.TestCase):
             "xray": {
                 "times": [live_time.isoformat().replace("+00:00", "Z")],
                 "flux": [2.0e-6],
+                "short_flux": [8.0e-7],
                 "unit": "W/m²",
             },
             "imf": {},
@@ -55,9 +61,11 @@ class GraphArchiveTests(unittest.TestCase):
         newer_time = live_time + timedelta(hours=6)
         stored = {
             "xray_flux": [(older_time, 1.0e-6), (newer_time, 3.0e-6)],
+            "xray_short_flux": [(older_time, 4.0e-7), (newer_time, 1.2e-6)],
         }
         merged = extend_monitor_payload(payload, stored)
         self.assertEqual(merged["xray"]["flux"], [1.0e-6, 2.0e-6, 3.0e-6])
+        self.assertEqual(merged["xray"]["short_flux"], [4.0e-7, 8.0e-7, 1.2e-6])
         self.assertLess(merged["xray"]["times"][0], merged["xray"]["times"][1])
         self.assertLess(merged["xray"]["times"][1], merged["xray"]["times"][2])
         self.assertEqual(merged["xray"]["unit"], "W/m²")

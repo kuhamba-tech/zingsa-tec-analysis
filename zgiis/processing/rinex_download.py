@@ -92,12 +92,14 @@ def _daterange(start: date, end: date) -> list[date]:
 
 def _is_obs_name(name: str) -> bool:
     lower = name.lower()
-    return any(lower.endswith(ext) for ext in _OBS_EXTS)
+    if re.search(r"_[a-z]n\.rnx(?:\.gz)?$", lower):
+        return False
+    return any(lower.endswith(ext) for ext in _OBS_EXTS) or bool(re.search(r"\.\d{2}[od](?:\.gz|\.z)?$", lower))
 
 
 def _is_nav_name(name: str) -> bool:
     lower = name.lower()
-    return any(lower.endswith(ext) for ext in _NAV_EXTS)
+    return any(lower.endswith(ext) for ext in _NAV_EXTS) or bool(re.search(r"\.\d{2}[ngp](?:\.gz|\.z)?$|_[a-z]n\.rnx(?:\.gz)?$", lower))
 
 
 def _station_in_name(name: str, station: str) -> bool:
@@ -113,14 +115,14 @@ def _station_in_name(name: str, station: str) -> bool:
 
 def _day_in_rinex2_name(name: str, day: date) -> bool:
     # karo1140.24o → DOY 114, year 24
-    m = re.match(r"^[a-z0-9]{4}(\d{3})0\.(\d{2})[oOnNgGpP]", name, re.I)
+    m = re.match(r"^[a-z0-9]{4}(\d{3})[a-z0-9]\.(\d{2})[odngp]", name, re.I)
     if not m:
         return False
     return int(m.group(1)) == _doy(day) and int(m.group(2)) == (day.year % 100)
 
 
 def _day_in_rinex3_name(name: str, day: date) -> bool:
-    m = re.search(r"_R_(\d{4})(\d{3})", name, re.I)
+    m = re.search(r"_[RSU]_(\d{4})(\d{3})", name, re.I)
     if not m:
         return False
     return int(m.group(1)) == day.year and int(m.group(2)) == _doy(day)
@@ -167,7 +169,7 @@ def find_archive_files(station: str, day: date, *, kinds: Iterable[str] = ("obs"
             # Flat root may contain many days — require DOY/year in filename when searching root.
             if folder.resolve() == root.resolve() and not _matches_day(name, day):
                 continue
-            if folder.name == _normalize_station(station) and not _matches_day(name, day):
+            if folder.name.lower() == _normalize_station(station) and not _matches_day(name, day):
                 # station folder without doy subfolder
                 if not _matches_day(name, day):
                     continue
@@ -518,7 +520,7 @@ def build_download_zip(
         )
         zf.writestr("README.txt", readme)
 
-    if added == 0:
+    if not any(item["kind"] == "obs" for item in meta_files):
         raise ValueError(
             "No RINEX observation files found for the selected stations and dates. "
             "Configure RINEX_ARCHIVE_ROOT or RINEX_DOWNLOAD_URL_TEMPLATE with real CORS archives."

@@ -7,6 +7,7 @@ import GeomagneticAnalysisPanel from "@/components/timeSeries/GeomagneticAnalysi
 import CelestrakAnalysisPanel from "@/components/timeSeries/CelestrakAnalysisPanel";
 import GfzKpAnalysisPanel from "@/components/timeSeries/GfzKpAnalysisPanel";
 import MultiSourceComparisonPanel from "@/components/timeSeries/MultiSourceComparisonPanel";
+import ComparisonDriverCharts from "@/components/timeSeries/ComparisonDriverCharts";
 import IntermagnetAnalysisPanel from "@/components/timeSeries/IntermagnetAnalysisPanel";
 import GuviOn2AnalysisPanel from "@/components/timeSeries/GuviOn2AnalysisPanel";
 import Cosmic2AnalysisPanel from "@/components/timeSeries/Cosmic2AnalysisPanel";
@@ -364,6 +365,7 @@ export default function TimeSeriesPage() {
   const [meta, setMeta]       = useState<ArchiveMeta | null>(null);
   const [obs, setObs]         = useState<TecObservation[]>([]);
   const [tab, setTab]         = useState<Tab>("daily");
+  const [driverRequest, setDriverRequest] = useState<{ start: string; end: string; revision: number } | null>(null);
   const urlInit = useRef(false);
   const [loading, setLoading] = useState(true);
   const [dateRangeError, setDateRangeError] = useState<string | null>(null);
@@ -512,7 +514,9 @@ export default function TimeSeriesPage() {
     }
     setStart(r.start);
     setEnd(r.end);
+    setTab("compare");
     setSourcesLoading(true);
+    setDriverRequest({ start: r.start, end: r.end, revision: Date.now() });
     setOmniError(null);
     setCelestrakError(null);
     setGfzError(null);
@@ -692,6 +696,7 @@ export default function TimeSeriesPage() {
           </a>
           . COSMIC-2 adds provisional GNSS radio-occultation ionPrf archive coverage from UCAR for independent
           ionospheric profile context.
+          {" "}Source Comparison also shows date-matched GOES X-ray, proton-flux, IMF and solar-wind graphs, with source coverage and units.
         </p>
         <div className="omni-range-grid">
           <label>
@@ -990,6 +995,8 @@ export default function TimeSeriesPage() {
 
       {/* ── Multi-source comparison ── */}
       {tab === "compare" && (
+        <>
+        <ComparisonDriverCharts request={driverRequest} />
         <MultiSourceComparisonPanel
           omni={omni}
           celestrak={celestrak}
@@ -1000,6 +1007,7 @@ export default function TimeSeriesPage() {
           loading={sourcesLoading}
           errors={{ omni: omniError, celestrak: celestrakError, gfz: gfzError, kyoto: kyotoError }}
         />
+        </>
       )}
 
       {/* ── Geomagnetic / OMNI analysis ── */}

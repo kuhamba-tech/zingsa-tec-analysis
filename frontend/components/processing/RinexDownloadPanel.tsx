@@ -65,6 +65,7 @@ export default function RinexDownloadPanel() {
   const [query, setQuery] = useState("");
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [archiveReady, setArchiveReady] = useState(false);
+  const [statusRevision, setStatusRevision] = useState(0);
   const [availability, setAvailability] = useState<AvailabilityPayload | null>(null);
   const [checking, setChecking] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -103,7 +104,7 @@ export default function RinexDownloadPanel() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [statusRevision]);
 
   const liveCounts = useMemo(() => countLiveStationStatuses(stations), [stations]);
 
@@ -240,6 +241,7 @@ export default function RinexDownloadPanel() {
         <div className="banner banner-info" style={{ fontSize: "0.8rem" }}>
           {statusMsg} You can still request a package once the archive path is configured on the
           server (<code>RINEX_ARCHIVE_ROOT</code>).
+          {" "}<button type="button" className="btn btn-secondary" onClick={() => setStatusRevision(value => value + 1)}>Retry archive status</button>
         </div>
       )}
 

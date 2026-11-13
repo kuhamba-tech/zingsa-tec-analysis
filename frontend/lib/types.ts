@@ -54,6 +54,7 @@ export interface XrayFluxSeries {
   epoch_ms?: (number | null)[];
   unit: string;
   flux: (number | null)[];
+  short_flux?: (number | null)[];
 }
 
 export interface ImfSeries {

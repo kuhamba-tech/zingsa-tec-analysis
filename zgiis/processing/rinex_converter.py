@@ -7,6 +7,9 @@ import logging
 import shutil
 import subprocess
 import zipfile
+import re
+import gzip
+import textwrap
 from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any
@@ -132,11 +135,19 @@ def _copy_nav(src: Path, out_dir: Path, cfg: RinexConvertConfig) -> Path:
     out = out_dir / f"{src.stem}_conv{src.suffix}"
     header = cfg.nav_header or cfg.general_header
     if header.strip():
-        text = src.read_text(encoding="ascii", errors="replace")
+        if src.suffix.lower() == ".gz":
+            text = gzip.decompress(src.read_bytes()).decode("ascii")
+            out = out_dir / f"{src.stem}_conv.nav"
+        elif src.suffix.lower() == ".z":
+            raise ValueError("Decompress navigation .Z files before adding custom comments")
+        else:
+            text = src.read_text(encoding="ascii", errors="replace")
         lines = text.splitlines()
         end_idx = next((i for i, l in enumerate(lines) if "END OF HEADER" in l), -1)
         if end_idx >= 0:
-            injected = [header.strip(), *lines[: end_idx + 1]]
+            comments = [part.ljust(60) + "COMMENT" for line in header.splitlines()
+                        for part in (textwrap.wrap(line, width=60) or [""])]
+            injected = [*lines[:end_idx], *comments, *lines[end_idx:]]
             out.write_text("\n".join(injected) + "\n", encoding="ascii", errors="replace")
             return out
     shutil.copy2(src, out)
@@ -153,14 +164,19 @@ def convert_inputs(
 
     for src in input_paths:
         ext = src.suffix.lower()
+        name = src.name.lower()
+        observation = any(name.endswith(suffix) for suffix in (".o", ".obs", ".rnx", ".o.gz", ".obs.gz", ".rnx.gz", ".crx", ".crx.gz")) or bool(re.search(r"\.\d{2}[od](?:\.gz|\.z)?$", name))
+        navigation = ext in NAV_EXTS or bool(re.search(r"\.\d{2}[ngp](?:\.gz|\.z)?$", name)) or name.endswith((".nav.gz", ".gnav.gz"))
+        if name.endswith(("_mn.rnx", "_mn.rnx.gz", "_gn.rnx", "_gn.rnx.gz")):
+            observation, navigation = False, True
         try:
-            if ext in RINEX_EXTS or ext.replace(".gz", "") in {".o", ".obs", ".rnx"}:
+            if observation:
                 if not cfg.include_observations:
                     results.append(ConvertResult(src.name, None, True, "skipped (observations off)"))
                     continue
                 out = _convert_rinex_obs(src, out_dir, cfg)
                 results.append(ConvertResult(src.name, out.name, True, "converted observation file"))
-            elif ext in NAV_EXTS:
+            elif navigation:
                 if not cfg.include_navigation:
                     results.append(ConvertResult(src.name, None, True, "skipped (navigation off)"))
                     continue

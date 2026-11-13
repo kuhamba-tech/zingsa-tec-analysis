@@ -17,7 +17,7 @@ def build_daily_archive(df: pd.DataFrame, station: str | None = None) -> pd.Data
     work = df.copy()
     if station and "station" in work.columns:
         work = work[work["station"] == station]
-    work["date"] = pd.to_datetime(work.get("date", work.get("timestamp")), errors="coerce")
+    work["date"] = pd.to_datetime(work.get("date", work.get("timestamp")), errors="coerce", utc=True).dt.tz_localize(None)
     work = work.dropna(subset=["date"])
     daily = (
         work.groupby(work["date"].dt.floor("D"))
@@ -135,6 +135,7 @@ def enrich_anomaly_days(
 
     high_threshold = float(daily["mean_vtec"].quantile(threshold_pct / 100.0))
     low_threshold = float(daily["mean_vtec"].quantile(1.0 - threshold_pct / 100.0))
+    has_variation = daily["mean_vtec"].dropna().nunique() > 1
     marked = mark_storm_days(
         daily.copy(),
         kp_df=kp_df if not kp_df.empty else None,
@@ -159,8 +160,8 @@ def enrich_anomaly_days(
         z_val = float(tec_z) if pd.notna(tec_z) else None
         positive_quiet = z_val is not None and z_val >= response_z_threshold
         negative_quiet = z_val is not None and z_val <= -response_z_threshold
-        positive_pct = mean_vtec >= high_threshold
-        negative_pct = mean_vtec <= low_threshold
+        positive_pct = has_variation and mean_vtec >= high_threshold
+        negative_pct = has_variation and mean_vtec <= low_threshold
         positive = bool(positive_quiet or positive_pct)
         negative = bool(negative_quiet or negative_pct)
         anomaly = positive or negative
@@ -207,9 +208,9 @@ def build_storm_comparison(daily: pd.DataFrame, kp_df: pd.DataFrame) -> list[dic
         return []
 
     work = daily.copy()
-    work["date"] = pd.to_datetime(work["date"]).dt.floor("D")
+    work["date"] = pd.to_datetime(work["date"], utc=True).dt.tz_localize(None).dt.floor("D")
     kp = kp_df.copy()
-    kp["date"] = pd.to_datetime(kp["date"]).dt.floor("D")
+    kp["date"] = pd.to_datetime(kp["date"], utc=True).dt.tz_localize(None).dt.floor("D")
     merged = work.merge(kp[["date", "kp_index"]], on="date", how="inner")
     if merged.empty:
         return []
@@ -239,7 +240,7 @@ def compute_diurnal(df: pd.DataFrame, station: str | None = None) -> list[dict[s
     if "time_hours" in work.columns:
         work["hour"] = work["time_hours"].astype(int) % 24
     elif "timestamp" in work.columns:
-        work["hour"] = pd.to_datetime(work["timestamp"]).dt.hour
+        work["hour"] = pd.to_datetime(work["timestamp"], utc=True).dt.hour
     else:
         work["hour"] = pd.to_datetime(work.get("date", work.get("timestamp"))).dt.hour
     grp = work.groupby("hour")["vtec"].agg(["mean", "std"]).reset_index()
@@ -247,7 +248,7 @@ def compute_diurnal(df: pd.DataFrame, station: str | None = None) -> list[dict[s
         {
             "hour": int(r["hour"]),
             "mean_vtec": float(r["mean"]),
-            "std_vtec": float(r["std"] or 0),
+            "std_vtec": float(r["std"]) if pd.notna(r["std"]) else 0.0,
         }
         for _, r in grp.iterrows()
     ]
@@ -273,7 +274,7 @@ def compute_seasonal(df: pd.DataFrame, station: str | None = None) -> list[dict[
             "mean": float(r["mean"]),
             "max": float(r["max"]),
             "min": float(r["min"]),
-            "std": float(r["std"] or 0),
+            "std": float(r["std"]) if pd.notna(r["std"]) else 0.0,
         }
         for _, r in grp.iterrows()
     ]

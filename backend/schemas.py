@@ -167,6 +167,7 @@ class ProtonFluxSeries(HeliosphericSeriesPoint):
 
 class XrayFluxSeries(HeliosphericSeriesPoint):
     flux: list[float | None] = []
+    short_flux: list[float | None] = []
 
 
 class ImfSeries(HeliosphericSeriesPoint):

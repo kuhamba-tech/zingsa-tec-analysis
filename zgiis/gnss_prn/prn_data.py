@@ -156,17 +156,20 @@ def add_ionosphere_indicators(df: pd.DataFrame) -> pd.DataFrame:
     work = work.sort_values(["station", "prn", "timestamp"]).copy()
     keys = ["station", "prn"]
     dt_min = work.groupby(keys)["timestamp"].diff().dt.total_seconds() / 60.0
-    tec_source = "vtec" if "vtec" in work.columns else "stec" if "stec" in work.columns else None
+    # ROTI is a slant-TEC rate statistic; vertical mapping introduces geometry
+    # changes that must not be labelled as slant-TEC irregularities.
+    tec_source = "stec" if "stec" in work.columns else None
     if tec_source is not None:
         dtec = work.groupby(keys)[tec_source].diff()
         valid_dt = (dt_min > 0) & (dt_min <= 10)
         work["rot_tecu_per_min"] = (dtec / dt_min).where(valid_dt)
     else:
-        work["rot_tecu_per_min"] = pd.NA
+        work["rot_tecu_per_min"] = float("nan")
 
     roti_parts: list[pd.Series] = []
     for _, group in work.groupby(keys, sort=False):
         rot = group.set_index("timestamp")["rot_tecu_per_min"].astype(float)
+        rot = rot.mask(rot.abs() > 10)  # Reject likely slip-contaminated rates.
         roti = rot.rolling("5min", min_periods=2).std().reindex(group["timestamp"]).reset_index(drop=True)
         roti.index = group.index
         roti_parts.append(roti)
@@ -284,8 +287,8 @@ def load_cmn_prn_observations(
     except ImportError:
         return pd.DataFrame()
 
-    start_ts = pd.Timestamp(start, tz="UTC") if start else None
-    end_ts = pd.Timestamp(end, tz="UTC") if end else None
+    start_ts = pd.to_datetime(start, utc=True) if start else None
+    end_ts = pd.to_datetime(end, utc=True) if end else None
     files = _cmn_files_in_range(start_ts, end_ts)
     if not files:
         return pd.DataFrame()
@@ -321,7 +324,7 @@ def load_cmn_prn_observations(
     if start_ts is not None:
         df = df[df["timestamp"] >= start_ts]
     if end_ts is not None:
-        df = df[df["timestamp"] <= end_ts + pd.Timedelta(days=1)]
+        df = df[df["timestamp"] < end_ts + pd.Timedelta(days=1)] if end and len(end) == 10 else df[df["timestamp"] <= end_ts]
     return add_ionosphere_indicators(df.sort_values("timestamp").tail(limit))
 
 
@@ -333,6 +336,8 @@ def load_live_prn_observations(
     prns: list[str] | None = None,
     elev_min: float = ELEVATION_MIN_DEG,
     limit: int = 10000,
+    start: str | None = None,
+    end: str | None = None,
 ) -> pd.DataFrame:
     try:
         from zgiis.db.timescale import TecDB
@@ -348,6 +353,8 @@ def load_live_prn_observations(
             prns=prns,
             elev_min=elev_min,
             limit=limit,
+            start=start,
+            end=end,
         )
         db.close()
         return add_ionosphere_indicators(_normalize_obs_df(df))
@@ -386,9 +393,10 @@ def load_archive_prn_observations(
     if "timestamp" in work.columns:
         work["timestamp"] = pd.to_datetime(work["timestamp"], utc=True, errors="coerce")
         if start:
-            work = work[work["timestamp"] >= pd.Timestamp(start, tz="UTC")]
+            work = work[work["timestamp"] >= pd.to_datetime(start, utc=True)]
         if end:
-            work = work[work["timestamp"] <= pd.Timestamp(end, tz="UTC") + pd.Timedelta(days=1)]
+            bound = pd.to_datetime(end, utc=True)
+            work = work[work["timestamp"] < bound + pd.Timedelta(days=1)] if len(end) == 10 else work[work["timestamp"] <= bound]
     return add_ionosphere_indicators(work.sort_values("timestamp").tail(limit))
 
 
@@ -414,6 +422,8 @@ def load_prn_observations(
         prns=prns,
         elev_min=elev_min,
         limit=limit,
+        start=start,
+        end=end,
     )
     if not live.empty:
         meta = _build_meta(live, "live")

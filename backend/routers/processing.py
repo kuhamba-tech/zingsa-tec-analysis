@@ -262,7 +262,7 @@ class RinexDownloadRequest(BaseModel):
 
 
 @router.get("/rinex-archive/status")
-async def rinex_archive_status(_=Depends(require_api_key)):
+def rinex_archive_status(_=Depends(require_api_key)):
     from zgiis.processing.rinex_download import list_station_catalog, status_summary
 
     status = status_summary()
@@ -271,7 +271,7 @@ async def rinex_archive_status(_=Depends(require_api_key)):
 
 
 @router.get("/rinex-archive/availability")
-async def rinex_archive_availability(
+def rinex_archive_availability(
     stations: str = "",
     start: str = "",
     end: str = "",
@@ -292,7 +292,7 @@ async def rinex_archive_availability(
 
 
 @router.post("/rinex-archive/download")
-async def rinex_archive_download(body: RinexDownloadRequest, _=Depends(require_api_key)):
+def rinex_archive_download(body: RinexDownloadRequest, _=Depends(require_api_key)):
     """Zip CORS RINEX observation files for office post-processing / PPK."""
     from zgiis.processing.rinex_download import build_download_zip
 

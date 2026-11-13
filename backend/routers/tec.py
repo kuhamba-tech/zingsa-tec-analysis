@@ -197,6 +197,15 @@ def time_series(
     return result
 
 
+@router.get("/comparison-drivers")
+def comparison_drivers(start: date, end: date, _=Depends(require_api_key)):
+    from zgiis.space_weather.comparison_drivers import build_comparison_drivers
+    try:
+        return build_comparison_drivers(start, end)
+    except ValueError as exc:
+        raise HTTPException(422, detail=str(exc)) from exc
+
+
 @router.get("/omni-analysis", response_model=OmniAnalysisResponse)
 def omni_analysis(
     start: str = Query(..., description="Start date YYYY-MM-DD"),
@@ -488,7 +497,7 @@ def cosmic2_analysis(
 
 
 @router.get("/anomalies", response_model=list[AnomalyDay])
-async def anomalies(
+def anomalies(
     threshold_pct: int = Query(95, ge=50, le=99),
     station: str | None = Query(None),
     _=Depends(require_api_key),
@@ -501,7 +510,7 @@ async def anomalies(
 
 
 @router.get("/anomaly-analysis", response_model=AnomalyAnalysisResponse)
-async def anomaly_analysis(
+def anomaly_analysis(
     threshold_pct: int = Query(95, ge=50, le=99),
     station: str | None = Query(None),
     _=Depends(require_api_key),
@@ -850,7 +859,7 @@ async def tec_heatmap(
 
 
 @router.get("/prn/explorer", response_model=PrnExplorerResponse)
-async def prn_explorer(
+def prn_explorer(
     constellation: str | None = Query(None),
     station: str | None = Query(None),
     start: str | None = Query(None),
@@ -862,6 +871,14 @@ async def prn_explorer(
     _=Depends(require_api_key),
 ):
     from zgiis.gnss_prn.prn_data import aggregate_prn_rows, load_prn_observations
+
+    try:
+        left = pd.to_datetime(start, utc=True) if start else None
+        right = pd.to_datetime(end, utc=True) if end else None
+        if left is not None and right is not None and left > right:
+            raise ValueError("Start must not be after end")
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(422, detail="Choose valid UTC dates with start on or before end") from exc
 
     prn_list = [p.strip() for p in prns.split(",") if p.strip()] if prns else None
     df, meta_raw = load_prn_observations(

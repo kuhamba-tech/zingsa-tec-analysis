@@ -739,16 +739,18 @@ export default function ProcessingPage() {
 
   function buildRinexAccept(): string {
     const parts: string[] = [];
-    if (browseObs) parts.push(".rnx", ".obs", ".o", ".24o", ".25o", ".26o");
-    if (browseN) parts.push(".nav", ".n", ".24n", ".25n", ".26n");
-    if (browseG) parts.push(".g", ".24g", ".25g", ".26g");
+    const years = Array.from({ length: 100 }, (_, year) => String(year).padStart(2, "0"));
+    if (browseObs) parts.push(".rnx", ".obs", ".o", ...years.map(year => `.${year}o`));
+    if (browseN) parts.push(".nav", ".n", ...years.map(year => `.${year}n`));
+    if (browseG) parts.push(".g", ...years.map(year => `.${year}g`));
     return parts.join(",");
   }
 
   function buildNavAccept(): string {
     const parts: string[] = [];
-    if (browseN) parts.push(".nav", ".n", ".24n", ".25n", ".26n");
-    if (browseG) parts.push(".g", ".24g", ".25g", ".26g");
+    const years = Array.from({ length: 100 }, (_, year) => String(year).padStart(2, "0"));
+    if (browseN) parts.push(".nav", ".n", ...years.map(year => `.${year}n`));
+    if (browseG) parts.push(".g", ...years.map(year => `.${year}g`));
     return parts.join(",");
   }
 

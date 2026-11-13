@@ -6,18 +6,21 @@ interface Props {
   observations: PrnObservation[];
   prns: string[];
   title: string;
+  station: string;
 }
 
 const COLORS = ["#168bd2", "#ff4444", "#00ff88", "#ff8c00", "#a78bfa", "#ffcc00", "#34d399", "#f472b6", "#60a5fa"];
 
-export default function PrnSkyPlot({ observations, prns, title }: Props) {
+export default function PrnSkyPlot({ observations, prns, title, station }: Props) {
+  if (!station) return <p role="status">Select one station and refresh to view satellite geometry from a single receiver.</p>;
   const latestByPrn = new Map<string, PrnObservation>();
   for (const obs of observations) {
     if (!prns.includes(obs.prn)) continue;
     const prev = latestByPrn.get(obs.prn);
     if (!prev || obs.timestamp > prev.timestamp) latestByPrn.set(obs.prn, obs);
   }
-  const points = [...latestByPrn.values()].filter((p) => p.elevation_deg != null);
+  const points = [...latestByPrn.values()].filter((p) => p.elevation_deg != null && Number.isFinite(p.elevation_deg)
+    && p.azimuth_deg != null && Number.isFinite(p.azimuth_deg));
 
   return (
     <div>
@@ -40,7 +43,7 @@ export default function PrnSkyPlot({ observations, prns, title }: Props) {
           <Axis label="S" top="96%" left="50%" />
           <Axis label="W" top="50%" left="4%" />
           {points.map((p, i) => {
-            const az = ((p.azimuth_deg ?? i * 45) - 90) * Math.PI / 180;
+            const az = (p.azimuth_deg! - 90) * Math.PI / 180;
             const el = Math.max(0, Math.min(90, p.elevation_deg ?? 0));
             const radius = (90 - el) / 90 * 46;
             const x = 50 + radius * Math.cos(az);
@@ -78,6 +81,7 @@ export default function PrnSkyPlot({ observations, prns, title }: Props) {
           <p>
             Showing {points.length} satellite{points.length === 1 ? "" : "s"} with geometry data.
           </p>
+          {points.length < latestByPrn.size && <p role="status">{latestByPrn.size - points.length} selected satellites have no complete elevation/azimuth pair and cannot be placed on the sky plot.</p>}
         </div>
       </div>
     </div>

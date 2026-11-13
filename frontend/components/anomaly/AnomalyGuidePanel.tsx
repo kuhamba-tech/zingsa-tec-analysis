@@ -66,7 +66,7 @@ export default function AnomalyGuidePanel() {
         <ul className="anomaly-legend-list">
           <li>
             <span className="anomaly-swatch" style={{ background: "#168bd2" }} />{" "}
-            <strong>Blue line</strong> — daily mean VTEC from the verified archive
+            <strong>Blue line</strong> — daily mean VTEC from the loaded archive
           </li>
           <li>
             <span className="anomaly-swatch" style={{ background: "#ff4444" }} />{" "}

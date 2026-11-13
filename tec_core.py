@@ -622,19 +622,23 @@ def _rnx_to_frame(dataset) -> tuple[pd.DataFrame, bool]:
     (not Y-code P1), which requires the P1-C1 satellite DCB correction.
     """
     df = dataset.to_dataframe().reset_index()
+    # This TEC path uses GPS L1/L2 frequencies and GPS broadcast ephemerides.
+    # Other constellations require their own frequency and navigation models.
+    if "sv" in df.columns:
+        df = df[df["sv"].astype(str).str.startswith("G")].copy()
     code_candidates = {
-        "p1": ["C1C", "P1", "C1W", "C1X", "C1"],
-        "p2": ["C2W", "P2", "C2X", "C2L", "C2"],
+        "p1": ["C1C", "P1", "C1W", "C1P", "C1X", "C1"],
+        "p2": ["C2W", "P2", "C2P", "C2X", "C2L", "C2"],
     }
     # Carrier phase observables for L1/L2 (Book Eq 4.12; values in cycles)
     phase_candidates = {
-        "l1": ["L1C", "L1W", "L1"],
-        "l2": ["L2W", "L2C", "L2X", "L2"],
+        "l1": ["L1C", "L1W", "L1P", "L1"],
+        "l2": ["L2W", "L2P", "L2C", "L2X", "L2"],
     }
     selected_code: dict[str, str] = {}
     for key, names in code_candidates.items():
         for n in names:
-            if n in df.columns:
+            if n in df.columns and df[n].notna().any():
                 selected_code[key] = n
                 break
 
@@ -644,12 +648,12 @@ def _rnx_to_frame(dataset) -> tuple[pd.DataFrame, bool]:
     selected_phase: dict[str, str] = {}
     for key, names in phase_candidates.items():
         for n in names:
-            if n in df.columns:
+            if n in df.columns and df[n].notna().any():
                 selected_phase[key] = n
                 break
 
     # Track whether we're using civilian C1 (needs P1-C1 DCB) or Y-code P1 (no correction)
-    used_c1 = selected_code["p1"] != "P1"
+    used_c1 = selected_code["p1"] in {"C1C", "C1X", "C1"}
 
     el_col = "el" if "el" in df.columns else ("elevation" if "elevation" in df.columns else None)
     out = pd.DataFrame(
@@ -962,7 +966,7 @@ def _read_rinex_files_impl(
         dfx["vtec"] = dfx["stec"] / dfx["m"]
         _report("Vertical TEC calculation")
 
-        dfx["station"]     = path.stem[:4].lower()
+        dfx["station"]     = _rinex_base_stem(path)[:4].lower()
         dfx["source_file"] = path.name
         dfx["date"]        = dfx["timestamp"].dt.floor("D")
 
@@ -1281,7 +1285,7 @@ def mark_storm_days(
         )
 
     out = daily_df.copy()
-    out["date"] = pd.to_datetime(out["date"], errors="coerce").dt.floor("D")
+    out["date"] = pd.to_datetime(out["date"], errors="coerce", utc=True).dt.tz_localize(None).dt.floor("D")
     max_vtec = pd.to_numeric(out["max_vtec"], errors="coerce")
     valid_vtec = max_vtec.dropna()
     out["tec_anomaly_flag"] = False
@@ -1305,7 +1309,7 @@ def mark_storm_days(
 
     if kp_df is not None and not kp_df.empty:
         kp = kp_df.copy()
-        kp["date"] = pd.to_datetime(kp["date"]).dt.floor("D")
+        kp["date"] = pd.to_datetime(kp["date"], utc=True).dt.tz_localize(None).dt.floor("D")
         kp["kp_index"] = pd.to_numeric(kp["kp_index"], errors="coerce")
         kp = kp.dropna(subset=["date", "kp_index"])
         kp = kp.groupby("date", as_index=False)["kp_index"].max()

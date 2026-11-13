@@ -56,11 +56,11 @@ export default function PrnFilters({
           </select>
         </label>
         <label className="form-label">
-          Start
+          Start (UTC)
           <input className="form-input" type="datetime-local" value={start} onChange={(e) => onStart(e.target.value)} />
         </label>
         <label className="form-label">
-          End
+          End (UTC)
           <input className="form-input" type="datetime-local" value={end} onChange={(e) => onEnd(e.target.value)} />
         </label>
         <label className="form-label">
