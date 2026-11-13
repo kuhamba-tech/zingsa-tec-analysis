@@ -5,9 +5,9 @@ from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Any
 from urllib.error import URLError
-from urllib.request import urlopen
 import json
 import time
+import requests
 
 DIDBASE_BASE_URL = "https://lgdc.uml.edu/ionoweb"
 
@@ -33,8 +33,12 @@ STATION_FALLBACKS: dict[str, dict[str, Any]] = {
 
 
 def _get_json(url: str, timeout: float = 10.0) -> dict[str, Any]:
-    with urlopen(url, timeout=timeout) as response:
-        return json.loads(response.read().decode("utf-8"))
+    # requests uses its maintained CA bundle on Vercel as well as locally.
+    # Keep certificate verification enabled; the minimal runtime's system CA
+    # store does not validate the current DIDBase certificate chain.
+    with requests.get(url, timeout=timeout) as response:
+        response.raise_for_status()
+        return response.json()
 
 
 @lru_cache(maxsize=1)
@@ -85,7 +89,7 @@ def get_ionosonde_metadata(ursi_code: str) -> dict[str, Any]:
                 )
                 status = "didbase_metadata"
                 break
-    except (URLError, TimeoutError, ValueError, json.JSONDecodeError, OSError) as exc:
+    except (requests.RequestException, URLError, TimeoutError, ValueError, json.JSONDecodeError, OSError) as exc:
         error = str(exc)
 
     years: list[int] = []
@@ -93,7 +97,7 @@ def get_ionosonde_metadata(ursi_code: str) -> dict[str, Any]:
         years = fetch_didbase_years(ursi_code)
         if status == "fallback":
             status = "didbase_years_only"
-    except (URLError, TimeoutError, ValueError, json.JSONDecodeError, OSError) as exc:
+    except (requests.RequestException, URLError, TimeoutError, ValueError, json.JSONDecodeError, OSError) as exc:
         error = str(exc)
 
     return {
