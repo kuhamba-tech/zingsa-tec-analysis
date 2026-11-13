@@ -1,5 +1,9 @@
 import type { NextRequest } from "next/server";
 import { monitoringFreshness } from "@/lib/monitoringStatus";
+import {
+  DST_RING_SCALE, dstColor, dstRingScaleId,
+  SOLAR_WIND_SPEED_SCALE, solarWindSpeedScaleId,
+} from "@/lib/spaceWeatherMetrics";
 
 export const dynamic = "force-dynamic";
 
@@ -44,7 +48,7 @@ const TEC_SCALE = [
 
 function kpScale(kp: number | null): { display: string; color: string; code: string; subtitle: string } {
   if (kp == null) {
-    return { display: "Unavailable", color: "#94a3b8", code: "—", subtitle: "kP=—" };
+    return { display: "Unavailable", color: "#ffffff", code: "—", subtitle: "kP=—" };
   }
   const subtitle = `kP=${formatKp(kp)}`;
   if (kp < 3) return { display: "Quiet", color: "#22c55e", code: "G0", subtitle };
@@ -57,22 +61,11 @@ function kpScale(kp: number | null): { display: string; color: string; code: str
   return { display: "Extreme G5", color: "#a855f7", code: "G5", subtitle };
 }
 
-function dstColor(dst: number | null): string {
-  if (dst == null) return "#94a3b8";
-  if (dst < -100) return "#ef4444";
-  if (dst < -50) return "#f97316";
-  if (dst < -20) return "#eab308";
-  return "#00ff88";
-}
-
 function windMeta(speed: number | null): { value: string; color: string; subtitle: string | null } {
-  if (speed == null) return { value: "Unavailable", color: "#94a3b8", subtitle: null };
+  const band = SOLAR_WIND_SPEED_SCALE.find(item => item.id === solarWindSpeedScaleId(speed));
+  if (speed == null || !band) return { value: "Unavailable", color: "#ffffff", subtitle: null };
   const value = `${Math.round(speed)} km/s`;
-  if (speed > 700) return { value, color: "#f97316", subtitle: "Very fast" };
-  if (speed > 500) return { value, color: "#eab308", subtitle: "Fast" };
-  if (speed >= 450) return { value, color: "#38bdf8", subtitle: "Enhanced" };
-  if (speed >= 350) return { value, color: "#38bdf8", subtitle: "Typical" };
-  return { value, color: "#38bdf8", subtitle: "Slow" };
+  return { value, color: band.color, subtitle: band.label };
 }
 
 function tecMeta(tec: number | null): {
@@ -82,7 +75,7 @@ function tecMeta(tec: number | null): {
   note: string;
 } {
   if (tec == null) {
-    return { value: "No recent TEC", color: "#94a3b8", code: "—", note: "CORS mean VTEC" };
+    return { value: "No recent TEC", color: "#ffffff", code: "—", note: "CORS mean VTEC" };
   }
   const value = `${tec.toFixed(1)} TECU`;
   if (tec < 10) return { value, color: "#00ff88", code: "N", note: "Low band · CORS mean VTEC" };
@@ -93,7 +86,7 @@ function tecMeta(tec: number | null): {
 }
 
 function corsColor(online: number | null, total: number | null): string {
-  if (online == null || total == null || total <= 0) return "#94a3b8";
+  if (online == null || total == null || total <= 0) return "#ffffff";
   const ratio = online / total;
   if (ratio >= 0.7) return "#168bd2";
   if (ratio >= 0.4) return "#eab308";
@@ -101,7 +94,7 @@ function corsColor(online: number | null, total: number | null): string {
 }
 
 function scaleHtml(
-  items: readonly { code?: string; desc?: string; color: string }[],
+  items: readonly { code?: string; desc?: string; range?: string; color: string }[],
   active: string | null,
   letterKey: "code" | "desc",
 ): string {
@@ -113,6 +106,7 @@ function scaleHtml(
       return `<div class="scale-item${activeItem ? " is-active" : ""}">
         <div class="scale-bar" style="background:${escape(item.color)};height:${activeItem ? 4 : 2}px;opacity:${activeItem || !active || active === "—" ? 1 : 0.45}"></div>
         <div class="scale-letter" style="color:${escape(item.color)};font-weight:${activeItem ? 900 : 800}">${escape(letter)}</div>
+        ${item.range ? `<div class="scale-range">${escape(item.range)}</div>` : ""}
       </div>`;
     })
     .join("")}</div>`;
@@ -203,6 +197,8 @@ export async function GET(request: NextRequest) {
       note: "Ring current · SYM-H when available",
       source: "NOAA / Kyoto Dst",
       freshness: dst != null ? "LIVE" : "UNAVAILABLE",
+      scaleHtml: scaleHtml(DST_RING_SCALE.map(band => ({ code: band.id, desc: band.label, range: `${band.short} nT`, color: band.color })), dstRingScaleId(dst), "desc")
+        + '<div class="scale-caption">Illustrative ZINGSA ring-current scale</div>',
     },
     {
       icon: "🌬️",
@@ -212,12 +208,13 @@ export async function GET(request: NextRequest) {
       subtitle: stream.subtitle,
       source: "NOAA SWPC RTSW",
       freshness: wind != null ? "LIVE" : "UNAVAILABLE",
+      scaleHtml: scaleHtml(SOLAR_WIND_SPEED_SCALE.map(band => ({ code: band.id, desc: band.label, range: `${band.short} km/s`, color: band.color })), solarWindSpeedScaleId(wind), "desc"),
     },
     {
       icon: "🛰️",
       label: "Estimated GNSS Risk",
       value: typeof weather?.gnss_risk === "string" && weather.gnss_risk ? weather.gnss_risk : "Unavailable",
-      valueColor: typeof weather?.gnss_risk_color === "string" ? weather.gnss_risk_color : "#94a3b8",
+      valueColor: typeof weather?.gnss_risk_color === "string" ? weather.gnss_risk_color : "#ffffff",
       note: "Provisional estimate · local positioning impact has not been verified",
       source: "ZGIIS risk label",
       freshness: monitoringFreshness(observed, Date.now(), Boolean(weather?.gnss_risk)),
@@ -237,7 +234,7 @@ export async function GET(request: NextRequest) {
 <style>
 *{box-sizing:border-box}
 body{
-  margin:0;min-height:100vh;background:#06101c;color:#f8fbff;
+  margin:0;min-height:100vh;background:#06101c;color:#ffffff;
   font:18px "Segoe UI", Arial, sans-serif;line-height:1.4;
   -webkit-tap-highlight-color:transparent;touch-action:manipulation;
 }
@@ -249,10 +246,10 @@ main{max-width:1680px;margin:auto;padding:28px 32px 36px}
   background:#061428;border:1px solid rgba(125,211,252,.45);
 }
 h1{font-size:32px;margin:0;line-height:1.15}
-.sub{margin:6px 0 0;color:#9db2c7;font-size:16px}
+.sub{margin:6px 0 0;color:#ffffff;font-size:16px}
 .live-chip{
   display:inline-flex;align-items:center;gap:8px;padding:10px 16px;border-radius:999px;
-  border:1px solid #244d73;background:rgba(0,0,0,.55);color:#dbe7f3;font-size:14px;font-weight:700;
+  border:1px solid #244d73;background:rgba(0,0,0,.55);color:#ffffff;font-size:14px;font-weight:700;
 }
 .live-dot{width:10px;height:10px;border-radius:50%;background:#00ff88;box-shadow:0 0 0 4px rgba(0,255,136,.15)}
 .warning{background:#49340e;border:1px solid #e6b85c;border-radius:10px;padding:14px 16px;margin:0 0 16px}
@@ -263,31 +260,33 @@ h1{font-size:32px;margin:0;line-height:1.15}
   background:rgba(0,0,0,.94);border:1px solid #244d73;border-radius:8px;
 }
 .icon{font-size:28px;line-height:1;margin-bottom:8px}
-.label{font-size:15px;font-weight:750;letter-spacing:.02em;line-height:1.2;color:#e2e8f0}
+.label{font-size:15px;font-weight:750;letter-spacing:.02em;line-height:1.2;color:#ffffff}
 .value{margin-top:8px;font-size:42px;font-weight:900;line-height:1.05;font-variant-numeric:tabular-nums;word-break:break-word}
-.subtitle{margin-top:6px;font-size:15px;color:#94a3b8}
-.note{margin-top:10px;font-size:13px;color:#94a3b8;line-height:1.3;width:100%}
-.meta{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:6px 10px;margin-top:10px;font-size:12px;color:#94a3b8}
+.subtitle{margin-top:6px;font-size:15px;color:#ffffff}
+.note{margin-top:10px;font-size:13px;color:#ffffff;line-height:1.3;width:100%}
+.meta{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:6px 10px;margin-top:10px;font-size:12px;color:#ffffff}
 .fresh{font-weight:800;letter-spacing:.04em;text-transform:uppercase}
 .fresh-live{color:#00ff88}
 .fresh-delayed{color:#eab308}
-.fresh-unavailable{color:#94a3b8}
+.fresh-unavailable{color:#ffffff}
 .scale{display:flex;width:100%;gap:4px;margin-top:12px}
 .scale-item{flex:1;min-width:0;text-align:center}
 .scale-bar{width:100%;border-radius:1px;margin-bottom:4px}
 .scale-letter{font-size:11px;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.scale-range{margin-top:4px;color:#ffffff;font-size:11px;line-height:1.25;overflow-wrap:anywhere}
+.scale-caption{margin-top:6px;color:#ffffff;font-size:11px;line-height:1.25}
 .advice{
   margin:18px 0 0;padding:14px 16px;border-radius:8px;border:1px solid #244d73;
-  background:rgba(0,0,0,.55);color:#c3d3e4;font-size:16px;
+  background:rgba(0,0,0,.55);color:#ffffff;font-size:16px;
 }
 .links{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:16px}
 .links a{
   display:flex;align-items:center;justify-content:center;text-align:center;
   min-height:60px;padding:12px 16px;border:2px solid #3a7ab5;border-radius:8px;
-  background:rgba(0,0,0,.85);color:#f8fbff;text-decoration:none;font-size:17px;font-weight:700;
+  background:rgba(0,0,0,.85);color:#ffffff;text-decoration:none;font-size:17px;font-weight:700;
 }
 .links a:focus,.links a:active{outline:3px solid #ffd166;outline-offset:2px}
-footer{margin-top:20px;border-top:1px solid #244d73;padding-top:14px;color:#8aa0b3;font-size:14px}
+footer{margin-top:20px;border-top:1px solid #244d73;padding-top:14px;color:#ffffff;font-size:14px}
 footer p{margin:0 0 8px}
 @media(max-width:1100px){.cards{grid-template-columns:repeat(2,minmax(0,1fr))}.links{grid-template-columns:1fr}}
 @media(max-width:640px){
