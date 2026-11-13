@@ -1,4 +1,6 @@
 "use client";
+import { useContext } from "react";
+import { ChartDateRangeContext } from "@/components/charts/ChartDateRange";
 
 import type { CSSProperties, KeyboardEvent } from "react";
 import { useMemo, useState } from "react";
@@ -99,12 +101,13 @@ export default function GoesSolarXrayCard({
   onToggle?: () => void;
   analysis?: ChartAnalysisBlock;
 }) {
+  const calendar=useContext(ChartDateRangeContext);
   const [localRange, setLocalRange] = useState<GoesXrayRange>(xrayRange ?? "1D");
   const range = onRangeChange != null ? (xrayRange ?? localRange) : localRange;
   const setRange = onRangeChange ?? setLocalRange;
 
   const chart = useMemo(() => {
-    const hours = RANGE_HOURS[range];
+    const hours = calendar?.day ? 168 : RANGE_HOURS[range];
     const points = (timeline ?? []).filter((p) => p?.t);
     let epochs: number[] = [];
     let longBand: (number | null)[] = [];
@@ -157,7 +160,7 @@ export default function GoesSolarXrayCard({
     });
     const classDetails = longBand.map((v) => (v != null ? fluxClass(v) : null));
     return { labels, epochs, longBand, shortBand, axis, classDetails, startMs, endMs };
-  }, [timeline, fallbackSeries, fallbackUpdated, range]);
+  }, [timeline, fallbackSeries, fallbackUpdated, range, calendar?.day]);
 
   const hasData = Boolean(chart);
   const interactive = Boolean(hasData && onToggle);

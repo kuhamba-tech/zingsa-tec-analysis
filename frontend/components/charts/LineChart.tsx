@@ -1,4 +1,6 @@
 "use client";
+import ChartDateRange, { ChartDateRangeContext, utcDayBounds, utcDaySampleIndices } from "./ChartDateRange";
+import { useContext } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CategoryScale,
@@ -219,12 +221,18 @@ export default function LineChart({
   ySuggestedMin,
   ySuggestedMax,
 }: Props) {
+  const calendar = useContext(ChartDateRangeContext);
+  const selectedBounds = calendar?.day ? utcDayBounds(calendar.day) : null;
+  if (selectedBounds && xValues?.some(v=>v>1e11)) { xMin=selectedBounds.min; xMax=selectedBounds.max; }
   const COLORS = ["#168bd2", "#ff8c00", "#00ff88", "#ff4444", "#a78bfa", "#34d399"];
   const budget = useMemo(() => chartRenderBudget(), []);
   // Cap drawn points so large VTEC / driver timelines stay interactive.
   const drawIdx = useMemo(
-    () => preserveSamples ? Array.from({length:labels.length},(_,i)=>i) : downsampleIndexes(labels.length, budget.maxPoints),
-    [labels.length, budget.maxPoints, preserveSamples],
+    () => {
+      const indices = utcDaySampleIndices(calendar?.day ?? "", labels, epochMs, xValues);
+      return preserveSamples ? indices : downsampleIndexes(indices.length,budget.maxPoints).map(i=>indices[i]);
+    },
+    [labels, epochMs, xValues, budget.maxPoints, preserveSamples, calendar?.day],
   );
   const drawLabels = useMemo(() => drawIdx.map((i) => labels[i]), [drawIdx, labels]);
   const drawXValues = useMemo(
@@ -397,6 +405,8 @@ export default function LineChart({
 
   return (
     <div>
+      <ChartDateRange />
+      {selectedBounds && !drawIdx.length && <p role="status">No loaded observations for {calendar?.day} UTC.</p>}
       {toggleableLegend && (
         <DatasetToggleLegend
           datasets={drawDatasets}

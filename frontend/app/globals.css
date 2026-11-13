@@ -9404,3 +9404,17 @@ a.home-map-layer-btn {
   .space-weather-page .sw-metric-bz-scale .sw-metric-flare-scale-letter { font-size: 0.7rem; }
   .space-weather-page .sw-metric-bz-scale .sw-metric-flare-scale-desc { font-size: 0.65rem; }
 }
+
+.regional-tec-date-picker { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; font-size: 0.85rem; }
+.regional-tec-date-picker input { color-scheme: dark; background: #0b1928; color: #fff; border: 1px solid #244d73; border-radius: 6px; padding: 0.4rem 0.6rem; min-height: 40px; font: inherit; max-width: 100%; }
+.regional-tec-date-picker input:focus-visible { outline: 2px solid #38bdf8; outline-offset: 2px; }
+@media (max-width: 560px) {
+  .regional-tec-date-picker { flex-basis: 100%; }
+  .regional-tec-date-picker input { font-size: 16px; min-height: 44px; }
+}
+
+.chart-date-range { display:flex; flex-wrap:wrap; align-items:flex-end; gap:0.6rem; margin:0 0 0.85rem; }
+.chart-date-range label { display:flex; flex-direction:column; gap:0.35rem; font-size:0.78rem; font-weight:700; }
+.chart-date-range input { color-scheme:dark; background:#0b1928; color:#fff; border:1px solid #244d73; border-radius:6px; min-height:44px; padding:0.5rem 0.65rem; font:inherit; }
+.chart-date-range span { flex-basis:100%; color:#cbd5e1; font-size:0.75rem; line-height:1.4; }
+@media(max-width:560px) { .chart-date-range input { font-size:16px; max-width:100%; } }

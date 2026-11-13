@@ -23,6 +23,8 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 import requests
+from concurrent.futures import ThreadPoolExecutor
+from .source_cache import read_source, write_source
 
 GIN_URL = "https://imag-data.bgs.ac.uk/GIN_V1/GINServices"
 
@@ -69,9 +71,13 @@ def _is_storm_day(max_dbdt: float | None, range_h: float | None) -> bool:
 
 
 def _fetch_chunk(observatory: str, start: date, days: int, timeout: int) -> dict[str, Any]:
+    key = f"{GIN_URL}/{observatory}/{start.isoformat()}/{days}/IAGA2002"
+    cached = read_source("intermagnet", key, max_age=600)
+    if cached is not None:
+        return _parse_iaga_payload(cached.decode("utf-8"))
     params = {
         "Request": "GetData",
-        "format": "json",
+        "format": "IAGA2002",
         "testObsys": "0",
         "observatoryIagaCode": observatory,
         "samplesPerDay": "1440",
@@ -81,7 +87,10 @@ def _fetch_chunk(observatory: str, start: date, days: int, timeout: int) -> dict
     }
     resp = requests.get(GIN_URL, params=params, timeout=timeout)
     resp.raise_for_status()
-    return resp.json()
+    payload = _parse_iaga_payload(resp.text)
+    if any(x is not None for x in payload["X"]):
+        write_source("intermagnet", key, resp.text.encode("utf-8"))
+    return payload
 
 
 def fetch_intermagnet_daily(
@@ -99,24 +108,36 @@ def fetch_intermagnet_daily(
         start, end = end, start
     if (end - start).days > _MAX_DAYS:
         raise ValueError(f"Date range too large — maximum {_MAX_DAYS} days per request.")
+    end = min(end, datetime.now(timezone.utc).date())
+    if start > end:
+        return []
 
     # Accumulate per-day stats across monthly chunks.
     by_day: dict[str, dict[str, Any]] = {}
     cursor = start
+    chunks = []
     while cursor <= end:
         days = min(_CHUNK_DAYS, (end - cursor).days + 1)
-        payload = _fetch_chunk(observatory, cursor, days, timeout)
+        chunks.append((cursor, days))
+        cursor += timedelta(days=days)
+    with ThreadPoolExecutor(max_workers=min(4, len(chunks))) as pool:
+        payloads = list(pool.map(lambda chunk: _fetch_chunk(observatory, *chunk, timeout), chunks))
+    for payload in payloads:
         times = payload.get("datetime") or []
         xs = payload.get("X") or []
         ys = payload.get("Y") or []
 
         prev_h: float | None = None
         prev_day: str | None = None
+        prev_time: datetime | None = None
         for i, t in enumerate(times):
-            x = xs[i] if i < len(xs) else None
-            y = ys[i] if i < len(ys) else None
-            if x is None or y is None:
+            x = _finite_component(xs[i] if i < len(xs) else None)
+            y = _finite_component(ys[i] if i < len(ys) else None)
+            stamp = _parse_stamp(str(t))
+            if x is None or y is None or stamp is None:
                 prev_h = None
+                continue
+            if not start <= stamp.date() <= end:
                 continue
             h = math.hypot(float(x), float(y))
             day = str(t)[:10]
@@ -128,11 +149,12 @@ def fetch_intermagnet_daily(
             d["n"] += 1
             d["min"] = min(d["min"], h)
             d["max"] = max(d["max"], h)
-            if prev_h is not None and prev_day == day:
-                d["max_dbdt"] = max(d["max_dbdt"], abs(h - prev_h))
+            step = (stamp - prev_time).total_seconds() if prev_time else 0
+            if prev_h is not None and prev_day == day and 50 <= step <= 70:
+                d["max_dbdt"] = max(d["max_dbdt"], abs(h - prev_h) / (step / 60))
             prev_h = h
             prev_day = day
-        cursor += timedelta(days=days)
+            prev_time = stamp
 
     rows: list[dict[str, Any]] = []
     for day in sorted(by_day):
@@ -254,19 +276,14 @@ def newest_recorded_day(days: list[dict[str, Any]]) -> date | None:
     return found
 
 
-def summarise_iaga2002(text: str, *, now: datetime) -> dict[str, Any] | None:
-    """Parse an IAGA-2002 minute file.
-
-    The GIN JSON product currently returns null components for days whose
-    directory lists recorded samples. The IAGA-2002 file for the same day
-    carries the values. Missing samples are 99999.
-    """
-    times: list[str] = []
-    xs: list[float | None] = []
-    ys: list[float | None] = []
-    zs: list[float | None] = []
-    fs: list[float | None] = []
+def _parse_iaga_payload(text: str) -> dict[str, Any]:
+    """Read finite IAGA XYZ components; reject unsupported component layouts."""
+    times, xs, ys, zs, fs = [], [], [], [], []
     for line in text.splitlines():
+        if line.lstrip().startswith("DATE"):
+            columns = line.split()
+            if len(columns) < 5 or not columns[3].endswith("X") or not columns[4].endswith("Y"):
+                raise ValueError("Unsupported IAGA component layout; XYZ field data required")
         if not line or not line[0].isdigit():
             continue
         parts = line.split()
@@ -277,8 +294,18 @@ def summarise_iaga2002(text: str, *, now: datetime) -> dict[str, Any] | None:
         ys.append(_finite_component(parts[4]))
         zs.append(_finite_component(parts[5]))
         fs.append(_finite_component(parts[6]))
+    return {"datetime": times, "X": xs, "Y": ys, "Z": zs, "F": fs}
+
+
+def summarise_iaga2002(text: str, *, now: datetime) -> dict[str, Any] | None:
+    """Parse an IAGA-2002 minute file.
+
+    The GIN JSON product currently returns null components for days whose
+    directory lists recorded samples. The IAGA-2002 file for the same day
+    carries the values. Missing samples are 99999.
+    """
     return summarise_minute_day(
-        {"datetime": times, "X": xs, "Y": ys, "Z": zs, "F": fs},
+        _parse_iaga_payload(text),
         now=now,
     )
 

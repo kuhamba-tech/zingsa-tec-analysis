@@ -7,6 +7,7 @@ from typing import Any
 from urllib.error import URLError
 from urllib.request import urlopen
 import json
+import time
 
 DIDBASE_BASE_URL = "https://lgdc.uml.edu/ionoweb"
 
@@ -31,7 +32,7 @@ STATION_FALLBACKS: dict[str, dict[str, Any]] = {
 }
 
 
-def _get_json(url: str, timeout: float = 4.0) -> dict[str, Any]:
+def _get_json(url: str, timeout: float = 10.0) -> dict[str, Any]:
     with urlopen(url, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8"))
 
@@ -43,9 +44,13 @@ def fetch_didbase_locations() -> list[dict[str, Any]]:
 
 
 @lru_cache(maxsize=16)
-def fetch_didbase_years(ursi_code: str) -> list[int]:
+def _fetch_didbase_years(ursi_code: str, hour: int) -> list[int]:
     payload = _get_json(f"{DIDBASE_BASE_URL}/years4loc?ursiCode={ursi_code.upper()}")
     return [int(year) for year in payload.get("YearList") or []]
+
+
+def fetch_didbase_years(ursi_code: str) -> list[int]:
+    return list(_fetch_didbase_years(ursi_code.upper(), int(time.time() // 3600)))
 
 
 def get_ionosonde_metadata(ursi_code: str) -> dict[str, Any]:

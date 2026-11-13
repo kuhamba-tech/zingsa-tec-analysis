@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import csv
 import io
+import os
+import time
 from datetime import date, datetime, timedelta
 from typing import Any
 
@@ -30,6 +32,32 @@ except ImportError:
 
 CELESTRAK_ALL_CSV = "https://celestrak.org/SpaceData/SW-All.csv"
 CELESTRAK_LAST5Y_CSV = "https://celestrak.org/SpaceData/SW-Last5Years.csv"
+_RELAY_URL = "https://zingsa-gnss-tec.vercel.app/api/tec-router/"
+_relay_cache: dict[tuple[date, date], tuple[float, list[dict[str, Any]]]] = {}
+
+
+def _relay_daily(start: date, end: date) -> list[dict[str, Any]]:
+    """Use the same original CelesTrak records when a workstation cannot reach it.
+
+    Never used on Vercel (which would recurse). Ignore the remote VTEC values;
+    build_analysis merges the caller's own receiver archive afterwards.
+    """
+    response = requests.get(_RELAY_URL, params={
+        "__zr": "/tec/celestrak-analysis",
+        "start": start.isoformat() + "T00:00:00Z",
+        "end": end.isoformat() + "T23:59:59Z",
+    }, timeout=(5, 30))
+    response.raise_for_status()
+    payload = response.json()
+    if not str(payload.get("source", "")).startswith("CelesTrak Space Weather Data"):
+        raise RuntimeError("Relay did not identify the original CelesTrak source")
+    fields = ("date", "ssn", "kp", "kp_mean", "ap", "f107", "data_type", "storm_flag", "storm_class")
+    rows = []
+    for raw in payload.get("series", []):
+        day = date.fromisoformat(str(raw.get("date", "")))
+        if start <= day <= end:
+            rows.append({**{field: raw.get(field) for field in fields}, "_retrieved_via_relay": True})
+    return sorted(rows, key=lambda row: row["date"])
 
 
 def _parse_float(raw: str | None) -> float | None:
@@ -116,17 +144,28 @@ def fetch_celestrak_daily(start: date, end: date, *, timeout: int = 60) -> list[
         return []
     if end < start:
         start, end = end, start
+    cached = _relay_cache.get((start, end))
+    if cached and time.monotonic() - cached[0] < 300:
+        return [dict(row) for row in cached[1]]
 
     five_years_ago = date.today() - timedelta(days=365 * 5)
     url = CELESTRAK_LAST5Y_CSV if start >= five_years_ago else CELESTRAK_ALL_CSV
 
-    resp = requests.get(url, timeout=timeout)
-    resp.raise_for_status()
-    rows = _parse_csv(resp.text, start, end)
+    try:
+        resp = requests.get(url, timeout=(min(timeout, 8), timeout))
+        resp.raise_for_status()
+        rows = _parse_csv(resp.text, start, end)
+    except requests.RequestException:
+        if os.getenv("VERCEL") or os.getenv("AWS_LAMBDA_FUNCTION_NAME"):
+            raise
+        rows = _relay_daily(start, end)
+        if rows:
+            _relay_cache[(start, end)] = (time.monotonic(), rows)
+        return rows
 
     if not rows and url == CELESTRAK_LAST5Y_CSV:
         # Requested range fell outside the rolling 5-year file; fall back to the full archive.
-        resp = requests.get(CELESTRAK_ALL_CSV, timeout=timeout)
+        resp = requests.get(CELESTRAK_ALL_CSV, timeout=(min(timeout, 8), timeout))
         resp.raise_for_status()
         rows = _parse_csv(resp.text, start, end)
 
@@ -153,7 +192,7 @@ def build_analysis(
     f107_vals = [r["f107"] for r in rows if r.get("f107") is not None]
 
     return {
-        "source": "CelesTrak Space Weather Data (https://celestrak.org/SpaceData/)",
+        "source": "CelesTrak Space Weather Data (https://celestrak.org/SpaceData/)" + (" via ZINGSA production API" if any(row.get("_retrieved_via_relay") for row in rows) else ""),
         "start_date": rows[0]["date"] if rows else None,
         "end_date": rows[-1]["date"] if rows else None,
         "days": len(rows),

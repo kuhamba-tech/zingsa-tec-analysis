@@ -128,7 +128,8 @@ export default function MultiSourceComparisonPanel({
 }: Props) {
   const bundle: SourceBundle = { omni, celestrak, gfz, kyoto };
 
-  if (loading) {
+  const count = loadedSourceCount(bundle);
+  if (loading && count === 0) {
     return (
       <div className="banner banner-info">
         Fetching indices from NASA OMNIWeb, CelesTrak, GFZ Potsdam (Germany), and WDC Kyoto (Japan)…
@@ -136,13 +137,15 @@ export default function MultiSourceComparisonPanel({
     );
   }
 
-  const count = loadedSourceCount(bundle);
   if (count === 0) {
     return (
+      <div>
+      {Object.entries(errors ?? {}).filter(([, message]) => message).map(([name, message]) => <ErrorBanner key={name} label={name} message={message!} />)}
       <div className="banner banner-info">
         Select a date range above and click <strong>Load all sources</strong> to pull geomagnetic indices from
         NASA OMNIWeb, CelesTrak, GFZ Potsdam (Germany), and WDC Kyoto (Japan) on one timeline and compare how
         each provider recorded the same metrics.
+      </div>
       </div>
     );
   }
@@ -173,6 +176,7 @@ export default function MultiSourceComparisonPanel({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+      {loading && <div className="banner banner-info" role="status">Available providers are shown below. Still checking the remaining sources…</div>}
       {(errors?.omni || errors?.celestrak || errors?.gfz || errors?.kyoto) && (
         <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
           {errors?.omni && <ErrorBanner label="NASA OMNIWeb" message={errors.omni} />}
@@ -183,6 +187,7 @@ export default function MultiSourceComparisonPanel({
       )}
 
       <div className="omni-source-banner">
+        {omni?.start_date && omni?.end_date && <p>NASA OMNI returned observations from {omni.start_date} to {omni.end_date} UTC. Dates outside its published coverage remain empty.</p>}
         <p>
           <strong>Multi-source comparison</strong> — {count} of 4 providers loaded · {dates.length} day(s) on a
           common timeline. GFZ Potsdam (Germany) is the official Kp derivation centre; WDC Kyoto (Japan) hosts

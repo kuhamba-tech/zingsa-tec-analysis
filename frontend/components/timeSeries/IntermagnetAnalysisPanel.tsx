@@ -80,14 +80,18 @@ export default function IntermagnetAnalysisPanel({
   if (loading) {
     return (
       <div className="banner banner-info">
-        Fetching INTERMAGNET minute data and planetary Dst/Ap indices (NASA, Kyoto, CelesTrak)…
+        Fetching INTERMAGNET ground observations. Optional planetary indices load independently…
       </div>
     );
   }
   if (error) {
     return <div className="banner banner-alert">{error}</div>;
   }
-  if (!intermagnet || intermagnet.series.length === 0) {
+  if (intermagnet && intermagnet.series.length === 0) {
+    return <div className="banner banner-warn">The provider returned no valid ground observations for this
+      observatory and date range. Choose an earlier interval or another observatory. No measurements are inferred.</div>;
+  }
+  if (!intermagnet) {
     return (
       <div className="banner banner-info">
         Select a date range and observatory above and click <strong>Load INTERMAGNET analysis</strong> to pull

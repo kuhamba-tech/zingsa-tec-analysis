@@ -68,6 +68,7 @@ export default function GeomagneticAnalysisPanel({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
       <div className="omni-source-banner">
+        {omni.start_date && omni.end_date && <p>NASA OMNI coverage: {omni.start_date} to {omni.end_date} UTC. Unreleased dates are not filled.</p>}
         <div className="omni-source-scale" aria-hidden="true">
           <span>Low TEC</span>
           <div className="omni-source-gradient" />

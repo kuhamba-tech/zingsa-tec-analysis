@@ -1,8 +1,8 @@
 "use client";
+import { orderedMonthRange } from "@/lib/monthRange";
 import { useEffect, useState, useCallback, useRef } from "react";
-import { getArchiveMeta, getTimeSeries, getDiurnal, getSeasonal, getSolarCycle, getOmniAnalysis, getCelestrakAnalysis, getGfzKpAnalysis, getWdcKyotoAnalysis, getIntermagnetAnalysis, getGuviOn2, getCosmic2Analysis, getDidbaseIonosonde } from "@/lib/api";
+import { getArchiveMeta, getTimeSeries, getOmniAnalysis, getCelestrakAnalysis, getGfzKpAnalysis, getWdcKyotoAnalysis, getIntermagnetAnalysis, getGuviOn2, getCosmic2Analysis, getDidbaseIonosonde } from "@/lib/api";
 import LineChart from "@/components/charts/LineChart";
-import BarChart from "@/components/charts/BarChart";
 import GeomagneticAnalysisPanel from "@/components/timeSeries/GeomagneticAnalysisPanel";
 import CelestrakAnalysisPanel from "@/components/timeSeries/CelestrakAnalysisPanel";
 import GfzKpAnalysisPanel from "@/components/timeSeries/GfzKpAnalysisPanel";
@@ -10,7 +10,7 @@ import MultiSourceComparisonPanel from "@/components/timeSeries/MultiSourceCompa
 import IntermagnetAnalysisPanel from "@/components/timeSeries/IntermagnetAnalysisPanel";
 import GuviOn2AnalysisPanel from "@/components/timeSeries/GuviOn2AnalysisPanel";
 import Cosmic2AnalysisPanel from "@/components/timeSeries/Cosmic2AnalysisPanel";
-import type { ArchiveMeta, TecObservation, DiurnalPoint, SeasonalRow, SolarCycleRow, OmniAnalysisResponse, CelestrakAnalysisResponse, GfzKpAnalysisResponse, WdcKyotoAnalysisResponse, IntermagnetAnalysisResponse, GuviOn2Response, Cosmic2AnalysisResponse, DidbaseIonosondeResponse } from "@/lib/types";
+import type { ArchiveMeta, TecObservation, OmniAnalysisResponse, CelestrakAnalysisResponse, GfzKpAnalysisResponse, WdcKyotoAnalysisResponse, IntermagnetAnalysisResponse, GuviOn2Response, Cosmic2AnalysisResponse, DidbaseIonosondeResponse } from "@/lib/types";
 
 const STATION_COLORS = ["#168bd2","#ff4444","#00ff88","#ff8c00","#a78bfa","#ffcc00","#34d399","#f472b6"];
 const MONTHS = [
@@ -78,7 +78,7 @@ const IONOSONDE_STATIONS = [
   },
 ];
 
-type Tab = "daily" | "monthly" | "seasonal" | "diurnal" | "compare" | "storms" | "celestrak" | "gfz" | "guvi" | "cosmic2" | "intermagnet";
+type Tab = "daily" | "compare" | "storms" | "celestrak" | "gfz" | "guvi" | "cosmic2" | "intermagnet";
 
 function formatGuviDate(date: string) {
   const d = new Date(`${date}T00:00:00Z`);
@@ -218,10 +218,19 @@ function IonosondeDidbasePanel({
   const days = Array.from({ length: lastDayOfMonth(endYear, startMonth) }, (_, i) => i + 1);
   const selectedDate = `${MONTHS.find((m) => m.value === startMonth)?.label ?? "April"} ${String(day).padStart(2, "0")}, ${endYear}`;
   const selectedIsoDate = `${endYear}-${String(startMonth).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  useEffect(() => {
+    const lastDay = lastDayOfMonth(endYear, startMonth);
+    if (day > lastDay) onDay(lastDay);
+  }, [day, endYear, startMonth, onDay]);
 
   const [result, setResult] = useState<DidbaseIonosondeResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setResult(null);
+    setError(null);
+  }, [station, endYear, startMonth, day]);
 
   const handleLoad = useCallback(async () => {
     setLoading(true);
@@ -317,12 +326,18 @@ function IonosondeDidbasePanel({
               {result.lat != null && result.lon != null ? ` (${result.lat.toFixed(2)}, ${result.lon.toFixed(2)})` : ""}.{" "}
               {result.availability_years.length > 0 ? (
                 <>
-                  Ionogram data available for {result.availability_years[0]}–{result.latest_available_year}.{" "}
+                  Recorded years: {result.availability_years.join(", ")}.{" "}
                   {result.year_has_data === false && (
-                    <strong>No ionogram data on record for {result.requested_year}.</strong>
+                    <>
+                      <strong>No ionogram data on record for {result.requested_year}.</strong>{" "}
+                      {result.latest_available_year != null && <button type="button" className="btn btn-secondary"
+                        onClick={() => onEndYear(result.latest_available_year!)}>
+                        Choose latest recorded year ({result.latest_available_year})
+                      </button>}
+                    </>
                   )}
                   {result.year_has_data === true && (
-                    <strong>{result.requested_year} has ionogram data on record.</strong>
+                    <strong>{result.requested_year} has ionogram data on record; coverage for the selected day has not been verified.</strong>
                   )}
                 </>
               ) : (
@@ -348,12 +363,12 @@ function IonosondeDidbasePanel({
 export default function TimeSeriesPage() {
   const [meta, setMeta]       = useState<ArchiveMeta | null>(null);
   const [obs, setObs]         = useState<TecObservation[]>([]);
-  const [diurnal, setDiurnal] = useState<DiurnalPoint[]>([]);
-  const [seasonal, setSeasonal] = useState<SeasonalRow[]>([]);
-  const [solarCycle, setSolarCycle] = useState<SolarCycleRow[]>([]);
   const [tab, setTab]         = useState<Tab>("daily");
   const urlInit = useRef(false);
   const [loading, setLoading] = useState(true);
+  const [dateRangeError, setDateRangeError] = useState<string | null>(null);
+  const [ionosondeMonth, setIonosondeMonth] = useState(new Date().getUTCMonth()+1);
+  const [ionosondeYear, setIonosondeYear] = useState(new Date().getUTCFullYear());
   const [loadError, setLoadError] = useState<string | null>(null);
   const [coverageOpen, setCoverageOpen] = useState(false);
   const [omni, setOmni] = useState<OmniAnalysisResponse | null>(null);
@@ -392,7 +407,19 @@ export default function TimeSeriesPage() {
   const [ionosondeCode, setIonosondeCode] = useState("MU12K");
   const [guviDate, setGuviDate] = useState("2021-11-03");
 
-  const yearOptions = Array.from({ length: 12 }, (_, i) => new Date().getFullYear() - 6 + i);
+  const changeMonthRange = (scope: "source" | "ground", edge: "start" | "end", year: number, month: number) => {
+    const ground = scope === "ground";
+    const next = orderedMonthRange(ground ? imagStartYear : startYear, ground ? imagStartMonth : startMonth, ground ? imagEndYear : endYear, ground ? imagEndMonth : endMonth, edge, year, month);
+    if (ground) {
+      setImagStartYear(next.startYear); setImagStartMonth(next.startMonth); setImagEndYear(next.endYear); setImagEndMonth(next.endMonth);
+    } else {
+      setStartYear(next.startYear); setStartMonth(next.startMonth); setEndYear(next.endYear); setEndMonth(next.endMonth);
+    }
+    setDateRangeError(null);
+    setLoadError(current => current?.startsWith("the selected date range") ? null : current);
+  };
+
+  const yearOptions = Array.from({ length: new Date().getUTCFullYear() - 2000 + 2 }, (_, i) => 2000 + i);
   const loadGen = useRef(0);
 
   const loadAll = useCallback(async (st?: string, s?: string, e?: string, opts?: { initial?: boolean }) => {
@@ -401,36 +428,28 @@ export default function TimeSeriesPage() {
       setLoading(true);
     }
     setLoadError(null);
-    const results = await Promise.allSettled([
-      getArchiveMeta(),
-      getTimeSeries({ station: st || undefined, start: s || undefined, end: e || undefined, limit: 10000 }),
-      getDiurnal(),
-      getSeasonal(),
-      getSolarCycle(),
-    ]);
-    if (gen !== loadGen.current) return;
-
-    const errors: string[] = [];
-    const labels = ["archive meta", "time series", "diurnal", "seasonal", "solar cycle"];
-    results.forEach((result, i) => {
-      if (result.status === "rejected") {
-        errors.push(`${labels[i]}: ${result.reason instanceof Error ? result.reason.message : "failed"}`);
-      }
-    });
-    const m = results[0].status === "fulfilled" ? results[0].value : null;
-    const o = results[1].status === "fulfilled" ? results[1].value : null;
-    const d = results[2].status === "fulfilled" ? results[2].value : null;
-    const sea = results[3].status === "fulfilled" ? results[3].value : null;
-    const sc = results[4].status === "fulfilled" ? results[4].value : null;
-    if (m) setMeta(m);
-    if (Array.isArray(o)) setObs(o);
-    if (Array.isArray(d)) setDiurnal(d);
-    if (Array.isArray(sea)) setSeasonal(sea);
-    if (Array.isArray(sc)) setSolarCycle(sc);
-    if (errors.length) {
-      setLoadError(errors.join(" · "));
+    try {
+      const errors: string[] = [];
+      // Paint each independent archive product as soon as it arrives.
+      const accept = async <T,>(label: string, request: Promise<T>, apply: (value: T) => void) => {
+        try {
+          const value = await request;
+          if (gen === loadGen.current) apply(value);
+        } catch {
+          errors.push(label);
+        }
+      };
+      await Promise.all([
+        accept("archive information", getArchiveMeta(), setMeta),
+        accept("daily observations", getTimeSeries({ station: st || undefined, start: s || undefined, end: e || undefined, limit: 10000 }), setObs),
+      ]);
+      if (gen !== loadGen.current) return;
+      if (errors.length) setLoadError(errors.join(", "));
+    } finally {
+      // Only the latest in-flight load may clear the spinner — stale generations
+      // must not leave Load buttons stuck disabled when React remounts.
+      if (gen === loadGen.current) setLoading(false);
     }
-    setLoading(false);
   }, []);
   useEffect(() => {
     void loadAll(undefined, undefined, undefined, { initial: true });
@@ -463,8 +482,8 @@ export default function TimeSeriesPage() {
     if (!startParam && !endParam && !stationParam && !tabParam) return;
     urlInit.current = true;
     if (stationParam) setStation(stationParam);
-    if (tabParam === "storms" || tabParam === "daily" || tabParam === "monthly" || tabParam === "seasonal"
-      || tabParam === "diurnal" || tabParam === "compare" || tabParam === "celestrak"
+    if (tabParam === "storms" || tabParam === "daily"
+      || tabParam === "compare" || tabParam === "celestrak"
       || tabParam === "gfz" || tabParam === "guvi" || tabParam === "cosmic2" || tabParam === "intermagnet") {
       setTab(tabParam);
     }
@@ -487,6 +506,10 @@ export default function TimeSeriesPage() {
 
   const loadAllSources = useCallback(async () => {
     const r = rangeFromMonths(startYear, startMonth, endYear, endMonth);
+    if (r.start > r.end) {
+      setDateRangeError("Choose a start month on or before the end month.");
+      return;
+    }
     setStart(r.start);
     setEnd(r.end);
     setSourcesLoading(true);
@@ -496,37 +519,16 @@ export default function TimeSeriesPage() {
     setKyotoError(null);
     try {
       void loadAll(station, r.start, r.end, { initial: false });
-      const [omniR, celR, gfzR, kyotoR] = await Promise.allSettled([
-        getOmniAnalysis(r.start, r.end, station || undefined),
-        getCelestrakAnalysis(r.start, r.end, station || undefined),
-        getGfzKpAnalysis(r.start, r.end, station || undefined),
-        getWdcKyotoAnalysis(r.start, r.end, station || undefined),
+      const source = async <T,>(request: Promise<T>, apply: (value: T) => void, fail: (message: string) => void, name: string) => {
+        try { apply(await request); }
+        catch { fail(`${name} could not be reached or has no released data for this interval. Other available sources remain usable. Retry Load all sources, or choose an earlier interval.`); }
+      };
+      await Promise.all([
+        source(getOmniAnalysis(r.start, r.end, station || undefined), setOmni, setOmniError, "NASA OMNIWeb"),
+        source(getCelestrakAnalysis(r.start, r.end, station || undefined), setCelestrak, setCelestrakError, "CelesTrak"),
+        source(getGfzKpAnalysis(r.start, r.end, station || undefined), setGfz, setGfzError, "GFZ Potsdam"),
+        source(getWdcKyotoAnalysis(r.start, r.end, station || undefined), setKyoto, setKyotoError, "WDC Kyoto"),
       ]);
-      if (omniR.status === "fulfilled") {
-        setOmni(omniR.value);
-      } else {
-        setOmni(null);
-        setOmniError(omniR.reason instanceof Error ? omniR.reason.message : "Failed to load OMNIWeb data");
-      }
-      if (celR.status === "fulfilled") {
-        setCelestrak(celR.value);
-      } else {
-        setCelestrak(null);
-        setCelestrakError(celR.reason instanceof Error ? celR.reason.message : "Failed to load CelesTrak data");
-      }
-      if (gfzR.status === "fulfilled") {
-        setGfz(gfzR.value);
-      } else {
-        setGfz(null);
-        setGfzError(gfzR.reason instanceof Error ? gfzR.reason.message : "Failed to load GFZ Kp data");
-      }
-      if (kyotoR.status === "fulfilled") {
-        setKyoto(kyotoR.value);
-      } else {
-        setKyoto(null);
-        setKyotoError(kyotoR.reason instanceof Error ? kyotoR.reason.message : "Failed to load WDC Kyoto data");
-      }
-      setTab("compare");
     } finally {
       setSourcesLoading(false);
     }
@@ -534,6 +536,10 @@ export default function TimeSeriesPage() {
 
   const loadIntermagnet = useCallback(async () => {
     const r = rangeFromMonths(imagStartYear, imagStartMonth, imagEndYear, imagEndMonth);
+    if (r.start > r.end) {
+      setDateRangeError("Choose a start month on or before the end month.");
+      return;
+    }
     setIntermagnetLoading(true);
     setIntermagnetError(null);
     setTab("intermagnet");
@@ -542,24 +548,11 @@ export default function TimeSeriesPage() {
     setKyotoError(null);
     try {
       void loadAll(station, r.start, r.end, { initial: false });
-      const [imagR, omniR, celR, kyotoR] = await Promise.allSettled([
-        getIntermagnetAnalysis(r.start, r.end, imagObservatory, station || undefined),
-        getOmniAnalysis(r.start, r.end, station || undefined),
-        getCelestrakAnalysis(r.start, r.end, station || undefined),
-        getWdcKyotoAnalysis(r.start, r.end, station || undefined),
-      ]);
-      if (imagR.status === "fulfilled") {
-        setIntermagnet(imagR.value);
-      } else {
-        setIntermagnet(null);
-        throw imagR.reason;
-      }
-      if (omniR.status === "fulfilled") setOmni(omniR.value);
-      else setOmniError(omniR.reason instanceof Error ? omniR.reason.message : "NASA OMNIWeb failed");
-      if (celR.status === "fulfilled") setCelestrak(celR.value);
-      else setCelestrakError(celR.reason instanceof Error ? celR.reason.message : "CelesTrak failed");
-      if (kyotoR.status === "fulfilled") setKyoto(kyotoR.value);
-      else setKyotoError(kyotoR.reason instanceof Error ? kyotoR.reason.message : "WDC Kyoto failed");
+      // Optional planetary feeds must not hold up the ground observations.
+      void getOmniAnalysis(r.start, r.end, station || undefined).then(setOmni).catch(() => setOmniError("NASA OMNI could not refresh."));
+      void getCelestrakAnalysis(r.start, r.end, station || undefined).then(setCelestrak).catch(() => setCelestrakError("CelesTrak could not refresh."));
+      void getWdcKyotoAnalysis(r.start, r.end, station || undefined).then(setKyoto).catch(() => setKyotoError("Kyoto could not refresh."));
+      setIntermagnet(await getIntermagnetAnalysis(r.start, r.end, imagObservatory, station || undefined));
     } catch (err) {
       setIntermagnet(null);
       setIntermagnetError(err instanceof Error ? err.message : "Failed to load INTERMAGNET data");
@@ -588,6 +581,10 @@ export default function TimeSeriesPage() {
 
   const loadCosmic2 = useCallback(async () => {
     const r = rangeFromMonths(startYear, startMonth, endYear, endMonth);
+    if (r.start > r.end) {
+      setDateRangeError("Choose a start month on or before the end month.");
+      return;
+    }
     setStart(r.start);
     setEnd(r.end);
     setCosmic2Loading(true);
@@ -634,25 +631,6 @@ export default function TimeSeriesPage() {
 
   const allVtec = obs.map((o) => o.vtec ?? 0).filter((v) => v > 0);
   const pct95   = allVtec.length ? percentile(allVtec, 95) : 0;
-
-  // ── Monthly means per station ─────────────────────────────────────────────
-  const monthlyByStation: Record<string, Record<string, number[]>> = {};
-  for (const o of obs) {
-    const month = o.timestamp.slice(0, 7);
-    const st    = o.station || "unknown";
-    if (!monthlyByStation[st]) monthlyByStation[st] = {};
-    if (!monthlyByStation[st][month]) monthlyByStation[st][month] = [];
-    if (o.vtec !== null) monthlyByStation[st][month].push(o.vtec);
-  }
-  const allMonths = [...new Set(obs.map((o) => o.timestamp.slice(0, 7)))].sort();
-  const monthlyDatasets = stations.map((st, i) => ({
-    label: st,
-    data: allMonths.map((m) => {
-      const vals = monthlyByStation[st]?.[m] ?? [];
-      return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
-    }),
-    color: STATION_COLORS[i % STATION_COLORS.length],
-  }));
 
   const metaAvailYears = meta?.first_date && meta?.last_date
     ? [...new Set([meta.first_date.slice(0, 4), meta.last_date.slice(0, 4)])].join(", ")
@@ -718,15 +696,27 @@ export default function TimeSeriesPage() {
         <div className="omni-range-grid">
           <label>
             From month
-            <select value={startMonth} onChange={(e) => setStartMonth(Number(e.target.value))}>
+            <select value={startMonth} onChange={(e) => changeMonthRange("source", "start", startYear, Number(e.target.value))}>
               {MONTHS.map((m) => (
                 <option key={m.value} value={m.value}>{m.label}</option>
               ))}
             </select>
           </label>
           <label>
+            From year
+            <select value={startYear} onChange={e=>changeMonthRange("source", "start", Number(e.target.value), startMonth)}>
+              {yearOptions.map(y=><option key={y} value={y}>{y}</option>)}
+            </select>
+          </label>
+          <label>
+            To month
+            <select value={endMonth} onChange={e=>changeMonthRange("source", "end", endYear, Number(e.target.value))}>
+              {MONTHS.map(m=><option key={m.value} value={m.value}>{m.label}</option>)}
+            </select>
+          </label>
+          <label>
             To year
-            <select value={endYear} onChange={(e) => setEndYear(Number(e.target.value))}>
+            <select value={endYear} onChange={(e) => changeMonthRange("source", "end", Number(e.target.value), endMonth)}>
               {yearOptions.map((y) => (
                 <option key={y} value={y}>{y}</option>
               ))}
@@ -742,10 +732,10 @@ export default function TimeSeriesPage() {
               ))}
             </select>
           </label>
-          <button className="btn btn-primary" onClick={loadAllSources} disabled={sourcesLoading || (loading && obs.length === 0)}>
+          <button className="btn btn-primary" onClick={loadAllSources} disabled={sourcesLoading || (loading && !meta?.available)}>
             {sourcesLoading ? "Loading all sources…" : "Load all sources"}
           </button>
-          <button className="btn btn-secondary" onClick={loadCosmic2} disabled={cosmic2Loading || (loading && obs.length === 0)}>
+          <button className="btn btn-secondary" onClick={loadCosmic2} disabled={cosmic2Loading || (loading && !meta?.available)}>
             {cosmic2Loading ? "Checking COSMIC-2..." : "Load COSMIC-2"}
           </button>
         </div>
@@ -761,10 +751,10 @@ export default function TimeSeriesPage() {
       </div>
 
       <div className="omni-range-card">
-        <div className="omni-range-title">Thermosphere O/N2 - TIMED/GUVI Level-3 Map Context</div>
+        <div className="omni-range-title">Thermosphere O/N2 - TIMED/GUVI Level-3 observations</div>
         <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", margin: 0 }}>
-          Load one TIMED/GUVI O/N2 reference overpass date and plot the thermospheric composition context using the
-          same map-and-legend format as the GUVI gallery product.
+          Load measured regional column O/N2 from the NASA archive for 2002–2007. Later dates currently provide
+          reference metadata only; a downloaded Level-3 product is required for measured ratios.
         </p>
         <div className="omni-range-grid">
           <label>
@@ -801,15 +791,15 @@ export default function TimeSeriesPage() {
               ))}
             </select>
           </label>
-          <button className="btn btn-secondary" onClick={loadGuviOn2} disabled={guviLoading || (loading && obs.length === 0)}>
+          <button className="btn btn-secondary" onClick={loadGuviOn2} disabled={guviLoading || (loading && !meta?.available)}>
             {guviLoading ? "Loading O/N2..." : "Load O/N2"}
           </button>
         </div>
         <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
-          Selected O/N2 date: {guviDate}. Click Load O/N2 to plot the TIMED/GUVI map.
+          Selected O/N2 date: {guviDate}. Load O/N2 to check measured regional samples. NASA test date: 1 April 2004.
         </div>
         {guviLoading && (
-          <div className="empty-state">Loading TIMED/GUVI O/N2 map...</div>
+          <div className="empty-state">Loading TIMED/GUVI O/N2 observations...</div>
         )}
         {guviError && (
           <div className="error-box">{guviError}</div>
@@ -830,7 +820,7 @@ export default function TimeSeriesPage() {
         <div className="omni-range-grid">
           <label>
             From month
-            <select value={imagStartMonth} onChange={(e) => setImagStartMonth(Number(e.target.value))}>
+            <select value={imagStartMonth} onChange={(e) => changeMonthRange("ground", "start", imagStartYear, Number(e.target.value))}>
               {MONTHS.map((m) => (
                 <option key={m.value} value={m.value}>{m.label}</option>
               ))}
@@ -838,7 +828,7 @@ export default function TimeSeriesPage() {
           </label>
           <label>
             From year
-            <select value={imagStartYear} onChange={(e) => setImagStartYear(Number(e.target.value))}>
+            <select value={imagStartYear} onChange={(e) => changeMonthRange("ground", "start", Number(e.target.value), imagStartMonth)}>
               {yearOptions.map((y) => (
                 <option key={y} value={y}>{y}</option>
               ))}
@@ -846,7 +836,7 @@ export default function TimeSeriesPage() {
           </label>
           <label>
             To month
-            <select value={imagEndMonth} onChange={(e) => setImagEndMonth(Number(e.target.value))}>
+            <select value={imagEndMonth} onChange={(e) => changeMonthRange("ground", "end", imagEndYear, Number(e.target.value))}>
               {MONTHS.map((m) => (
                 <option key={m.value} value={m.value}>{m.label}</option>
               ))}
@@ -854,7 +844,7 @@ export default function TimeSeriesPage() {
           </label>
           <label>
             To year
-            <select value={imagEndYear} onChange={(e) => setImagEndYear(Number(e.target.value))}>
+            <select value={imagEndYear} onChange={(e) => changeMonthRange("ground", "end", Number(e.target.value), imagEndMonth)}>
               {yearOptions.map((y) => (
                 <option key={y} value={y}>{y}</option>
               ))}
@@ -879,7 +869,7 @@ export default function TimeSeriesPage() {
               ))}
             </select>
           </label>
-          <button className="btn btn-primary" onClick={loadIntermagnet} disabled={intermagnetLoading || loading}>
+          <button className="btn btn-primary" onClick={loadIntermagnet} disabled={intermagnetLoading || (loading && !meta?.available)}>
             {intermagnetLoading ? "Loading…" : "Load analysis"}
           </button>
         </div>
@@ -895,14 +885,14 @@ export default function TimeSeriesPage() {
       </div>
 
       <IonosondeDidbasePanel
-        startMonth={imagStartMonth}
-        endYear={imagEndYear}
+        startMonth={ionosondeMonth}
+        endYear={ionosondeYear}
         day={ionosondeDay}
         station={ionosondeCode}
         stationOptions={meta?.stations ?? []}
         yearOptions={yearOptions}
-        onStartMonth={setImagStartMonth}
-        onEndYear={setImagEndYear}
+        onStartMonth={setIonosondeMonth}
+        onEndYear={setIonosondeYear}
         onDay={setIonosondeDay}
         onStation={setIonosondeCode}
       />
@@ -936,7 +926,7 @@ export default function TimeSeriesPage() {
                   <input type="date" value={end} onChange={(e) => setEnd(e.target.value)}
                     style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "6px", padding: "0.4rem 0.7rem", color: "var(--text)" }} />
                 </div>
-                <button className="btn btn-primary" onClick={(e) => { e.stopPropagation(); loadAll(station, start, end, { initial: false }); }} disabled={loading && obs.length === 0}>
+                <button className="btn btn-primary" onClick={(e) => { e.stopPropagation(); loadAll(station, start, end, { initial: false }); }} disabled={loading && !meta?.available}>
                   {loading ? "Loading…" : "Apply"}
                 </button>
               </div>
@@ -957,14 +947,21 @@ export default function TimeSeriesPage() {
 
       {/* Tabs */}
       <div className="tabs">
-        {([["daily","Daily Variation"],["monthly","Monthly Averages"],["seasonal","Seasonal / Yearly"],["diurnal","Diurnal Pattern"],["compare","Source Comparison"],["storms","NASA OMNI"],["celestrak","CelesTrak"],["gfz","GFZ Kp"],["guvi","Thermosphere O/N2"],["cosmic2","COSMIC-2"],["intermagnet","INTERMAGNET"]] as [Tab,string][]).map(([id, label]) => (
-          <button key={id} className={`tab${tab === id ? " active" : ""}`} onClick={() => setTab(id)}>{label}</button>
+        {([["daily","Daily Variation"],["compare","Source Comparison"],["storms","NASA OMNI"],["celestrak","CelesTrak"],["gfz","GFZ Kp"],["guvi","Thermosphere O/N2"],["cosmic2","COSMIC-2"],["intermagnet","INTERMAGNET"]] as [Tab,string][]).map(([id, label]) => (
+          <button key={id} className={`tab${tab === id ? " active" : ""}`} onClick={() => {
+            if (id === "cosmic2" && !cosmic2Loading) void loadCosmic2();
+            else setTab(id);
+          }}>{label}</button>
         ))}
       </div>
 
+      {dateRangeError && <div className="banner banner-warn" role="alert">{dateRangeError} Adjust the date controls above before loading.</div>}
       {loadError && (
         <div className="banner banner-warn" style={{ fontSize: "0.85rem" }}>
-          Some chart data could not be loaded ({loadError}). Ensure the backend is running on port 8000.
+          <div role="status">Could not refresh {loadError}. Previously loaded observations are retained. Retry to fetch the latest archive data.</div>
+          <button type="button" className="btn" disabled={loading} onClick={() => void loadAll(station, start, end)} style={{ marginTop: "0.65rem" }}>
+            {loading ? "Retrying?" : "Retry archive data"}
+          </button>
         </div>
       )}
 
@@ -985,88 +982,9 @@ export default function TimeSeriesPage() {
                 highlightDates={omni?.storms.map((s) => s.date).filter((d) => allDates.includes(d))}
               />
             </div>
-          ) : (
-            <div className="banner banner-info">No daily data available. Upload CMN/RINEX files via Processing.</div>
-          )}
-        </div>
-      )}
-
-      {/* ── Monthly Averages ── */}
-      {tab === "monthly" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-          {monthlyDatasets.length > 0 ? (
-            <div className="card">
-              <div style={{ fontWeight: 700, marginBottom: "0.6rem" }}>Monthly Mean VTEC per Station</div>
-              <LineChart
-                labels={allMonths}
-                datasets={monthlyDatasets}
-                yLabel="Mean VTEC (TECU)"
-                height={300}
-              />
-            </div>
-          ) : (
-            <div className="banner banner-info">No monthly data available.</div>
-          )}
-        </div>
-      )}
-
-      {/* ── Seasonal / Yearly ── */}
-      {tab === "seasonal" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-          {seasonal.length > 0 && (
-            <div className="card">
-              <div style={{ fontWeight: 700, marginBottom: "0.6rem" }}>Seasonal Mean VTEC</div>
-              <BarChart
-                labels={seasonal.map((r) => r.season)}
-                values={seasonal.map((r) => r.mean)}
-                errors={seasonal.map((r) => r.std)}
-                yLabel="Mean VTEC (TECU)"
-                height={280}
-              />
-            </div>
-          )}
-          {solarCycle.length > 0 && (
-            <div className="card">
-              <div style={{ fontWeight: 700, marginBottom: "0.6rem" }}>Annual Mean VTEC (Solar Cycle)</div>
-              <LineChart
-                labels={solarCycle.map((r) => String(r.year))}
-                datasets={[
-                  { label: "Mean VTEC", data: solarCycle.map((r) => r.mean_vtec), color: "#168bd2" },
-                  { label: "Max VTEC",  data: solarCycle.map((r) => r.max_vtec),  color: "#ff4444" },
-                  { label: "Min VTEC",  data: solarCycle.map((r) => r.min_vtec),  color: "#00ff88" },
-                ]}
-                yLabel="VTEC (TECU)"
-                height={280}
-              />
-            </div>
-          )}
-          {!seasonal.length && !solarCycle.length && (
-            <div className="banner banner-info">No seasonal data available.</div>
-          )}
-        </div>
-      )}
-
-      {/* ── Diurnal Pattern ── */}
-      {tab === "diurnal" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-          {diurnal.length > 0 ? (
-            <div className="card">
-              <div style={{ fontWeight: 700, marginBottom: "0.6rem" }}>24-hour Diurnal VTEC Pattern</div>
-              <LineChart
-                labels={diurnal.map((d) => `${d.hour}:00`)}
-                datasets={[
-                  { label: "Mean VTEC", data: diurnal.map((d) => d.mean_vtec), color: "#168bd2", fill: true },
-                ]}
-                yLabel="Mean VTEC (TECU)"
-                height={300}
-              />
-              <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>
-                Local time approximation (UTC+2). Peak typically 12:00–16:00 LT over Zimbabwe.
-              </div>
-            </div>
-          ) : (
-            <div className="banner banner-info">No diurnal data available.</div>
-          )}
+          ) : !loading && !loadError ? (
+            <div className="banner banner-info">No daily observations match the selected station and date range. Adjust the filters or add processed CMN/RINEX observations via Processing.</div>
+          ) : null}
         </div>
       )}
 

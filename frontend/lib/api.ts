@@ -1168,9 +1168,12 @@ export async function downloadSessionRaw(id: string): Promise<Blob> {
 }
 
 // ── TEC Analysis ──────────────────────────────────────────────────────────────
-export const getArchiveMeta = () => get<ArchiveMeta>("/tec/archive-meta");
+export const getArchiveMeta = () => get<ArchiveMeta>("/tec/archive-meta", undefined, ANALYSIS_TIMEOUT_MS);
 export const getTimeSeries = (params?: { station?: string; start?: string; end?: string; limit?: number }) =>
-  get<TecObservation[]>("/tec/time-series", params);
+  get<TecObservation[]>("/tec/time-series", params, ANALYSIS_TIMEOUT_MS);
+export const getDiurnal = (station?: string) => get<DiurnalPoint[]>("/tec/diurnal", { station }, ANALYSIS_TIMEOUT_MS);
+export const getSeasonal = (station?: string) => get<SeasonalRow[]>("/tec/seasonal", { station }, ANALYSIS_TIMEOUT_MS);
+export const getSolarCycle = (station?: string) => get<SolarCycleRow[]>("/tec/solar-cycle", { station }, ANALYSIS_TIMEOUT_MS);
 export const getAnomalies = (threshold_pct = 95, station?: string) =>
   get<AnomalyDay[]>("/tec/anomalies", { threshold_pct, station }, ANALYSIS_TIMEOUT_MS);
 export const getAnomalyAnalysis = (threshold_pct = 95, station?: string) =>
@@ -1259,9 +1262,6 @@ export const getGlobalVtecByStation = (hours = 6, latestOnly = false) =>
     latestOnly ? 25_000 : Math.max(FETCH_TIMEOUT_MS, 55_000),
   );
 
-export const getDiurnal = (station?: string) => get<DiurnalPoint[]>("/tec/diurnal", { station });
-export const getSeasonal = (station?: string) => get<SeasonalRow[]>("/tec/seasonal", { station });
-export const getSolarCycle = (station?: string) => get<SolarCycleRow[]>("/tec/solar-cycle", { station });
 export const getOmniAnalysis = (start: string, end: string, station?: string) =>
   get<OmniAnalysisResponse>("/tec/omni-analysis", { start, end, station, _ts: Date.now() }, ANALYSIS_TIMEOUT_MS);
 export const getCelestrakAnalysis = (start: string, end: string, station?: string) =>
@@ -1321,9 +1321,9 @@ export const getIntermagnetAnalysis = (start: string, end: string, observatory: 
     ANALYSIS_TIMEOUT_MS,
   );
 export const getDidbaseIonosonde = (station: string, year?: number) =>
-  get<DidbaseIonosondeResponse>("/tec/ionosonde-didbase", { station, year, _ts: Date.now() });
+  get<DidbaseIonosondeResponse>("/tec/ionosonde-didbase", { station, year, _ts: Date.now() }, 30_000);
 export const getGuviOn2 = (start?: string, end?: string) =>
-  get<GuviOn2Response>("/tec/guvi-on2", { start, end, _ts: Date.now() });
+  get<GuviOn2Response>("/tec/guvi-on2", { start, end, _ts: Date.now() }, ANALYSIS_TIMEOUT_MS);
 export const getCosmic2Analysis = (start: string, end: string) =>
   get<Cosmic2AnalysisResponse>("/tec/cosmic2-analysis", { start, end, _ts: Date.now() }, ANALYSIS_TIMEOUT_MS);
 export const getPrn = (params?: {

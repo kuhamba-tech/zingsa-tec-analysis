@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useContext } from "react";
 import {
   Chart as ChartJS,
   Legend,
@@ -21,6 +21,8 @@ import {
   type LatBandDiurnalStats,
   type ZimbabweLatBandId,
 } from "@/lib/zimbabweLatBands";
+
+import ChartDateRange, { ChartDateRangeContext } from "./ChartDateRange";
 
 ChartJS.register(LinearScale, PointElement, LineElement, Tooltip, Legend);
 ChartJS.defaults.color = "#ffffff";
@@ -255,10 +257,15 @@ export default function ZimbabweMeanDiurnalTec({
   /** Hide the outer title when the parent panel already names the chart. */
   embedded?: boolean;
 } = {}) {
+  const calendar=useContext(ChartDateRangeContext);
   const [rows, setRows] = useState<LiveStationVtecSeries[] | null>(null);
   const [globalRows, setGlobalRows] = useState<LiveStationVtecSeries[] | null>(null);
   const [failed, setFailed] = useState(false);
   const [dayChoice, setDayChoice] = useState<string>("latest");
+  const chooseDay = (day: string) => {
+    setDayChoice(day);
+    if (calendar) calendar.setDay(day === "all" || day === "latest" ? "" : day);
+  };
   const [region, setRegion] = useState<RegionChoice>("all");
   const [explainOpen, setExplainOpen] = useState(false);
 
@@ -318,13 +325,11 @@ export default function ZimbabweMeanDiurnalTec({
 
   const days = useMemo(() => (rows ? utcDaysInStationSeries(rows) : []), [rows]);
   const today = utcToday();
-  const selectedDay = dayChoice === "all"
+  const selectedDay = calendar ? (calendar.day || (dayChoice === "all" ? null : days[days.length - 1] ?? null)) : dayChoice === "all"
     ? null
     : dayChoice === "latest"
       ? days[days.length - 1] ?? null
-      : days.includes(dayChoice)
-        ? dayChoice
-        : days[days.length - 1] ?? null;
+      : dayChoice;
   const dayIndex = selectedDay ? days.indexOf(selectedDay) : -1;
 
   const stats = useMemo(
@@ -435,11 +440,26 @@ export default function ZimbabweMeanDiurnalTec({
       )}
       {days.length > 0 && (
         <div className="station-vtec-plots-controls">
+          <ChartDateRange />
           <div className="station-vtec-day-filters" role="group" aria-label="UTC day">
+            {!calendar && <label className="regional-tec-date-picker">
+              Day (UTC)
+              <input
+                type="date"
+                aria-label="Select TEC observation day in UTC"
+                value={selectedDay ?? ""}
+                min={days[0]}
+                max={days[days.length - 1]}
+                onChange={(event) => {
+                  const day = event.currentTarget.value;
+                  if (day && day >= days[0] && day <= days[days.length - 1]) chooseDay(day);
+                }}
+              />
+            </label>}
             <button
               type="button"
               className={selectedDay == null ? "active" : ""}
-              onClick={() => setDayChoice("all")}
+              onClick={() => chooseDay("all")}
             >
               All days
             </button>
@@ -447,7 +467,7 @@ export default function ZimbabweMeanDiurnalTec({
               type="button"
               disabled={dayIndex <= 0}
               onClick={() => {
-                if (dayIndex > 0) setDayChoice(days[dayIndex - 1]);
+                if (dayIndex > 0) chooseDay(days[dayIndex - 1]);
               }}
             >
               Previous day
@@ -458,7 +478,7 @@ export default function ZimbabweMeanDiurnalTec({
                 type="button"
                 className={selectedDay === day ? "active" : ""}
                 title={`${day} UTC`}
-                onClick={() => setDayChoice(day)}
+                onClick={() => chooseDay(day)}
               >
                 {formatDayChip(day, today)}
               </button>
@@ -467,7 +487,7 @@ export default function ZimbabweMeanDiurnalTec({
               type="button"
               disabled={dayIndex < 0 || dayIndex >= days.length - 1}
               onClick={() => {
-                if (dayIndex >= 0 && dayIndex < days.length - 1) setDayChoice(days[dayIndex + 1]);
+                if (dayIndex >= 0 && dayIndex < days.length - 1) chooseDay(days[dayIndex + 1]);
               }}
             >
               Next day

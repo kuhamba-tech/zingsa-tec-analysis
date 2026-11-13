@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useContext } from "react";
+import ChartDateRange, { ChartDateRangeContext, utcDayBounds } from "@/components/charts/ChartDateRange";
 import {
   Chart as ChartJS,
   Legend,
@@ -43,7 +44,9 @@ export default function SymhRingCurrentChart({ dst, labels, times, epochMs }: Pr
     });
   }, [dst, labels, times, epochMs]);
 
-  const measured = useMemo(() => points.filter((point) => point.y != null), [points]);
+  const calendar=useContext(ChartDateRangeContext);
+  const displayPoints=calendar?.day ? points.filter(p=>{const b=utcDayBounds(calendar.day);return p.x>=b.min&&p.x<b.max;}) : points;
+  const measured = useMemo(() => displayPoints.filter((point) => point.y != null), [displayPoints]);
   const yPad = useMemo(() => {
     if (measured.length === 0) return { min: -40, max: 20 };
     const values = measured.map((point) => point.y as number);
@@ -60,7 +63,7 @@ export default function SymhRingCurrentChart({ dst, labels, times, epochMs }: Pr
   const last = measured[measured.length - 1];
 
   return (
-    <div style={{ marginTop: "0.85rem" }}>
+    <div style={{ marginTop: "0.85rem" }}><ChartDateRange />
       <div style={{ fontWeight: 700, fontSize: "0.82rem", marginBottom: "0.15rem" }}>
         Dst (nT) — ring current
       </div>
@@ -81,7 +84,7 @@ export default function SymhRingCurrentChart({ dst, labels, times, epochMs }: Pr
             data={{
               datasets: [{
                 label: "Dst",
-                data: points,
+                data: displayPoints,
                 borderColor: "#38bdf8",
                 backgroundColor: "#38bdf8",
                 borderWidth: 1.75,

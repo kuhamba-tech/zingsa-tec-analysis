@@ -24,10 +24,10 @@ export default function CelestrakAnalysisPanel({
   loading,
   error,
 }: Props) {
-  if (loading) {
+  if (loading && !celestrak) {
     return <div className="banner banner-info">Fetching CelesTrak indices (SSN, Kp, Ap, F10.7)…</div>;
   }
-  if (error) {
+  if (error && !celestrak) {
     return <div className="banner banner-alert">{error}</div>;
   }
   if (!celestrak || celestrak.series.length === 0) {
@@ -66,6 +66,8 @@ export default function CelestrakAnalysisPanel({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+      {error && <div className="banner banner-warn">{error} Previously loaded CelesTrak results are retained; check their coverage dates below.</div>}
+      {loading && <div className="banner banner-info" role="status">CelesTrak data is available below. Other source requests are still running.</div>}
       <div className="omni-source-banner">
         <div className="omni-source-scale" aria-hidden="true">
           <span>Low TEC</span>

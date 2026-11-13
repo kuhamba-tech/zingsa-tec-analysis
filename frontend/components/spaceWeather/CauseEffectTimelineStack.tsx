@@ -1,6 +1,7 @@
 "use client";
+import { ChartDateRangeContext, utcDayBounds } from "@/components/charts/ChartDateRange";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, useContext, type ReactNode } from "react";
 import LocalIonosphereObservations from "./LocalIonosphereObservations";
 import DeferredMount from "./DeferredMount";
 import SpaceWeatherCorsMap from "./SpaceWeatherCorsMap";
@@ -270,6 +271,7 @@ export default function CauseEffectTimelineStack({
    */
   includeChrome?: boolean;
 }) {
+  const calendar=useContext(ChartDateRangeContext);
   const showDrivers = variant === "full" || variant === "drivers" || variant === "liveMetric";
   const showLocal = variant === "full" || variant === "local" || variant === "liveMetric";
   const showChrome =
@@ -447,9 +449,10 @@ export default function CauseEffectTimelineStack({
   }, [timelines]);
 
   const timeDomain = useMemo(() => {
+    if (calendar?.day) return utcDayBounds(calendar.day);
     if (!now) return null;
     return alignTimeDomain(now - rangeHours * ONE_H_MS, now, rangeHours <= 8 ? ONE_H_MS : SIX_H_MS);
-  }, [now, rangeHours]);
+  }, [now, rangeHours, calendar?.day]);
 
   // Clip Kp/Dst/VTEC/GNSS to the same live UTC window as solar wind / IMF.
   // If the window empties a panel (stale cache), fall back to unclipped series.

@@ -13,7 +13,8 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, date, datetime, timedelta
-from functools import lru_cache
+from threading import Lock
+from time import monotonic
 from typing import Any
 
 import requests
@@ -24,6 +25,8 @@ LEVEL2_URL = f"{BASE_URL}/level2"
 MISSION_URL = "https://www.cosmic.ucar.edu/what-we-do/cosmic-2/"
 PRODUCT = "ionPrf provisional Level-2"
 MAX_DAYS_PER_REQUEST = 370
+_archive_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+_cache_lock = Lock()
 
 
 def _daterange(start: date, end: date) -> list[date]:
@@ -49,8 +52,11 @@ def _parse_size(header_value: str | None) -> int | None:
         return None
 
 
-@lru_cache(maxsize=1024)
 def _check_archive_cached(day_iso: str, timeout: int) -> dict[str, Any]:
+    with _cache_lock:
+        cached = _archive_cache.get(day_iso)
+        if cached and cached[0] > monotonic():
+            return dict(cached[1])
     day = date.fromisoformat(day_iso)
     url, filename, doy = _file_url(day)
     row: dict[str, Any] = {
@@ -67,15 +73,26 @@ def _check_archive_cached(day_iso: str, timeout: int) -> dict[str, Any]:
     try:
         resp = requests.head(url, allow_redirects=True, timeout=timeout)
         if resp.status_code == 405:
+            resp.close()
             resp = requests.get(url, stream=True, timeout=timeout)
-        row["available"] = resp.status_code == 200
-        row["status"] = "available" if row["available"] else f"http_{resp.status_code}"
-        row["size_bytes"] = _parse_size(resp.headers.get("content-length"))
-        if not row["available"]:
-            row["note"] = f"UCAR returned HTTP {resp.status_code}"
+        try:
+            row["available"] = resp.status_code == 200
+            row["status"] = "available" if row["available"] else f"http_{resp.status_code}"
+            row["size_bytes"] = _parse_size(resp.headers.get("content-length"))
+            if not row["available"]:
+                row["note"] = f"UCAR returned HTTP {resp.status_code}"
+        finally:
+            resp.close()
     except Exception as exc:
         row["status"] = "unreachable"
         row["note"] = str(exc)
+    # Retry transport/server errors on the next request. Confirmed absence is
+    # short-lived because UCAR may publish the product after the first check.
+    if row["available"] or row["status"] == "http_404":
+        with _cache_lock:
+            if len(_archive_cache) >= 1024:
+                _archive_cache.pop(next(iter(_archive_cache)))
+            _archive_cache[day_iso] = (monotonic() + (3600 if row["available"] else 60), dict(row))
     return row
 
 

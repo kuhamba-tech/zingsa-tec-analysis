@@ -232,7 +232,15 @@ export default function Cosmic2AnalysisPanel({
 
   const availableRows = cosmic2.series.filter((row) => row.available);
   const availableDates = availableRows.map((row) => row.date);
-  const labels = vtecLabels.length > 0 ? vtecLabels : cosmic2.series.map((row) => row.date);
+  const labels = [...new Set([...vtecLabels, ...cosmic2.series.map((row) => row.date)])].sort();
+  const vtecIndex = new Map(vtecLabels.map((day, index) => [day, index]));
+  const alignedVtec = vtecDatasets.map((dataset) => ({
+    ...dataset,
+    data: labels.map((day) => {
+      const index = vtecIndex.get(day);
+      return index === undefined ? null : dataset.data[index] ?? null;
+    }),
+  }));
   const availability = labels.map((date) => availableDates.includes(date) ? 1 : null);
   const coveragePct = cosmic2.days > 0 ? (100 * cosmic2.available_days) / cosmic2.days : 0;
 
@@ -245,6 +253,8 @@ export default function Cosmic2AnalysisPanel({
           These satellite profiles provide independent ionospheric context for VTEC anomalies and geomagnetic
           storm periods.
         </p>
+        <p>This panel checks downloadable archive availability only. Availability does not mean profiles have
+          been downloaded or validated over Zimbabwe. The diagrams below are illustrative, not observations.</p>
       </div>
 
       <div className="on2-summary-grid">
@@ -356,7 +366,7 @@ export default function Cosmic2AnalysisPanel({
         <LineChart
           labels={labels}
           datasets={[
-            ...vtecDatasets,
+            ...alignedVtec,
             {
               label: "COSMIC-2 ionPrf archive available",
               data: availability,

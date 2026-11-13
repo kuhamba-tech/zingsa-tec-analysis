@@ -74,9 +74,10 @@ _DLR_PNG_CACHE_TTL_S = 300.0
 
 _ARCHIVE_CACHE: dict[str, object] = {"loaded_at": 0.0, "df": None, "meta": {}}
 _ARCHIVE_CACHE_TTL_S = 120.0
+_ARCHIVE_LOAD_LOCK = threading.Lock()
 
 
-def _archive_bundle() -> tuple[pd.DataFrame, dict]:
+def _load_archive_bundle() -> tuple[pd.DataFrame, dict]:
     """Live ``vtec_obs`` first, packaged CMN CSV fallback. Empty results are not sticky."""
     now = time.monotonic()
     cached_df = _ARCHIVE_CACHE.get("df")
@@ -102,6 +103,12 @@ def _archive_bundle() -> tuple[pd.DataFrame, dict]:
     return df, meta
 
 
+def _archive_bundle() -> tuple[pd.DataFrame, dict]:
+    # Serialize cold loads; concurrent chart requests reuse the populated cache.
+    with _ARCHIVE_LOAD_LOCK:
+        return _load_archive_bundle()
+
+
 def _archive() -> pd.DataFrame:
     df, _ = _archive_bundle()
     return df
@@ -117,13 +124,12 @@ def _vtec_by_date(start: str, end: str, station: str | None) -> dict[str, float]
     if df.empty:
         return {}
     work = df.copy()
-    if "date" in work.columns:
-        work["timestamp"] = pd.to_datetime(work["date"])
+    work["timestamp"] = pd.to_datetime(work["date"] if "date" in work.columns else work["timestamp"], utc=True)
     if station and "station" in work.columns:
         work = work[work["station"] == station]
     work = work[
-        (work["timestamp"] >= pd.Timestamp(start))
-        & (work["timestamp"] <= pd.Timestamp(end))
+        (work["timestamp"] >= pd.to_datetime(start, utc=True))
+        & (work["timestamp"] < pd.to_datetime(end, utc=True) + pd.Timedelta(days=1))
     ]
     if work.empty:
         return {}
@@ -139,7 +145,7 @@ def _float_or_none(row: pd.Series, key: str) -> float | None:
 
 
 @router.get("/archive-meta", response_model=ArchiveMeta)
-async def archive_meta(_=Depends(require_api_key)):
+def archive_meta(_=Depends(require_api_key)):
     df = _archive()
     meta = _archive_meta()
     return ArchiveMeta(
@@ -154,24 +160,27 @@ async def archive_meta(_=Depends(require_api_key)):
 
 
 @router.get("/time-series", response_model=list[TecObservation])
-async def time_series(
+def time_series(
     station: str | None = Query(None),
     start: str | None = Query(None),
     end: str | None = Query(None),
     limit: int = Query(2000, le=10000),
     _=Depends(require_api_key),
 ):
-    df = _archive()
+    df = _archive().copy()
     if df.empty:
         return []
-    if "date" in df.columns:
-        df["timestamp"] = pd.to_datetime(df["date"])
+    df["timestamp"] = pd.to_datetime(df["date"] if "date" in df.columns else df["timestamp"], utc=True)
     if station and "station" in df.columns:
         df = df[df["station"] == station]
     if start:
-        df = df[df["timestamp"] >= pd.Timestamp(start)]
+        df = df[df["timestamp"] >= pd.to_datetime(start, utc=True)]
     if end:
-        df = df[df["timestamp"] <= pd.Timestamp(end)]
+        end_utc = pd.to_datetime(end, utc=True)
+        if len(end) == 10:
+            df = df[df["timestamp"] < end_utc + pd.Timedelta(days=1)]
+        else:
+            df = df[df["timestamp"] <= end_utc]
     df = df.sort_values("timestamp").tail(limit)
 
     result = []
@@ -189,7 +198,7 @@ async def time_series(
 
 
 @router.get("/omni-analysis", response_model=OmniAnalysisResponse)
-async def omni_analysis(
+def omni_analysis(
     start: str = Query(..., description="Start date YYYY-MM-DD"),
     end: str = Query(..., description="End date YYYY-MM-DD"),
     station: str | None = Query(None),
@@ -217,7 +226,7 @@ async def omni_analysis(
 
 
 @router.get("/celestrak-analysis", response_model=CelestrakAnalysisResponse)
-async def celestrak_analysis(
+def celestrak_analysis(
     start: str = Query(..., description="Start date YYYY-MM-DD"),
     end: str = Query(..., description="End date YYYY-MM-DD"),
     station: str | None = Query(None),
@@ -237,7 +246,7 @@ async def celestrak_analysis(
         celestrak_rows = fetch_celestrak_daily(start_d, end_d)
     except Exception as exc:
         from fastapi import HTTPException
-        raise HTTPException(status_code=502, detail=f"CelesTrak fetch failed: {exc}") from exc
+        raise HTTPException(status_code=502, detail="CelesTrak is temporarily unreachable. Other available providers can still be compared.") from exc
 
     vtec_by_date = _vtec_by_date(start, end, station)
     payload = build_celestrak_analysis(celestrak_rows, vtec_by_date)
@@ -245,7 +254,7 @@ async def celestrak_analysis(
 
 
 @router.get("/gfz-kp-analysis", response_model=GfzKpAnalysisResponse)
-async def gfz_kp_analysis(
+def gfz_kp_analysis(
     start: str = Query(..., description="Start date YYYY-MM-DD"),
     end: str = Query(..., description="End date YYYY-MM-DD"),
     station: str | None = Query(None),
@@ -273,7 +282,7 @@ async def gfz_kp_analysis(
 
 
 @router.get("/wdc-kyoto-analysis", response_model=WdcKyotoAnalysisResponse)
-async def wdc_kyoto_analysis(
+def wdc_kyoto_analysis(
     start: str = Query(..., description="Start date YYYY-MM-DD"),
     end: str = Query(..., description="End date YYYY-MM-DD"),
     station: str | None = Query(None),
@@ -378,7 +387,7 @@ async def intermagnet_latest(_=Depends(require_api_key)):
 
 
 @router.get("/intermagnet-analysis", response_model=IntermagnetAnalysisResponse)
-async def intermagnet_analysis(
+def intermagnet_analysis(
     start: str = Query(..., description="Start date YYYY-MM-DD"),
     end: str = Query(..., description="End date YYYY-MM-DD"),
     observatory: str = Query("HER", description="IAGA observatory code (HER, HBK, TSU, KMH)"),
@@ -413,7 +422,7 @@ async def intermagnet_analysis(
 
 
 @router.get("/ionosonde-didbase", response_model=DidbaseIonosondeResponse)
-async def ionosonde_didbase(
+def ionosonde_didbase(
     station: str = Query("MU12K", description="DIDBase URSI code (HE13N Hermanus, MU12K Madimbo)"),
     year: int | None = Query(None, description="Year to check ionogram availability for"),
     _=Depends(require_api_key),
@@ -426,25 +435,33 @@ async def ionosonde_didbase(
 
     payload = get_ionosonde_metadata(station)
     payload["requested_year"] = year
-    payload["year_has_data"] = year in payload["availability_years"] if year is not None else None
+    payload["year_has_data"] = (
+        year in payload["availability_years"]
+        if year is not None and payload["availability_years"] else None
+    )
     return DidbaseIonosondeResponse(**payload)
 
 
 @router.get("/guvi-on2", response_model=GuviOn2Response)
-async def guvi_on2(
+def guvi_on2(
     start: str | None = Query(None, description="Start date YYYY-MM-DD"),
     end: str | None = Query(None, description="End date YYYY-MM-DD"),
     _=Depends(require_api_key),
 ):
     """Return TIMED/GUVI thermospheric O/N2 overpass context for Africa."""
-    from zgiis.space_weather.guvi_on2 import build_guvi_on2_payload
-
-    payload = build_guvi_on2_payload(start=start, end=end)
+    from zgiis.space_weather.guvi_on2 import fetch_guvi_on2_payload
+    from fastapi import HTTPException
+    try:
+        payload = fetch_guvi_on2_payload(start, end)
+    except ValueError as exc:
+        raise HTTPException(422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(502, detail="GUVI archive could not be retrieved; retry this UTC day.") from exc
     return GuviOn2Response(**payload)
 
 
 @router.get("/cosmic2-analysis", response_model=Cosmic2AnalysisResponse)
-async def cosmic2_analysis(
+def cosmic2_analysis(
     start: str = Query(..., description="Start date YYYY-MM-DD"),
     end: str = Query(..., description="End date YYYY-MM-DD"),
     _=Depends(require_api_key),
@@ -512,7 +529,7 @@ async def anomaly_analysis(
 
 
 @router.get("/diurnal", response_model=list[DiurnalPoint])
-async def diurnal(
+def diurnal(
     station: str | None = Query(None),
     _=Depends(require_api_key),
 ):
@@ -523,7 +540,7 @@ async def diurnal(
 
 
 @router.get("/seasonal", response_model=list[SeasonalRow])
-async def seasonal(
+def seasonal(
     station: str | None = Query(None),
     _=Depends(require_api_key),
 ):
@@ -534,7 +551,7 @@ async def seasonal(
 
 
 @router.get("/solar-cycle", response_model=list[SolarCycleRow])
-async def solar_cycle(
+def solar_cycle(
     station: str | None = Query(None),
     _=Depends(require_api_key),
 ):

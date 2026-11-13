@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useContext } from "react";
+import ChartDateRange, { ChartDateRangeContext, utcDayBounds } from "@/components/charts/ChartDateRange";
 import {
   BarElement,
   CategoryScale,
@@ -74,6 +75,16 @@ export default function HeliosphericKpBars({
   dstTimes?: string[];
   dstEpochMs?: (number | null)[];
 }) {
+  const calendar = useContext(ChartDateRangeContext);
+  if (calendar?.day) {
+    const bounds=utcDayBounds(calendar.day);
+    const epochs=seriesEpochsFromApi(labels, epochMs, times);
+    const keep=labels.map((_,i)=>i).filter(i=>epochs && epochs[i]>=bounds.min && epochs[i]<bounds.max);
+    labels=keep.map(i=>labels[i]);
+    times=times ? keep.map(i=>times![i]) : undefined;
+    epochMs=epochMs ? keep.map(i=>epochMs![i]) : undefined;
+    observed=keep.map(i=>observed[i]); estimated=keep.map(i=>estimated[i]); predicted=keep.map(i=>predicted[i]);
+  }
   const utcLabels = useMemo(() => {
     const epochs = seriesEpochsFromApi(labels, epochMs, times);
     if (epochs) return epochs.map(formatKpUtcBinLabel);
@@ -156,6 +167,8 @@ export default function HeliosphericKpBars({
   );
 
   return (
+    <div><ChartDateRange />
+    {calendar?.day && !labels.length && <p role="status">No loaded Kp observations for {calendar.day} UTC.</p>}
     <div style={{ height: 250, position: "relative" }}>
       <Chart
         type="bar"
@@ -243,6 +256,6 @@ export default function HeliosphericKpBars({
           },
         }}
       />
-    </div>
+    </div></div>
   );
 }

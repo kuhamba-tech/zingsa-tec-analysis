@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 from typing import Any
+import re
 
 try:
     import requests
@@ -178,7 +179,23 @@ def fetch_omni_daily(start: date, end: date, *, timeout: int = 90) -> list[dict[
     resp = requests.post(OMNI_CGI, data=payload, timeout=timeout)
     resp.raise_for_status()
     if "Error" in resp.text[:400]:
-        raise RuntimeError("OMNIWeb returned an error for the requested variables or dates")
+        # NASA publishes the valid bounds in date-range errors. Retry only the
+        # intersection, never invent values beyond the released archive.
+        bounds = re.search(r"correct range:\s*(\d{8})\s*-\s*(\d{8})", resp.text, re.IGNORECASE)
+        if not bounds:
+            raise RuntimeError("OMNIWeb returned an error for the requested variables or dates")
+        first = datetime.strptime(bounds.group(1), "%Y%m%d").date()
+        last = datetime.strptime(bounds.group(2), "%Y%m%d").date()
+        clipped_start, clipped_end = max(start, first), min(end, last)
+        if clipped_start > clipped_end:
+            return []
+        if (clipped_start, clipped_end) == (start, end):
+            raise RuntimeError("OMNIWeb rejected a date range within its reported coverage")
+        payload["start_date"], payload["end_date"] = _yymmdd(clipped_start), _yymmdd(clipped_end)
+        resp = requests.post(OMNI_CGI, data=payload, timeout=timeout)
+        resp.raise_for_status()
+        if "Error" in resp.text[:400]:
+            raise RuntimeError("OMNIWeb rejected the available archive interval")
     hourly = _parse_omni_html(resp.text)
     return _aggregate_daily(hourly)
 

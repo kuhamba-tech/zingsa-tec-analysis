@@ -38,20 +38,24 @@ export default function GuviOn2AnalysisPanel({
   }
 
   const overpassDates = guvi.series.map((row) => row.date);
-  const labels = vtecLabels.length > 0 ? vtecLabels : overpassDates;
+  const labels = [...new Set([...vtecLabels, ...overpassDates])].sort();
   const on2Data = ratioDataset(guvi, labels);
   const hasMeasuredRatios = guvi.series.some((row) => row.ratio !== null);
-  const vtecOverlay = vtecDatasets.length > 0 ? vtecDatasets : [];
+  const vtecIndex = new Map(vtecLabels.map((day, index) => [day, index]));
+  const vtecOverlay = vtecDatasets.map((dataset) => ({ ...dataset, data: labels.map((day) => {
+    const index = vtecIndex.get(day);
+    return index === undefined ? null : dataset.data[index] ?? null;
+  }) }));
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
       <div className="omni-source-banner">
         <p>
           <strong>TIMED/GUVI thermospheric O/N2</strong> - {guvi.region} overpass context from{" "}
-          <a href={guvi.source_url} target="_blank" rel="noreferrer">GUVI Level-3 O/N2</a>. TIMED/GUVI samples the
-          mesosphere and lower thermosphere at about {guvi.altitude_range_km[0]}-{guvi.altitude_range_km[1]} km.
-          This is historical context, not live telemetry.
+          <a href={guvi.source_url} target="_blank" rel="noreferrer">GUVI Level-3 O/N2</a>.
+          This is a column abundance ratio, not an altitude-resolved measurement or live telemetry.
         </p>
+        <p>{guvi.message}</p>
       </div>
 
       <div className="on2-summary-grid">
@@ -68,7 +72,7 @@ export default function GuviOn2AnalysisPanel({
         <div className="card omni-stat-card">
           <div className="metric-label">Coverage</div>
           <div className="on2-stat-value">{guvi.series.length}</div>
-          <div className="omni-stat-note">Africa overpass day(s) in selected range</div>
+          <div className="omni-stat-note">Returned day records; see data status</div>
         </div>
         <div className="card omni-stat-card">
           <div className="metric-label">Data status</div>
@@ -86,7 +90,7 @@ export default function GuviOn2AnalysisPanel({
         <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginBottom: "0.65rem" }}>
           O/N2 ratio depletion is a thermospheric composition signal that can help explain negative ionospheric
           storm phases. Overpass bands mark when GUVI viewed Africa; measured O/N2 ratios appear on the right axis
-          after the Level-3 map grid is imported.
+          when measured regional samples are available. A regional median does not represent a nationwide map.
         </p>
         <LineChart
           labels={labels}
@@ -108,9 +112,9 @@ export default function GuviOn2AnalysisPanel({
         />
         {!hasMeasuredRatios && (
           <div className="banner banner-warn" style={{ marginTop: "0.75rem", fontSize: "0.82rem" }}>
-            GUVI O/N2 ratio values are not yet in the local archive. The panel currently records the Africa
-            overpass dates and UT times only; add the downloaded Level-3 O/N2 grids to enable measured ratio
-            plotting and VTEC correlation.
+            No measured regional O/N2 values were returned for this selection. Reference overpass metadata
+            does not establish measurement coverage. Choose a supported NASA archive date (2002–2007),
+            or obtain the selected Level-3 product from the GUVI provider.
           </div>
         )}
       </div>

@@ -1,4 +1,5 @@
 "use client";
+import ChartDateRange, { ChartDateRangeContext } from "@/components/charts/ChartDateRange";
 
 import Link from "next/link";
 import dynamic from "next/dynamic";
@@ -512,6 +513,7 @@ export default function SpaceWeatherClient({
   const [selectedSolarInfo, setSelectedSolarInfo] = useState<SolarInfoKey>("summary");
   const [conditionNoteOpen, setConditionNoteOpen] = useState(true);
   const conditionNoteRef = useRef<HTMLDivElement | null>(null);
+  const [timelineDay, setTimelineDay] = useState("");
   const [selectedGraph, setSelectedGraph] = useState<string | null>(null);
   const [timelineSyncMs, setTimelineSyncMs] = useState<number | null>(null);
   const toggleGraph = (graphId: string) => setSelectedGraph((current) => current === graphId ? null : graphId);
@@ -1256,7 +1258,9 @@ export default function SpaceWeatherClient({
 
       {/* ── Tab 0: Timelines ── */}
       {tab === 0 && (
+        <ChartDateRangeContext.Provider value={{day:timelineDay,setDay:setTimelineDay}}>
         <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }} suppressHydrationWarning>
+          <ChartDateRange />
           <p suppressHydrationWarning style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>
             Chronological Sun→Earth→Zimbabwe order using the Solar Activity GOES X-ray and Heliospheric Monitor graphs, then local VTEC / CORS / GNSS
           </p>
@@ -1364,6 +1368,7 @@ export default function SpaceWeatherClient({
               </DeferredMount>
             </>
         </div>
+        </ChartDateRangeContext.Provider>
       )}
 
       {/* ── Tab 1: Solar Activity (detailed) ── */}
