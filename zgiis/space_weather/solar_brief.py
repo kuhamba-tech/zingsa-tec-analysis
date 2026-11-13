@@ -182,6 +182,104 @@ def count_flare_days(events: list[dict[str, Any]] | None, now: datetime) -> dict
     return {"today": pack(today, buckets[today]), "yesterday": pack(yesterday, buckets[yesterday])}
 
 
+def _utc_stamp(value: Any) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        when = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return when.astimezone(timezone.utc)
+
+
+def _region_number(value: Any) -> int | None:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
+
+
+def _match_region(
+    peak: datetime,
+    flare_class: str,
+    events: list[dict[str, Any]] | None,
+) -> int | None:
+    """NOAA region for a GOES flare, matched on peak time and class."""
+    wanted = flare_class.strip().upper()
+    ranked: list[tuple[int, float, int]] = []
+    for event in events or []:
+        if str(event.get("type") or "").upper() != "XRA":
+            continue
+        number = _region_number(event.get("region"))
+        if number is None:
+            continue
+        when = _utc_stamp(event.get("max_datetime") or event.get("begin_datetime"))
+        if when is None:
+            continue
+        delta = abs((when - peak).total_seconds())
+        if delta > 8 * 60:
+            continue
+        label = str(event.get("particulars1") or "").strip().upper()
+        ranked.append((0 if label == wanted else 1, delta, number))
+    if not ranked:
+        return None
+    ranked.sort()
+    same_class = [row for row in ranked if row[0] == 0]
+    pool = same_class or ranked
+    regions = {row[2] for row in pool}
+    if len(regions) == 1:
+        return regions.pop()
+    return pool[0][2]
+
+
+def recent_sun_events(
+    flares: list[dict[str, Any]] | None,
+    events: list[dict[str, Any]] | None,
+    now: datetime,
+    *,
+    hours: int = 24,
+) -> list[dict[str, Any]]:
+    """GOES X-ray flares whose peak is inside the past day, newest first.
+
+    Start, maximum and end come from the GOES flare list. The region number
+    comes from the NOAA edited-event file when the peak and class match.
+    """
+    moment = now.astimezone(timezone.utc)
+    cutoff = moment - timedelta(hours=hours)
+    chosen: dict[str, tuple[tuple[int, float], dict[str, Any]]] = {}
+    for flare in flares or []:
+        if not isinstance(flare, dict):
+            continue
+        peak = _utc_stamp(flare.get("max_time") or flare.get("time_tag"))
+        label = str(flare.get("max_class") or "").strip()
+        if peak is None or not label or label[0].upper() not in {"A", "B", "C", "M", "X"}:
+            continue
+        if peak < cutoff or peak > moment + timedelta(minutes=15):
+            continue
+        start = _utc_stamp(flare.get("begin_time"))
+        end = _utc_stamp(flare.get("end_time"))
+        row = {
+            "date": peak.strftime("%Y/%m/%d"),
+            "region": _match_region(peak, label, events),
+            "flare_class": label,
+            "start": start.strftime("%H:%M") if start else None,
+            "maximum": peak.strftime("%H:%M"),
+            "end": end.strftime("%H:%M") if end else None,
+        }
+        key = peak.strftime("%Y-%m-%dT%H:%M")
+        rank = _class_rank(label)
+        current = chosen.get(key)
+        if current is None or rank > current[0]:
+            chosen[key] = (rank, row)
+    rows = [item[1] for item in chosen.values()]
+    rows.sort(key=lambda row: (row["date"], row["maximum"]), reverse=True)
+    return rows
+
+
 def latest_flare_class(events: list[dict[str, Any]] | None) -> str | None:
     """Newest GOES X-ray flare class in the list, by peak time."""
     best_time: datetime | None = None
@@ -344,6 +442,7 @@ def _empty() -> dict[str, Any]:
         "sunspot_number": None,
         "visible_spot_count": None,
         "latest_flare_class": None,
+        "sun_events": None,
         "c_percent": None,
         "m_percent": None,
         "x_percent": None,
@@ -453,6 +552,11 @@ def _load() -> dict[str, Any]:
         payload["flares_today"] = counted["today"]
         payload["flares_yesterday"] = counted["yesterday"]
         payload["latest_flare_class"] = latest_flare_class(flares)
+        payload["sun_events"] = recent_sun_events(
+            flares,
+            events if isinstance(events, list) else None,
+            now,
+        )
     payload["images"] = solarham_images(now)
     payload["monitor_images"] = stable_monitor_frames()
     has_chances = payload["c_percent"] is not None or payload["m_percent"] is not None

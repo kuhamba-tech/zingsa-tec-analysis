@@ -52,6 +52,15 @@ export function gnssRiskBandOf(label: string | null | undefined): GnssRiskBandId
   return null;
 }
 
+/** Same Kp lines as the band captions: below 3 is Low, then Moderate, High, Critical. */
+export function gnssRiskFromKp(kp: number | null | undefined): GnssRiskBandId | null {
+  if (kp == null || !Number.isFinite(kp)) return null;
+  if (kp >= 5) return "critical";
+  if (kp >= 4) return "high";
+  if (kp >= 3) return "moderate";
+  return "low";
+}
+
 function bandOfScore(score: number): GnssRiskBandId {
   const rounded = Math.max(0, Math.min(3, Math.round(score)));
   return GNSS_RISK_BANDS[rounded].id;

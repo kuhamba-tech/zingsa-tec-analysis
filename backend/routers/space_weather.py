@@ -22,6 +22,9 @@ from backend.schemas import (
     EkfStatusOut,
     HeliosphericMonitorResponse,
     StormAlertStatus,
+    FlareFrequenciesResponse,
+    FlareMonthResponse,
+    StormDaysResponse,
     SolarActivityFull,
     SolarCycleIndicesResponse,
     SolarBriefResponse,
@@ -163,7 +166,7 @@ def _sw() -> dict:
             "kp": None,
             "dst": None,
             "f107": None,
-            "gnss_risk": "Unknown",
+            "gnss_risk": None,
             "gnss_risk_color": "#94a3b8",
             "stations_online": None,
             "stations_total": 19,
@@ -364,6 +367,36 @@ _TIMELINES_CACHE: dict[str, object] = {}
 _TIMELINES_CACHE_LOCK = threading.Lock()
 
 
+def _resolved_gnss_risk(sw: dict) -> tuple[str | None, str | None]:
+    """Use a real Low/Moderate/High/Critical label. Kp fills a missing or placeholder label."""
+    known = {
+        "low": "Low",
+        "moderate": "Moderate",
+        "high": "High",
+        "critical": "Critical",
+        "severe": "Critical",
+    }
+    raw = sw.get("gnss_risk")
+    label = known.get(str(raw).strip().lower()) if isinstance(raw, str) else None
+    if label is None:
+        try:
+            kp = float(sw["kp"]) if sw.get("kp") is not None else None
+        except (TypeError, ValueError):
+            kp = None
+        if kp is None:
+            return None, None
+        try:
+            s4 = float(sw["s4"]) if sw.get("s4") is not None else 0.0
+        except (TypeError, ValueError):
+            s4 = 0.0
+        from zgiis.space_weather.fetch_indices import _gnss_impact_label
+
+        label = _gnss_impact_label(kp, s4, 0.0)
+    from zgiis.space_weather.fetch_indices import _GNSS_RISK_COLORS
+
+    return label, _GNSS_RISK_COLORS.get(label, "#00ff88")
+
+
 def _build_current_payload() -> SpaceWeatherCurrent:
     """Dashboard snapshot — keep this path free of Spider login stalls."""
     sw = dict(_sw())
@@ -490,6 +523,9 @@ def _build_current_payload() -> SpaceWeatherCurrent:
                 sw["vtec_tecu"] = sw["mean_vtec"]
         except Exception:
             log.exception("live station TEC mean failed")
+    risk_label, risk_color = _resolved_gnss_risk(sw)
+    sw["gnss_risk"] = risk_label
+    sw["gnss_risk_color"] = risk_color
     threading.Thread(
         target=log_snapshot,
         kwargs={"source": "dashboard", "force": False, "snapshot": sw},
@@ -507,8 +543,8 @@ def _build_current_payload() -> SpaceWeatherCurrent:
         f107=sw.get("f107"),
         s4=sw.get("s4"),
         ap=sw.get("ap"),
-        gnss_risk=sw.get("gnss_risk"),
-        gnss_risk_color=sw.get("gnss_risk_color"),
+        gnss_risk=risk_label,
+        gnss_risk_color=risk_color,
         stations_online=sw.get("stations_online"),
         stations_total=sw.get("stations_total"),
         plasma_speed=sw.get("solar_wind_speed") or sw.get("plasma_speed"),
@@ -551,7 +587,7 @@ async def _refresh_current_payload() -> SpaceWeatherCurrent:
         payload = cached or SpaceWeatherCurrent(
             kp_condition="Unavailable",
             kp_color="#94a3b8",
-            gnss_risk="Unknown",
+            gnss_risk=None,
             gnss_risk_color="#94a3b8",
             stations_online=None,
             stations_total=None,
@@ -975,6 +1011,56 @@ def solar_cycle_indices(
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Solar-cycle indices fetch failed: {exc}") from exc
     return SolarCycleIndicesResponse(**payload)
+
+
+@router.get("/flare-frequencies", response_model=FlareFrequenciesResponse)
+async def flare_frequencies(
+    force_refresh: bool = Query(False),
+    _=Depends(require_api_key),
+):
+    """Yearly C/M/X flare counts with mean sunspot number for the flare card chart.
+
+    NOAA NCEI GOES XRS covers 1997–2016. NASA DONKI FLR covers 2017–present so
+    the current year keeps updating. Yearly mean SSN is from NOAA SWPC observed
+    solar-cycle indices.
+    """
+    from zgiis.space_weather.flare_frequencies import build_flare_frequencies
+
+    try:
+        payload = await asyncio.to_thread(build_flare_frequencies, force_refresh=force_refresh)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Flare-frequency fetch failed: {exc}") from exc
+    return FlareFrequenciesResponse(**payload)
+
+
+@router.get("/flare-month", response_model=FlareMonthResponse)
+async def flare_month(
+    force_refresh: bool = Query(False),
+    _=Depends(require_api_key),
+):
+    """Past-month daily C/M/X flare counts and sunspot number for the flare card."""
+    from zgiis.space_weather.flare_frequencies import build_flare_month
+
+    try:
+        payload = await asyncio.to_thread(build_flare_month, force_refresh=force_refresh)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Flare-month fetch failed: {exc}") from exc
+    return FlareMonthResponse(**payload)
+
+
+@router.get("/storm-days", response_model=StormDaysResponse)
+async def storm_days(
+    force_refresh: bool = Query(False),
+    _=Depends(require_api_key),
+):
+    """Yearly counts of G1–G5 storm days from the GFZ Potsdam Kp record."""
+    from zgiis.space_weather.gfz_kp_client import build_storm_year_counts
+
+    try:
+        payload = await asyncio.to_thread(build_storm_year_counts, force_refresh=force_refresh)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Storm-day count failed: {exc}") from exc
+    return StormDaysResponse(**payload)
 
 
 @router.get("/heliospheric-monitor", response_model=HeliosphericMonitorResponse)

@@ -1,5 +1,5 @@
 import { monitoringFreshness } from "./monitoringStatus";
-import { GNSS_RISK_BANDS, gnssRiskBandOf } from "./gnssRiskWatch";
+import { GNSS_RISK_BANDS, gnssRiskBandOf, gnssRiskFromKp } from "./gnssRiskWatch";
 import type { SolarActivityFull, SpaceWeatherCurrent } from "./types";
 import type { LiveStationCounts } from "./liveStationStatus";
 import { connectedStreamCount, formatCorsConnectedDisplay } from "./liveStationStatus";
@@ -632,7 +632,9 @@ export function buildMetricCards(
   const wind = sw?.plasma_speed ?? opts?.solar?.solar_wind?.speed ?? null;
   const online = sw?.stations_online ?? null;
   const total = sw?.stations_total ?? null;
-  const riskBand = GNSS_RISK_BANDS.find((band) => band.id === gnssRiskBandOf(sw?.gnss_risk));
+  const riskBand = GNSS_RISK_BANDS.find(
+    (band) => band.id === (gnssRiskBandOf(sw?.gnss_risk) ?? gnssRiskFromKp(kp)),
+  );
   const riskColor = riskBand ? sw?.gnss_risk_color ?? riskBand.color : "#94a3b8";
   const liveCounts = opts?.liveStationCounts;
   const sa = opts?.solar;
@@ -1181,7 +1183,10 @@ export function interpretMetric(
         High: "Expect possible positioning degradation; use dual-frequency data and validation. Confirm with local ionosphere metrics when available.",
         Critical: "GNSS positioning may be unreliable; postpone critical operations where possible and check local CORS/VTEC evidence.",
       };
-      const risk = sw?.gnss_risk ?? "Unknown";
+      const band = GNSS_RISK_BANDS.find(
+        (item) => item.id === (gnssRiskBandOf(sw?.gnss_risk) ?? gnssRiskFromKp(kp)),
+      );
+      const risk = band?.label ?? "not assessed";
       return `Current GNSS risk label is ${risk} (provisional). ${interpretations[risk] ?? "Continue monitoring."} Local ΔTEC/ROTI/RTK rules will refine this later.`;
     }
 

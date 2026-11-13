@@ -134,7 +134,7 @@ function HomeMetricCard({
   activeTecCode?: string | null;
 }) {
   return (
-    <div className="sw-metric-card home-metric-card">
+    <div className={`sw-metric-card home-metric-card${showTecScale ? " home-metric-card-tec" : ""}`}>
       <span className="sw-metric-icon">{icon}</span>
       <div className="sw-metric-label">{label}</div>
       <div className="sw-metric-value" style={{ color: loading ? "var(--text-muted)" : valueColor }}>
@@ -196,8 +196,9 @@ function HomeMetricCard({
                   className="sw-metric-flare-scale-letter"
                   style={{ color: level.color, fontWeight: active ? 900 : 800 }}
                 >
-                  {level.desc}
+                  {level.range}
                 </div>
+                <div className="sw-metric-flare-scale-desc">{level.desc}</div>
               </div>
             );
           })}
@@ -498,7 +499,7 @@ export default function HomeClient({ initialSw = null }: HomeClientProps) {
               />
             </span>
             <span className="home-page-title-text">
-              <span className="home-page-title-line">Zimbabwe Space Weather &amp; Navigation</span>
+              <span className="home-page-title-line">ZINGSA Space Weather Monitoring</span>
             </span>
           </h1>
           <p suppressHydrationWarning className="page-subtitle home-page-subtitle">

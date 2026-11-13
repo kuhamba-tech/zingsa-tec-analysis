@@ -7,6 +7,7 @@ from zgiis.space_weather.solar_brief import (
     choose_solarham_images,
     count_flare_days,
     latest_flare_class,
+    recent_sun_events,
     monitor_region_rows,
     parse_daypre,
     parse_forecast_outlook,
@@ -82,6 +83,50 @@ def test_a_quiet_utc_day_is_not_reported_as_a_c_flare():
     counted = count_flare_days([{"max_time": "2026-10-31T06:13:00Z", "max_class": "B3.4"}], now)
     assert counted["today"]["label"] == "No C-flares or higher"
     assert counted["yesterday"]["label"] == "No C-flares or higher"
+
+
+def test_past_day_events_keep_goes_times_and_the_matching_region():
+    now = datetime(2026, 11, 12, 10, 0, tzinfo=timezone.utc)
+    rows = recent_sun_events(
+        [
+            {
+                "begin_time": "2026-11-12T02:37:00Z",
+                "max_time": "2026-11-12T02:48:00Z",
+                "end_time": "2026-11-12T02:53:00Z",
+                "max_class": "C2.4",
+            },
+            {
+                "begin_time": "2026-11-11T21:06:00Z",
+                "max_time": "2026-11-11T21:21:00Z",
+                "end_time": "2026-11-11T21:29:00Z",
+                "max_class": "M1.7",
+            },
+            {
+                "begin_time": "2026-11-11T09:00:00Z",
+                "max_time": "2026-11-11T09:10:00Z",
+                "end_time": "2026-11-11T09:20:00Z",
+                "max_class": "C1.0",
+            },
+            {
+                "max_time": "2026-11-12T02:48:00Z",
+                "max_class": "B9.0",
+            },
+        ],
+        [
+            {"type": "XRA", "region": None, "particulars1": "C2.4", "max_datetime": "2026-11-12T02:48:00"},
+            {"type": "XRA", "region": 4566, "particulars1": "M1.7", "max_datetime": "2026-11-11T21:21:00"},
+            {"type": "XRA", "region": 4573, "particulars1": "C1.2", "max_datetime": "2026-11-11T21:22:00"},
+        ],
+        now,
+    )
+    assert [row["flare_class"] for row in rows] == ["C2.4", "M1.7"]
+    assert rows[0]["date"] == "2026/11/12"
+    assert rows[0]["region"] is None
+    assert rows[0]["start"] == "02:37"
+    assert rows[0]["maximum"] == "02:48"
+    assert rows[0]["end"] == "02:53"
+    assert rows[1]["region"] == 4566
+    assert rows[1]["start"] == "21:06"
 
 
 def test_latest_flare_is_the_newest_peak_not_the_largest_class():

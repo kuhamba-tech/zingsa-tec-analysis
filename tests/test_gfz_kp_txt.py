@@ -1,6 +1,11 @@
 """GFZ Kp_ap_Ap_SN_F107 TXT parser tests."""
 
-from zgiis.space_weather.gfz_kp_client import parse_gfz_kp_txt, build_analysis
+from zgiis.space_weather.gfz_kp_client import (
+    build_analysis,
+    count_storm_years,
+    parse_gfz_kp_txt,
+    storm_day_band,
+)
 
 
 SAMPLE = """
@@ -28,6 +33,32 @@ def test_parse_gfz_kp_txt_daily_rows():
     assert missing["kp"] is None
     assert missing["sn"] is None
     assert missing["f107"] is None
+
+
+def test_storm_day_band_uses_the_kp_third_that_starts_each_g_scale():
+    assert storm_day_band(4.333) is None
+    assert storm_day_band(4.667) == "g1"
+    assert storm_day_band(5.333) == "g1"
+    assert storm_day_band(5.667) == "g2"
+    assert storm_day_band(6.667) == "g3"
+    assert storm_day_band(7.667) == "g4"
+    assert storm_day_band(8.667) == "g5"
+    assert storm_day_band(None) is None
+
+
+def test_count_storm_years_keeps_one_band_per_day_and_a_quiet_year():
+    years = count_storm_years(
+        [
+            {"date": "1950-01-01", "kp": 4.667},
+            {"date": "1950-01-02", "kp": 8.667},
+            {"date": "1950-01-03", "kp": 2.0},
+            {"date": "1951-06-01", "kp": 1.0},
+            {"date": "1952-01-01", "kp": None},
+        ]
+    )
+    assert [row["year"] for row in years] == [1950, 1951]
+    assert years[0] == {"year": 1950, "g1": 1, "g2": 0, "g3": 0, "g4": 0, "g5": 1}
+    assert years[1]["g1"] == 0
 
 
 def test_build_analysis_includes_txt_source_and_solar():

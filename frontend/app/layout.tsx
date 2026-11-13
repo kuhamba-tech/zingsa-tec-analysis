@@ -7,7 +7,7 @@ import RouterFetchRecovery from "@/components/RouterFetchRecovery";
 import SpaceWeatherBootScript from "@/components/SpaceWeatherBootScript";
 
 export const metadata: Metadata = {
-  title: "Zimbabwe Space Weather & Navigation",
+  title: "ZINGSA Space Weather Monitoring",
   description: "Real-time space weather, ionospheric TEC, and GNSS navigation from Zimbabwe's CORS network",
 };
 
@@ -43,7 +43,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body suppressHydrationWarning>
         <ChunkLoadRecovery />
         <RouterFetchRecovery />
-        <Suspense fallback={<div className="app-main">{children}</div>}>
+        <Suspense
+          fallback={
+            <div className="app-main" role="status" aria-label="Loading application">
+              Loading…
+            </div>
+          }
+        >
           <AppShell>{children}</AppShell>
         </Suspense>
       </body>

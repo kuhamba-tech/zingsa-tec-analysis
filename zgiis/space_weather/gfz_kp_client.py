@@ -58,6 +58,107 @@ def _storm_class(kp: float | None, ap: float | None) -> str:
     return "Quiet"
 
 
+def storm_day_band(kp: float | None) -> str | None:
+    """Highest NOAA G-scale reached by one day's maximum Kp.
+
+    GFZ reports Kp in thirds. G1 begins at Kp 5− (4.667), G2 at 6−, G3 at 7−,
+    G4 at 8− and G5 at 9−. A quiet day returns None.
+    """
+    if kp is None:
+        return None
+    if kp >= 8.667 - 1e-3:
+        return "g5"
+    if kp >= 7.667 - 1e-3:
+        return "g4"
+    if kp >= 6.667 - 1e-3:
+        return "g3"
+    if kp >= 5.667 - 1e-3:
+        return "g2"
+    if kp >= 4.667 - 1e-3:
+        return "g1"
+    return None
+
+
+def count_storm_years(rows: list[dict[str, Any]]) -> list[dict[str, int]]:
+    """Count days in each G-scale for every year that has a Kp value."""
+    buckets: dict[int, dict[str, int]] = {}
+    for row in rows:
+        stamp = str(row.get("date") or "")
+        if len(stamp) < 4:
+            continue
+        try:
+            year = int(stamp[:4])
+        except ValueError:
+            continue
+        kp = row.get("kp")
+        try:
+            value = float(kp) if kp is not None else None
+        except (TypeError, ValueError):
+            value = None
+        slot = buckets.setdefault(year, {"g1": 0, "g2": 0, "g3": 0, "g4": 0, "g5": 0, "days": 0})
+        if value is None:
+            continue
+        slot["days"] += 1
+        band = storm_day_band(value)
+        if band:
+            slot[band] += 1
+    years: list[dict[str, int]] = []
+    if not buckets:
+        return years
+    for year in range(min(buckets), max(buckets) + 1):
+        slot = buckets.get(year)
+        if slot is None or slot["days"] <= 0:
+            continue
+        years.append(
+            {
+                "year": year,
+                "g1": slot["g1"],
+                "g2": slot["g2"],
+                "g3": slot["g3"],
+                "g4": slot["g4"],
+                "g5": slot["g5"],
+            }
+        )
+    return years
+
+
+def build_storm_year_counts(*, force_refresh: bool = False) -> dict[str, Any]:
+    """Yearly G1–G5 storm-day counts from the GFZ Kp record since 1932."""
+    cache_key = "storm-years"
+    now = time.time()
+    with _txt_lock:
+        hit = _txt_cache.get(cache_key)
+        if not force_refresh and hit and (now - hit[0]) < _TXT_CACHE_TTL_S:
+            payload = hit[1]
+            if isinstance(payload, dict):
+                return payload
+
+    today = datetime.now(timezone.utc).date()
+    try:
+        rows = _fetch_gfz_daily_txt(date(1932, 1, 1), today, timeout=120)
+    except Exception as exc:
+        log.warning("GFZ storm-year count failed: %s", exc)
+        return {
+            "mode": "unavailable",
+            "updated_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "source": "GFZ Potsdam Kp index",
+            "note": "The GFZ Kp record could not be read.",
+            "years": [],
+        }
+    years = count_storm_years(rows)
+    payload = {
+        "mode": "live" if years else "unavailable",
+        "updated_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "source": "GFZ Potsdam Kp index since 1932, with the latest days from the GFZ nowcast",
+        "note": "" if years else "The GFZ Kp record did not include any daily values.",
+        "years": years,
+    }
+    if years:
+        with _txt_lock:
+            _txt_cache[cache_key] = (time.time(), payload)
+    return payload
+
+
 def _is_storm_day(kp: float | None, ap: float | None) -> bool:
     if kp is not None and kp >= 5:
         return True

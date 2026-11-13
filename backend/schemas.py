@@ -48,6 +48,61 @@ class SolarCycleIndicesResponse(BaseModel):
     points: list[SolarCycleIndexPoint] = []
 
 
+class FlareFrequencyPoint(BaseModel):
+    year: int
+    c_count: int | None = None
+    m_count: int | None = None
+    x_count: int | None = None
+    ssn: float | None = None
+    flare_source: str | None = None
+    ssn_source: str | None = None
+
+
+class FlareFrequenciesResponse(BaseModel):
+    mode: str = "unavailable"
+    updated_utc: str | None = None
+    start_year: int = 1997
+    end_year: int | None = None
+    point_count: int = 0
+    source: str = ""
+    note: str = ""
+    points: list[FlareFrequencyPoint] = []
+
+
+class FlareMonthDay(BaseModel):
+    date: str
+    label: str
+    c_count: int | None = None
+    m_count: int | None = None
+    x_count: int | None = None
+    ssn: int | None = None
+
+
+class FlareMonthResponse(BaseModel):
+    mode: str = "unavailable"
+    updated_utc: str | None = None
+    source: str = ""
+    note: str = ""
+    days: list[FlareMonthDay] = []
+
+
+class StormYearPoint(BaseModel):
+    year: int
+    g1: int = 0
+    g2: int = 0
+    g3: int = 0
+    g4: int = 0
+    g5: int = 0
+
+
+class StormDaysResponse(BaseModel):
+    mode: str = "unavailable"
+    updated_utc: str | None = None
+    source: str = ""
+    note: str = ""
+    years: list[StormYearPoint] = []
+
+
 class SolarDiskRegion(BaseModel):
     number: int
     location: str
@@ -91,6 +146,15 @@ class SolarBriefFlareDay(BaseModel):
     label: str = ""
 
 
+class SolarBriefSunEvent(BaseModel):
+    date: str
+    region: int | None = None
+    flare_class: str
+    start: str | None = None
+    maximum: str
+    end: str | None = None
+
+
 class SolarBriefImage(BaseModel):
     key: str
     title: str
@@ -129,6 +193,7 @@ class SolarBriefResponse(BaseModel):
     sunspot_number: int | None = None
     visible_spot_count: int | None = None
     latest_flare_class: str | None = None
+    sun_events: list[SolarBriefSunEvent] | None = None
     c_percent: int | None = None
     m_percent: int | None = None
     x_percent: int | None = None

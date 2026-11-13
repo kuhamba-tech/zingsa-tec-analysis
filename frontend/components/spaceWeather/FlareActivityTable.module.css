@@ -64,6 +64,134 @@
   overflow-wrap: anywhere;
 }
 
+.events {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin-top: 0.35rem;
+}
+
+.eventsHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.eventsTitle {
+  margin: 0;
+  color: #f8fafc;
+  font-size: 1rem;
+  font-weight: 750;
+}
+
+.eventsUtc {
+  color: #94a3b8;
+  font-size: 0.75rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.eventsNote,
+.eventsSource {
+  margin: 0;
+  color: #cbd5e1;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.eventsScroll {
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-inline: contain;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 6px;
+}
+
+.eventsTable {
+  width: 100%;
+  min-width: 34rem;
+  border-collapse: collapse;
+  color: #f8fafc;
+  font-size: 0.82rem;
+}
+
+.eventsTable th,
+.eventsTable td {
+  padding: 0.55rem 0.65rem;
+  text-align: left;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.22);
+  white-space: nowrap;
+}
+
+.eventsTable th {
+  color: #cbd5e1;
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  background: rgba(15, 23, 42, 0.9);
+}
+
+.eventsTable tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.region,
+.regionEmpty,
+.flare {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.4rem;
+  min-height: 1.45rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 4px;
+  font-weight: 750;
+  line-height: 1.2;
+}
+
+.region {
+  background: #b4534a;
+  color: #fff;
+}
+
+.regionEmpty {
+  background: #64748b;
+  color: #f8fafc;
+}
+
+.flareA {
+  background: #e2e8f0;
+  color: #334155;
+}
+
+.flareB {
+  background: #86efac;
+  color: #14532d;
+}
+
+.flareC {
+  background: #fde68a;
+  color: #854d0e;
+}
+
+.flareM {
+  background: #fecdd3;
+  color: #9f1239;
+}
+
+.flareX {
+  background: #fecaca;
+  color: #7f1d1d;
+}
+
+.clock {
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+}
+
 @media (max-width: 520px) {
   .title {
     font-size: 1.02rem;

@@ -61,6 +61,9 @@ import type {
   RinexConvertConfig,
   SeasonalRow,
   SolarActivityFull,
+  FlareFrequenciesResponse,
+  FlareMonthResponse,
+  StormDaysResponse,
   SolarCycleIndicesResponse,
   HeliosphericMonitorResponse,
   SolarCycleRow,
@@ -365,6 +368,15 @@ export type SolarBriefFlareDay = {
   label: string;
 };
 
+export type SolarBriefSunEvent = {
+  date: string;
+  region: number | null;
+  flare_class: string;
+  start: string | null;
+  maximum: string;
+  end: string | null;
+};
+
 export type SolarBriefImage = {
   key: string;
   title: string;
@@ -403,6 +415,7 @@ export type SolarBriefResponse = {
   sunspot_number: number | null;
   visible_spot_count: number | null;
   latest_flare_class: string | null;
+  sun_events: SolarBriefSunEvent[] | null;
   c_percent: number | null;
   m_percent: number | null;
   x_percent: number | null;
@@ -481,6 +494,42 @@ export const getSolarCycleIndices = (startYear = 1965, forceRefresh = false) =>
       "/space-weather/solar-cycle-indices",
       {
         start_year: startYear,
+        _ts: Date.now(),
+        ...(forceRefresh ? { force_refresh: "true" } : {}),
+      },
+      ANALYSIS_TIMEOUT_MS,
+    ),
+  );
+
+export const getFlareMonth = (forceRefresh = false) =>
+  dedupeGet(`space-weather/flare-month${forceRefresh ? ":refresh" : ""}`, () =>
+    get<FlareMonthResponse>(
+      "/space-weather/flare-month",
+      {
+        _ts: Date.now(),
+        ...(forceRefresh ? { force_refresh: "true" } : {}),
+      },
+      20_000,
+    ),
+  );
+
+export const getStormDays = (forceRefresh = false) =>
+  dedupeGet(`space-weather/storm-days${forceRefresh ? ":refresh" : ""}`, () =>
+    get<StormDaysResponse>(
+      "/space-weather/storm-days",
+      {
+        _ts: Date.now(),
+        ...(forceRefresh ? { force_refresh: "true" } : {}),
+      },
+      120_000,
+    ),
+  );
+
+export const getFlareFrequencies = (forceRefresh = false) =>
+  dedupeGet(`space-weather/flare-frequencies${forceRefresh ? ":refresh" : ""}`, () =>
+    get<FlareFrequenciesResponse>(
+      "/space-weather/flare-frequencies",
+      {
         _ts: Date.now(),
         ...(forceRefresh ? { force_refresh: "true" } : {}),
       },
@@ -1329,12 +1378,77 @@ export const getTrigNet = () =>
 export const getIntermagnetLatest = () =>
   get<IntermagnetLatestResponse>("/tec/intermagnet-latest", { _ts: Date.now() }, 25_000);
 
-export const getIntermagnetAnalysis = (start: string, end: string, observatory: string, station?: string) =>
-  get<IntermagnetAnalysisResponse>(
-    "/tec/intermagnet-analysis",
-    { start, end, observatory, station, _ts: Date.now() },
-    ANALYSIS_TIMEOUT_MS,
-  );
+export async function getIntermagnetAnalysis(
+  start: string,
+  end: string,
+  observatory: string,
+  station?: string,
+): Promise<IntermagnetAnalysisResponse> {
+  const dayMs = 24 * 60 * 60 * 1000;
+  const startMs = Date.parse(`${start}T00:00:00Z`);
+  const endMs = Date.parse(`${end}T00:00:00Z`);
+  if (
+    !Number.isFinite(startMs) ||
+    !Number.isFinite(endMs) ||
+    endMs < startMs ||
+    endMs - startMs > 400 * dayMs
+  ) {
+    return get<IntermagnetAnalysisResponse>(
+      "/tec/intermagnet-analysis",
+      { start, end, observatory, station, _ts: Date.now() },
+      ANALYSIS_TIMEOUT_MS,
+    );
+  }
+
+  const ranges: { start: string; end: string }[] = [];
+  for (let cursor = startMs; cursor <= endMs;) {
+    const chunkEnd = Math.min(cursor + 30 * dayMs, endMs);
+    ranges.push({
+      start: new Date(cursor).toISOString().slice(0, 10),
+      end: new Date(chunkEnd).toISOString().slice(0, 10),
+    });
+    cursor = chunkEnd + dayMs;
+  }
+  const results = await Promise.all(ranges.map(range =>
+    get<IntermagnetAnalysisResponse>(
+      "/tec/intermagnet-analysis",
+      { ...range, observatory, station, _ts: Date.now() },
+      ANALYSIS_TIMEOUT_MS,
+    ),
+  ));
+  if (results.length === 1) return results[0];
+
+  const series = results.flatMap(result => result.series).sort((a, b) => a.date.localeCompare(b.date));
+  const storms = results.flatMap(result => result.storms).sort((a, b) => a.date.localeCompare(b.date));
+  const meanFor = (isStorm: boolean) => {
+    const values = series
+      .filter(row => row.storm_flag === isStorm)
+      .flatMap(row => row.mean_vtec == null ? [] : [row.mean_vtec]);
+    return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+  };
+  const maxOf = (values: (number | null | undefined)[]) => {
+    const valid = values.filter((value): value is number => value != null && Number.isFinite(value));
+    return valid.length ? Math.max(...valid) : null;
+  };
+  const fetchedAt = results.map(result => result.fetched_at)
+    .filter((value): value is string => value != null)
+    .sort();
+  return {
+    ...results[0],
+    start_date: series[0]?.date ?? null,
+    end_date: series[series.length - 1]?.date ?? null,
+    days: series.length,
+    storm_days: storms.length,
+    max_dbdt: maxOf(series.map(row => row.max_dbdt)),
+    max_range_h: maxOf(series.map(row => row.range_h)),
+    max_gic_est_a: maxOf(series.map(row => row.gic_est_a)),
+    mean_vtec_storm: meanFor(true),
+    mean_vtec_quiet: meanFor(false),
+    series,
+    storms,
+    fetched_at: fetchedAt[fetchedAt.length - 1] ?? null,
+  };
+}
 export const getDidbaseIonosonde = (station: string, year?: number) =>
   get<DidbaseIonosondeResponse>("/tec/ionosonde-didbase", { station, year, _ts: Date.now() }, 30_000);
 export const getGuviOn2 = (start?: string, end?: string) =>

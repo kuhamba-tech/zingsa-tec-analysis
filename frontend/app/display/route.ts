@@ -238,14 +238,15 @@ body{
   font:18px "Segoe UI", Arial, sans-serif;line-height:1.4;
   -webkit-tap-highlight-color:transparent;touch-action:manipulation;
 }
-main{max-width:1680px;margin:auto;padding:28px 32px 36px}
+main{max-width:1680px;margin:auto;padding:clamp(16px,2.2vw,32px);padding-bottom:calc(28px + env(safe-area-inset-bottom))}
 .brand{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px}
-.brand-mark{display:flex;align-items:center;gap:14px;min-width:0}
+.brand-mark{display:flex;align-items:center;gap:14px;min-width:0;flex:1 1 360px}
+.brand-mark>div{min-width:0}
 .logo{
   width:64px;height:64px;border-radius:14px;object-fit:cover;flex:0 0 auto;
   background:#061428;border:1px solid rgba(125,211,252,.45);
 }
-h1{font-size:32px;margin:0;line-height:1.15}
+h1{font-size:clamp(23px,2.5vw,36px);margin:0;line-height:1.15;overflow-wrap:anywhere}
 .sub{margin:6px 0 0;color:#ffffff;font-size:16px}
 .live-chip{
   display:inline-flex;align-items:center;gap:8px;padding:10px 16px;border-radius:999px;
@@ -256,12 +257,12 @@ h1{font-size:32px;margin:0;line-height:1.15}
 .cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
 .card{
   display:flex;flex-direction:column;align-items:center;justify-content:flex-start;text-align:center;
-  min-height:210px;padding:18px 16px 14px;width:100%;
+  min-height:250px;padding:clamp(16px,1.8vw,24px);width:100%;min-width:0;
   background:rgba(0,0,0,.94);border:1px solid #244d73;border-radius:8px;
 }
 .icon{font-size:28px;line-height:1;margin-bottom:8px}
 .label{font-size:15px;font-weight:750;letter-spacing:.02em;line-height:1.2;color:#ffffff}
-.value{margin-top:8px;font-size:42px;font-weight:900;line-height:1.05;font-variant-numeric:tabular-nums;word-break:break-word}
+.value{margin-top:8px;font-size:clamp(32px,3.1vw,48px);font-weight:900;line-height:1.05;font-variant-numeric:tabular-nums;word-break:break-word}
 .subtitle{margin-top:6px;font-size:15px;color:#ffffff}
 .note{margin-top:10px;font-size:13px;color:#ffffff;line-height:1.3;width:100%}
 .meta{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:6px 10px;margin-top:10px;font-size:12px;color:#ffffff}
@@ -272,8 +273,8 @@ h1{font-size:32px;margin:0;line-height:1.15}
 .scale{display:flex;width:100%;gap:4px;margin-top:12px}
 .scale-item{flex:1;min-width:0;text-align:center}
 .scale-bar{width:100%;border-radius:1px;margin-bottom:4px}
-.scale-letter{font-size:11px;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.scale-range{margin-top:4px;color:#ffffff;font-size:11px;line-height:1.25;overflow-wrap:anywhere}
+.scale-letter{font-size:12px;line-height:1.25;overflow-wrap:anywhere}
+.scale-range{margin-top:4px;color:#ffffff;font-size:12px;line-height:1.25;overflow-wrap:anywhere}
 .scale-caption{margin-top:6px;color:#ffffff;font-size:11px;line-height:1.25}
 .advice{
   margin:18px 0 0;padding:14px 16px;border-radius:8px;border:1px solid #244d73;
@@ -285,14 +286,21 @@ h1{font-size:32px;margin:0;line-height:1.15}
   min-height:60px;padding:12px 16px;border:2px solid #3a7ab5;border-radius:8px;
   background:rgba(0,0,0,.85);color:#ffffff;text-decoration:none;font-size:17px;font-weight:700;
 }
-.links a:focus,.links a:active{outline:3px solid #ffd166;outline-offset:2px}
+.links a:hover{background:#10283d}
+.links a:focus-visible,.links a:active{outline:3px solid #ffd166;outline-offset:2px}
 footer{margin-top:20px;border-top:1px solid #244d73;padding-top:14px;color:#ffffff;font-size:14px}
 footer p{margin:0 0 8px}
-@media(max-width:1100px){.cards{grid-template-columns:repeat(2,minmax(0,1fr))}.links{grid-template-columns:1fr}}
-@media(max-width:640px){
-  main{padding:16px}h1{font-size:24px}.cards{grid-template-columns:1fr}
-  .value{font-size:34px}.card{min-height:180px}
+@media(max-width:1100px){.cards{grid-template-columns:repeat(2,minmax(0,1fr))}.links{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:680px){
+  .brand{gap:12px}.brand-mark{flex-basis:100%;gap:12px}.logo{width:52px;height:52px}
+  .sub{font-size:14px}.live-chip{font-size:13px;padding:8px 12px}
+  .cards{grid-template-columns:1fr;gap:12px}.card{min-height:0;padding:22px 16px}
+  .value{font-size:clamp(32px,9vw,42px)}.label{font-size:16px}
+  .note,.meta{font-size:13px}.scale{gap:5px;margin-top:16px}.scale-range{font-size:11px}
+  .advice{font-size:14px;padding:14px}.links{grid-template-columns:1fr;gap:10px}
+  .links a{min-height:48px;font-size:16px}footer{font-size:13px;overflow-wrap:anywhere}
 }
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto}}
 </style>
 </head>
 <body>

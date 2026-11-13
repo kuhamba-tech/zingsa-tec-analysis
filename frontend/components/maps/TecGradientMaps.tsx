@@ -75,6 +75,40 @@ function formatNumber(value: number | null, digits = 3): string {
   return value.toFixed(digits);
 }
 
+function colorScaleTicks(limit: number, diverging: boolean): { value: number; position: number; label: string }[] {
+  const min = diverging ? -limit : 0;
+  const max = limit;
+  const range = max - min;
+  if (!Number.isFinite(range) || range <= 0) return [];
+
+  const roughStep = range / 9;
+  const magnitude = 10 ** Math.floor(Math.log10(roughStep));
+  const normalized = roughStep / magnitude;
+  const niceSteps = [1, 2, 2.5, 4, 5, 10];
+  const step = niceSteps.reduce((best, candidate) =>
+    Math.abs(Math.log(candidate / normalized)) < Math.abs(Math.log(best / normalized))
+      ? candidate
+      : best,
+  ) * magnitude;
+  const [coefficient, exponentText] = step.toString().split("e");
+  const stepDecimals = (coefficient.split(".")[1] ?? "").length - Number(exponentText ?? 0);
+  const decimals = Math.min(6, Math.max(0, stepDecimals));
+  const epsilon = step * 1e-8;
+  const values = [min];
+  for (let value = Math.ceil((min - epsilon) / step) * step; value < max - epsilon; value += step) {
+    if (value - min > step * 0.25 && max - value > step * 0.25) values.push(value);
+  }
+  values.push(max);
+
+  return values.map(value => ({
+    value,
+    position: ((max - value) / range) * 100,
+    label: Math.abs(value - min) < epsilon || Math.abs(value - max) < epsilon
+      ? value.toFixed(limit < 0.01 ? 3 : 2)
+      : value.toFixed(decimals),
+  }));
+}
+
 function windowPhrase(maps: TecGradientMapsResponse): string {
   const startDay = maps.window_start.slice(0, 10);
   const endDay = maps.window_end.slice(0, 10);
@@ -138,8 +172,6 @@ export function GradientHybridMap({
   scaleMax?: number | null;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
-  // Start the map code during render so the four panels do not wait for an effect.
-  void loadOpenLayers().catch(() => {});
   const masked = useMemo(() => grid.map((row, i) =>
     row.map((cell, j) =>
       cell != null && Number.isFinite(cell) && cellIntersectsZimbabwe(lat0 + i, lon0 + j) ? cell : null,
@@ -152,6 +184,7 @@ export function GradientHybridMap({
   const limit = scaleMax != null && Number.isFinite(scaleMax) && scaleMax > 0
     ? Math.max(scaleMax, ownLimit)
     : ownLimit;
+  const hasPaint = values.length > 0;
   const nlat = masked.length;
   const nlon = masked[0]?.length ?? 0;
   const contourLevels = limit > 0
@@ -161,8 +194,8 @@ export function GradientHybridMap({
   const scaleColors = diverging
     ? [temporalColor(limit, limit), temporalColor(0, limit), temporalColor(-limit, limit)]
     : [1, 0.75, 0.5, 0.25, 0].map((fraction) => spatialColor(limit * fraction, limit));
+  const scaleTicks = hasPaint && limit > 0 ? colorScaleTicks(limit, diverging) : [];
 
-  const hasPaint = values.length > 0;
   const contours = useMemo(
     () => (hasPaint ? contourLevels.map((level) => ({ level, segments: gradientContourSegments(masked, level) })) : []),
     [masked, limit, diverging, hasPaint],
@@ -340,7 +373,7 @@ export function GradientHybridMap({
             for (const label of contourLabels) {
               const halfWidth = ctx.measureText(label.text).width / 2;
               const minX = 6 + halfWidth;
-              const maxX = Math.max(minX, width - 82 - halfWidth);
+              const maxX = Math.max(minX, width - 108 - halfWidth);
               const x = Math.max(minX, Math.min(maxX, label.x));
               const y = Math.max(8, Math.min(height - 8, label.y));
               ctx.lineWidth = 4;
@@ -386,7 +419,7 @@ export function GradientHybridMap({
         const height = frame?.clientHeight || 420;
         if (created.getTarget()) created.updateSize();
         view.fit([southWest[0], southWest[1], northEast[0], northEast[1]], {
-          padding: [24, 88, 24, 24],
+          padding: [24, 112, 24, 24],
           maxZoom: 6,
           size: [width, height],
         });
@@ -429,12 +462,20 @@ export function GradientHybridMap({
           {!hasPaint && <ZimbabweOutlinePlaceholder />}
         </div>
         {hasPaint && (
-          <div className="tec-gradient-inset-scale" aria-label={`Colour scale in ${unit}`}>
+          <div
+            className="tec-gradient-inset-scale"
+            role="img"
+            aria-label={`Colour scale in ${unit}, from ${scaleTicks[scaleTicks.length - 1]?.label ?? "0"} to ${scaleTicks[0]?.label ?? limit.toFixed(2)}`}
+          >
             <strong>{unit}</strong>
-            <span>{limit.toFixed(limit < 0.01 ? 3 : 2)}</span>
-            <i style={{ background: `linear-gradient(180deg, ${scaleColors.join(", ")})` }} />
-            {diverging && <span className="tec-gradient-inset-zero">0</span>}
-            <span>{(diverging ? -limit : 0).toFixed(limit < 0.01 ? 3 : 2)}</span>
+            <div className="tec-gradient-scale-body">
+              <div className="tec-gradient-scale-ticks" aria-hidden="true">
+                {scaleTicks.map(tick => (
+                  <span key={tick.value} style={{ top: `${tick.position}%` }}>{tick.label}</span>
+                ))}
+              </div>
+              <i style={{ background: `linear-gradient(180deg, ${scaleColors.join(", ")})` }} />
+            </div>
           </div>
         )}
         {!hasPaint && (

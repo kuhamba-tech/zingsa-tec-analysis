@@ -272,6 +272,14 @@ export default function HeliosphericMonitorStack({ only }: { only?: "kp" } = {})
         <div style={{ fontSize: "0.75rem", color: "#8aa0b3", marginBottom: "0.7rem", lineHeight: 1.4 }}>
           NOAA planetary K-index forecast · observed (green) · estimated (amber) · predicted (cyan) · Kyoto Dst (white line, right axis) · time axis UTC
         </div>
+        {hasFeedErrors && (
+          <div className="banner banner-warn" role="status" style={{ marginBottom: "0.7rem" }}>
+            NOAA feeds are temporarily unreachable. Cached observations are shown where available.
+            <button type="button" className="btn btn-secondary" onClick={retryFeeds} disabled={loading} style={{ marginLeft: "0.65rem" }}>
+              Retry NOAA feeds
+            </button>
+          </div>
+        )}
         {data && data.kp.labels.length > 0 ? (
           <>
             <HeliosphericKpBars
@@ -502,7 +510,7 @@ export default function HeliosphericMonitorStack({ only }: { only?: "kp" } = {})
               </>
             ) : (
               <div className="banner banner-info">
-                Kp forecast unavailable{data.errors?.kp ? `: ${data.errors.kp}` : "."}
+                Kp forecast unavailable. NOAA has not returned recent or cached observations.
               </div>
             )}
           </PanelShell>

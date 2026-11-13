@@ -1,4 +1,5 @@
 import type { SpaceWeatherCurrent } from "@/lib/types";
+import { gnssRiskBandOf } from "@/lib/gnssRiskWatch";
 
 // This module must never import `@/lib/api`. Webpack turns api.ts circular
 // imports into `rememberSpaceWeather is not a function` at runtime.
@@ -66,7 +67,9 @@ export function mergeSpaceWeatherPreferDefined(
       out.stations_online = value == null ? null : Number(value);
       continue;
     }
-    if (value === null || value === undefined) continue;
+    if (key === "gnss_risk" && typeof value === "string" && !gnssRiskBandOf(value)) {
+      continue;
+    }
     // A flaky /current overlay of stations_online=0 (or empty VTEC) must not
     // erase a healthier SSR/boot snapshot — that is what painted CORS 0/25.
     if (

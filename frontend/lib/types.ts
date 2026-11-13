@@ -40,6 +40,61 @@ export interface SolarCycleIndicesResponse {
   points: SolarCycleIndexPoint[];
 }
 
+export interface FlareFrequencyPoint {
+  year: number;
+  c_count: number | null;
+  m_count: number | null;
+  x_count: number | null;
+  ssn: number | null;
+  flare_source?: string | null;
+  ssn_source?: string | null;
+}
+
+export interface FlareFrequenciesResponse {
+  mode: string;
+  updated_utc: string | null;
+  start_year: number;
+  end_year: number | null;
+  point_count: number;
+  source: string;
+  note: string;
+  points: FlareFrequencyPoint[];
+}
+
+export interface FlareMonthDay {
+  date: string;
+  label: string;
+  c_count: number | null;
+  m_count: number | null;
+  x_count: number | null;
+  ssn: number | null;
+}
+
+export interface FlareMonthResponse {
+  mode: string;
+  updated_utc: string | null;
+  source: string;
+  note: string;
+  days: FlareMonthDay[];
+}
+
+export interface StormYearPoint {
+  year: number;
+  g1: number;
+  g2: number;
+  g3: number;
+  g4: number;
+  g5: number;
+}
+
+export interface StormDaysResponse {
+  mode: string;
+  updated_utc: string | null;
+  source: string;
+  note: string;
+  years: StormYearPoint[];
+}
+
 export interface ProtonFluxSeries {
   labels: string[];
   times: string[];

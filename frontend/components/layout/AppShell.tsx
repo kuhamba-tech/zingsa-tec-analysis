@@ -267,7 +267,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             {mobileOpen ? "Close" : "Menu"}
           </span>
         </button>
-        <span className="app-topbar-title">Space Weather &amp; Navigation</span>
+        <span className="app-topbar-title">ZINGSA Space Weather Monitoring</span>
       </header>
 
       {mobileOpen && <div className="app-overlay" onClick={closeMobile} />}
@@ -281,7 +281,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         suppressHydrationWarning
       >
         <div className="app-sidebar-head">
-          <span className="app-logo-text">Space Weather &amp; Navigation</span>
+          <span className="app-logo-text">ZINGSA Space Weather Monitoring</span>
           <button
             className="app-collapse-btn"
             onClick={() => setCollapsed(!collapsed)}

@@ -9,12 +9,15 @@ import { flareLetterOf } from "@/lib/flareEruption";
 import FlareClassMonitor from "./FlareClassMonitor";
 import FlareActivityTable from "./FlareActivityTable";
 import ActiveRegionInspector from "./ActiveRegionInspector";
+import SolarFlareFrequencyChart from "./SolarFlareFrequencyChart";
+import SolarFlareMonthChart from "./SolarFlareMonthChart";
 import CmeClassMonitor from "./CmeClassMonitor";
 import SolarWindClassMonitor from "./SolarWindClassMonitor";
 import ImfBzClassMonitor from "./ImfBzClassMonitor";
 import DstClassMonitor from "./DstClassMonitor";
 import KpGeomagneticClassMonitor from "./KpGeomagneticClassMonitor";
 import GeomagneticStormClassMonitor from "./GeomagneticStormClassMonitor";
+import GeomagneticStormDaysChart from "./GeomagneticStormDaysChart";
 import GnssRiskClassMonitor from "./GnssRiskClassMonitor";
 import { BARUAH_2024 } from "@/lib/scientistBulletin";
 import {
@@ -286,7 +289,7 @@ function TecScaleLegend({ activeCode }: { activeCode?: string | null }) {
                 fontWeight: active ? 900 : 800,
               }}
             >
-              {level.desc}
+              {level.range}
             </div>
             <div className="sw-metric-flare-scale-desc">{level.desc}</div>
           </div>
@@ -502,6 +505,7 @@ function ExplanationPanel({
       {metricKey === "donki_storms" && (
         <div style={{ marginTop: "0.85rem" }}>
           <GeomagneticStormClassMonitor solar={solar ?? null} sw={sw} now={now} />
+          <GeomagneticStormDaysChart />
         </div>
       )}
       {metricKey === "gnss_risk" && (
@@ -647,6 +651,8 @@ function ExplanationPanel({
           <div style={{ marginTop: "0.85rem" }}>
             <FlareActivityTable solar={solar ?? null} />
           </div>
+          <SolarFlareMonthChart />
+          <SolarFlareFrequencyChart />
         </div>
       )}
       {(metricKey === "solar_flare" || metricKey === "donki_flares") && (

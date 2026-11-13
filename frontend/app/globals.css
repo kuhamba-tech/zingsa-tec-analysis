@@ -3446,7 +3446,7 @@ a.home-map-layer-btn {
 }
 
 .dashboard-metric-grid.home-metric-grid {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.55rem;
 }
 
@@ -3857,9 +3857,18 @@ a.home-map-layer-btn {
   flex: 0 0 auto;
 }
 .sw-metric-tec-scale .sw-metric-flare-scale-letter {
-  font-size: 0.52rem;
+  font-size: 0.58rem;
   letter-spacing: 0;
   white-space: nowrap;
+}
+.sw-metric-tec-scale.sw-metric-g-scale .sw-metric-flare-scale-desc {
+  display: block;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
+  font-size: 0.52rem;
+  line-height: 1.15;
+  min-height: 0;
 }
 .sw-metric-flare-scale-desc {
   display: block;
@@ -4920,25 +4929,53 @@ a.home-map-layer-btn {
 .tec-gradient-inset-scale {
   position: absolute;
   top: 1rem;
-  right: 0.65rem;
+  right: 0.55rem;
   bottom: 3rem;
   z-index: 2;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.35rem;
-  width: 62px;
-  padding: 0.5rem 0.35rem;
+  gap: 0.25rem;
+  width: 92px;
+  padding: 0.45rem 0.4rem;
   background: rgba(3, 10, 23, 0.92);
   color: #fff;
   border: 1px solid #7a8da4;
   border-radius: 5px;
-  font-size: 0.7rem;
+  font-size: 0.62rem;
+  font-variant-numeric: tabular-nums;
   pointer-events: none;
 }
 .tec-gradient-inset-scale strong { font-size: 0.65rem; white-space: nowrap; }
-.tec-gradient-inset-scale i { flex: 1; width: 16px; min-height: 50px; border: 1px solid #9ca3af; }
-.tec-gradient-inset-zero { position: absolute; top: 50%; right: 0.3rem; }
+.tec-gradient-scale-body {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  align-items: stretch;
+  flex: 1;
+  width: 100%;
+  min-height: 70px;
+  padding: 0.4rem 0;
+}
+.tec-gradient-scale-ticks {
+  position: absolute;
+  inset: 0.4rem 0;
+}
+.tec-gradient-scale-ticks span {
+  position: absolute;
+  right: 0;
+  transform: translateY(-50%);
+  font-size: 0.6rem;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+.tec-gradient-scale-body i {
+  width: 14px;
+  min-height: 50px;
+  margin-right: 0.1rem;
+  border: 1px solid #9ca3af;
+}
 .tec-gradient-map-empty {
   position: absolute;
   top: 40%;
@@ -5028,10 +5065,11 @@ a.home-map-layer-btn {
     top: 0.55rem;
     right: 0.4rem;
     bottom: 2.2rem;
-    width: 52px;
-    padding: 0.35rem 0.25rem;
-    font-size: 0.62rem;
+    width: 82px;
+    padding: 0.35rem 0.3rem;
+    font-size: 0.58rem;
   }
+  .tec-gradient-scale-ticks span { font-size: 0.56rem; }
   .tec-gradient-map-key {
     left: 0.35rem;
     bottom: 1.35rem;
@@ -9403,6 +9441,81 @@ a.home-map-layer-btn {
 @media (max-width: 360px) {
   .space-weather-page .sw-metric-bz-scale .sw-metric-flare-scale-letter { font-size: 0.7rem; }
   .space-weather-page .sw-metric-bz-scale .sw-metric-flare-scale-desc { font-size: 0.65rem; }
+}
+
+/* TECU bands: numeric range plus the word under it. Keep both inside the card. */
+.sw-metric-card,
+.home-metric-card {
+  max-width: 100%;
+  overflow-x: clip;
+}
+.sw-metric-tec-scale {
+  min-width: 0;
+}
+.sw-metric-tec-scale .sw-metric-flare-scale-item {
+  min-width: 0;
+}
+@media (min-width: 1101px) {
+  .sw-metric-tec-scale .sw-metric-flare-scale-letter {
+    font-size: 0.68rem;
+  }
+  .sw-metric-tec-scale.sw-metric-g-scale .sw-metric-flare-scale-desc {
+    font-size: 0.6rem;
+  }
+}
+@media (max-width: 1100px) {
+  .dashboard-metric-grid.home-metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .home-metric-card-tec {
+    grid-column: 1 / -1;
+  }
+}
+@media (max-width: 768px) {
+  .space-weather-page .sw-space-tabs {
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
+  .space-weather-page .sw-space-tabs .tab {
+    flex: 1 1 calc(50% - 0.35rem);
+    justify-content: center;
+    text-align: center;
+    white-space: normal;
+    line-height: 1.25;
+  }
+  .site-translator-code {
+    display: none;
+  }
+  .site-translator-trigger {
+    height: 44px;
+    padding: 0 0.7rem;
+  }
+  .home-map-toolbar,
+  .home-map-toolbar-center,
+  .home-map-toolbar-right {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .home-map-toolbar-center {
+    flex-wrap: wrap;
+    overflow-x: visible;
+    justify-content: flex-start;
+  }
+}
+@media (max-width: 720px) {
+  .dashboard-metric-grid.home-metric-grid {
+    grid-template-columns: 1fr;
+  }
+  .home-metric-card .sw-metric-label,
+  .home-metric-card .sw-metric-note {
+    white-space: normal;
+  }
+  .home-metric-card-tec .sw-metric-tec-scale .sw-metric-flare-scale-letter {
+    font-size: 0.72rem;
+  }
+  .home-metric-card-tec .sw-metric-tec-scale.sw-metric-g-scale .sw-metric-flare-scale-desc {
+    font-size: 0.68rem;
+  }
 }
 
 .regional-tec-date-picker { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; font-size: 0.85rem; }
