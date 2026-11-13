@@ -26,16 +26,21 @@ try {
     await wait(1000);
   }
   assert(ready,'Initial archive load did not finish');
-  for (const [index,value] of [[1,'2019'],[0,'4'],[3,'2019'],[2,'6']]) {
-    const changed=await evaluate(`(()=>{
-      const card=[...document.querySelectorAll('.omni-range-card')].find(c=>c.textContent.includes('Space Segment - Geomagnetic'));
-      const select=card?.querySelectorAll('select')[${index}];
-      if(!select)return false;
-      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(select,${JSON.stringify(value)});
-      select.dispatchEvent(new Event('change',{bubbles:true}));return true;
-    })()`);
-    assert(changed,'Source date control missing');
-    await wait(250);
+  for (const [label, target, day] of [["Source start date", "April 2019", "2019-04-01"], ["Source end date", "June 2019", "2019-06-30"]]) {
+    await evaluate(`document.querySelector('button[aria-label="${label}"]').click()`);
+    await wait(100);
+    let reached=false;
+    for(let i=0;i<180;i++) {
+      const month=await evaluate(`document.querySelector('[role="dialog"] strong')?.textContent`);
+      if(month===target){reached=true;break;}
+      await evaluate(`document.querySelector('[role="dialog"] button[aria-label="Previous month"]').click()`);
+      await wait(60);
+    }
+    assert(reached, 'Calendar could not reach '+target);
+    await evaluate(`document.querySelector('[role="dialog"] button[aria-label="${day}"]').click()`);
+    await wait(100);
+    await evaluate(`[...document.querySelector('[role="dialog"]').querySelectorAll('button')].find(b=>b.textContent==='Set Date').click()`);
+    await wait(100);
   }
   await evaluate(`Array.from(document.querySelectorAll('button.tab')).find(b=>b.textContent==='Source Comparison')?.click()`);
   await wait(300);

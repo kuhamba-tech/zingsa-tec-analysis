@@ -1,4 +1,5 @@
 "use client";
+import CalendarDatePicker from "@/components/charts/CalendarDatePicker";
 import { orderedMonthRange } from "@/lib/monthRange";
 import { useEffect, useState, useCallback, useRef } from "react";
 import { getArchiveMeta, getTimeSeries, getOmniAnalysis, getCelestrakAnalysis, getGfzKpAnalysis, getWdcKyotoAnalysis, getIntermagnetAnalysis, getGuviOn2, getDidbaseIonosonde } from "@/lib/api";
@@ -248,40 +249,13 @@ function IonosondeDidbasePanel({
         Madimbo are included here; Madimbo is the nearest South African ionosonde to Zimbabwe.
       </p>
       <div className="omni-range-grid">
-        <label>
-          Month
-          <select value={startMonth} onChange={(e) => {
-            const month = Number(e.target.value);
-            onStartMonth(month);
-            const maxDay = lastDayOfMonth(endYear, month);
-            if (day > maxDay) onDay(maxDay);
-          }}>
-            {MONTHS.map((m) => (
-              <option key={m.value} value={m.value}>{m.label}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Date
-          <select value={day} onChange={(e) => onDay(Number(e.target.value))}>
-            {days.map((d) => (
-              <option key={d} value={d}>{d}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Year
-          <select value={endYear} onChange={(e) => {
-            const year = Number(e.target.value);
-            onEndYear(year);
-            const maxDay = lastDayOfMonth(year, startMonth);
-            if (day > maxDay) onDay(maxDay);
-          }}>
-            {yearOptions.map((y) => (
-              <option key={y} value={y}>{y}</option>
-            ))}
-          </select>
-        </label>
+        <div>
+          <div className="metric-label">Date (UTC)</div>
+          <CalendarDatePicker label="Ionosonde date" value={selectedIsoDate} onChange={date => {
+            const [year, month, selectedDay] = date.split("-").map(Number);
+            onEndYear(year); onStartMonth(month); onDay(selectedDay);
+          }} />
+        </div>
         <label>
           Ionosonde
           <select value={station} onChange={(e) => onStation(e.target.value)}
@@ -392,10 +366,31 @@ export default function TimeSeriesPage() {
   const [startMonth, setStartMonth] = useState(4);
   const [endYear, setEndYear] = useState(2024);
   const [endMonth, setEndMonth] = useState(6);
+  const [sourceStartDay, setSourceStartDay] = useState(1);
+  const [sourceEndDay, setSourceEndDay] = useState<number | null>(null);
+  const sourceStartDate = `${startYear}-${String(startMonth).padStart(2, "0")}-${String(Math.min(sourceStartDay, lastDayOfMonth(startYear, startMonth))).padStart(2, "0")}`;
+  const sourceEndDate = `${endYear}-${String(endMonth).padStart(2, "0")}-${String(Math.min(sourceEndDay ?? 31, lastDayOfMonth(endYear, endMonth))).padStart(2, "0")}`;
+  const chooseSourceDate = (edge: "start" | "end", value: string) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return;
+    const [year, month, day] = value.split("-").map(Number);
+    if (edge === "start") { setStartYear(year); setStartMonth(month); setSourceStartDay(day); }
+    else { setEndYear(year); setEndMonth(month); setSourceEndDay(day); }
+    setDateRangeError(null);
+  };
   const [imagStartYear, setImagStartYear] = useState(2024);
   const [imagStartMonth, setImagStartMonth] = useState(4);
   const [imagEndYear, setImagEndYear] = useState(2024);
   const [imagEndMonth, setImagEndMonth] = useState(6);
+  const [imagStartDay, setImagStartDay] = useState(1);
+  const [imagEndDay, setImagEndDay] = useState<number | null>(null);
+  const imagFromDate = `${imagStartYear}-${String(imagStartMonth).padStart(2, "0")}-${String(Math.min(imagStartDay, lastDayOfMonth(imagStartYear, imagStartMonth))).padStart(2, "0")}`;
+  const imagToDate = `${imagEndYear}-${String(imagEndMonth).padStart(2, "0")}-${String(Math.min(imagEndDay ?? 31, lastDayOfMonth(imagEndYear, imagEndMonth))).padStart(2, "0")}`;
+  const chooseGroundDate = (edge: "start" | "end", date: string) => {
+    const [year, month, day] = date.split("-").map(Number);
+    if (edge === "start") { setImagStartYear(year); setImagStartMonth(month); setImagStartDay(day); }
+    else { setImagEndYear(year); setImagEndMonth(month); setImagEndDay(day); }
+    setDateRangeError(null);
+  };
   const [ionosondeDay, setIonosondeDay] = useState(1);
   const [ionosondeCode, setIonosondeCode] = useState("MU12K");
   const [guviDate, setGuviDate] = useState("2021-11-03");
@@ -498,11 +493,12 @@ export default function TimeSeriesPage() {
   }, [loadAll]);
 
   const loadAllSources = useCallback(async () => {
-    const r = rangeFromMonths(startYear, startMonth, endYear, endMonth);
+    const r = { start: sourceStartDate, end: sourceEndDate };
     if (r.start > r.end) {
-      setDateRangeError("Choose a start month on or before the end month.");
+      setDateRangeError("Choose a start date on or before the end date.");
       return;
     }
+    setDateRangeError(null);
     setStart(r.start);
     setEnd(r.end);
     setTab("compare");
@@ -532,14 +528,15 @@ export default function TimeSeriesPage() {
     } finally {
       if (generation === sourcesGeneration.current) setSourcesLoading(false);
     }
-  }, [station, startYear, startMonth, endYear, endMonth]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [station, sourceStartDate, sourceEndDate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadIntermagnet = useCallback(async () => {
-    const r = rangeFromMonths(imagStartYear, imagStartMonth, imagEndYear, imagEndMonth);
+    const r = { start: imagFromDate, end: imagToDate };
     if (r.start > r.end) {
-      setDateRangeError("Choose a start month on or before the end month.");
+      setDateRangeError("Choose a start date on or before the end date.");
       return;
     }
+    setDateRangeError(null);
     setIntermagnetLoading(true);
     setIntermagnetError(null);
     setTab("intermagnet");
@@ -558,7 +555,7 @@ export default function TimeSeriesPage() {
       setIntermagnetError(err instanceof Error ? err.message : "Failed to load INTERMAGNET data");
     }
     setIntermagnetLoading(false);
-  }, [station, imagObservatory, imagStartYear, imagStartMonth, imagEndYear, imagEndMonth]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [station, imagObservatory, imagFromDate, imagToDate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadGuviOn2 = useCallback(async () => {
     const r = { start: guviDate, end: guviDate };
@@ -669,34 +666,14 @@ export default function TimeSeriesPage() {
           {" "}Source Comparison also shows date-matched GOES X-ray, proton-flux, IMF and solar-wind graphs, with source coverage and units.
         </p>
         <div className="omni-range-grid">
-          <label>
-            From month
-            <select value={startMonth} onChange={(e) => changeMonthRange("source", "start", startYear, Number(e.target.value))}>
-              {MONTHS.map((m) => (
-                <option key={m.value} value={m.value}>{m.label}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            From year
-            <select value={startYear} onChange={e=>changeMonthRange("source", "start", Number(e.target.value), startMonth)}>
-              {yearOptions.map(y=><option key={y} value={y}>{y}</option>)}
-            </select>
-          </label>
-          <label>
-            To month
-            <select value={endMonth} onChange={e=>changeMonthRange("source", "end", endYear, Number(e.target.value))}>
-              {MONTHS.map(m=><option key={m.value} value={m.value}>{m.label}</option>)}
-            </select>
-          </label>
-          <label>
-            To year
-            <select value={endYear} onChange={(e) => changeMonthRange("source", "end", Number(e.target.value), endMonth)}>
-              {yearOptions.map((y) => (
-                <option key={y} value={y}>{y}</option>
-              ))}
-            </select>
-          </label>
+          <div>
+            <div className="metric-label">From date (UTC)</div>
+            <CalendarDatePicker label="Source start date" value={sourceStartDate} onChange={date => chooseSourceDate("start", date)} />
+          </div>
+          <div>
+            <div className="metric-label">To date (UTC, included)</div>
+            <CalendarDatePicker label="Source end date" value={sourceEndDate} min={sourceStartDate} onChange={date => chooseSourceDate("end", date)} />
+          </div>
           <label>
             Station (VTEC correlation)
             <select value={station} onChange={(e) => setStation(e.target.value)}
@@ -711,6 +688,10 @@ export default function TimeSeriesPage() {
             {sourcesLoading ? "Loading all sources…" : "Load all sources"}
           </button>
         </div>
+        <p style={{ margin: 0, fontSize: "0.8rem", color: "#fff" }}>
+          Choose the start and end days with the calendars. Select the same date in both calendars for one day. Click Load all sources to apply.
+          {" "}Chosen dates: {sourceStartDate} to {sourceEndDate} UTC.
+        </p>
         {start && end && (
           <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
             Selected range: {start} → {end}
@@ -728,30 +709,10 @@ export default function TimeSeriesPage() {
           reference metadata only; a downloaded Level-3 product is required for measured ratios.
         </p>
         <div className="omni-range-grid">
-          <label>
-            Month
-            <select value={guviMonth} onChange={(e) => setGuviDateParts(guviYear, Number(e.target.value), guviDay)}>
-              {MONTHS.map((m) => (
-                <option key={m.value} value={m.value}>{m.label}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Date
-            <select value={guviDay} onChange={(e) => setGuviDateParts(guviYear, guviMonth, Number(e.target.value))}>
-              {guviDays.map((d) => (
-                <option key={d} value={d}>{d}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Year
-            <select value={guviYear} onChange={(e) => setGuviDateParts(Number(e.target.value), guviMonth, guviDay)}>
-              {yearOptions.map((y) => (
-                <option key={y} value={y}>{y}</option>
-              ))}
-            </select>
-          </label>
+          <div>
+            <div className="metric-label">Date (UTC)</div>
+            <CalendarDatePicker label="Thermosphere O/N2 date" value={guviDate} onChange={setGuviDate} />
+          </div>
           <label>
             Station (VTEC correlation)
             <select value={station} onChange={(e) => setStation(e.target.value)}
@@ -789,38 +750,14 @@ export default function TimeSeriesPage() {
           are detected from dH/dt and daily H range — the same physics that drives GICs.
         </p>
         <div className="omni-range-grid">
-          <label>
-            From month
-            <select value={imagStartMonth} onChange={(e) => changeMonthRange("ground", "start", imagStartYear, Number(e.target.value))}>
-              {MONTHS.map((m) => (
-                <option key={m.value} value={m.value}>{m.label}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            From year
-            <select value={imagStartYear} onChange={(e) => changeMonthRange("ground", "start", Number(e.target.value), imagStartMonth)}>
-              {yearOptions.map((y) => (
-                <option key={y} value={y}>{y}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            To month
-            <select value={imagEndMonth} onChange={(e) => changeMonthRange("ground", "end", imagEndYear, Number(e.target.value))}>
-              {MONTHS.map((m) => (
-                <option key={m.value} value={m.value}>{m.label}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            To year
-            <select value={imagEndYear} onChange={(e) => changeMonthRange("ground", "end", Number(e.target.value), imagEndMonth)}>
-              {yearOptions.map((y) => (
-                <option key={y} value={y}>{y}</option>
-              ))}
-            </select>
-          </label>
+          <div>
+            <div className="metric-label">From date (UTC)</div>
+            <CalendarDatePicker label="Observatory start date" value={imagFromDate} onChange={date => chooseGroundDate("start", date)} />
+          </div>
+          <div>
+            <div className="metric-label">To date (UTC, included)</div>
+            <CalendarDatePicker label="Observatory end date" value={imagToDate} min={imagFromDate} onChange={date => chooseGroundDate("end", date)} />
+          </div>
           <label>
             Observatory
             <select value={imagObservatory} onChange={(e) => setImagObservatory(e.target.value)}
@@ -845,7 +782,7 @@ export default function TimeSeriesPage() {
           </button>
         </div>
         {(() => {
-          const r = rangeFromMonths(imagStartYear, imagStartMonth, imagEndYear, imagEndMonth);
+          const r = { start: imagFromDate, end: imagToDate };
           return (
             <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
               Selected range: {r.start} to {r.end} - minute data is aggregated to daily statistics (fetch may take

@@ -1,0 +1,17 @@
+.root { position: relative; min-width: 160px; }
+.trigger { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0.4rem 0.65rem; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; font-family: Arial, sans-serif; font-size: 13.3333px; font-weight: 700; line-height: normal; letter-spacing: normal; text-transform: none; cursor: pointer; }
+.calendar { position: absolute; top: calc(100% + 8px); left: 0; width: 280px; max-width: calc(100vw - 40px); padding: 12px; z-index: 50; background: #fff; color: #263044; border: 1px solid #e5e7eb; border-radius: 12px; box-shadow: 0 12px 36px #0006; text-transform: none; letter-spacing: normal; font-size: 13px; }
+.header { display: flex; align-items: center; justify-content: space-between; padding-bottom: 12px; border-bottom: 1px solid #eee; }
+.header button { border: 1px solid #eee; background: #fff; border-radius: 6px; font-size: 24px; color: #606b80; width: 30px; cursor: pointer; }
+.grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; padding: 10px 0; text-align: center; }
+.weekday { font-size: 11px; color: #677084; padding-bottom: 6px; }
+.grid button { border: none; border-radius: 50%; background: transparent; color: #263044; width: 30px; height: 30px; justify-self: center; cursor: pointer; font: inherit; }
+.grid button:hover { background: #eee9ff; }
+.grid button.selected { background: #8056ff; color: #fff; }
+.grid button:disabled { opacity: .3; cursor: default; }
+.footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 10px; border-top: 1px solid #eee; }
+.footer span { padding: 6px; font-size: 11px; border: 1px solid #eee; border-radius: 5px; }
+.footer button { background: #8056ff; border: 0; color: #fff; padding: 8px 18px; border-radius: 5px; cursor: pointer; }
+.footer button:disabled { opacity: .4; cursor: default; }
+.root button:focus-visible { outline: 2px solid #8056ff; outline-offset: 2px; }
+@media (max-width: 600px) { .calendar { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); } }
