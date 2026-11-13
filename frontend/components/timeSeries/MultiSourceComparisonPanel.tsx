@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import LineChart from "@/components/charts/LineChart";
 import GeomagneticConditionScale from "@/components/spaceWeather/GeomagneticConditionScale";
 import type {
@@ -93,6 +94,7 @@ function ChartAnalysis({ block }: { block: ChartAnalysisBlock }) {
 }
 
 interface Props {
+  drivers?: (stormDates: string[]) => ReactNode;
   omni: OmniAnalysisResponse | null;
   celestrak: CelestrakAnalysisResponse | null;
   gfz: GfzKpAnalysisResponse | null;
@@ -117,6 +119,7 @@ function ErrorBanner({ label, message }: { label: string; message: string }) {
 }
 
 export default function MultiSourceComparisonPanel({
+  drivers,
   omni,
   celestrak,
   gfz,
@@ -132,6 +135,7 @@ export default function MultiSourceComparisonPanel({
   if (loading && count === 0) {
     return (
       <div className="banner banner-info">
+        {drivers?.(stormDatesUnion(bundle))}
         Fetching indices from NASA OMNIWeb, CelesTrak, GFZ Potsdam (Germany), and WDC Kyoto (Japan)…
       </div>
     );
@@ -140,6 +144,7 @@ export default function MultiSourceComparisonPanel({
   if (count === 0) {
     return (
       <div>
+      {drivers?.(stormDatesUnion(bundle))}
       {Object.entries(errors ?? {}).filter(([, message]) => message).map(([name, message]) => <ErrorBanner key={name} label={name} message={message!} />)}
       <div className="banner banner-info">
         Select a date range above and click <strong>Load all sources</strong> to pull geomagnetic indices from
@@ -191,12 +196,9 @@ export default function MultiSourceComparisonPanel({
         <p>
           <strong>Multi-source comparison</strong> — {count} of 4 providers loaded · {dates.length} day(s) on a
           common timeline. GFZ Potsdam (Germany) is the official Kp derivation centre; WDC Kyoto (Japan) hosts
-          the definitive Dst index and redistributes definitive Kp/ap. Storm shading marks days flagged by{" "}
-          <em>any</em> provider.
+          the definitive Dst index and redistributes definitive Kp/ap. Storm shading marks days with daily maximum Kp at least 5 in an available provider.
         </p>
       </div>
-
-      <GeomagneticConditionScale />
 
       <div className="card" style={{ borderColor: "var(--accent)" }}>
         <ChartAnalysis block={overallSummary} />
@@ -244,23 +246,31 @@ export default function MultiSourceComparisonPanel({
         )}
       </div>
 
-      {vtecLabels.length > 0 && (
+      <div className="banner banner-info"><strong>1. Sun: background solar activity</strong><div>Sunspots and F10.7 describe solar activity; GOES X-rays below show flare timing.</div></div>
+      {f107Lines.length >= 1 && (
         <div className="card">
           <div style={{ fontWeight: 700, marginBottom: "0.35rem" }}>
-            VTEC with multi-source storm days
-            <MetricRoleBadge role="local" />
+            F10.7 solar flux — OMNI vs CelesTrak
+            <MetricRoleBadge role="solar" />
           </div>
-          <LineChart
-            labels={vtecLabels}
-            datasets={vtecOverlay}
-            yLabel="VTEC (TECU)"
-            height={280}
-            highlightDates={stormDates.filter((d) => vtecLabels.includes(d))}
-          />
-          <ChartAnalysis block={analyzeVtecStormOverlay(bundle, stormDates, vtecLabels, kpPeak, vtecDatasets)} />
+          <LineChart labels={dates} datasets={f107Lines} highlightDates={stormDates} yLabel="F10.7 (sfu)" height={220} />
+          <ChartAnalysis block={analyzeF107Chart(dates, f107Lines, kpPeak, bundle)} />
         </div>
       )}
 
+      {ssnLines.length >= 1 && (
+        <div className="card">
+          <div style={{ fontWeight: 700, marginBottom: "0.35rem" }}>
+            Sunspot number — OMNI vs CelesTrak
+            <MetricRoleBadge role="solar" />
+          </div>
+          <LineChart labels={dates} datasets={ssnLines} highlightDates={stormDates} yLabel="SSN" height={220} />
+          <ChartAnalysis block={analyzeSsnChart(dates, ssnLines, kpPeak, bundle)} />
+        </div>
+      )}
+
+      {drivers?.(stormDatesUnion(bundle))}
+      <div className="banner banner-info"><strong>4. Earth: geomagnetic response</strong><div>Compare planetary Kp, Ap and Dst after the upstream drivers. Shared dates help comparison; timing alone does not establish causation.</div></div>
       {kpLines.length >= 1 && (
         <div className="card card-accent">
           <div style={{ fontWeight: 700, marginBottom: "0.35rem" }}>
@@ -280,28 +290,6 @@ export default function MultiSourceComparisonPanel({
         </div>
       )}
 
-      {f107Lines.length >= 1 && (
-        <div className="card">
-          <div style={{ fontWeight: 700, marginBottom: "0.35rem" }}>
-            F10.7 solar flux — OMNI vs CelesTrak
-            <MetricRoleBadge role="solar" />
-          </div>
-          <LineChart labels={dates} datasets={f107Lines} yLabel="F10.7 (sfu)" height={220} />
-          <ChartAnalysis block={analyzeF107Chart(dates, f107Lines, kpPeak, bundle)} />
-        </div>
-      )}
-
-      {ssnLines.length >= 1 && (
-        <div className="card">
-          <div style={{ fontWeight: 700, marginBottom: "0.35rem" }}>
-            Sunspot number — OMNI vs CelesTrak
-            <MetricRoleBadge role="solar" />
-          </div>
-          <LineChart labels={dates} datasets={ssnLines} yLabel="SSN" height={220} />
-          <ChartAnalysis block={analyzeSsnChart(dates, ssnLines, kpPeak, bundle)} />
-        </div>
-      )}
-
       {apLines.length >= 1 && (
         <div className="card">
           <div style={{ fontWeight: 700, marginBottom: "0.35rem" }}>
@@ -311,7 +299,7 @@ export default function MultiSourceComparisonPanel({
           <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginBottom: "0.65rem" }}>
             CelesTrak publishes daily mean Ap; GFZ and WDC Kyoto provide daily planetary Ap (distinct from 3-hourly ap).
           </p>
-          <LineChart labels={dates} datasets={apLines} yLabel="Ap" height={220} />
+          <LineChart labels={dates} datasets={apLines} highlightDates={stormDates} yLabel="Ap" height={220} />
           <ChartAnalysis block={analyzeApChart(dates, apLines, kpPeak, bundle)} />
         </div>
       )}
@@ -325,6 +313,10 @@ export default function MultiSourceComparisonPanel({
           <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginBottom: "0.65rem" }}>
             Daily minimum Dst from NASA OMNIWeb and the official WDC Kyoto equatorial Dst index. This is where
             Japanese and US-sourced ring-current estimates can differ most.
+          </p>
+          <GeomagneticConditionScale />
+          <p style={{ fontSize: "0.8rem", margin: "0.65rem 0" }}>
+            The scale above uses Kp for geomagnetic context. The Dst graph below measures ring-current disturbance in nT.
           </p>
           <LineChart labels={dates} datasets={dstLines} yLabel="Dst (nT)" height={240} highlightDates={stormDates} />
           <ChartAnalysis block={analyzeDstChart(dates, dstLines, kpPeak, bundle)} />
@@ -340,6 +332,7 @@ export default function MultiSourceComparisonPanel({
           <LineChart
             labels={dates}
             datasets={[{ label: cpLine.label, data: cpLine.data, color: cpLine.color }]}
+            highlightDates={stormDates}
             yLabel="Cp"
             height={200}
           />
@@ -396,6 +389,25 @@ export default function MultiSourceComparisonPanel({
           </div>
         </div>
       )}
+
+      <div className="banner banner-info"><strong>5. Zimbabwe: ionospheric response</strong><div>Read local VTEC last, alongside the measured geomagnetic context.</div></div>
+      {vtecLabels.length > 0 && (
+        <div className="card">
+          <div style={{ fontWeight: 700, marginBottom: "0.35rem" }}>
+            VTEC with multi-source storm days
+            <MetricRoleBadge role="local" />
+          </div>
+          <LineChart
+            labels={vtecLabels}
+            datasets={vtecOverlay}
+            yLabel="VTEC (TECU)"
+            height={280}
+            highlightDates={stormDates.filter((d) => vtecLabels.includes(d))}
+          />
+          <ChartAnalysis block={analyzeVtecStormOverlay(bundle, stormDates, vtecLabels, kpPeak, vtecDatasets)} />
+        </div>
+      )}
+
     </div>
   );
 }

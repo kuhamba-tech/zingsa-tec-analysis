@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
 import LineChart from "@/components/charts/LineChart";
 import { getComparisonDrivers, type ComparisonDriversResponse } from "@/lib/api";
 import { xrayFluxColor } from "@/lib/solarEventColors";
@@ -82,7 +83,8 @@ function flareTick(value: number): string {
   return "";
 }
 
-export default function ComparisonDriverCharts({ request }: { request: Request | null }) {
+export default function ComparisonDriverCharts({ request, stormDates = [] }: { request: Request | null; stormDates?: string[] }) {
+  const [openExplanation, setOpenExplanation] = useState<string | null>(null);
   const [data, setData] = useState<ComparisonDriversResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -122,12 +124,12 @@ export default function ComparisonDriverCharts({ request }: { request: Request |
   return <section aria-label="Selected-date heliospheric comparison" style={{ display: "grid", gap: "1rem", marginBottom: "1rem" }}>
     <div className="banner banner-info">
       <strong>Solar and interplanetary drivers · {request.start} to {request.end} UTC</strong>
-      <div>NOAA recent/stored samples and NASA OMNI hourly observations. All three graphs use the same selected dates; unreleased or missing observations remain gaps.</div>
+      <div>NOAA recent/stored samples and NASA OMNI hourly observations. Red shading marks the same UTC days with measured daily maximum Kp at least 5 on every graph. All graphs use the same selected dates; unreleased or missing observations remain gaps.</div>
     </div>
     {loading && <div className="banner banner-info" role="status">Loading GOES X-ray, proton, IMF and solar-wind observations for the selected dates…</div>}
     {error && <div className="banner banner-warn" role="alert">{error} <button type="button" className="btn btn-secondary" onClick={() => setRetry(value => value + 1)}>Retry driver graphs</button></div>}
     {data?.notes.map(note => <div className="banner banner-warn" key={note}>{note}</div>)}
-    {PANELS.map(panel => {
+    {[PANELS[0], PANELS[1], PANELS[3], PANELS[2], PANELS[4]].map(panel => {
       const datasets = [...grouped].flatMap(([group, samples]) => panel.fields.map(field => ({
         label: `${field.label} · ${group}`,
         data: stamps.map(stamp => {
@@ -149,8 +151,12 @@ export default function ComparisonDriverCharts({ request }: { request: Request |
         })
         : undefined;
       return <div className="card" key={panel.title} style={{ minWidth: 0 }}>
+        {panel.title === "GOES X-ray flux" && <p><strong>2. Solar radiation and energetic particles</strong> - measured by GOES near Earth, indicating solar emissions.</p>}
+        {panel.title === "Solar wind" && <p><strong>3. Interplanetary drivers: solar wind and IMF</strong> - NOAA RTSW describes upstream conditions near L1; OMNI hourly data are shifted towards Earth arrival.</p>}
+        {panel.fields[0].key === "dst" && <p><strong>4. Earth: hourly ring-current response</strong></p>}
         <h3 style={{ margin: "0 0 0.5rem", color: "#fff" }}>{panel.title}</h3>
         {datasets.length > 0 ? <LineChart
+          highlightDates={stormDates}
           labels={stamps} xValues={epochs} epochMs={epochs} datasets={datasets}
           xMin={min} xMax={max} xLabel="UTC" height={240} toggleableLegend preserveSamples
           formatXTick={ms => new Date(ms).toISOString().slice(0, 16).replace("T", " ")}
@@ -166,10 +172,22 @@ export default function ComparisonDriverCharts({ request }: { request: Request |
           secondaryYLabel={panel.title === "Solar wind" ? "Density (cm⁻³)" : undefined}
           tertiaryYLabel={panel.title === "Solar wind" ? "Proton temperature (K)" : undefined}
         /> : <p role="status">{loading ? "Checking source coverage…" : "No valid observations returned for this graph in the selected date range."}</p>}
-        <details style={{ color: "#fff", marginTop: "0.75rem" }}>
-          <summary>What does this graph mean?</summary>
-          <p>{panel.explanation}</p>
-        </details>
+        <button
+          type="button"
+          aria-expanded={openExplanation === panel.title}
+          aria-controls={`driver-explanation-${PANELS.indexOf(panel)}`}
+          onClick={() => setOpenExplanation(current => current === panel.title ? null : panel.title)}
+          style={{ display: "block", border: 0, background: "transparent", padding: 0, cursor: "pointer", fontFamily: "inherit", fontSize: "0.72rem", color: "var(--accent)", marginTop: "0.45rem", fontWeight: 700 }}
+        >
+          {openExplanation === panel.title ? "Hide explanation" : "What does this graph mean?"}
+        </button>
+        <div id={`driver-explanation-${PANELS.indexOf(panel)}`} hidden={openExplanation !== panel.title}>
+          {openExplanation === panel.title && <ChartAnalysisBox
+            block={{ lead: panel.explanation, bullets: ["Use the UTC axis and source labels to compare timing. Missing observations remain gaps; red storm-day shading is context and does not establish causation."] }}
+            title="What does this graph mean?"
+            afterLeadTitle="Scientific interpretation"
+          />}
+        </div>
       </div>;
     })}
     <a href="https://omniweb.gsfc.nasa.gov/html/ow_data.html" target="_blank" rel="noreferrer">Source definitions, cadence and coverage — NASA OMNI</a>

@@ -255,7 +255,7 @@ export function analyzeKpChart(
   }
 
   const bullets: string[] = [
-    "Kp is the primary geomagnetic storm index. Daily maximum Kp ≥ 5 means a geomagnetic storm occurred (G1–G5). Red shaded columns mark storm days flagged by the data providers.",
+    "Kp is the primary geomagnetic storm index. Daily maximum Kp ≥ 5 means a geomagnetic storm occurred (G1–G5). Red shaded columns mark UTC days with measured daily maximum Kp at least 5 in an available provider.",
   ];
 
   const peaks = lines
@@ -520,7 +520,7 @@ export function analyzeVtecStormOverlay(
   }
 
   const bullets: string[] = [
-    "Red shaded columns mark days when Kp ≥ 5 or Dst ≤ −50 nT was recorded by at least one provider. Below we compare Zimbabwe CORS VTEC on those same calendar dates with the Kp and Dst values recorded that day.",
+    "Red shaded columns mark UTC days with measured daily maximum Kp at least 5 in an available provider. Dst is separate ring-current context. Below we compare Zimbabwe CORS VTEC on those same calendar dates with the Kp and Dst values recorded that day.",
   ];
 
   const stormSet = new Set(stormDates);

@@ -227,8 +227,9 @@ function seriesHasSamples(rows: LiveStationVtecSeries[]): boolean {
 /** Seven days first, then a shorter window. One refused read must not leave the chart blank. */
 async function loadRegionalDailyRows(
   isCancelled: () => boolean,
+  refresh = false,
 ): Promise<LiveStationVtecSeries[] | null> {
-  const windows: Array<[number, number, number]> = [
+  const windows: Array<[number, number, number]> = refresh ? [[24, 30, 40_000]] : [
     [168, 30, 45_000],
     [168, 30, 45_000],
     [48, 60, 40_000],
@@ -261,6 +262,8 @@ export default function ZimbabweMeanDiurnalTec({
   const [rows, setRows] = useState<LiveStationVtecSeries[] | null>(null);
   const [globalRows, setGlobalRows] = useState<LiveStationVtecSeries[] | null>(null);
   const [failed, setFailed] = useState(false);
+  const [refresh, setRefresh] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
   const [dayChoice, setDayChoice] = useState<string>("latest");
   const chooseDay = (day: string) => {
     setDayChoice(day);
@@ -271,15 +274,31 @@ export default function ZimbabweMeanDiurnalTec({
 
   useEffect(() => {
     let cancelled = false;
-    loadRegionalDailyRows(() => cancelled)
+    setRefreshing(true);
+    loadRegionalDailyRows(() => cancelled, refresh > 0)
       .then((payload) => {
         if (cancelled || payload == null) return;
-        setRows(payload);
-        setFailed(payload.length === 0);
+        if (!seriesHasSamples(payload)) { setFailed(true); return; }
+        setRows(current => {
+          if (!current || refresh === 0) return payload;
+          const merged = new Map(current.map(row => [row.station, row]));
+          const cutoff = Date.now() - 8 * 86400000;
+          for (const row of payload) {
+            const previous = merged.get(row.station);
+            const points = new Map((previous?.points ?? []).map(point => [point.time, point]));
+            for (const point of row.points) points.set(point.time, point);
+            merged.set(row.station, { ...row, points: [...points.values()]
+              .filter(point => Date.parse(point.time) >= cutoff)
+              .sort((a, b) => a.time.localeCompare(b.time)) });
+          }
+          return [...merged.values()];
+        });
+        setFailed(false);
       })
       .catch(() => {
         if (!cancelled) setFailed(true);
-      });
+      })
+      .finally(() => { if (!cancelled) setRefreshing(false); });
     const applyGlobal = (payload: Parameters<typeof globalRowsFromPayload>[0]) => {
       const incoming = globalRowsFromPayload(payload);
       if (!incoming.length) return;
@@ -321,7 +340,22 @@ export default function ZimbabweMeanDiurnalTec({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [refresh]);
+
+  useEffect(() => {
+    if (refreshing) return;
+    const timer = window.setTimeout(() => setRefresh(value => value + 1), 90_000);
+    return () => window.clearTimeout(timer);
+  }, [refreshing, refresh]);
+
+  const latestObservation = useMemo(() => {
+    let latest = 0;
+    for (const row of rows ?? []) for (const point of row.points) {
+      const stamp = Date.parse(point.time);
+      if (point.vtec_tecu != null && Number.isFinite(point.vtec_tecu) && Number.isFinite(stamp)) latest = Math.max(latest, stamp);
+    }
+    return latest ? new Date(latest).toISOString().slice(0, 16).replace("T", " ") + " UTC" : null;
+  }, [rows]);
 
   const days = useMemo(() => (rows ? utcDaysInStationSeries(rows) : []), [rows]);
   const today = utcToday();
@@ -438,6 +472,13 @@ export default function ZimbabweMeanDiurnalTec({
           Period: {period}.
         </p>
       )}
+      <div className="sw-supporting-text" role="status" style={{ marginBottom: "0.75rem" }}>
+        Latest measured sample: {latestObservation ?? "not yet available"}. Auto-refresh every 90 seconds; curves show hourly means.
+        <button type="button" className="btn btn-secondary" disabled={refreshing} onClick={() => setRefresh(value => value + 1)} style={{ marginLeft: "0.5rem" }}>
+          {refreshing ? "Refreshing..." : "Refresh TEC"}
+        </button>
+        {failed && " Refresh could not retrieve new measurements; retained observations are shown."}
+      </div>
       {days.length > 0 && (
         <div className="station-vtec-plots-controls">
           <ChartDateRange />

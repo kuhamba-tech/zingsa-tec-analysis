@@ -334,11 +334,23 @@ export default function LineChart({
         ctx.save();
         ctx.fillStyle = "rgba(255, 68, 68, 0.14)";
         for (const d of dates) {
-          const idx = drawLabels.indexOf(d);
-          if (idx < 0) continue;
-          const x0 = x.getPixelForValue(Math.max(0, idx - 0.5));
-          const x1 = x.getPixelForValue(Math.min(drawLabels.length - 1, idx + 0.5));
-          ctx.fillRect(x0, chartArea.top, x1 - x0, chartArea.bottom - chartArea.top);
+          let x0: number;
+          let x1: number;
+          if (useNumericX && drawXValues?.some(value => value != null && value > 1e11)) {
+            // Shade the whole UTC day, independently of sampling cadence or data gaps.
+            const start = Date.parse(`${d}T00:00:00Z`);
+            if (!Number.isFinite(start)) continue;
+            x0 = x.getPixelForValue(start);
+            x1 = x.getPixelForValue(start + 86400000);
+          } else {
+            const idx = drawLabels.indexOf(d);
+            if (idx < 0) continue;
+            x0 = x.getPixelForValue(idx - 0.5);
+            x1 = x.getPixelForValue(idx + 0.5);
+          }
+          x0 = Math.max(chartArea.left, x0);
+          x1 = Math.min(chartArea.right, x1);
+          if (x1 > x0) ctx.fillRect(x0, chartArea.top, x1 - x0, chartArea.bottom - chartArea.top);
         }
         ctx.restore();
       },

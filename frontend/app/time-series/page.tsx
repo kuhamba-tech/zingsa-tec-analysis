@@ -360,6 +360,7 @@ export default function TimeSeriesPage() {
   const [tab, setTab]         = useState<Tab>("compare");
   const [driverRequest, setDriverRequest] = useState<{ start: string; end: string; revision: number } | null>(null);
   const urlInit = useRef(false);
+  const sourcesGeneration = useRef(0);
   const [loading, setLoading] = useState(true);
   const [dateRangeError, setDateRangeError] = useState<string | null>(null);
   const [ionosondeMonth, setIonosondeMonth] = useState(new Date().getUTCMonth()+1);
@@ -505,6 +506,11 @@ export default function TimeSeriesPage() {
     setStart(r.start);
     setEnd(r.end);
     setTab("compare");
+    const generation = ++sourcesGeneration.current;
+    setOmni(null);
+    setCelestrak(null);
+    setGfz(null);
+    setKyoto(null);
     setSourcesLoading(true);
     setDriverRequest({ start: r.start, end: r.end, revision: Date.now() });
     setOmniError(null);
@@ -514,8 +520,8 @@ export default function TimeSeriesPage() {
     try {
       void loadAll(station, r.start, r.end, { initial: false });
       const source = async <T,>(request: Promise<T>, apply: (value: T) => void, fail: (message: string) => void, name: string) => {
-        try { apply(await request); }
-        catch { fail(`${name} could not be reached or has no released data for this interval. Other available sources remain usable. Retry Load all sources, or choose an earlier interval.`); }
+        try { const value = await request; if (generation === sourcesGeneration.current) apply(value); }
+        catch { if (generation === sourcesGeneration.current) fail(`${name} could not be reached or has no released data for this interval. Other available sources remain usable. Retry Load all sources, or choose an earlier interval.`); }
       };
       await Promise.all([
         source(getOmniAnalysis(r.start, r.end, station || undefined), setOmni, setOmniError, "NASA OMNIWeb"),
@@ -524,7 +530,7 @@ export default function TimeSeriesPage() {
         source(getWdcKyotoAnalysis(r.start, r.end, station || undefined), setKyoto, setKyotoError, "WDC Kyoto"),
       ]);
     } finally {
-      setSourcesLoading(false);
+      if (generation === sourcesGeneration.current) setSourcesLoading(false);
     }
   }, [station, startYear, startMonth, endYear, endMonth]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -930,8 +936,8 @@ export default function TimeSeriesPage() {
       {/* ── Multi-source comparison ── */}
       {tab === "compare" && (
         <>
-        <ComparisonDriverCharts request={driverRequest} />
         <MultiSourceComparisonPanel
+          drivers={stormDates => <ComparisonDriverCharts request={driverRequest} stormDates={stormDates} />}
           omni={omni}
           celestrak={celestrak}
           gfz={gfz}
