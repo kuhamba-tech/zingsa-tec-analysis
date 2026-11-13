@@ -301,7 +301,7 @@ footer p{margin:0 0 8px}
     <div class="brand-mark">
       <img class="logo" src="/zingsa_logo.webp" alt="Zimbabwe National Geospatial and Space Agency">
       <div>
-        <h1>ZINGSA Space Weather &amp; Navigation</h1>
+        <h1>ZINGSA Space Weather Monitoring</h1>
         <p class="sub">Touchscreen display · Zimbabwe · refreshes every 2 minutes</p>
       </div>
     </div>
