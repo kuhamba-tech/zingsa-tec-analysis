@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from zgiis.space_weather.heliospheric_monitor import (
+    _soft_fetch,
     parse_dst_series,
     parse_imf_series,
     parse_kp_forecast_series,
@@ -14,6 +16,39 @@ from zgiis.space_weather.heliospheric_monitor import (
 
 
 class HeliosphericMonitorParseTests(unittest.TestCase):
+    def test_feed_timeout_uses_recent_last_successful_response(self):
+        cached = b'{"cached_at":"2026-11-13T10:00:00+00:00","payload":[{"time_tag":"2026-11-13T10:00:00Z"}]}'
+        with (
+            patch("zgiis.space_weather.heliospheric_monitor._fetch_json", side_effect=TimeoutError("connect timed out")),
+            patch("zgiis.space_weather.heliospheric_monitor.read_source", return_value=cached),
+        ):
+            payload, error = _soft_fetch("https://example.test/feed.json")
+
+        self.assertEqual(payload, [{"time_tag": "2026-11-13T10:00:00Z"}])
+        self.assertIn("last successful feed received", error)
+        self.assertNotIn("TimeoutError", error)
+
+    def test_feed_timeout_without_cache_returns_safe_status(self):
+        with (
+            patch("zgiis.space_weather.heliospheric_monitor._fetch_json", side_effect=TimeoutError("connect timed out")),
+            patch("zgiis.space_weather.heliospheric_monitor.read_source", return_value=None),
+        ):
+            payload, error = _soft_fetch("https://example.test/feed.json")
+
+        self.assertIsNone(payload)
+        self.assertEqual(error, "NOAA feed is temporarily unreachable; no recent cached observations are available.")
+
+    def test_successful_feed_is_saved_for_outage_fallback(self):
+        with (
+            patch("zgiis.space_weather.heliospheric_monitor._fetch_json", return_value=[{"value": 1}]),
+            patch("zgiis.space_weather.heliospheric_monitor.write_source") as write_source,
+        ):
+            payload, error = _soft_fetch("https://example.test/feed.json")
+
+        self.assertEqual(payload, [{"value": 1}])
+        self.assertIsNone(error)
+        write_source.assert_called_once()
+
     def test_proton_series_pivots_selected_energies(self):
         rows = [
             {"time_tag": "2026-09-16T00:00:00Z", "energy": ">=10 MeV", "flux": 1.5},

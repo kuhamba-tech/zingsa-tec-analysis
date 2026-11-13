@@ -271,6 +271,10 @@ export default function MultiSourceComparisonPanel({
             Daily maximum Kp from NASA OMNIWeb, CelesTrak, GFZ Potsdam (Germany), and WDC Kyoto (Japan). Kyoto
             definitive Kp is distributed via GFZ since 1997 — expect close agreement with GFZ on archived dates.
           </p>
+          <p style={{ fontSize: "0.8rem", margin: "0 0 0.75rem" }}>
+            Red shading marks UTC days with daily maximum Kp at least 5 in an available source.
+            Days below Kp 5 or without measured Kp are not shaded.
+          </p>
           <LineChart labels={dates} datasets={kpLines} yLabel="Kp" height={260} highlightDates={stormDates} />
           <ChartAnalysis block={analyzeKpChart(dates, kpLines, kpDiff, stormDates, bundle, kpPeak)} />
         </div>

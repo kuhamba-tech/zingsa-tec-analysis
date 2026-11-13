@@ -11,12 +11,15 @@ All values are genuine NOAA SWPC products — never fabricated.
 from __future__ import annotations
 
 import datetime
+import json
+import logging
 import math
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import defaultdict
 from typing import Any
+from .source_cache import read_source, write_source
 
 try:
     import requests
@@ -47,6 +50,9 @@ _CACHE_TTL_SECONDS = 300
 _UNAVAILABLE_CACHE_TTL_SECONDS = 45
 _FETCH_TIMEOUT_SECONDS = 8
 _FETCH_WORKERS = 6
+_FEED_CACHE = "heliospheric-live"
+_FEED_CACHE_MAX_AGE_SECONDS = 6 * 60 * 60
+log = logging.getLogger(__name__)
 
 
 def _float_or_none(value: Any) -> float | None:
@@ -364,9 +370,34 @@ def _fetch_json(url: str, *, timeout: int = _FETCH_TIMEOUT_SECONDS) -> Any:
 
 def _soft_fetch(url: str) -> tuple[Any | None, str | None]:
     try:
-        return _fetch_json(url), None
+        payload = _fetch_json(url)
+        write_source(
+            _FEED_CACHE,
+            url,
+            json.dumps({
+                "cached_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                "payload": payload,
+            }).encode("utf-8"),
+        )
+        return payload, None
     except Exception as exc:  # noqa: BLE001
-        return None, str(exc)
+        log.warning("NOAA feed request failed for %s: %s", url, exc)
+        cached = read_source(
+            _FEED_CACHE,
+            url,
+            max_age=_FEED_CACHE_MAX_AGE_SECONDS,
+        )
+        if cached is not None:
+            try:
+                record = json.loads(cached)
+                payload = record.get("payload")
+                cached_at = str(record.get("cached_at") or "")
+                if isinstance(payload, (list, dict)):
+                    when = cached_at[:19].replace("T", " ")
+                    return payload, f"NOAA feed unreachable; showing last successful feed received {when} UTC."
+            except (UnicodeDecodeError, json.JSONDecodeError, AttributeError, TypeError):
+                log.warning("Ignoring invalid cached NOAA feed for %s", url)
+        return None, "NOAA feed is temporarily unreachable; no recent cached observations are available."
 
 
 def _fetch_all_sources() -> dict[str, tuple[Any | None, str | None]]:
@@ -485,6 +516,11 @@ def build_heliospheric_monitor(*, force_refresh: bool = False) -> dict[str, Any]
 
     if force_refresh:
         payload = _build_payload_from_sources()
+        if not _payload_has_series(payload):
+            with _CACHE_LOCK:
+                cached = _CACHE.get(cache_key)
+            if cached and isinstance(cached.get("data"), dict) and _payload_has_series(cached["data"]):
+                return cached["data"]
         with _CACHE_LOCK:
             _CACHE[cache_key] = {"ts": time.time(), "data": payload}
         return payload

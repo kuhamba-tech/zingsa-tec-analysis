@@ -1,8 +1,7 @@
 "use client";
 import { orderedMonthRange } from "@/lib/monthRange";
 import { useEffect, useState, useCallback, useRef } from "react";
-import { getArchiveMeta, getTimeSeries, getOmniAnalysis, getCelestrakAnalysis, getGfzKpAnalysis, getWdcKyotoAnalysis, getIntermagnetAnalysis, getGuviOn2, getCosmic2Analysis, getDidbaseIonosonde } from "@/lib/api";
-import LineChart from "@/components/charts/LineChart";
+import { getArchiveMeta, getTimeSeries, getOmniAnalysis, getCelestrakAnalysis, getGfzKpAnalysis, getWdcKyotoAnalysis, getIntermagnetAnalysis, getGuviOn2, getDidbaseIonosonde } from "@/lib/api";
 import GeomagneticAnalysisPanel from "@/components/timeSeries/GeomagneticAnalysisPanel";
 import CelestrakAnalysisPanel from "@/components/timeSeries/CelestrakAnalysisPanel";
 import GfzKpAnalysisPanel from "@/components/timeSeries/GfzKpAnalysisPanel";
@@ -10,8 +9,7 @@ import MultiSourceComparisonPanel from "@/components/timeSeries/MultiSourceCompa
 import ComparisonDriverCharts from "@/components/timeSeries/ComparisonDriverCharts";
 import IntermagnetAnalysisPanel from "@/components/timeSeries/IntermagnetAnalysisPanel";
 import GuviOn2AnalysisPanel from "@/components/timeSeries/GuviOn2AnalysisPanel";
-import Cosmic2AnalysisPanel from "@/components/timeSeries/Cosmic2AnalysisPanel";
-import type { ArchiveMeta, TecObservation, OmniAnalysisResponse, CelestrakAnalysisResponse, GfzKpAnalysisResponse, WdcKyotoAnalysisResponse, IntermagnetAnalysisResponse, GuviOn2Response, Cosmic2AnalysisResponse, DidbaseIonosondeResponse } from "@/lib/types";
+import type { ArchiveMeta, TecObservation, OmniAnalysisResponse, CelestrakAnalysisResponse, GfzKpAnalysisResponse, WdcKyotoAnalysisResponse, IntermagnetAnalysisResponse, GuviOn2Response, DidbaseIonosondeResponse } from "@/lib/types";
 
 const STATION_COLORS = ["#168bd2","#ff4444","#00ff88","#ff8c00","#a78bfa","#ffcc00","#34d399","#f472b6"];
 const MONTHS = [
@@ -43,11 +41,6 @@ function rollingMean(arr: number[], window = 7): number[] {
   });
 }
 
-function percentile(arr: number[], p: number): number {
-  const sorted = [...arr].sort((a, b) => a - b);
-  const idx = Math.floor((p / 100) * sorted.length);
-  return sorted[Math.min(idx, sorted.length - 1)] ?? 0;
-}
 
 const INTERMAGNET_OBSERVATORIES = [
   { code: "HER", label: "HER — Hermanus, South Africa" },
@@ -79,7 +72,7 @@ const IONOSONDE_STATIONS = [
   },
 ];
 
-type Tab = "daily" | "compare" | "storms" | "celestrak" | "gfz" | "guvi" | "cosmic2" | "intermagnet";
+type Tab = "compare" | "storms" | "celestrak" | "gfz" | "guvi" | "intermagnet";
 
 function formatGuviDate(date: string) {
   const d = new Date(`${date}T00:00:00Z`);
@@ -364,7 +357,7 @@ function IonosondeDidbasePanel({
 export default function TimeSeriesPage() {
   const [meta, setMeta]       = useState<ArchiveMeta | null>(null);
   const [obs, setObs]         = useState<TecObservation[]>([]);
-  const [tab, setTab]         = useState<Tab>("daily");
+  const [tab, setTab]         = useState<Tab>("compare");
   const [driverRequest, setDriverRequest] = useState<{ start: string; end: string; revision: number } | null>(null);
   const urlInit = useRef(false);
   const [loading, setLoading] = useState(true);
@@ -389,9 +382,6 @@ export default function TimeSeriesPage() {
   const [guvi, setGuvi] = useState<GuviOn2Response | null>(null);
   const [guviLoading, setGuviLoading] = useState(false);
   const [guviError, setGuviError] = useState<string | null>(null);
-  const [cosmic2, setCosmic2] = useState<Cosmic2AnalysisResponse | null>(null);
-  const [cosmic2Loading, setCosmic2Loading] = useState(false);
-  const [cosmic2Error, setCosmic2Error] = useState<string | null>(null);
 
   // filters
   const [station, setStation] = useState("");
@@ -484,9 +474,9 @@ export default function TimeSeriesPage() {
     if (!startParam && !endParam && !stationParam && !tabParam) return;
     urlInit.current = true;
     if (stationParam) setStation(stationParam);
-    if (tabParam === "storms" || tabParam === "daily"
+    if (tabParam === "storms"
       || tabParam === "compare" || tabParam === "celestrak"
-      || tabParam === "gfz" || tabParam === "guvi" || tabParam === "cosmic2" || tabParam === "intermagnet") {
+      || tabParam === "gfz" || tabParam === "guvi" || tabParam === "intermagnet") {
       setTab(tabParam);
     }
     if (startParam) {
@@ -583,29 +573,6 @@ export default function TimeSeriesPage() {
     }
   }, [station, guviDate]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const loadCosmic2 = useCallback(async () => {
-    const r = rangeFromMonths(startYear, startMonth, endYear, endMonth);
-    if (r.start > r.end) {
-      setDateRangeError("Choose a start month on or before the end month.");
-      return;
-    }
-    setStart(r.start);
-    setEnd(r.end);
-    setCosmic2Loading(true);
-    setCosmic2Error(null);
-    setTab("cosmic2");
-    try {
-      void loadAll(station, r.start, r.end, { initial: false });
-      const payload = await getCosmic2Analysis(r.start, r.end);
-      setCosmic2(payload);
-    } catch (err) {
-      setCosmic2(null);
-      setCosmic2Error(err instanceof Error ? err.message : "Failed to load COSMIC-2 context");
-    } finally {
-      setCosmic2Loading(false);
-    }
-  }, [station, startYear, startMonth, endYear, endMonth]); // eslint-disable-line react-hooks/exhaustive-deps
-
   // ── Build daily mean per station ──────────────────────────────────────────
   const dailyByStation: Record<string, Record<string, number[]>> = {};
   for (const o of obs) {
@@ -633,8 +600,6 @@ export default function TimeSeriesPage() {
     };
   });
 
-  const allVtec = obs.map((o) => o.vtec ?? 0).filter((v) => v > 0);
-  const pct95   = allVtec.length ? percentile(allVtec, 95) : 0;
 
   const metaAvailYears = meta?.first_date && meta?.last_date
     ? [...new Set([meta.first_date.slice(0, 4), meta.last_date.slice(0, 4)])].join(", ")
@@ -682,7 +647,7 @@ export default function TimeSeriesPage() {
       {/* Multi-source geomagnetic indices — NASA · CelesTrak · GFZ */}
       <div className="omni-range-card">
         <div className="omni-range-title">
-          Space Segment - Geomagnetic indices + GNSS-RO - NASA OMNIWeb · CelesTrak · GFZ Potsdam (DE) · WDC Kyoto (JP) · COSMIC-2
+          Space Segment - Geomagnetic indices - NASA OMNIWeb · CelesTrak · GFZ Potsdam (DE) · WDC Kyoto (JP)
         </div>
         <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", margin: 0 }}>
           Load daily space-weather indices from all four providers in one request, then compare Kp, Dst, F10.7,
@@ -694,8 +659,7 @@ export default function TimeSeriesPage() {
           <a href="https://kp.gfz.de/app/files/Kp_ap_Ap_SN_F107_nowcast.txt" target="_blank" rel="noreferrer">
             nowcast.txt
           </a>
-          . COSMIC-2 adds provisional GNSS radio-occultation ionPrf archive coverage from UCAR for independent
-          ionospheric profile context.
+          .
           {" "}Source Comparison also shows date-matched GOES X-ray, proton-flux, IMF and solar-wind graphs, with source coverage and units.
         </p>
         <div className="omni-range-grid">
@@ -740,9 +704,6 @@ export default function TimeSeriesPage() {
           <button className="btn btn-primary" onClick={loadAllSources} disabled={sourcesLoading || (loading && !meta?.available)}>
             {sourcesLoading ? "Loading all sources…" : "Load all sources"}
           </button>
-          <button className="btn btn-secondary" onClick={loadCosmic2} disabled={cosmic2Loading || (loading && !meta?.available)}>
-            {cosmic2Loading ? "Checking COSMIC-2..." : "Load COSMIC-2"}
-          </button>
         </div>
         {start && end && (
           <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
@@ -750,8 +711,7 @@ export default function TimeSeriesPage() {
           </div>
         )}
         <div className="on2-inline-note">
-          TIMED/GUVI O/N2 maps and COSMIC-2 GNSS-RO ionPrf profiles are satellite space-segment products. COSMIC-2
-          archive checks use UCAR provisional daily Level-2 tarballs under level2/YYYY/DDD.
+          TIMED/GUVI O/N2 maps are satellite space-segment products.
         </div>
       </div>
 
@@ -952,11 +912,8 @@ export default function TimeSeriesPage() {
 
       {/* Tabs */}
       <div className="tabs">
-        {([["daily","Daily Variation"],["compare","Source Comparison"],["storms","NASA OMNI"],["celestrak","CelesTrak"],["gfz","GFZ Kp"],["guvi","Thermosphere O/N2"],["cosmic2","COSMIC-2"],["intermagnet","INTERMAGNET"]] as [Tab,string][]).map(([id, label]) => (
-          <button key={id} className={`tab${tab === id ? " active" : ""}`} onClick={() => {
-            if (id === "cosmic2" && !cosmic2Loading) void loadCosmic2();
-            else setTab(id);
-          }}>{label}</button>
+        {([["compare","Source Comparison"],["storms","NASA OMNI"],["celestrak","CelesTrak"],["gfz","GFZ Kp"],["guvi","Thermosphere O/N2"],["intermagnet","INTERMAGNET"]] as [Tab,string][]).map(([id, label]) => (
+          <button key={id} className={`tab${tab === id ? " active" : ""}`} onClick={() => setTab(id)}>{label}</button>
         ))}
       </div>
 
@@ -967,29 +924,6 @@ export default function TimeSeriesPage() {
           <button type="button" className="btn" disabled={loading} onClick={() => void loadAll(station, start, end)} style={{ marginTop: "0.65rem" }}>
             {loading ? "Retrying?" : "Retry archive data"}
           </button>
-        </div>
-      )}
-
-      {tab === "daily" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-          {loading && obs.length === 0 && (
-            <div className="banner banner-info">Loading archive data…</div>
-          )}
-          {dailyDatasets.length > 0 ? (
-            <div className="card">
-              <div style={{ fontWeight: 700, marginBottom: "0.6rem" }}>Daily VTEC — 7-day rolling mean</div>
-              <LineChart
-                labels={allDates}
-                datasets={dailyDatasets}
-                yLabel="VTEC (TECU)"
-                height={340}
-                threshold={pct95 > 0 ? { value: pct95, label: `95th pct: ${pct95.toFixed(1)} TECU` } : undefined}
-                highlightDates={omni?.storms.map((s) => s.date).filter((d) => allDates.includes(d))}
-              />
-            </div>
-          ) : !loading && !loadError ? (
-            <div className="banner banner-info">No daily observations match the selected station and date range. Adjust the filters or add processed CMN/RINEX observations via Processing.</div>
-          ) : null}
         </div>
       )}
 
@@ -1055,16 +989,6 @@ export default function TimeSeriesPage() {
       )}
 
       {/* ── INTERMAGNET analysis ── */}
-      {tab === "cosmic2" && (
-        <Cosmic2AnalysisPanel
-          cosmic2={cosmic2}
-          vtecLabels={allDates}
-          vtecDatasets={dailyDatasets}
-          loading={cosmic2Loading}
-          error={cosmic2Error}
-        />
-      )}
-
       {tab === "intermagnet" && (
         <IntermagnetAnalysisPanel
           intermagnet={intermagnet}

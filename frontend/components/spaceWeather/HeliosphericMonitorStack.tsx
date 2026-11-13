@@ -122,6 +122,7 @@ export default function HeliosphericMonitorStack({ only }: { only?: "kp" } = {})
   const [brief, setBrief] = useState<SolarBriefResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [retry, setRetry] = useState(0);
   const [selected, setSelected] = useState<HeliosphericPanelId | null>(null);
 
   useEffect(() => {
@@ -150,7 +151,7 @@ export default function HeliosphericMonitorStack({ only }: { only?: "kp" } = {})
       cancelled = true;
       window.clearInterval(briefTimer);
     };
-  }, []);
+  }, [retry]);
 
   useEffect(() => {
     let cancelled = false;
@@ -166,7 +167,7 @@ export default function HeliosphericMonitorStack({ only }: { only?: "kp" } = {})
 
     const load = () => {
       attempt += 1;
-      getHeliosphericMonitor(false, attempt > 1)
+      getHeliosphericMonitor(retry > 0, attempt > 1)
         .then((payload) => {
           if (cancelled) return;
           setData(payload);
@@ -182,7 +183,7 @@ export default function HeliosphericMonitorStack({ only }: { only?: "kp" } = {})
             }, 600);
             return;
           }
-          setError(err instanceof Error ? err.message : "Failed to load heliospheric monitor");
+          setError("The heliospheric monitor could not reach the data service. Check the connection and retry.");
           if (!peekHeliosphericMonitor()) setData(null);
         })
         .finally(() => {
@@ -196,7 +197,7 @@ export default function HeliosphericMonitorStack({ only }: { only?: "kp" } = {})
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [retry]);
 
   const toggle = (id: HeliosphericPanelId) => {
     setSelected((prev) => (prev === id ? null : id));
@@ -214,6 +215,12 @@ export default function HeliosphericMonitorStack({ only }: { only?: "kp" } = {})
 
   const overviewOpen = selected === "overview";
   const overview = analyzeHeliosphericOverview();
+  const hasFeedErrors = Object.values(data?.errors ?? {}).some(Boolean);
+  const retryFeeds = () => {
+    setError(null);
+    setLoading(true);
+    setRetry(value => value + 1);
+  };
 
   const panelAxis = useMemo(() => {
     if (!data) {
@@ -288,7 +295,7 @@ export default function HeliosphericMonitorStack({ only }: { only?: "kp" } = {})
           </>
         ) : (
           <div className="banner banner-info">
-            {loading ? "Loading live Kp…" : `Kp forecast unavailable${data?.errors?.kp ? `: ${data.errors.kp}` : "."}`}
+            {loading ? "Loading live Kp…" : "Kp forecast unavailable. NOAA has not returned recent or cached observations."}
           </div>
         )}
       </div>
@@ -322,7 +329,7 @@ export default function HeliosphericMonitorStack({ only }: { only?: "kp" } = {})
                 : loading
                   ? "Loading"
                   : data
-                    ? "Live Data · NOAA SWPC"
+                    ? hasFeedErrors ? "Partial · NOAA feeds delayed" : "Live Data · NOAA SWPC"
                     : "Unavailable"}
               {" · "}
               {overviewOpen ? "Hide chain explanation" : "Click for Sun→Earth chain"}
@@ -339,6 +346,14 @@ export default function HeliosphericMonitorStack({ only }: { only?: "kp" } = {})
 
       {loading && <div className="banner banner-info">Loading NOAA heliospheric timelines…</div>}
       {error && !loading && <div className="banner banner-warn">{error}</div>}
+      {hasFeedErrors && (
+        <div className="banner banner-warn" role="status">
+          One or more NOAA feeds are temporarily unreachable. Showing last successfully received observations where available; timestamps are observation times.
+          <button type="button" className="btn btn-secondary" onClick={retryFeeds} disabled={loading} style={{ marginLeft: "0.65rem" }}>
+            Retry NOAA feeds
+          </button>
+        </div>
+      )}
 
       {!loading && data && (
         <>
@@ -361,7 +376,7 @@ export default function HeliosphericMonitorStack({ only }: { only?: "kp" } = {})
               />
             ) : (
               <div className="banner banner-info">
-                Proton flux unavailable{data.errors?.protons ? `: ${data.errors.protons}` : "."}
+                Proton flux unavailable. NOAA has not returned recent or cached observations.
               </div>
             )}
           </PanelShell>
@@ -390,7 +405,7 @@ export default function HeliosphericMonitorStack({ only }: { only?: "kp" } = {})
               />
             ) : (
               <div className="banner banner-info">
-                IMF series unavailable{data.errors?.imf ? `: ${data.errors.imf}` : "."}
+                IMF series unavailable. NOAA has not returned recent or cached observations.
               </div>
             )}
           </PanelShell>
@@ -451,8 +466,7 @@ export default function HeliosphericMonitorStack({ only }: { only?: "kp" } = {})
               );
             })() : (
               <div className="banner banner-info">
-                Solar-wind plasma unavailable
-                {data.errors?.solar_wind ? `: ${data.errors.solar_wind}` : "."}
+                Solar-wind plasma unavailable. NOAA has not returned recent or cached observations.
               </div>
             )}
           </PanelShell>

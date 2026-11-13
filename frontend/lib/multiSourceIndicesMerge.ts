@@ -244,11 +244,16 @@ export function kpDifferenceTable(bundle: SourceBundle, dates: string[]): KpDiff
 }
 
 export function stormDatesUnion(bundle: SourceBundle): string[] {
+  // Highlight only days supported by a storm-level daily maximum Kp.
+  // Provider event lists may also include Dst-only disturbances below Kp 5.
   const dates = new Set<string>();
-  for (const s of bundle.omni?.storms ?? []) dates.add(s.date);
-  for (const s of bundle.celestrak?.storms ?? []) dates.add(s.date);
-  for (const s of bundle.gfz?.storms ?? []) dates.add(s.date);
-  for (const s of bundle.kyoto?.storms ?? []) dates.add(s.date);
+  for (const source of [bundle.omni, bundle.celestrak, bundle.gfz, bundle.kyoto]) {
+    for (const row of source?.series ?? []) {
+      if (typeof row.kp === "number" && Number.isFinite(row.kp) && row.kp >= 5 && row.kp <= 9) {
+        dates.add(row.date);
+      }
+    }
+  }
   return [...dates].sort();
 }
 
