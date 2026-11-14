@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { getSolarBrief, type SolarBriefImage, type SolarBriefResponse, type SolarMonitorRegion } from "@/lib/api";
 import type { SolarActivityFull } from "@/lib/types";
+import { kpConditionFromValue } from "@/lib/homeSpaceWeather";
+import { solarWindColor, solarWindDensityColor, imfBtColor, imfBzColor, flareProbabilityColor } from "@/lib/spaceWeatherMetrics";
 import SwSectionBanner from "./SwSectionBanner";
 import styles from "./EarthsideSolarNews.module.css";
 
@@ -188,19 +190,25 @@ export default function EarthsideSolarNews({
         <div className={styles.block}>
           <h4>Geomagnetics</h4>
           <div className={styles.facts}>
-            <Fact label="Kp" value={kp == null ? "—" : `${kp} · ${kpWords(kp)}`} />
+            <Fact label="Kp" value={kp == null ? "—" : kp.toFixed(1)} detail={kp == null ? undefined : kpWords(kp)} color={kp == null ? undefined : kpConditionFromValue(kp).color} />
             <Fact
               label="Solar wind speed"
-              value={speed == null ? "—" : `${Math.round(speed)} km/s · ${windWords(speed)}`}
+              value={speed == null ? "—" : `${Math.round(speed).toLocaleString("en-US")} km/s`}
+              detail={speed == null ? undefined : windWords(speed)}
+              color={solarWindColor(speed ?? null)}
             />
             <Fact
               label="Solar wind density"
-              value={density == null ? "—" : `${density.toFixed(1)} /cm³ · ${densityWords(density)}`}
+              value={density == null ? "—" : `${density.toFixed(1)} p/cm³`}
+              detail={density == null ? undefined : densityWords(density)}
+              color={solarWindDensityColor(density ?? null)}
             />
-            <Fact label="IMF strength" value={bt == null ? "—" : `${bt.toFixed(1)} nT · ${fieldWords(bt)}`} />
+            <Fact label="IMF strength" value={bt == null ? "—" : `${bt.toFixed(1)} nT`} detail={bt == null ? undefined : fieldWords(bt)} color={imfBtColor(bt ?? null)} />
             <Fact
               label="IMF orientation"
-              value={bz == null ? "—" : `${orientation(bz)} · Bz ${bz.toFixed(1)} nT`}
+              value={bz == null ? "—" : `${bz > 0 ? "+" : ""}${bz.toFixed(1)} nT`}
+              detail={bz == null ? undefined : `Bz · ${orientation(bz)}`}
+              color={imfBzColor(bz ?? null)}
             />
           </div>
         </div>
@@ -214,9 +222,9 @@ export default function EarthsideSolarNews({
       <div className={styles.block}>
         <h4>Flaring probabilities</h4>
         <div className={styles.facts}>
-          <Fact label="C-flaring" value={brief?.c_percent == null ? "—" : `${brief.c_percent}%`} />
-          <Fact label="M-flaring" value={brief?.m_percent == null ? "—" : `${brief.m_percent}%`} />
-          <Fact label="X-flaring" value={brief?.x_percent == null ? "—" : `${brief.x_percent}%`} />
+          <Fact label="C-flaring" value={brief?.c_percent == null ? "—" : `${brief.c_percent}%`} color={flareProbabilityColor("C", brief?.c_percent ?? null)} />
+          <Fact label="M-flaring" value={brief?.m_percent == null ? "—" : `${brief.m_percent}%`} color={flareProbabilityColor("M", brief?.m_percent ?? null)} />
+          <Fact label="X-flaring" value={brief?.x_percent == null ? "—" : `${brief.x_percent}%`} color={flareProbabilityColor("X", brief?.x_percent ?? null)} />
         </div>
         <p>{brief && (brief.c_percent != null || brief.m_percent != null) ? chanceDetail(brief) : brief?.error ?? ""}</p>
       </div>
@@ -250,11 +258,12 @@ export default function EarthsideSolarNews({
   );
 }
 
-function Fact({ label, value }: { label: string; value: string }) {
+function Fact({ label, value, detail, color = "#94a3b8" }: { label: string; value: string; detail?: string; color?: string }) {
   return (
     <div className={styles.fact}>
       <span>{label}</span>
-      <strong>{value}</strong>
+      <strong style={{ color }}>{value}</strong>
+      {detail && <small className={styles.factDetail}>{detail}</small>}
     </div>
   );
 }

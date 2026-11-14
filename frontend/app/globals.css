@@ -4926,6 +4926,18 @@ a.home-map-layer-btn {
   pointer-events: none;
 }
 .tec-gradient-frame { position: relative; min-width: 0; }
+.tec-gradient-time-range,
+.tec-gradient-updated {
+  display: block;
+  color: #e2e8f0;
+  font-size: 0.72rem;
+  font-weight: 400;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.tec-gradient-time-range { margin-top: 0.3rem; }
+.tec-gradient-updated { margin-top: 0.4rem; }
 .tec-gradient-inset-scale {
   position: absolute;
   top: 1rem;

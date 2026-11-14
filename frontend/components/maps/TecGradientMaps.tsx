@@ -161,6 +161,9 @@ export function GradientHybridMap({
   diverging,
   emptyMessage,
   scaleMax,
+  measurementStart,
+  measurementEnd,
+  updatedAt,
 }: {
   title: string;
   unit: string;
@@ -170,6 +173,9 @@ export function GradientHybridMap({
   diverging: boolean;
   emptyMessage?: string;
   scaleMax?: number | null;
+  measurementStart?: string;
+  measurementEnd?: string;
+  updatedAt?: string;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const masked = useMemo(() => grid.map((row, i) =>
@@ -452,6 +458,11 @@ export function GradientHybridMap({
     <figure className="tec-gradient-map">
       <figcaption>
         {title} ({unit})
+        <small className="tec-gradient-time-range">
+          {measurementStart && measurementEnd
+            ? `Measurement window: ${measurementStart.replace("T", " ").replace(/Z$/, "")} – ${measurementEnd.replace("T", " ").replace(/Z$/, "")} UTC`
+            : "Measurement window: awaiting measurements"}
+        </small>
       </figcaption>
       <div className="tec-gradient-frame">
         <div
@@ -485,6 +496,11 @@ export function GradientHybridMap({
         )}
         <div className="tec-gradient-map-key">Red outline: Zimbabwe · Clear: outside Zimbabwe</div>
       </div>
+      <small className="tec-gradient-updated" aria-live="polite">
+        {updatedAt
+          ? <>Updated at <time dateTime={updatedAt}>{updatedAt.replace("T", " ").replace(/Z$/, "")} UTC</time>{!hasPaint && " · Awaiting measured coverage"}</>
+          : "Updated at: awaiting first update"}
+      </small>
     </figure>
   );
 }
@@ -616,6 +632,9 @@ export default function TecGradientMaps() {
             <GradientHybridMap
               title={maps?.available ? `Spatial gradient · ${maps.window_start.slice(0, 10)} · ${maps.window_start.slice(11, 16)}–${maps.window_end.slice(0, 10) !== maps.window_start.slice(0, 10) ? `${maps.window_end.slice(0, 10)} ` : ""}${maps.window_end.slice(11, 16)} UTC` : "Spatial gradient · loading measurements"}
               unit="TECU/deg"
+              measurementStart={maps?.window_start}
+              measurementEnd={maps?.window_end}
+              updatedAt={maps?.generated_at}
               grid={maps?.spatial ?? EMPTY_GRID}
               lat0={maps?.lat0 ?? -23}
               lon0={maps?.lon0 ?? 25}
@@ -625,6 +644,9 @@ export default function TecGradientMaps() {
               <GradientHybridMap
                 title={maps?.available ? `Temporal gradient · ${maps.window_start.slice(0, 10)} · ${maps.window_start.slice(11, 16)}–${maps.window_end.slice(0, 10) !== maps.window_start.slice(0, 10) ? `${maps.window_end.slice(0, 10)} ` : ""}${maps.window_end.slice(11, 16)} UTC` : "Temporal gradient · loading measurements"}
                 unit="TECU/min"
+                measurementStart={maps?.window_start}
+                measurementEnd={maps?.window_end}
+                updatedAt={maps?.generated_at}
                 grid={maps?.temporal_available ? maps.temporal ?? EMPTY_GRID : EMPTY_GRID}
                 lat0={maps?.lat0 ?? -23}
                 lon0={maps?.lon0 ?? 25}

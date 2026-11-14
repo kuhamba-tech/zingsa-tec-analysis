@@ -24,9 +24,11 @@
 }
 
 .fact {
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 6px;
-  padding: 0.4rem 0.55rem;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 0.75rem;
 }
 
 .fact span {
@@ -40,8 +42,18 @@
 
 .fact strong {
   display: block;
-  margin-top: 0.15rem;
-  font-size: 0.95rem;
+  margin-top: 0.35rem;
+  font-size: clamp(1.05rem, 1.6vw, 1.35rem);
+  font-weight: 900;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+
+.factDetail {
+  display: block;
+  margin-top: 0.3rem;
+  color: var(--text-muted);
+  font-size: 0.72rem;
 }
 
 .images {
