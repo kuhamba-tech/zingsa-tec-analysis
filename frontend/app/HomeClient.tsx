@@ -7,6 +7,7 @@ import {
   getEkfStatus,
   getLivePipelineStatus,
   getSpaceWeather,
+  getSolarActivity,
   getStations,
 } from "@/lib/api";
 import { absorbInlineBootPayload, bootSpaceWeather } from "@/lib/bootSpaceWeather";
@@ -17,6 +18,8 @@ import {
   subscribeSpaceWeather,
 } from "@/lib/spaceWeatherStore";
 import { noteSpaceWeatherNetworkOk } from "@/lib/clientApiBase";
+import { FLARE_SCALE } from "@/lib/solarEventColors";
+import { absorbInlineSolarBootPayload, subscribeSolarActivity } from "@/lib/solarActivityStore";
 
 function publishBoot(sw: SpaceWeatherCurrent) {
   noteSpaceWeatherNetworkOk();
@@ -27,7 +30,7 @@ function publishBoot(sw: SpaceWeatherCurrent) {
 }
 import { peekStations, subscribeStations, stationsAreSpiderAuthoritative } from "@/lib/stationsStore";
 import { mergeSpaceWeatherWithEkf } from "@/lib/homeSpaceWeather";
-import { buildMetricCards, NOAA_G_SCALE, TEC_VTEC_SCALE } from "@/lib/spaceWeatherMetrics";
+import { buildMetricCards, NOAA_G_SCALE, TEC_VTEC_SCALE, SOLAR_WIND_SPEED_SCALE, IMF_BZ_SCALE } from "@/lib/spaceWeatherMetrics";
 import {
   countLiveStationStatuses,
   formatCorsConnectedShort,
@@ -49,6 +52,7 @@ import { useFeedFreshness, type FeedStatus } from "@/lib/feedStatus";
 import type {
   Station,
   SpaceWeatherCurrent,
+  SolarActivityFull,
 } from "@/lib/types";
 import type { MetricKey } from "@/lib/spaceWeatherMetrics";
 import Link from "next/link";
@@ -95,16 +99,20 @@ const GETTING_STARTED = [
 ] as const;
 
 const HOME_METRIC_KEYS: MetricKey[] = [
+  "solar_flare",
+  "solar_wind",
+  "imf_bz",
   "geomagnetic_storm",
-  "dst",
   "zimbabwe_iono",
-  "gnss_risk",
   "stations",
 ];
 
 const HOME_LABELS: Partial<Record<MetricKey, string>> = {
-  geomagnetic_storm: "Geomagnetic storm",
-  zimbabwe_iono: "Zimbabwe ionosphere",
+  solar_flare: "Solar Flares",
+  solar_wind: "Solar Wind Speed",
+  imf_bz: "IMF Bz",
+  geomagnetic_storm: "Geomagnetic Storm",
+  zimbabwe_iono: "Zimbabwe Ionosphere",
   stations: "CORS Connected",
 };
 
@@ -120,6 +128,11 @@ function HomeMetricCard({
   activeGCode,
   showTecScale,
   activeTecCode,
+  showWindScale,
+  activeWindSpeedCode,
+  showBzScale,
+  activeBzCode,
+  showFlareScale,
 }: {
   icon: string;
   label: string;
@@ -132,6 +145,11 @@ function HomeMetricCard({
   activeGCode?: string | null;
   showTecScale?: boolean;
   activeTecCode?: string | null;
+  showWindScale?: boolean;
+  activeWindSpeedCode?: string | null;
+  showBzScale?: boolean;
+  activeBzCode?: string | null;
+  showFlareScale?: boolean;
 }) {
   return (
     <div className={`sw-metric-card home-metric-card${showTecScale ? " home-metric-card-tec" : ""}`}>
@@ -142,6 +160,35 @@ function HomeMetricCard({
       </div>
       {subtitle ? <div className="sw-metric-subtitle">{subtitle}</div> : null}
       <div className="sw-metric-note">{loading ? "Loading live feed…" : note}</div>
+      {showFlareScale && (
+        <div className="sw-metric-flare-scale sw-metric-g-scale home-metric-band-scale" aria-label="GOES solar flare class scale: A, B, C, M, X">
+          {FLARE_SCALE.map((band) => {
+            const active = !loading && /^([ABCMX])\d/i.exec(value)?.[1].toUpperCase() === band.cls;
+            return (
+              <div key={band.cls} className={`sw-metric-flare-scale-item${active ? " is-active" : ""}`} title={`${band.label}: ${band.desc} · ${band.flux}`} aria-current={active ? "true" : undefined}>
+                <div className="sw-metric-flare-scale-bar" style={{ background: band.color, height: active ? 4 : 2 }} />
+                <div className="sw-metric-flare-scale-letter" style={{ color: band.color, fontWeight: active ? 900 : 800 }}>{band.cls}</div>
+                <div className="sw-metric-flare-scale-desc">{band.desc}</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {(showWindScale || showBzScale) && (
+        <div className="sw-metric-flare-scale sw-metric-g-scale home-metric-band-scale" aria-label={showWindScale ? "Solar wind speed scale in km/s" : "IMF Bz scale in nT"}>
+          {(showWindScale ? SOLAR_WIND_SPEED_SCALE : IMF_BZ_SCALE).map((band) => {
+            const activeCode = loading ? null : showWindScale ? activeWindSpeedCode : activeBzCode;
+            const active = activeCode === band.id;
+            return (
+              <div key={band.id} className={`sw-metric-flare-scale-item${active ? " is-active" : ""}`} title={`${band.range}${showWindScale ? "" : " nT"} · ${band.label}`} aria-current={active ? "true" : undefined}>
+                <div className="sw-metric-flare-scale-bar" style={{ background: band.color, height: active ? 4 : 2, opacity: active || !activeCode ? 1 : 0.45 }} />
+                <div className="sw-metric-flare-scale-letter" style={{ color: band.color, fontWeight: active ? 900 : 800 }}>{band.short}</div>
+                <div className="sw-metric-flare-scale-desc">{band.label.replaceAll("/", "/\u200b")}</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
       {showGScale ? (
         <div className="sw-metric-flare-scale sw-metric-g-scale" aria-label="NOAA G-scale (G0–G5)">
           {NOAA_G_SCALE.map((g) => {
@@ -217,6 +264,8 @@ export default function HomeClient({ initialSw = null }: HomeClientProps) {
   const [stations, setStations] = useState<Station[]>([]);
   const [liveSw, setLiveSw] = useState<SpaceWeatherCurrent | null>(initialSw);
   const [displaySw, setDisplaySw] = useState<SpaceWeatherCurrent | null>(initialSw);
+  const [solar, setSolar] = useState<SolarActivityFull | null>(null);
+  const [solarLoading, setSolarLoading] = useState(true);
   const [ekfFilled, setEkfFilled] = useState<Set<string>>(new Set());
   const [swStatus, setSwStatus] = useState<FeedStatus>(initialSw ? "ok" : "pending");
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -231,6 +280,34 @@ export default function HomeClient({ initialSw = null }: HomeClientProps) {
   const [loadProfile, setLoadProfile] = useState(() => getLoadProfile());
   useEffect(() => {
     setLoadProfile(getLoadProfile());
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    let inFlight = false;
+    const cached = absorbInlineSolarBootPayload();
+    if (cached) { setSolar(cached); setSolarLoading(false); }
+    const unsubscribe = subscribeSolarActivity((next) => {
+      if (!cancelled) { setSolar(next); setSolarLoading(false); }
+    });
+    const refresh = async () => {
+      if (inFlight || document.hidden) return;
+      inFlight = true;
+      try {
+        const next = await getSolarActivity();
+        if (!cancelled) setSolar(next);
+      } catch {
+        // Keep the last solar snapshot while the shared client retries.
+      } finally {
+        inFlight = false;
+        if (!cancelled) setSolarLoading(false);
+      }
+    };
+    void refresh();
+    const timer = window.setInterval(refresh, 60_000);
+    const onVisible = () => { if (!document.hidden) void refresh(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { cancelled = true; unsubscribe(); window.clearInterval(timer); document.removeEventListener("visibilitychange", onVisible); };
   }, []);
 
   useEffect(() => {
@@ -471,8 +548,11 @@ export default function HomeClient({ initialSw = null }: HomeClientProps) {
     liveStationCounts: spiderLive ? liveCounts : undefined,
     ekfFilled,
     indicesLoading: metricsPending,
+    solar,
+    solarLoading,
   })
     .filter((card) => HOME_METRIC_KEYS.includes(card.key))
+    .sort((a, b) => HOME_METRIC_KEYS.indexOf(a.key) - HOME_METRIC_KEYS.indexOf(b.key))
     .map((card) => ({
       ...card,
       label: HOME_LABELS[card.key] ?? card.label,
@@ -553,10 +633,19 @@ export default function HomeClient({ initialSw = null }: HomeClientProps) {
                 activeGCode={card.activeGCode}
                 showTecScale={card.showTecScale}
                 activeTecCode={card.activeTecCode}
+                showWindScale={card.showWindScale}
+                activeWindSpeedCode={card.activeWindSpeedCode}
+                showBzScale={card.showBzScale}
+                activeBzCode={card.activeBzCode}
+                showFlareScale={card.showFlareScale}
                 loading={
                   card.key === "stations"
                     ? stationsLoading && !hasSwStationCounts
-                    : metricsPending
+                    : card.key === "solar_flare" || card.key === "imf_bz"
+                      ? solarLoading && !solar
+                      : card.key === "solar_wind"
+                        ? solarLoading && !solar && displaySw?.plasma_speed == null
+                        : metricsPending
                 }
               />
             ))}

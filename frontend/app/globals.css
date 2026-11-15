@@ -3450,7 +3450,16 @@ a.home-map-layer-btn {
 .dashboard-metric-grid.home-metric-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.55rem;
+  grid-auto-rows: 1fr;
 }
+.home-metric-grid .home-metric-card { min-width: 0; height: 100%; }
+.home-metric-grid .sw-metric-label { font-size: 0.75rem; white-space: normal; line-height: 1.4; }
+.home-metric-grid .sw-metric-value { font-size: clamp(1.1rem, 1.8vw, 1.5rem); line-height: 1.25; }
+.home-metric-grid .sw-metric-note { font-size: 0.72rem; white-space: normal; overflow: visible; line-height: 1.5; }
+.home-metric-band-scale { width: 100%; min-width: 0; }
+.home-metric-band-scale .sw-metric-flare-scale-item { min-width: 0; flex: 1 1 0; }
+.home-metric-band-scale .sw-metric-flare-scale-letter { white-space: normal; overflow-wrap: anywhere; font-size: 0.72rem; line-height: 1.35; }
+.home-metric-band-scale.sw-metric-g-scale .sw-metric-flare-scale-desc { white-space: normal; overflow-wrap: anywhere; font-size: 0.65rem; line-height: 1.4; }
 
 /* Clickable space-weather metric cards */
 .sw-metric-section {
@@ -9482,7 +9491,7 @@ a.home-map-layer-btn {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .home-metric-card-tec {
-    grid-column: 1 / -1;
+    grid-column: auto;
   }
 }
 @media (max-width: 768px) {

@@ -19,8 +19,7 @@ export default function SpaceWeatherIntro() {
     <section className={styles.panel} aria-labelledby="space-weather-intro-title">
       <div className={styles.copy}>
         <div className={styles.heading}>
-          <svg viewBox="0 0 48 48" aria-hidden="true"><path d="M8 16L24 7L40 16L24 25Z M8 24L24 33L40 24 M8 32L24 41L40 32" fill="none" stroke="currentColor" strokeWidth="3" strokeLinejoin="round"/></svg>
-          <div><span className={styles.eyebrow}>OUR SUN. OUR CONNECTED WORLD.</span><h2 id="space-weather-intro-title">What is <span>Space Weather?</span></h2></div>
+          <div><h2 id="space-weather-intro-title">What is <span>Space Weather?</span></h2></div>
         </div>
         <p>
           Space weather refers to changing conditions on the Sun, in the solar wind,
@@ -53,7 +52,7 @@ export default function SpaceWeatherIntro() {
         />
       </figure>
       <div className={styles.impactsSection}>
-        <h3 className={styles.impactsHeading}><span aria-hidden="true">🇿🇼</span> Why It Matters for Zimbabwe</h3>
+        <h3 className={styles.impactsHeading}>Why It Matters for Zimbabwe</h3>
         <ul className={styles.impacts}>
           {impacts.map(({ title, detail }, index) => (
             <li key={title}>
