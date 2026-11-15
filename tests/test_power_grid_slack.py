@@ -1,6 +1,7 @@
 """Power-grid Slack advisory uses supplied readings and never sample numbers."""
 
 from datetime import datetime, timezone  # noqa: F401
+import pytest
 
 from zgiis.space_weather.power_grid_slack import (
     advisory_kind,
@@ -8,7 +9,38 @@ from zgiis.space_weather.power_grid_slack import (
     format_power_grid_advisory,
     format_power_grid_quarter,
     format_solar_forecast,
+    format_power_grid_threshold_alert,
 )
+
+
+@pytest.mark.parametrize("bz", [1.2, 0.1, -2.0, 0.0, None])
+def test_bz_explanation_matches_current_orientation_in_all_advisories(bz):
+    readings = {"speed": 550, "bz": bz, "kp": 2}
+    issued = datetime(2026, 11, 15, 12, 0, tzinfo=timezone.utc)
+    messages = [
+        format_power_grid_advisory(readings, issued_at=issued),
+        format_power_grid_quarter(readings, issued_at=issued),
+        format_solar_forecast(readings, {}, issued_at=issued),
+        format_power_grid_threshold_alert(
+            readings,
+            [{"id": "solar_wind_speed", "phrase": "elevated solar wind speed"}],
+            alert_id="test-bz",
+            issued_at=issued,
+        ),
+    ]
+    for text in messages:
+        if bz is not None and bz > 0:
+            assert "🟢 *Positive Bz (Northward):*" in text
+            assert "generally aligning with Earth's dayside magnetic field" in text
+            assert "limits the transfer of solar-wind energy into Earth's magnetosphere" in text
+            assert "Negative Bz means" not in text
+        elif bz is not None and bz < 0:
+            assert "Negative Bz means" in text
+            assert "Positive Bz (Northward)" not in text
+        else:
+            assert "IMF Bz is unavailable" in text if bz is None else "IMF Bz is zero" in text
+            assert "Negative Bz means" not in text
+            assert "Positive Bz (Northward)" not in text
 
 
 def test_yellow_watch_uses_live_speed_not_a_sample():
@@ -47,6 +79,18 @@ def test_quiet_readings_are_green():
     assert classify_power_grid_level(
         {"speed": 350, "bz": 1.2, "bt": 4, "density": 3, "kp": 2, "dst": -8}
     ) == "GREEN"
+
+
+def test_quiet_solar_assessment_recommends_monitoring_and_keeps_storm_warnings():
+    quiet = format_solar_forecast({"speed": 350, "bz": 1.2, "kp": 2, "dst": -8}, {})
+    assert (
+        "*Current Assessment:* No significant geomagnetic disturbance is currently indicated. "
+        "However, continued monitoring of active sunspot regions, solar flares, CMEs and "
+        "solar-wind conditions is recommended."
+    ) in quiet
+    storm = format_solar_forecast({"kp": 5.3}, {})
+    assert "Observed geomagnetic indices meet storm conditions." in storm
+    assert "No significant geomagnetic disturbance" not in storm
 
 
 def test_kp_storm_is_orange_and_severe_kp_is_red():
@@ -116,6 +160,7 @@ def test_quarter_hours_alternate_and_a_past_arrival_is_not_a_new_forecast():
         issued_at=issued,
     )
     assert "one visible sunspot region." in text
+    assert "This magnetically active region has the potential to produce solar flares." in text
     assert "seen from the NASA SDO" in text
     assert "NASA SDO, with ZINGSA" in text
     assert "C-class flares: 20%" in text

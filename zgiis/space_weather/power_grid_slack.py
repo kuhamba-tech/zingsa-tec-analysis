@@ -129,8 +129,9 @@ def _assessment(level: str, readings: dict[str, Any]) -> str:
             + speed_note
         )
     return (
-        "Live readings are below the watch lines. No geomagnetic storm is indicated. "
-        "Continue routine monitoring."
+        "No significant geomagnetic disturbance is currently indicated. However, "
+        "continued monitoring of active sunspot regions, solar flares, CMEs and "
+        "solar-wind conditions is recommended."
     )
 
 
@@ -155,6 +156,21 @@ _NEGATIVE_BZ_LINE = (
     "Negative Bz means the interplanetary magnetic field points southward, "
     "increasing the chance that solar-wind energy can enter Earth's magnetosphere."
 )
+
+
+def _bz_explanation(bz: float | None) -> str:
+    if bz is None:
+        return "IMF Bz is unavailable; its current orientation cannot be assessed."
+    if bz > 0:
+        return (
+            "🟢 *Positive Bz (Northward):* When IMF Bz is positive, the interplanetary "
+            "magnetic field points northward, generally aligning with Earth's dayside "
+            "magnetic field. This reduces the efficiency of magnetic reconnection and "
+            "limits the transfer of solar-wind energy into Earth's magnetosphere."
+        )
+    if bz < 0:
+        return _NEGATIVE_BZ_LINE
+    return "IMF Bz is zero; it currently has no northward or southward component."
 
 
 def format_power_grid_advisory(readings: dict[str, Any], *, issued_at: datetime | None = None) -> str:
@@ -209,7 +225,7 @@ def format_power_grid_advisory(readings: dict[str, Any], *, issued_at: datetime 
         "Live readings:",
         *rows,
         "",
-        _NEGATIVE_BZ_LINE,
+        _bz_explanation(bz),
     ]
     if source_bits:
         lines.extend(["", " ".join(source_bits) + "."])
@@ -497,7 +513,7 @@ def format_power_grid_quarter(readings: dict[str, Any], *, issued_at: datetime |
         lines.append(f"📉 Dst Index: {_signed(dst, 0)} nT (Storm-context line: \u2264 \u2212{abs(DST_STORM_NT):.0f} nT)")
     if density is not None:
         lines.append(f"💨 Solar Wind Density: {_num(density, 2)} cm⁻³ (Elevated line: \u2265 {DENSITY_ELEVATED_CM3:.0f} cm⁻³)")
-    lines.extend(["", _NEGATIVE_BZ_LINE])
+    lines.extend(["", _bz_explanation(bz)])
     if readings.get("solar_time") or readings.get("index_time"):
         lines.extend(["", f"Sources: NOAA SWPC RTSW {readings.get('solar_time') or 'unavailable'} UTC. Live Space Weather {readings.get('index_time') or 'unavailable'} UTC."])
     lines.extend(
@@ -621,8 +637,14 @@ def _region_sentence(brief: dict[str, Any]) -> str | None:
     if count == 0:
         return "The Earth-facing Sun has no visible sunspot regions."
     if count == 1:
-        return "The Earth-facing Sun has one visible sunspot region."
-    return f"The Earth-facing Sun has {count} visible sunspot regions."
+        return (
+            "The Earth-facing Sun has one visible sunspot region. "
+            "This magnetically active region has the potential to produce solar flares."
+        )
+    return (
+        f"The Earth-facing Sun has {count} visible sunspot regions. "
+        "These magnetically active regions have the potential to produce solar flares."
+    )
 
 
 def format_solar_forecast(
@@ -700,7 +722,7 @@ def format_solar_forecast(
     if dst is not None:
         storm = "No geomagnetic storm indicated" if dst > DST_STORM_NT else "Storm range"
         lines.append(f"- Dst Index: {_signed(dst, 0)} nT — {storm}")
-    lines.extend(["", _NEGATIVE_BZ_LINE, "", "🔮 SPACE WEATHER FORECAST", ""])
+    lines.extend(["", _bz_explanation(bz), "", "🔮 SPACE WEATHER FORECAST", ""])
     window = str(brief.get("expected_kp_window") or "")
     expected = _float_or_none(brief.get("expected_kp"))
     if expected is not None and window and not _window_is_past(window, issued_cat):
@@ -719,7 +741,7 @@ def format_solar_forecast(
             "",
             "⚡ IMPLICATIONS FOR ZIMBABWE'S POWER GRID",
             "",
-            "Current Assessment: No geomagnetic storm is confirmed by these measurements." if level == "YELLOW" or level == "GREEN" else "Current Assessment: Geomagnetic conditions meet a storm screening level. Check the indices above.",
+            f"*Current Assessment:* {_assessment(level, readings)}",
             "",
             "The available measurements are for monitoring. They do not by themselves establish a GIC impact on ZESA/ZETDC infrastructure.",
             "",
@@ -966,7 +988,7 @@ def format_power_grid_threshold_alert(
         lines.append(f"📉 Dst Index: *{_signed(dst, 0)} nT*{_mark('dst_storm' in ids or 'dst_strong' in ids)}")
     if density is not None:
         lines.append(f"💨 Solar Wind Density: *{_num(density, 2)} cm⁻³*{_mark('solar_wind_density' in ids)}")
-    lines.extend(["", _NEGATIVE_BZ_LINE])
+    lines.extend(["", _bz_explanation(bz)])
     sources = ["NOAA SWPC RTSW"]
     if readings.get("index_time"):
         sources.append("ZINGSA Live Space Weather")
