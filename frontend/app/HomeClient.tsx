@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import DataSources from "@/components/dashboard/DataSources";
+import SpaceWeatherIntro from "@/components/dashboard/SpaceWeatherIntro";
 import {
   getEkfStatus,
   getLivePipelineStatus,
@@ -41,7 +42,6 @@ import {
 import HomeAlertSummary from "@/components/layout/HomeAlertSummary";
 import HomeStormAlertBanner from "@/components/layout/HomeStormAlertBanner";
 import DeferredMount from "@/components/spaceWeather/DeferredMount";
-import HomeTimelinesGate from "@/components/spaceWeather/HomeTimelinesGate";
 import LocalIonosphereObservations from "@/components/spaceWeather/LocalIonosphereObservations";
 import SpaceWeatherCorsMap from "@/components/spaceWeather/SpaceWeatherCorsMap";
 import { loadCorsMapWithLayers } from "@/lib/loadCorsMapWithLayers";
@@ -503,8 +503,23 @@ export default function HomeClient({ initialSw = null }: HomeClientProps) {
             </span>
           </h1>
           <p suppressHydrationWarning className="page-subtitle home-page-subtitle">
-            Real-time ionospheric TEC, space weather, and GNSS navigation from the Zimbabwe CORS network
+            Monitoring the Sun, Earth’s Space Environment and Their Impacts on Zimbabwe.
           </p>
+        </div>
+        <div className="home-hero-summary">
+          <p className="home-hero-description">
+            Space weather refers to changing conditions on the Sun, in the solar wind,
+            and within Earth’s magnetosphere and ionosphere. Solar flares, coronal mass
+            ejections and variations in the solar wind can disturb Earth’s near-space
+            environment, potentially affecting satellite navigation, radio communications,
+            satellite operations and electricity transmission networks.
+          </p>
+          <div className="home-live-data-action">
+            <Link href="/space-weather/" className="home-live-data-link">
+              <span aria-hidden="true">▥</span> View Live Data
+            </Link>
+          </div>
+          <p className="home-hero-tagline">From Solar Activity to National Infrastructure Protection.</p>
         </div>
         <div className="home-hero-clocks page-header-clocks" aria-label="Live clocks">
           <DashboardHeaderClocks />
@@ -515,7 +530,7 @@ export default function HomeClient({ initialSw = null }: HomeClientProps) {
       <HomeStormAlertBanner sw={liveSw} />
 
       <div className="home-sw-row">
-        <section suppressHydrationWarning className="home-sw-panel" aria-label="Live space weather">
+        <section id="home-live-data" suppressHydrationWarning className="home-sw-panel" aria-label="Live space weather">
           <h2 suppressHydrationWarning className="home-sw-heading">Live Space Weather · Zimbabwe CORS Network</h2>
           {freshnessMsg && <div className="banner banner-warn" style={{ fontSize: "0.8rem" }}>{freshnessMsg}</div>}
           {loadError && swStatus === "down" && (
@@ -564,6 +579,8 @@ export default function HomeClient({ initialSw = null }: HomeClientProps) {
         </section>
       </div>
 
+      <SpaceWeatherIntro />
+
       <DeferredMount
         className="sw-deferred-block"
         minHeight={520}
@@ -577,20 +594,7 @@ export default function HomeClient({ initialSw = null }: HomeClientProps) {
         }
       >
         <LocalIonosphereObservations now={ionosphereNow || Date.now()} />
-        <SpaceWeatherCorsMap />
-      </DeferredMount>
-
-      <DeferredMount
-        className="sw-deferred-block"
-        minHeight={280}
-        minDelayMs={loadProfile.tv ? Math.min(loadProfile.heavyMountDelayMs, 600) + 400 : 900}
-        fallback={
-          <div className="banner banner-info" role="status" style={{ margin: "0.75rem 0" }}>
-            Loading timelines…
-          </div>
-        }
-      >
-        <HomeTimelinesGate includeChrome={false} />
+        <SpaceWeatherCorsMap showStationPlots={false} />
       </DeferredMount>
 
       <section suppressHydrationWarning className="home-getting-started" aria-label="Getting started">
@@ -663,9 +667,9 @@ export default function HomeClient({ initialSw = null }: HomeClientProps) {
         <div className="analysis-modules-grid">
           {MODULES.map(({ href, icon, title, desc }) => (
             <Link key={href} href={href} className="home-module-link" prefetch={false}>
-              <div className="card card-accent home-module-card">
-                <div className="home-module-icon">{icon}</div>
-                <div className="home-module-title">{title}</div>
+              <div className="card home-module-card">
+                <div className="home-module-topline"><span className="home-module-icon" aria-hidden="true">{icon}</span><span className="home-module-open" aria-hidden="true">↗</span></div>
+                <h3 className="home-module-title">{title}</h3>
                 <div className="home-module-desc">{desc}</div>
               </div>
             </Link>

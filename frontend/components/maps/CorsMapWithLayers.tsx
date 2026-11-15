@@ -51,6 +51,8 @@ interface Props {
   layers?: MapLayer[];
   /** Sourcetable identity mismatch banner (home page). Off for RINEX picker. */
   showSourcetableWarning?: boolean;
+  /** Include the network mean and individual station time-series section. */
+  showStationPlots?: boolean;
 }
 
 /** Full National Dashboard map layers (Hybrid → Network Distances). */
@@ -200,6 +202,7 @@ export default function CorsMapWithLayers({
   initialLayer,
   layers = LAYERS,
   showSourcetableWarning = true,
+  showStationPlots = true,
 }: Props) {
   const availableLayers = layers.length > 0 ? layers : LAYERS;
   const startingLayer =
@@ -855,7 +858,7 @@ export default function CorsMapWithLayers({
         </DeferredMount>
       )}
 
-      {tecLayerActive && (
+      {tecLayerActive && showStationPlots && (
         <DeferredMount minHeight={220} rootMargin="0px" minDelayMs={5000}>
           <StationVtecTimePlots className="home-station-vtec-plots" />
         </DeferredMount>

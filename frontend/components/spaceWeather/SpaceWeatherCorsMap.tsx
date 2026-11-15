@@ -57,7 +57,7 @@ function useCorsMapHeight(preferred = 440): number {
  * Zimbabwe CORS Network map — markers use the same Spider station snapshot as
  * the CORS Connected metric card. Heatmap is optional and must never block markers.
  */
-export default function SpaceWeatherCorsMap({ height: preferredHeight = 440 }: { height?: number }) {
+export default function SpaceWeatherCorsMap({ height: preferredHeight = 440, showStationPlots = true }: { height?: number; showStationPlots?: boolean }) {
   const height = useCorsMapHeight(preferredHeight);
   const [stations, setStations] = useState<Station[]>(() => {
     const cached = peekStations();
@@ -178,6 +178,7 @@ export default function SpaceWeatherCorsMap({ height: preferredHeight = 440 }: {
         stationsLoading={stationsLoading && stations.length === 0}
         heatmap={displayHeatmap}
         initialLayer="TEC Heat Map"
+        showStationPlots={showStationPlots}
       />
     </div>
   );

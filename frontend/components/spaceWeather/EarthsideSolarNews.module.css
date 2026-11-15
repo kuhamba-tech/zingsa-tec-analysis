@@ -18,7 +18,7 @@
 
 .facts {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
   gap: 0.45rem;
   margin-top: 0.45rem;
 }
@@ -47,6 +47,7 @@
   font-weight: 900;
   line-height: 1.2;
   font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
 }
 
 .factDetail {
@@ -58,7 +59,7 @@
 
 .images {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
   gap: 0.65rem;
 }
 
@@ -115,6 +116,8 @@
 
 .tableWrap {
   overflow-x: auto;
+  max-width: 100%;
+  overscroll-behavior-inline: contain;
   margin-top: 0.7rem;
 }
 
@@ -155,4 +158,22 @@
 .beta {
   background: rgba(224, 164, 90, 0.35);
   font-weight: 700;
+}
+
+@media (max-width: 560px) {
+  .facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.6rem;
+  }
+  .fact { padding: 0.65rem; }
+  .fact span { font-size: 0.7rem; letter-spacing: 0.03em; }
+  .fact strong { font-size: 1.15rem; }
+  .factDetail, .images figcaption { font-size: 0.78rem; line-height: 1.5; }
+  .images { grid-template-columns: minmax(0, 1fr); }
+  .kicker { font-size: 0.85rem; line-height: 1.6; }
+  .table th, .table td { padding: 0.6rem; }
+}
+
+@media (max-width: 359px) {
+  .facts { grid-template-columns: minmax(0, 1fr); }
 }
