@@ -506,21 +506,6 @@ export default function HomeClient({ initialSw = null }: HomeClientProps) {
             Monitoring the Sun, Earth’s Space Environment and Their Impacts on Zimbabwe.
           </p>
         </div>
-        <div className="home-hero-summary">
-          <p className="home-hero-description">
-            Space weather refers to changing conditions on the Sun, in the solar wind,
-            and within Earth’s magnetosphere and ionosphere. Solar flares, coronal mass
-            ejections and variations in the solar wind can disturb Earth’s near-space
-            environment, potentially affecting satellite navigation, radio communications,
-            satellite operations and electricity transmission networks.
-          </p>
-          <div className="home-live-data-action">
-            <Link href="/space-weather/" className="home-live-data-link">
-              <span aria-hidden="true">▥</span> View Live Data
-            </Link>
-          </div>
-          <p className="home-hero-tagline">From Solar Activity to National Infrastructure Protection.</p>
-        </div>
         <div className="home-hero-clocks page-header-clocks" aria-label="Live clocks">
           <DashboardHeaderClocks />
         </div>
