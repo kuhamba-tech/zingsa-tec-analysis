@@ -81,6 +81,16 @@ def test_quiet_readings_are_green():
     ) == "GREEN"
 
 
+@pytest.mark.parametrize("formatter", [format_power_grid_advisory, format_power_grid_quarter])
+def test_grid_intro_describes_positive_bz_without_dismissing_a_storm(formatter):
+    text = formatter({"bz": 1.2, "kp": 5.3})
+    assert "IMF Bz is currently positive (northward)" in text
+    assert "Bz can change direction" in text
+    assert "🟢 *Positive Bz (Northward):*" in text
+    assert "Observed geomagnetic indices meet storm conditions." in text
+    assert "No significant geomagnetic disturbance" not in text
+
+
 def test_quiet_solar_assessment_recommends_monitoring_and_keeps_storm_warnings():
     quiet = format_solar_forecast({"speed": 350, "bz": 1.2, "kp": 2, "dst": -8}, {})
     assert (

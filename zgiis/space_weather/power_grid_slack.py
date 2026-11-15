@@ -173,6 +173,24 @@ def _bz_explanation(bz: float | None) -> str:
     return "IMF Bz is zero; it currently has no northward or southward component."
 
 
+def _grid_conditions_intro(bz: float | None) -> str:
+    if bz is not None and bz > 0:
+        return (
+            "The Zimbabwe National Geospatial and Space Agency (ZINGSA) reports that "
+            "IMF Bz is currently positive (northward), generally limiting the transfer of "
+            "solar-wind energy into Earth's magnetosphere. Continued monitoring is "
+            "recommended because Bz can change direction; sustained southward Bz can "
+            "increase geomagnetic coupling. Current geomagnetic indices and local "
+            "measurements remain essential for assessing potential power-grid impacts."
+        )
+    return (
+        "The Zimbabwe National Geospatial and Space Agency (ZINGSA) advises that "
+        "elevated solar wind activity may increase the likelihood of geomagnetic "
+        "disturbances if accompanied by sustained southward interplanetary magnetic "
+        "field (IMF Bz) conditions."
+    )
+
+
 def format_power_grid_advisory(readings: dict[str, Any], *, issued_at: datetime | None = None) -> str:
     """Build the ZESA advisory. Raises ValueError when no live reading is available."""
     speed = _float_or_none(readings.get("speed"))
@@ -220,7 +238,7 @@ def format_power_grid_advisory(readings: dict[str, Any], *, issued_at: datetime 
         "",
         "*1. Current Space Weather Conditions*",
         "",
-        "The Zimbabwe National Geospatial and Space Agency (ZINGSA) advises that elevated solar wind activity may increase the likelihood of geomagnetic disturbances if accompanied by sustained southward interplanetary magnetic field (IMF Bz) conditions.",
+        _grid_conditions_intro(bz),
         "",
         "Live readings:",
         *rows,
@@ -496,7 +514,7 @@ def format_power_grid_quarter(readings: dict[str, Any], *, issued_at: datetime |
         "",
         "☀️ SPACE WEATHER CONDITIONS",
         "",
-        "Elevated solar wind activity, particularly when accompanied by sustained southward IMF Bz, may increase the likelihood of geomagnetic disturbances.",
+        _grid_conditions_intro(bz),
         "",
         "Live monitoring readings:",
     ]
