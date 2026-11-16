@@ -41,6 +41,7 @@ export default function SpaceWeatherIntro() {
       </div>
 
       <figure className={styles.visual}>
+        <a className={styles.imageLink} href="/images/space-weather-sun-earth.webp" target="_blank" rel="noopener noreferrer" aria-label="Open the Sun-to-Earth illustration at full size in a new tab">
         <img
           src="/images/space-weather-sun-earth.webp"
           alt="Sun-to-Earth illustration identifying solar-flare radiation, solar wind, Earth's magnetosphere and the ionosphere. Sizes and distances are not to scale."
@@ -50,6 +51,7 @@ export default function SpaceWeatherIntro() {
           decoding="async"
           className={styles.illustration}
         />
+        </a>
       </figure>
       <div className={styles.impactsSection}>
         <h3 className={styles.impactsHeading}>Why It Matters for Zimbabwe</h3>

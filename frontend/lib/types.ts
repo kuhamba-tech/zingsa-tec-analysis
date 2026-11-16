@@ -411,6 +411,10 @@ export interface ScientificDiscussion {
 
 // ── CORS Network ──────────────────────────────────────────────────────────────
 export interface TrigNetStation {
+  streaming?: boolean;
+  connected?: boolean;
+  stream_configured?: boolean;
+  message_count?: number;
   code: string;
   name: string;
   lat: number;

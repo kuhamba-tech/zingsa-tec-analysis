@@ -1,16 +1,15 @@
-"""South African TrigNet CORS: public sourcetable plus GOPI TEC from RINEX.
+"""South African sites with authenticated live RTCM and public RINEX fallback.
 
-The caster at 196.15.132.2:2101 publishes the station list without a login.
-Observation streams require a TrigNet account, so TEC is computed from the
-newest public 30-second daily RINEX on ftp://ftp.trignet.co.za using the same
-code-TEC pipeline as Zimbabwe RINEX (``read_rinex_files``). Values keep the
-file time. This does not open the Zimbabwe NTRIP caster.
+TRIGNET_NTRIP_* settings isolate South African streams from Zimbabwe's caster.
+Connection state is independent of the availability of a valid TEC sample.
 """
 from __future__ import annotations
 
 import ftplib
+import base64
 import json
 import logging
+import os
 import shutil
 import socket
 import tempfile
@@ -19,6 +18,7 @@ import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from concurrent.futures import ThreadPoolExecutor
 
 log = logging.getLogger(__name__)
 
@@ -34,6 +34,8 @@ _DAY: dict[str, Any] = {"at": 0.0, "day": None}
 _NAV: dict[str, Any] = {"day": None, "nav": {}}
 _TEC: dict[str, dict[str, Any]] = {}
 _STARTED = False
+_LIVE_MANAGER = None
+_LIVE_PIPELINE = None
 _CATALOG_TTL_S = 900
 _DAY_TTL_S = 900
 # A TrigNet file value is shown only when it falls in the same window as the
@@ -89,14 +91,39 @@ def parse_sourcetable(text: str) -> list[dict[str, Any]]:
     return sorted(by_code.values(), key=lambda row: (-row["lat"], row["code"]))
 
 
-def _fetch_sourcetable_text() -> str:
+def _configured_caster() -> dict[str, Any] | None:
+    """Keep South African account settings separate from Zimbabwe's NTRIP_* settings."""
+    host = os.getenv("TRIGNET_NTRIP_HOST", "").strip().strip('"').strip("'")
+    if not host:
+        return None
+    from urllib.parse import urlsplit
+
+    parsed = urlsplit(host if "://" in host else f"ntrip://{host}")
+    return {
+        "host": parsed.hostname or host,
+        "port": int(os.getenv("TRIGNET_NTRIP_PORT") or parsed.port or 2101),
+        "username": os.getenv("TRIGNET_NTRIP_USERNAME", ""),
+        "password": os.getenv("TRIGNET_NTRIP_PASSWORD", ""),
+    }
+
+
+def _fetch_sourcetable_text(
+    host: str = CASTER_HOST, port: int = CASTER_PORT,
+    username: str = "", password: str = "",
+) -> str:
+    auth = ""
+    if username or password:
+        token = base64.b64encode(f"{username}:{password}".encode()).decode("ascii")
+        auth = f"Authorization: Basic {token}\r\n"
     request = (
         "GET / HTTP/1.0\r\n"
+        f"Host: {host}:{port}\r\n"
         "User-Agent: NTRIP ZGIIS/1.0\r\n"
         "Accept: */*\r\n"
+        f"{auth}"
         "Connection: close\r\n\r\n"
     )
-    sock = socket.create_connection((CASTER_HOST, CASTER_PORT), timeout=20)
+    sock = socket.create_connection((host, port), timeout=10)
     try:
         sock.sendall(request.encode())
         chunks: list[bytes] = []
@@ -107,9 +134,15 @@ def _fetch_sourcetable_text() -> str:
                 break
             chunks.append(chunk)
             total += len(chunk)
+            if b"ENDSOURCETABLE" in chunk:
+                break
     finally:
         sock.close()
-    return b"".join(chunks).decode("latin1", "replace")
+    text = b"".join(chunks).decode("latin1", "replace")
+    first = text.splitlines()[0] if text else ""
+    if "200" not in first:
+        raise ValueError("South Africa caster did not return a successful sourcetable")
+    return text
 
 
 def catalog() -> list[dict[str, Any]]:
@@ -118,12 +151,35 @@ def catalog() -> list[dict[str, Any]]:
         cached = _CATALOG["stations"]
         if cached and now - float(_CATALOG["at"]) < _CATALOG_TTL_S:
             return list(cached)
-    try:
-        rows = parse_sourcetable(_fetch_sourcetable_text())
-    except Exception:
-        log.warning("TrigNet sourcetable fetch failed", exc_info=True)
+    sources: list[dict[str, Any]] = [{}]
+    configured = _configured_caster()
+    if configured:
+        sources.append(configured)
+    by_code: dict[str, dict[str, Any]] = {}
+    failed = False
+    selected = {x.strip().upper() for x in os.getenv("TRIGNET_NTRIP_MOUNTPOINTS", "").split(",") if x.strip()}
+    with ThreadPoolExecutor(max_workers=len(sources)) as pool:
+        futures = [(source, pool.submit(_fetch_sourcetable_text, **source)) for source in sources]
+        for source, future in futures:
+            try:
+                rows = parse_sourcetable(future.result())
+            except Exception:
+                # Never log account details or the Authorization header.
+                log.warning("South Africa sourcetable unavailable at %s", source.get("host", CASTER_HOST))
+                failed = True
+                continue
+            for row in rows:
+                if row.get("country") != "ZAF":
+                    continue
+                if source and selected and row["mountpoint"].upper() not in selected and row["code"].upper() not in selected:
+                    continue
+                by_code[row["code"]] = row
+    if failed:
+        # A temporary failure at one caster must not remove its known site locations.
         with _LOCK:
-            return list(_CATALOG["stations"])
+            for row in _CATALOG["stations"]:
+                by_code.setdefault(row["code"], row)
+    rows = sorted(by_code.values(), key=lambda row: (-row["lat"], row["code"]))
     with _LOCK:
         _CATALOG["stations"] = rows
         _CATALOG["at"] = now
@@ -452,20 +508,92 @@ def start_trignet_tec() -> None:
             return
         _STARTED = True
     threading.Thread(target=_worker, daemon=True, name="trignet-tec").start()
+    threading.Thread(target=_start_live_streams, daemon=True, name="trignet-live").start()
+    threading.Thread(target=_publish_live_status, daemon=True, name="trignet-publish").start()
+
+
+def _publish_live_status() -> None:
+    from zgiis.cors.trignet_store import save_snapshot
+
+    while True:
+        try:
+            payload = status()
+            if payload.get("stations"):
+                save_snapshot(payload)
+        except Exception:
+            log.warning("TrigNet snapshot publishing failed")
+        time.sleep(20)
+
+
+def _start_live_streams() -> None:
+    """Use the separate SANSA account for actual RTCM observations."""
+    global _LIVE_MANAGER, _LIVE_PIPELINE
+    configured = _configured_caster()
+    if not configured:
+        return
+    from zgiis.live.ntrip_stream import LiveNtripManager
+    from zgiis.live.satellite_geometry import LiveNavCache
+    from zgiis.live.stec_vtec import LiveVtecPipeline
+    from zgiis.live.broadcast_ephemeris import start_refresh_thread
+
+    while _LIVE_MANAGER is None:
+        try:
+            rows = parse_sourcetable(_fetch_sourcetable_text(**configured))
+            selected = {x.strip().upper() for x in os.getenv("TRIGNET_NTRIP_MOUNTPOINTS", "").split(",") if x.strip()}
+            rows = [r for r in rows if r["country"] == "ZAF" and (not selected or r["code"] in selected or r["mountpoint"].upper() in selected)]
+            if not rows:
+                raise ValueError("No South African observation mounts available")
+            nav = LiveNavCache()
+            for row in rows:
+                nav.set_receiver_location(row["code"], row["lat"], row["lon"])
+            pipeline = LiveVtecPipeline(nav_cache=nav)
+            manager = LiveNtripManager(
+                configured, on_observation=pipeline.ingest, nav_cache=nav,
+                max_concurrent=max(1, int(os.getenv("TRIGNET_NTRIP_LIVE_MAX_CONCURRENT", "1"))),
+                max_session_s=max(0, float(os.getenv("TRIGNET_NTRIP_LIVE_SESSION_S", "120"))),
+            )
+            _LIVE_PIPELINE = pipeline
+            _LIVE_MANAGER = manager
+            manager.start({r["code"].lower(): r["mountpoint"] for r in rows})
+            start_refresh_thread(nav, interval_s=3600)
+        except Exception:
+            log.warning("South Africa live-stream startup failed; retrying in 30 seconds")
+            time.sleep(30)
 
 
 def status() -> dict[str, Any]:
+    if os.getenv("VERCEL"):
+        from zgiis.cors.trignet_store import load_snapshot
+
+        return load_snapshot() or {
+            "source": "TrigNet / SANSA collector", "source_url": SOURCE_URL,
+            "caster": "", "rinex_day": None, "station_count": 0, "tec_ready": 0,
+            "gg_ready": 0, "stations": [], "note": "Waiting for the South African collector snapshot.",
+        }
     start_trignet_tec()
     rows = catalog()
-    day = latest_rinex_day()
+    # Site discovery must not wait for a slow FTP directory listing. The worker
+    # refreshes the RINEX day independently from the map response.
+    with _LOCK:
+        day = _DAY["day"]
     day_key = day.isoformat() if day else None
     stations = []
     ready = 0
     gg_ready = 0
     with _LOCK:
         tec = dict(_TEC)
+    links = _LIVE_MANAGER.status() if _LIVE_MANAGER is not None else {}
+    live_values = _LIVE_PIPELINE.latest_by_station() if _LIVE_PIPELINE is not None else {}
+    diagnostics = _LIVE_PIPELINE.diagnostics_by_station() if _LIVE_PIPELINE is not None else {}
     for row in rows:
         saved = tec.get(row["code"]) or {}
+        key = row["code"].lower()
+        link = links.get(key) or {}
+        last_rtcm = link.get("last_rtcm_at")
+        streaming = bool(last_rtcm and (datetime.now(timezone.utc) - last_rtcm).total_seconds() < 90)
+        live_value = live_values.get(key)
+        if live_value is not None:
+            saved = {"vtec": live_value, "time": diagnostics.get(key, {}).get("last_vtec_at"), "day": day_key, "samples": diagnostics.get(key, {}).get("vtec_emitted", 0)}
         same_time = sample_matches_live_time(saved.get("time") if saved.get("day") == day_key else None)
         fresh = same_time and saved.get("vtec") is not None
         gg_value = saved.get("gg_vtec") if same_time else None
@@ -477,6 +605,10 @@ def status() -> dict[str, Any]:
             gg_value = None
         stations.append({
             **row,
+            "connected": bool(link.get("connected")),
+            "streaming": streaming,
+            "stream_configured": key in links,
+            "message_count": link.get("rtcm_count", link.get("msg_count", 0)),
             "vtec": saved.get("vtec") if fresh else None,
             "gg_vtec": gg_value,
             "vtec_time": saved.get("time") if fresh else None,
@@ -484,15 +616,19 @@ def status() -> dict[str, Any]:
             "gg_samples": saved.get("gg_samples") if gg_value is not None else 0,
         })
     note = (
-        "TrigNet single-base CORS from the public NTRIP sourcetable. "
+        "South African single-base CORS from TrigNet and the configured SANSA caster. "
         "G is GOPI code TEC and Gg is Cesaroni calibration on the same samples. "
         "A value is shown only when it is within 30 minutes of the live Zimbabwe time. "
-        "Stations with no sample at that time are offline."
+        "No fresh TEC sample does not establish that a station is offline."
     )
+    configured = _configured_caster()
+    casters = [f"{CASTER_HOST}:{CASTER_PORT}"]
+    if configured:
+        casters.append(f"{configured['host']}:{configured['port']}")
     return {
         "source": "TrigNet / National Geo-spatial Information",
         "source_url": SOURCE_URL,
-        "caster": f"{CASTER_HOST}:{CASTER_PORT}",
+        "caster": ", ".join(casters),
         "rinex_day": day_key,
         "station_count": len(stations),
         "tec_ready": ready,

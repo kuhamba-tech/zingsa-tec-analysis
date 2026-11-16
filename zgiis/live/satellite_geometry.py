@@ -104,6 +104,11 @@ class LiveNavCache:
         with self._lock:
             return len(self._gps)
 
+    def set_receiver_location(self, station_code: str, lat: float, lon: float, height_m: float = 0.0) -> None:
+        """Register a discovered receiver outside the Zimbabwe station catalog."""
+        with self._lock:
+            self._rx_ecef[station_code.lower().rstrip("_")] = llh_to_ecef(lat, lon, height_m)
+
     def receiver_ecef(self, station_code: str) -> Optional[np.ndarray]:
         key = station_code.lower().rstrip("_")
         with self._lock:

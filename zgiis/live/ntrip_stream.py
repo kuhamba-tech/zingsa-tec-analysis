@@ -200,6 +200,34 @@ def _extract_msm(msg, msg_type: int, constellation: str, station: str, epoch: da
     return records
 
 
+def _extract_gps_1004(msg, station: str, epoch: datetime) -> list[dict]:
+    """Decode legacy dual-frequency GPS observations used by older TrigNet receivers."""
+    records = []
+    for i in range(1, int(getattr(msg, "DF006", 0)) + 1):
+        field = lambda name: getattr(msg, f"{name}_{i:02d}", None)
+        sv, remainder, ambiguity = field("DF009"), field("DF011"), field("DF014")
+        difference, phase1, phase2 = field("DF017"), field("DF012"), field("DF018")
+        if None in (sv, remainder, ambiguity, difference, phase1, phase2):
+            continue
+        # Reserved minimum signed values mean that the measurement is unavailable.
+        if difference <= -163.84 or phase1 <= -262.144 or phase2 <= -262.144:
+            continue
+        p1 = float(remainder) + int(ambiguity) * (_C_LIGHT * 0.001)
+        for band, pseudo, phase, cnr, lock in (
+            (1, p1, p1 + phase1, field("DF015"), field("DF013")),
+            (2, p1 + difference, p1 + phase2, field("DF020"), field("DF019")),
+        ):
+            frequency = _FREQ1["GPS"] if band == 1 else _FREQ2["GPS"]
+            records.append({
+                "epoch": epoch, "station": station, "constellation": "GPS",
+                "prn": f"G{int(sv):02d}", "sat_idx": int(sv), "sig_idx": band,
+                "pseudorange_m": pseudo, "carrier_phase_cycles": phase * frequency / _C_LIGHT,
+                "cnr_dbhz": cnr, "lock_time": lock,
+                "freq1_hz": _FREQ1["GPS"], "freq2_hz": _FREQ2["GPS"],
+            })
+    return records
+
+
 class StationStream(threading.Thread):
     """
     Daemon thread that maintains a live RTCM connection for one CORS mountpoint.
@@ -256,6 +284,8 @@ class StationStream(threading.Thread):
         self._last_connected_at: Optional[datetime] = None
         self._last_seen: Optional[datetime] = None
         self._msg_count = 0
+        self._rtcm_count = 0
+        self._last_rtcm_at = None
         self._latencies: deque[float] = deque(maxlen=120)
 
     # ── Public status accessors ──────────────────────────────────────────────
@@ -378,6 +408,9 @@ class StationStream(threading.Thread):
         if len(status) < 2 or status[1] != b"200":
             sock.close()
             raise ConnectionError("Caster rejected the stream request")
+        if b"sourcetable" in header.lower() or b"content-type: text/html" in header.lower():
+            sock.close()
+            raise ConnectionError("Caster rejected observation stream: returned a station table")
         return sock
 
     def _stream(self, sock: socket.socket):
@@ -435,7 +468,11 @@ class StationStream(threading.Thread):
                         raise ConnectionError("Caster rejected stream: account access or connection limit")
                     continue
 
-                if msg_type not in _ALL_MSM:
+                with self._lock:
+                    self._rtcm_count += 1
+                    self._last_rtcm_at = t_recv
+
+                if msg_type not in _ALL_MSM and msg_type != 1004:
                     # Non-MSM RTCM (e.g. 1029 text) still proves the site/caster
                     # session is alive — keep the link heartbeat fresh.
                     with self._lock:
@@ -443,7 +480,8 @@ class StationStream(threading.Thread):
                     continue
 
                 constellation = _constellation_for(msg_type)
-                records = _extract_msm(msg, msg_type, constellation, self.station, t_recv)
+                records = (_extract_gps_1004(msg, self.station, t_recv) if msg_type == 1004
+                           else _extract_msm(msg, msg_type, constellation, self.station, t_recv))
 
                 with self._lock:
                     self._last_seen = t_recv
@@ -553,6 +591,8 @@ class LiveNtripManager:
                 "connected": s.link_alive(),
                 "last_seen": s.last_seen,
                 "msg_count": s.msg_count,
+                "rtcm_count": s._rtcm_count,
+                "last_rtcm_at": s._last_rtcm_at,
                 "latency_ms": s.mean_latency_ms(),
                 "last_reject_at": s.last_reject_at,
             }

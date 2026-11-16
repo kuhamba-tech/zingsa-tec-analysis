@@ -3460,6 +3460,12 @@ a.home-map-layer-btn {
 .home-metric-band-scale .sw-metric-flare-scale-item { min-width: 0; flex: 1 1 0; }
 .home-metric-band-scale .sw-metric-flare-scale-letter { white-space: normal; overflow-wrap: anywhere; font-size: 0.72rem; line-height: 1.35; }
 .home-metric-band-scale.sw-metric-g-scale .sw-metric-flare-scale-desc { white-space: normal; overflow-wrap: anywhere; font-size: 0.65rem; line-height: 1.4; }
+.home-metric-grid .sw-metric-subtitle { font-size: 0.75rem; line-height: 1.5; }
+@media (max-width: 720px) {
+  .home-metric-grid .home-metric-card { padding: 0.85rem 0.65rem; }
+  .home-metric-grid .home-metric-band-scale .sw-metric-flare-scale-letter { font-size: 0.78rem; }
+  .home-metric-grid .home-metric-band-scale .sw-metric-flare-scale-desc { font-size: 0.75rem; line-height: 1.45; }
+}
 
 /* Clickable space-weather metric cards */
 .sw-metric-section {

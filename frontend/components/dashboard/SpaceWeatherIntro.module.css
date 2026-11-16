@@ -30,6 +30,8 @@
 .visual { grid-column:2; grid-row:4; min-width:0; min-height:0; margin:0; align-self:stretch; display:flex; contain:size; border-radius:16px; overflow:hidden; background:#010812; box-shadow:0 0 20px #00b7ff0d; }
 .scene { position:relative; display:grid; align-items:center; flex:1; min-height:360px; background:radial-gradient(ellipse at 65% 45%,#10294b66,transparent 65%); }
 .illustration { display:block; width:100%; height:100%; min-height:0; object-fit:contain; }
+.imageLink { display:block; width:100%; height:100%; min-width:0; cursor:zoom-in; }
+.imageLink:focus-visible { outline:3px solid #00dfff; outline-offset:-4px; border-radius:16px; }
 .sceneLabel { position:absolute; padding:.5rem .7rem; border:1px solid #80bedc; border-radius:10px; background:#010b16ed; color:#fff; font-size:.85rem; font-weight:750; line-height:1.4; box-shadow:0 4px 12px #0006; }
 .sceneLabel span { display:block; font-size:.78rem; font-weight:400; }
 .sunLabel { bottom:12%; left:5%; }
@@ -65,14 +67,23 @@
   .panel { grid-template-columns:minmax(0,1fr); }
   .visual { grid-column:1; grid-row:5; contain:none; }
   .illustration { height:auto; }
+  .imageLink { height:auto; }
   .scene { min-height:0; }
 }
 @media (max-width:560px) {
   .panel { gap:1rem; padding:1rem; border-radius:12px; }
   .arrivals li { grid-template-columns:48px minmax(0,1fr); gap:.65rem; }
+  .arrivals .artwork { grid-column:1; grid-row:1; }
+  .arrivalCopy { display:contents; }
+  .arrivalCopy > strong { grid-column:2; grid-row:1; align-self:center; margin:0; }
+  .panel .arrivalCopy p { grid-column:1 / -1; grid-row:2; font-size:.88rem; line-height:1.65; }
+  .timing { grid-column:1 / -1; grid-row:3; min-height:36px; }
   .panel .arrivalsHeading { font-size:.95rem; padding:.6rem; }
   .impacts { grid-template-columns:minmax(0,1fr); }
-  .impacts li { grid-template-columns:75px minmax(0,1fr); }
+  .impacts li { grid-template-columns:56px minmax(0,1fr); }
+  .panel .impacts p { font-size:.88rem; line-height:1.6; }
+  .impacts strong { font-size:1rem; }
+  .mission { align-items:flex-start; }
   .mission { padding:.8rem; gap:.65rem; }
   .mission > span { font-size:1.8rem; }
   .panel .mission p { font-size:.88rem; }

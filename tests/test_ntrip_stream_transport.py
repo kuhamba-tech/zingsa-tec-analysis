@@ -4,10 +4,22 @@ import time
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from zgiis.live.ntrip_stream import StationStream, _FairConnectionSlots
+from zgiis.live.ntrip_stream import StationStream, _FairConnectionSlots, _extract_gps_1004
+from datetime import datetime, timezone
 
 
 class StreamTransportTests(unittest.TestCase):
+    def test_legacy_gps_1004_preserves_dual_frequency_ranges(self):
+        msg = SimpleNamespace(DF006=1, DF009_01=12, DF011_01=12345.0, DF014_01=70,
+                              DF017_01=5.0, DF012_01=0.25, DF018_01=0.5)
+        records = _extract_gps_1004(msg, "ptbg", datetime.now(timezone.utc))
+        self.assertEqual(len(records), 2)
+        self.assertEqual(records[0]["prn"], "G12")
+        self.assertAlmostEqual(records[1]["pseudorange_m"] - records[0]["pseudorange_m"], 5.0)
+        self.assertGreater(records[0]["carrier_phase_cycles"], 0)
+        msg.DF017_01 = -163.84
+        self.assertEqual(_extract_gps_1004(msg, "ptbg", datetime.now(timezone.utc)), [])
+
     def test_waiting_stations_acquire_in_order(self):
         slots = _FairConnectionSlots(1)
         stop = threading.Event()
@@ -61,6 +73,15 @@ class StreamTransportTests(unittest.TestCase):
         with patch("zgiis.live.ntrip_stream.socket.create_connection", return_value=sock):
             self.stream()._connect()
         self.assertEqual(pending, b"\xd3\x00\x10")
+
+    def test_html_station_table_is_not_a_successful_stream(self):
+        pending = bytearray(b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<html>")
+        sock = Mock()
+        sock.recv.side_effect = lambda size: bytes([pending.pop(0)]) if pending else b""
+        with patch("zgiis.live.ntrip_stream.socket.create_connection", return_value=sock):
+            with self.assertRaisesRegex(ConnectionError, "station table"):
+                self.stream()._connect()
+        sock.close.assert_called_once()
 
     def test_rtcm_account_refusal_is_not_a_live_heartbeat(self):
         text = "Too many connections"

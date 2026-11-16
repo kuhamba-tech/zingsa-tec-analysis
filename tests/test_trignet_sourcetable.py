@@ -25,6 +25,120 @@ def test_parse_keeps_single_bases_and_orders_north_first():
     assert "GAL" in rows[1]["constellations"]
 
 
+def test_south_africa_configuration_does_not_use_zimbabwe_credentials(monkeypatch):
+    from zgiis.cors.trignet import _configured_caster
+
+    monkeypatch.setenv("NTRIP_HOST", "zimbabwe.example")
+    monkeypatch.setenv("NTRIP_USERNAME", "zim-user")
+    monkeypatch.delenv("TRIGNET_NTRIP_HOST", raising=False)
+    assert _configured_caster() is None
+    monkeypatch.setenv("TRIGNET_NTRIP_HOST", "ntrip://south-africa.example:2102")
+    monkeypatch.setenv("TRIGNET_NTRIP_USERNAME", "sa-user")
+    monkeypatch.setenv("TRIGNET_NTRIP_PASSWORD", "sa-password")
+    monkeypatch.delenv("TRIGNET_NTRIP_PORT", raising=False)
+    assert _configured_caster() == {"host": "south-africa.example", "port": 2102, "username": "sa-user", "password": "sa-password"}
+
+
+def test_catalog_merges_south_african_sites_and_filters_other_countries(monkeypatch):
+    from zgiis.cors import trignet
+
+    monkeypatch.setenv("TRIGNET_NTRIP_HOST", "south-africa.example")
+    monkeypatch.delenv("TRIGNET_NTRIP_MOUNTPOINTS", raising=False)
+    monkeypatch.setattr(trignet, "_CATALOG", {"at": 0.0, "stations": []})
+    extra = "STR;NEW1-SB;New site;RTCM 3.4;1004;2;GPS+GLO;SANSA;ZAF;-24.2;29.3;0;0;\nSTR;UGAN;Other;RTCM 3;1004;2;GPS;SANSA;UGA;0.7;34.0;0;0;"
+    monkeypatch.setattr(trignet, "_fetch_sourcetable_text", lambda **source: extra if source else SAMPLE)
+    rows = trignet.catalog()
+    assert {r["code"] for r in rows} == {"NEW1", "TDOU", "PRET", "LSMA"}
+    assert all(r["country"] == "ZAF" for r in rows)
+
+
+def test_authenticated_sourcetable_request_and_completion(monkeypatch):
+    from unittest.mock import Mock
+    from zgiis.cors import trignet
+
+    sock = Mock()
+    sock.recv.return_value = b"SOURCETABLE 200 OK\r\nENDSOURCETABLE\r\n"
+    monkeypatch.setattr(trignet.socket, "create_connection", lambda *args, **kwargs: sock)
+    assert "ENDSOURCETABLE" in trignet._fetch_sourcetable_text("south-africa.example", 2101, "test-user", "test-password")
+    request = sock.sendall.call_args.args[0]
+    assert b"Authorization: Basic " in request
+    assert b"test-password" not in request
+    assert sock.recv.call_count == 1
+    sock.close.assert_called_once()
+
+
+def test_station_response_does_not_wait_for_rinex_ftp(monkeypatch):
+    from zgiis.cors import trignet
+
+    monkeypatch.setattr(trignet, "start_trignet_tec", lambda: None)
+    monkeypatch.setattr(trignet, "catalog", lambda: trignet.parse_sourcetable(SAMPLE))
+    monkeypatch.setattr(trignet, "_DAY", {"at": 0.0, "day": None})
+    monkeypatch.setattr(trignet, "latest_rinex_day", lambda: (_ for _ in ()).throw(AssertionError("FTP must stay in background")))
+    payload = trignet.status()
+    assert payload["station_count"] == 3
+    assert payload["rinex_day"] is None
+    assert "password" not in payload and "username" not in payload
+
+
+def test_connected_stream_does_not_require_tec(monkeypatch):
+    from unittest.mock import Mock
+    from zgiis.cors import trignet
+
+    monkeypatch.setattr(trignet, "start_trignet_tec", lambda: None)
+    monkeypatch.setattr(trignet, "catalog", lambda: trignet.parse_sourcetable(SAMPLE))
+    monkeypatch.setattr(trignet, "_TEC", {})
+    monkeypatch.setattr(trignet, "_LIVE_MANAGER", Mock(status=lambda: {"tdou": {"connected": True, "msg_count": 20, "last_rtcm_at": datetime.now(timezone.utc)}}))
+    monkeypatch.setattr(trignet, "_LIVE_PIPELINE", None)
+    row = next(r for r in trignet.status()["stations"] if r["code"] == "TDOU")
+    assert row["connected"] and row["stream_configured"]
+    assert row["streaming"]
+    assert row["message_count"] == 20
+    assert row["vtec"] is None
+
+
+def test_discovered_receiver_has_geometry():
+    from zgiis.live.satellite_geometry import LiveNavCache, llh_to_ecef
+    import numpy as np
+
+    nav = LiveNavCache()
+    nav.set_receiver_location("TDOU", -23.0, 30.0, 500.0)
+    assert np.allclose(nav.receiver_ecef("tdou"), llh_to_ecef(-23.0, 30.0, 500.0))
+
+
+def test_serverless_reads_collector_without_starting_streams(monkeypatch):
+    from zgiis.cors import trignet, trignet_store
+
+    monkeypatch.setenv("VERCEL", "1")
+    monkeypatch.setattr(trignet, "start_trignet_tec", lambda: (_ for _ in ()).throw(AssertionError("No serverless streams")))
+    monkeypatch.setattr(trignet_store, "load_snapshot", lambda: {"stations": [{"code": "TDOU"}]})
+    assert trignet.status()["stations"][0]["code"] == "TDOU"
+
+
+def test_stopped_collector_expires_online_status_and_tec():
+    from zgiis.cors.trignet_store import expire_snapshot
+
+    original = {"stations": [{"code": "TDOU", "connected": True, "streaming": True, "vtec": 20.0}]}
+    assert expire_snapshot(original, 100, now=150)["stations"][0]["streaming"]
+    assert not expire_snapshot(original, 100, now=200)["stations"][0]["streaming"]
+    assert expire_snapshot(original, 100, now=300)["stations"][0]["vtec"] is None
+    assert original["stations"][0]["streaming"]
+
+
+def test_mountpoint_selection_and_failure_keep_known_locations(monkeypatch):
+    from zgiis.cors import trignet
+
+    monkeypatch.setenv("TRIGNET_NTRIP_HOST", "south-africa.example")
+    monkeypatch.setenv("TRIGNET_NTRIP_MOUNTPOINTS", "Pret-SB")
+    monkeypatch.setattr(trignet, "_CATALOG", {"at": 0.0, "stations": []})
+    monkeypatch.setattr(trignet, "_fetch_sourcetable_text", lambda **source: SAMPLE if source else "SOURCETABLE 200 OK")
+    assert [r["code"] for r in trignet.catalog()] == ["PRET"]
+    trignet._CATALOG["at"] = 0.0
+    def unavailable(**source):
+        raise OSError("unavailable")
+    monkeypatch.setattr(trignet, "_fetch_sourcetable_text", unavailable)
+    assert [r["code"] for r in trignet.catalog()] == ["PRET"]
+
+
 def test_earlier_rinex_hour_does_not_match_the_live_time():
     now = datetime(2026, 10, 22, 15, 0, tzinfo=timezone.utc)
     assert sample_matches_live_time("2026-10-21T23:59:00Z", now) is False

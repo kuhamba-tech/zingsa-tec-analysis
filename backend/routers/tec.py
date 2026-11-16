@@ -373,7 +373,7 @@ async def trignet_cors(_=Depends(require_api_key)):
     from the newest 30-second daily RINEX. Does not use the Zimbabwe caster."""
     from zgiis.cors.trignet import status as trignet_status
 
-    return trignet_status()
+    return await asyncio.to_thread(trignet_status)
 
 
 @router.get("/intermagnet-latest", response_model=IntermagnetLatestResponse)

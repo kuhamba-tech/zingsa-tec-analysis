@@ -262,8 +262,8 @@ export default function CorsMapWithLayers({
         name: row.name,
         lat: row.lat,
         lon: row.lon,
-        status: sameTime ? "online" : "offline",
-        status_source: "catalog" as const,
+        status: row.streaming || sameTime ? "online" : "unknown",
+        status_source: row.stream_configured ? "ntrip" as const : "catalog" as const,
         constellations: row.constellations,
         current_tec: sameTime ? row.vtec : null,
         height_m: null,
@@ -519,7 +519,7 @@ export default function CorsMapWithLayers({
           </div>
           <div className="home-map-toolbar-summary">
             {trignetActive
-              ? `${trignet?.station_count ?? "…"} TrigNet · ${stations.length} Zimbabwe · G ${trignetHeatmap?.station_count ?? 0} · Gg ${Object.keys(trignetGgCombined).length}${trignet?.rinex_day ? ` · RINEX ${trignet.rinex_day}` : ""}`
+              ? `${trignet?.station_count ?? "…"} TrigNet · ${trignet?.stations.filter((row) => row.streaming).length ?? 0} streaming / ${trignet?.stations.filter((row) => row.stream_configured).length ?? 0} configured · ${stations.length} Zimbabwe · G ${trignetHeatmap?.station_count ?? 0} · Gg ${Object.keys(trignetGgCombined).length}`
               : `${liveCounts.total} stations · ${liveLabel}`}
             {networkDistancesActive && (showTelone || showDemographics) && (
               <p className="home-map-tec-note">
@@ -715,6 +715,7 @@ export default function CorsMapWithLayers({
               { color: "#00ff88", label: "Online" },
               { color: "#ff4444", label: "Offline" },
               { color: "#c8c8c8", label: "Surveyor general" },
+              ...(trignetActive ? [{ color: "#94a3b8", label: "No recent South African stream" }] : []),
             ].map(({ color, label }) => (
               <div key={label} style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
                 <span className="dot" style={{ background: color }} />
@@ -736,7 +737,7 @@ export default function CorsMapWithLayers({
               </>
             )}
             <div className="map-status-note" style={{ fontSize: "0.62rem", fontWeight: 400, color: "var(--text-muted)", marginTop: "0.15rem", maxWidth: "210px" }}>
-              Live from Spider Site Status
+              {trignetActive ? "South African green markers have recent RTCM data or fresh TEC. Grey-blue markers have no recent measurements. Connections rotate across the configured sites. Zimbabwe status comes from Spider. " : "Live from Spider Site Status"}
               {liveCounts.online + liveCounts.offline > 0
                 ? ` (Status=${liveCounts.online} online)`
                 : ""}
@@ -803,7 +804,7 @@ export default function CorsMapWithLayers({
               : "Reading the TrigNet sourcetable."}
           </div>
           <div className="home-live-tec-below-updated">
-            TEC is shown only for the live time. A TrigNet station with no sample in that window is offline.
+            TEC is shown only for the live time. A site without a fresh TEC sample has unknown measurement status; this does not confirm a station outage.
           </div>
         </div>
       )}
