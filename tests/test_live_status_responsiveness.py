@@ -2,9 +2,12 @@
 import asyncio
 import threading
 import unittest
+from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import httpx
+import pandas as pd
 from fastapi import FastAPI
 
 from backend.routers import live
@@ -51,6 +54,43 @@ class LiveStatusResponsivenessTests(unittest.IsolatedAsyncioTestCase):
                         finally:
                             release.set()
                             await pending
+
+    def test_station_tec_fallback_reads_the_full_rotation_window(self):
+        class LegacyDB:
+            requested_hours = None
+
+            def query_recent(self, *, hours):
+                self.requested_hours = hours
+                now = datetime.now(timezone.utc)
+                return pd.DataFrame(
+                    [
+                        {
+                            "station": "hara",
+                            "time": now - timedelta(minutes=10),
+                            "vtec_tecu": 28.0,
+                            "tec_method": "gopi_eq_4_11_code_live",
+                        },
+                        {
+                            "station": "hara",
+                            "time": now - timedelta(minutes=5),
+                            "vtec_tecu": 90.0,
+                            "tec_method": "daily_archive",
+                        },
+                    ]
+                )
+
+        db = LegacyDB()
+        with patch("backend.live_manager.status", return_value={"streams": {}}), \
+             patch("zgiis.cors.stations.stations_for_map_live", return_value=[
+                 SimpleNamespace(code="hara", name="Harare", lat=-17.8, lon=31.0, current_tec=None)
+             ]), \
+             patch.object(live, "_monitor", return_value=None), \
+             patch.object(live, "_db", return_value=db):
+            result = live.live_stations()
+
+        assert db.requested_hours == 20.0 / 60.0
+        assert result[0].last_vtec == 28.0
+        assert result[0].stale is False
 
 
 if __name__ == '__main__':

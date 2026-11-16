@@ -618,6 +618,10 @@ def status() -> dict[str, Any]:
             "message_count": link.get("rtcm_count", link.get("msg_count", 0)),
             "tec_diagnostics": diagnostics.get(key, {}),
             "raw_code_vtec": raw_values.get(key),
+            "raw_code_vtec_time": (
+                diagnostics.get(key, {}).get("last_code_vtec_at")
+                or diagnostics.get(key, {}).get("last_vtec_at")
+            ) if key in raw_values else None,
             "tec_status": "quality_screened_uncalibrated" if live_value is not None else "withheld_by_shared_quality_rules" if key in raw_values else "awaiting_measurements",
             "tec_method": "gopi_code_vtec_uncalibrated" if live_value is not None else None,
             "tec_quality": "provisional_no_dcb" if live_value is not None else None,

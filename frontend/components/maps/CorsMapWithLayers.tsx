@@ -8,6 +8,7 @@ import { TecMapColorbar } from "./TecHeatMapLegend";
 import { getTecMethodComparison, getTrigNet } from "@/lib/api";
 import { idwFillByStation, stationCodeKey, type LatLonSite } from "@/lib/idwSurface";
 import { measuredLiveTec } from "@/lib/measuredLiveTec";
+import { trigNetTecReading } from "@/lib/trignetTec";
 import { heatmapQualityBanner, icaoTecLabel, icaoTecLevel, inferHeatmapQuality } from "@/lib/icaoTecAdvisory";
 import type { ProposedCorsSite } from "@/lib/corsGeneticOptimizer";
 import type { Station, TecHeatmapResponse, TrigNetResponse } from "@/lib/types";
@@ -256,18 +257,19 @@ export default function CorsMapWithLayers({
   const trignetStations = useMemo<Station[]>(() => {
     const trigCodes = new Set((trignet?.stations ?? []).map((row) => row.code.toLowerCase()));
     const trig = (trignet?.stations ?? []).map((row) => {
-      const sameTime = isSameLiveTime(row.vtec_time) && row.vtec != null;
+      const reading = trigNetTecReading(row, Date.now(), trignet?.collector_age_s);
       return {
         code: row.code.toLowerCase(),
         name: row.name,
         lat: row.lat,
         lon: row.lon,
-        status: row.streaming || sameTime ? "online" : "unknown",
+        status: row.streaming || reading != null ? "online" : "unknown",
         status_source: row.stream_configured ? "ntrip" as const : "catalog" as const,
         constellations: row.constellations,
-        current_tec: sameTime ? row.vtec : null,
+        current_tec: reading?.value ?? null,
+        tec_provisional: reading?.provisional ?? false,
         site_server: row.stream_configured ? "SANSA" : "TrigNet",
-        last_update: row.vtec_time,
+        last_update: reading?.observedAt,
         height_m: null,
         mountpoint: row.mountpoint,
       };
@@ -282,7 +284,6 @@ export default function CorsMapWithLayers({
         return {
           ...station,
           current_tec: tec,
-          status: tec != null ? station.status : "offline",
         };
       });
     return [...zimbabwe, ...trig];
@@ -301,7 +302,7 @@ export default function CorsMapWithLayers({
 
   const trignetHeatmap = useMemo<TecHeatmapResponse | null>(() => {
     const ready = trignetStations.filter(
-      (row) => typeof row.current_tec === "number" && Number.isFinite(row.current_tec) && row.current_tec > 0,
+      (row) => !row.tec_provisional && typeof row.current_tec === "number" && Number.isFinite(row.current_tec) && row.current_tec > 0,
     );
     if (!ready.length) return null;
     const values = ready.map((row) => row.current_tec as number);
@@ -420,13 +421,11 @@ export default function CorsMapWithLayers({
       const lines = sites.flatMap((station) => {
         const g = station.current_tec;
         const calibrated = trignetGgCombined[stationCodeKey(station.code)];
-        const readings = [valid(g) ? `G ${g.toFixed(1)}` : null, valid(calibrated) ? `Gg ${calibrated.toFixed(1)}` : null].filter(Boolean);
+        const readings = [valid(g) ? `${station.tec_provisional ? "G*" : "G"} ${g.toFixed(1)}` : null, valid(calibrated) ? `Gg ${calibrated.toFixed(1)}` : null].filter(Boolean);
         return readings.length ? [`${station.code.toUpperCase()} ${readings.join(" / ")}`] : [];
       });
-      const withheld = network.southAfrican
-        ? (trignet?.stations ?? []).filter((row) => row.tec_status === "withheld_by_shared_quality_rules").length
-        : 0;
-      return { title: network.title, gopi: range(gopi), gg: range(gg), lines, withheld };
+      const provisional = sites.filter((station) => station.tec_provisional).length;
+      return { title: network.title, gopi: range(gopi), gg: range(gg), lines, provisional };
     });
   }, [trignet?.stations, trignetStations, trignetGgCombined]);
 
@@ -516,7 +515,7 @@ export default function CorsMapWithLayers({
           </div>
           <div className="home-map-toolbar-summary">
             {trignetActive
-              ? `${trignet?.station_count ?? "…"} TrigNet · ${trignet?.stations.filter((row) => row.streaming).length ?? 0} streaming / ${trignet?.stations.filter((row) => row.stream_configured).length ?? 0} configured · SANSA TEC ${trignet?.stations.filter((row) => row.stream_configured && row.vtec != null).length ?? 0} · ${stations.length} Zimbabwe · G ${trignetHeatmap?.station_count ?? 0} · Gg ${Object.keys(trignetGgCombined).length}`
+              ? `${trignet?.station_count ?? "…"} TrigNet · ${trignet?.stations.filter((row) => row.streaming).length ?? 0} streaming / ${trignet?.stations.filter((row) => row.stream_configured).length ?? 0} configured · SANSA calculated TEC ${trignetStations.filter((row) => row.site_server === "SANSA" && row.current_tec != null).length} · ${stations.length} Zimbabwe · G ${trignetHeatmap?.station_count ?? 0} · Gg ${Object.keys(trignetGgCombined).length}`
               : `${liveCounts.total} stations · ${liveLabel}`}
             {networkDistancesActive && (showTelone || showDemographics) && (
               <p className="home-map-tec-note">
@@ -783,7 +782,7 @@ export default function CorsMapWithLayers({
                 <h3>{network.title}</h3>
                 <div className="home-tec-network-methods">
                   {[
-                    { label: "G · GOPI", value: network.gopi, color: "#38bdf8" },
+                    { label: network.provisional ? "G / G* · GOPI" : "G · GOPI", value: network.gopi, color: "#38bdf8" },
                     { label: "Gg · Cesaroni", value: network.gg, color: "#f59e0b" },
                   ].map((method) => (
                     <div key={method.label} style={{ color: method.color }}>
@@ -797,12 +796,12 @@ export default function CorsMapWithLayers({
                     ? network.lines.map((line) => <span className="home-live-tec-station" key={line}>{line}</span>)
                     : "Waiting for fresh station measurements."}
                 </div>
-                {network.withheld > 0 && <p className="home-live-tec-below-updated">{network.withheld} raw estimates withheld by the shared quality rules; calibration or further review is needed.</p>}
+                {network.provisional > 0 && <p className="home-live-tec-below-updated">{network.provisional} G* values are provisional raw code-TEC estimates awaiting calibration or further quality review.</p>}
               </section>
             ))}
           </div>
           <div className="home-live-tec-below-updated">
-            Both networks use the same code-TEC formula and station quality rules. Values are provisional: receiver and satellite code biases are not corrected. Measurements remain available for up to 10 minutes during stream rotation. Missing TEC does not confirm a station outage.
+            Both networks use the same code-TEC formula. G* marks a calculated raw estimate that has not passed the shared display screening; these estimates are excluded from the interpolated heat layer. Receiver and satellite code biases are not corrected. Readings expire after 10 minutes; TEC pending means usable measurements are not yet available.
           </div>
         </div>
       )}

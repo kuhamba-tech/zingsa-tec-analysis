@@ -1206,6 +1206,7 @@ def live_stations(_=Depends(require_api_key)):
     mean_by_station: dict = {}
     db = _db()
     try:
+        live_window_s = 20 * 60
         # The collector holds one caster socket and gives each connected
         # ZINGSA station about a minute. A full pass of the stations that
         # are actually online takes roughly 15 minutes, so a 90-second
@@ -1216,11 +1217,11 @@ def live_stations(_=Depends(require_api_key)):
         if reader is not None:
             mean_by_station = {
                 str(code).lower().rstrip("_"): value
-                for code, value in (db.live_station_mean_vtec(seconds=20 * 60) or {}).items()
+                for code, value in (db.live_station_mean_vtec(seconds=live_window_s) or {}).items()
             }
             latest_by_station = {code: {"vtec_tecu": value} for code, value in mean_by_station.items()}
         else:
-            df = db.query_recent(hours=90.0 / 3600.0) if db else None
+            df = db.query_recent(hours=live_window_s / 3600.0) if db else None
             if df is not None and not df.empty and "station" in df.columns:
                 if "tec_method" in df.columns:
                     method = df["tec_method"].astype(str)
@@ -1229,7 +1230,7 @@ def live_stations(_=Depends(require_api_key)):
                     df = df[live_mask]
                 if "time" in df.columns:
                     observed_at = pd.to_datetime(df["time"], utc=True, errors="coerce")
-                    cutoff = datetime.now(timezone.utc) - timedelta(seconds=20 * 60)
+                    cutoff = datetime.now(timezone.utc) - timedelta(seconds=live_window_s)
                     df = df[observed_at >= cutoff]
                 if not df.empty:
                     latest = df.sort_values("time").groupby("station").tail(1).set_index("station")

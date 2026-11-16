@@ -33,7 +33,7 @@ _PAIR_TIMEOUT_S = 2.0
 # Keep enough recent per-station samples for PRN consensus (TSHO/BEIT often
 # emit hundreds of low-biased G14 samples beside a few good peers).
 _RECENT_VTEC_MAX = 240
-_RECENT_VTEC_WINDOW_S = 120.0
+_RECENT_VTEC_WINDOW_S = 600.0
 
 
 def _k_factor(f1: float, f2: float) -> float:
@@ -256,6 +256,7 @@ class LiveVtecPipeline:
                 "sanity_fail": 0,
                 "last_observation_at": None,
                 "last_vtec_at": None,
+                "last_code_vtec_at": None,
             }
         )
 
@@ -401,6 +402,8 @@ class LiveVtecPipeline:
             diag["vtec_emitted"] += 1
             epoch = vtec.get("epoch")
             diag["last_vtec_at"] = epoch.isoformat() if hasattr(epoch, "isoformat") else str(epoch or "")
+            if vtec.get("tec_method") == "gopi_eq_4_11_code_live":
+                diag["last_code_vtec_at"] = diag["last_vtec_at"]
 
         if self._on_vtec:
             try:

@@ -4,6 +4,10 @@ Verified at: 2026-11-16T12:51:46.125867+00:00
 
 The live GOPI path in both networks uses `LiveVtecPipeline` and `LiveVtecAccumulator`, GPS L1/L2 frequencies, `K * (P2 - P1) / 1e16`, a 350 km thin shell and a 30 degree elevation mask. Satellite ephemeris and receiver coordinates supply elevation. RTCM 1004 and MSM4/7 need different decoding, but equivalent observations must produce identical TEC.
 
+## Visibility of calculated estimates
+
+Fresh raw-code calculations that do not pass the shared display screening may be shown as **G\*** on station markers and in network summaries. G\* is explicitly provisional and is excluded from the interpolated heat layer and ICAO interpretation. This keeps actual calculations visible without calling them screened G or calibrated Gg. A station without a usable calculation shows **TEC pending**; connectivity is independent of measurement availability. Raw estimates expire after ten minutes, and an expired collector snapshot cannot revive them.
+
 ## Difference found and corrected
 
 SANSA previously used `latest_by_station(regional=True)` for mapped G, whereas Zimbabwe used the default station-consensus path. SANSA now uses the default path too. The raw regional summary is retained separately as `raw_code_vtec` and is never substituted for mapped G when the shared screening rejects it.

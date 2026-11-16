@@ -412,6 +412,8 @@ export interface ScientificDiscussion {
 // ── CORS Network ──────────────────────────────────────────────────────────────
 export interface TrigNetStation {
   raw_code_vtec?: number | null;
+  raw_code_vtec_time?: string | null;
+  tec_diagnostics?: { last_vtec_at?: string | null; last_code_vtec_at?: string | null };
   tec_status?: string;
   streaming?: boolean;
   connected?: boolean;
@@ -432,6 +434,7 @@ export interface TrigNetStation {
 }
 
 export interface TrigNetResponse {
+  collector_age_s?: number;
   source: string;
   source_url: string;
   caster: string;
@@ -444,6 +447,7 @@ export interface TrigNetResponse {
 }
 
 export interface Station {
+  tec_provisional?: boolean;
   code: string;
   name: string;
   lat: number;

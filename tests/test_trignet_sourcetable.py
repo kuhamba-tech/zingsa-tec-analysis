@@ -108,11 +108,17 @@ def test_sansa_map_uses_zimbabwe_quality_rules_and_keeps_raw_estimate(monkeypatc
         return {"tdou": 95.0} if regional else {}
     pipe = Mock()
     pipe.latest_by_station.side_effect = values
-    pipe.diagnostics_by_station.return_value = {}
+    pipe.diagnostics_by_station.return_value = {
+        "tdou": {
+            "last_vtec_at": "2026-11-16T12:00:00Z",
+            "last_code_vtec_at": "2026-11-16T11:59:30Z",
+        }
+    }
     monkeypatch.setattr(trignet, "_LIVE_PIPELINE", pipe)
     row = trignet.status()["stations"][0]
     assert row["vtec"] is None
     assert row["raw_code_vtec"] == 95.0
+    assert row["raw_code_vtec_time"] == "2026-11-16T11:59:30Z"
     assert row["tec_status"] == "withheld_by_shared_quality_rules"
 
 
@@ -137,10 +143,12 @@ def test_serverless_reads_collector_without_starting_streams(monkeypatch):
 def test_stopped_collector_expires_online_status_and_tec():
     from zgiis.cors.trignet_store import expire_snapshot
 
-    original = {"stations": [{"code": "TDOU", "connected": True, "streaming": True, "vtec": 20.0}]}
+    original = {"stations": [{"code": "TDOU", "connected": True, "streaming": True, "vtec": 20.0, "raw_code_vtec": 80.0, "raw_code_vtec_time": "2026-11-16T11:59:30Z"}]}
     assert expire_snapshot(original, 100, now=150)["stations"][0]["streaming"]
     assert not expire_snapshot(original, 100, now=200)["stations"][0]["streaming"]
     assert expire_snapshot(original, 100, now=300)["stations"][0]["vtec"] is None
+    assert expire_snapshot(original, 100, now=300)["stations"][0]["raw_code_vtec"] is None
+    assert expire_snapshot(original, 100, now=300)["stations"][0]["raw_code_vtec_time"] is None
     assert original["stations"][0]["streaming"]
 
 

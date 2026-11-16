@@ -202,12 +202,13 @@ function stationGgValue(
   return raw;
 }
 
-function formatDualTecLabel(code: string, gopi: number | null, gg: number | null): string {
+function formatDualTecLabel(code: string, gopi: number | null, gg: number | null, provisional = false): string {
   const id = code.toUpperCase();
+  const g = provisional ? "G*" : "G";
   if (gopi != null && gg != null) {
-    return `${id}\nG ${gopi.toFixed(1)}\nGg ${gg.toFixed(1)}`;
+    return `${id}\n${g} ${gopi.toFixed(1)}\nGg ${gg.toFixed(1)}`;
   }
-  if (gopi != null) return `${id}\nG ${gopi.toFixed(1)}`;
+  if (gopi != null) return `${id}\n${g} ${gopi.toFixed(1)}`;
   if (gg != null) return `${id}\nGg ${gg.toFixed(1)}`;
   return id;
 }
@@ -404,7 +405,9 @@ export default function CorsMap({
           ? ""
           : formatGeomagneticLabel(s.code, liveStatus === "online" ? tecValue : null)
         : trigNet
-        ? formatDualTecLabel(s.code, labelG, labelGg)
+        ? labelG == null && labelGg == null && connected
+          ? `${s.code.toUpperCase()}\nTEC pending`
+          : formatDualTecLabel(s.code, labelG, labelGg, s.tec_provisional)
         : networkMode
         ? (() => {
             const base = (s.name || s.code).toUpperCase();
@@ -1140,11 +1143,11 @@ export default function CorsMap({
           setSelectedRef.current(s);
           onStationSelectRef.current?.(s);
           const icaoLine =
-            tecValue != null
+            tecValue != null && !s.tec_provisional
               ? `<div style="margin-top:0.25rem;color:${icaoTecColor(tecValue)};font-weight:700">${icaoTecLabel(tecValue)}</div>`
               : "";
           const distLine =
-            tecValue != null && icaoTecDistanceLabel(tecValue)
+            tecValue != null && !s.tec_provisional && icaoTecDistanceLabel(tecValue)
               ? `<div style="color:#ffffff;font-size:0.68rem">${icaoTecDistanceLabel(tecValue)}</div>`
               : "";
           const dip = dipLatitudeDeg(s.lat, s.lon, igrf14Epoch());
@@ -1155,7 +1158,7 @@ export default function CorsMap({
               : "";
           const tecLine =
             tecValue != null
-              ? `<div style="color:#38bdf8;font-weight:800">GOPI ${tecValue.toFixed(1)} TECU</div>`
+              ? `<div style="color:#38bdf8;font-weight:800">GOPI${s.tec_provisional ? " G* (provisional raw)" : ""} ${tecValue.toFixed(1)} TECU</div>`
               : "";
           const ggLine =
             ggValue != null

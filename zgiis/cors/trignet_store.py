@@ -47,6 +47,7 @@ def expire_snapshot(payload: dict, saved_at: float, now: float | None = None) ->
         result["stations"] = [{**r, "connected": False, "streaming": False} for r in payload.get("stations", [])]
     if age > 180:
         result["stations"] = [{**r, "vtec": None, "gg_vtec": None, "vtec_time": None,
+                               "raw_code_vtec": None, "raw_code_vtec_time": None,
                                "samples": 0, "gg_samples": 0} for r in result.get("stations", [])]
         result["tec_ready"] = result["gg_ready"] = 0
     return result
