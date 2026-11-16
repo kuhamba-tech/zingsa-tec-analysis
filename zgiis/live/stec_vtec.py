@@ -205,6 +205,9 @@ class LiveVtecAccumulator:
             "cnr_dbhz":      obs1.get("cnr_dbhz"),
             "tec_method":    tec_method,
             "bias_method":   "none_live_no_dcb",
+            "p1_m": float(p1) if p1 is not None else None,
+            "p2_m": float(p2) if p2 is not None else None,
+            "mapping_factor": mapping_function(elevation, self.ipp_height_km),
         }, "ok"
 
     def flush(self) -> None:
@@ -353,7 +356,12 @@ class LiveVtecPipeline:
 
     def diagnostics_by_station(self) -> dict[str, dict]:
         """Per-station ingest counters for explaining connected-but-no-VTEC states."""
-        return {code: {**row, "latest_vtec_tecu": self._latest.get(code, {}).get("vtec_tecu")}
+        return {code: {**row, "latest_vtec_tecu": self._latest.get(code, {}).get("vtec_tecu"),
+                       "latest_code_stec_tecu": self._latest.get(code, {}).get("tecg_tecu"),
+                       "latest_elevation_deg": self._latest.get(code, {}).get("elevation_deg"),
+                       "latest_p1_m": self._latest.get(code, {}).get("p1_m"),
+                       "latest_p2_m": self._latest.get(code, {}).get("p2_m"),
+                       "latest_mapping_factor": self._latest.get(code, {}).get("mapping_factor")}
                 for code, row in list(self._diagnostics.items())}
 
     def ingest(self, obs: dict) -> None:

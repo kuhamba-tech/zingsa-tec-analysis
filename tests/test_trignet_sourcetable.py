@@ -96,6 +96,26 @@ def test_connected_stream_does_not_require_tec(monkeypatch):
     assert row["vtec"] is None
 
 
+def test_sansa_map_uses_zimbabwe_quality_rules_and_keeps_raw_estimate(monkeypatch):
+    from unittest.mock import Mock
+    from zgiis.cors import trignet
+
+    monkeypatch.setattr(trignet, "start_trignet_tec", lambda: None)
+    monkeypatch.setattr(trignet, "catalog", lambda: [next(r for r in trignet.parse_sourcetable(SAMPLE) if r["code"] == "TDOU")])
+    monkeypatch.setattr(trignet, "_TEC", {})
+    def values(*, max_age_s, regional=False):
+        assert max_age_s == 600
+        return {"tdou": 95.0} if regional else {}
+    pipe = Mock()
+    pipe.latest_by_station.side_effect = values
+    pipe.diagnostics_by_station.return_value = {}
+    monkeypatch.setattr(trignet, "_LIVE_PIPELINE", pipe)
+    row = trignet.status()["stations"][0]
+    assert row["vtec"] is None
+    assert row["raw_code_vtec"] == 95.0
+    assert row["tec_status"] == "withheld_by_shared_quality_rules"
+
+
 def test_discovered_receiver_has_geometry():
     from zgiis.live.satellite_geometry import LiveNavCache, llh_to_ecef
     import numpy as np

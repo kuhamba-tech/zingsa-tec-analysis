@@ -144,6 +144,37 @@ def test_live_tecg_from_pseudorange_matches_gopi_eq_4_11():
     assert abs(tecg_from_pseudorange(p1, p2, _F1, _F2) - (_K * 0.5 / 1e16)) < 1e-9
 
 
+def test_sansa_1004_and_zimbabwe_msm_use_identical_code_tec_math():
+    from types import SimpleNamespace
+    from zgiis.live.ntrip_stream import _extract_gps_1004, _extract_msm
+
+    epoch = datetime.now(timezone.utc)
+    p1, delta = 21_000_000.0, 8.0
+    total_ms = p1 / _C_LIGHT * 1000
+    integer_ms = int(total_ms)
+    legacy = SimpleNamespace(DF006=1, DF009_01=12,
+        DF011_01=p1 - integer_ms * _C_LIGHT * .001, DF014_01=integer_ms,
+        DF017_01=delta, DF012_01=.25, DF018_01=.5)
+    msm = SimpleNamespace(NSat=1, NCell=2, PRN_01="12", DF397_01=integer_ms,
+        DF398_01=total_ms-integer_ms, CELLPRN_01="12", CELLPRN_02="12",
+        CELLSIG_01="1C", CELLSIG_02="2W", DF400_01=0.0,
+        DF400_02=delta/_C_LIGHT*1000, DF401_01=.25/_C_LIGHT*1000,
+        DF401_02=.5/_C_LIGHT*1000)
+    results = []
+    for records in [_extract_gps_1004(legacy, "ptbg", epoch), _extract_msm(msm, 1074, "GPS", "beit", epoch)]:
+        assert len(records) == 2
+        accumulator = LiveVtecAccumulator()
+        for record in records:
+            result = accumulator.ingest({**record, "elevation_deg": 60.0})
+        assert result is not None
+        expected_stec = _K * delta / 1e16
+        expected_vtec = expected_stec / float(_mapping_function(pd.Series([60.0]), 350.0)[0])
+        assert abs(result["tecg_tecu"] - expected_stec) < .0001
+        assert abs(result["vtec_tecu"] - expected_vtec) < .0001
+        results.append(result["vtec_tecu"])
+    assert results[0] == results[1]
+
+
 def test_pipeline_flush_db_on_pending():
     class FakeDB:
         def __init__(self):

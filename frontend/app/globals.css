@@ -4313,6 +4313,27 @@ a.home-map-layer-btn {
   letter-spacing: 0.05em;
 }
 
+.home-tec-network-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-top: 0.65rem;
+}
+.home-tec-network {
+  min-width: 0;
+  padding: 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #07111c;
+}
+.home-tec-network h3 { margin: 0 0 0.65rem; color: #fff; font-size: 0.95rem; }
+.home-tec-network-methods { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; margin-bottom: 0.75rem; }
+.home-tec-network-methods span { display: block; font-size: 0.75rem; font-weight: 700; }
+.home-tec-network-methods strong { display: block; margin-top: 0.2rem; font-size: 1.15rem; line-height: 1.4; overflow-wrap: anywhere; }
+@media (max-width: 720px) {
+  .home-tec-network-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
 .home-live-tec-below-range {
   color: #57ff65;
   font-size: 1.45rem;

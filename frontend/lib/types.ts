@@ -411,6 +411,8 @@ export interface ScientificDiscussion {
 
 // ── CORS Network ──────────────────────────────────────────────────────────────
 export interface TrigNetStation {
+  raw_code_vtec?: number | null;
+  tec_status?: string;
   streaming?: boolean;
   connected?: boolean;
   stream_configured?: boolean;

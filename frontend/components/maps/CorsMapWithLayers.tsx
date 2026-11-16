@@ -406,34 +406,29 @@ export default function CorsMapWithLayers({
     return map;
   }, [trignetGg, ggByStation, stations, trignet]);
 
-  const trignetLines = useMemo(() => {
-    return trignetStations.map((station) => {
-      const code = station.code.toUpperCase();
-      const gopi =
-        typeof station.current_tec === "number" && Number.isFinite(station.current_tec) && station.current_tec > 0
-          ? station.current_tec
-          : null;
-      const gg = trignetGgCombined[stationCodeKey(station.code)];
-      const ggVal = typeof gg === "number" && Number.isFinite(gg) ? gg : null;
-      if (gopi != null && ggVal != null) return `${code} G ${gopi.toFixed(1)} / Gg ${ggVal.toFixed(1)}`;
-      if (gopi != null) return `${code} G ${gopi.toFixed(1)}`;
-      if (ggVal != null) return `${code} Gg ${ggVal.toFixed(1)}`;
-      return null;
-    }).filter((line): line is string => line != null);
-  }, [trignetStations, trignetGgCombined]);
-
-  const trignetRanges = useMemo(() => {
-    const gopi = trignetStations
-      .map((station) => station.current_tec)
-      .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0);
-    const gg = Object.values(trignetGgCombined).filter(
-      (value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0,
-    );
-    return {
-      gopi: gopi.length ? { min: Math.min(...gopi), max: Math.max(...gopi) } : null,
-      gg: gg.length ? { min: Math.min(...gg), max: Math.max(...gg) } : null,
-    };
-  }, [trignetStations, trignetGgCombined]);
+  const trignetNetworkSummaries = useMemo(() => {
+    const southAfricanCodes = new Set((trignet?.stations ?? []).map((row) => stationCodeKey(row.code)));
+    const valid = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value > 0;
+    const range = (values: number[]) => values.length ? `${Math.min(...values).toFixed(1)}–${Math.max(...values).toFixed(1)}` : null;
+    return [
+      { title: "Zimbabwe CORS", southAfrican: false },
+      { title: "South Africa · TrigNet / SANSA CORS", southAfrican: true },
+    ].map((network) => {
+      const sites = trignetStations.filter((station) => southAfricanCodes.has(stationCodeKey(station.code)) === network.southAfrican);
+      const gopi = sites.map((station) => station.current_tec).filter(valid);
+      const gg = sites.map((station) => trignetGgCombined[stationCodeKey(station.code)]).filter(valid);
+      const lines = sites.flatMap((station) => {
+        const g = station.current_tec;
+        const calibrated = trignetGgCombined[stationCodeKey(station.code)];
+        const readings = [valid(g) ? `G ${g.toFixed(1)}` : null, valid(calibrated) ? `Gg ${calibrated.toFixed(1)}` : null].filter(Boolean);
+        return readings.length ? [`${station.code.toUpperCase()} ${readings.join(" / ")}`] : [];
+      });
+      const withheld = network.southAfrican
+        ? (trignet?.stations ?? []).filter((row) => row.tec_status === "withheld_by_shared_quality_rules").length
+        : 0;
+      return { title: network.title, gopi: range(gopi), gg: range(gg), lines, withheld };
+    });
+  }, [trignet?.stations, trignetStations, trignetGgCombined]);
 
   const connectedTec = useMemo(() => {
     const bySample = new Map(
@@ -780,33 +775,34 @@ export default function CorsMapWithLayers({
       {trignetActive && (
         <div className="home-live-tec-below" aria-live="polite">
           <div className="home-live-tec-below-label">
-            TrigNet + Zimbabwe · G = GOPI · Gg = Cesaroni
+            TEC ranges by network · TECU
           </div>
-          <div className="home-live-tec-below-range">
-            <span style={{ color: "#38bdf8" }}>
-              G{" "}
-              {trignetRanges.gopi
-                ? `${trignetRanges.gopi.min.toFixed(1)}–${trignetRanges.gopi.max.toFixed(1)}`
-                : "—"}
-            </span>
-            <span style={{ color: "#f59e0b", marginLeft: "0.85rem" }}>
-              Gg{" "}
-              {trignetRanges.gg
-                ? `${trignetRanges.gg.min.toFixed(1)}–${trignetRanges.gg.max.toFixed(1)}`
-                : "—"}
-            </span>
-          </div>
-          <div className="home-live-tec-below-stations">
-            {trignetLines.length > 0
-              ? trignetLines.map((line) => (
-                  <span className="home-live-tec-station" key={line}>
-                    {line}
-                  </span>
-                ))
-              : "Reading the TrigNet sourcetable."}
+          <div className="home-tec-network-grid">
+            {trignetNetworkSummaries.map((network) => (
+              <section className="home-tec-network" key={network.title} aria-label={`${network.title} TEC ranges`}>
+                <h3>{network.title}</h3>
+                <div className="home-tec-network-methods">
+                  {[
+                    { label: "G · GOPI", value: network.gopi, color: "#38bdf8" },
+                    { label: "Gg · Cesaroni", value: network.gg, color: "#f59e0b" },
+                  ].map((method) => (
+                    <div key={method.label} style={{ color: method.color }}>
+                      <span>{method.label}</span>
+                      <strong>{method.value ? `${method.value} TECU` : "No fresh readings"}</strong>
+                    </div>
+                  ))}
+                </div>
+                <div className="home-live-tec-below-stations">
+                  {network.lines.length
+                    ? network.lines.map((line) => <span className="home-live-tec-station" key={line}>{line}</span>)
+                    : "Waiting for fresh station measurements."}
+                </div>
+                {network.withheld > 0 && <p className="home-live-tec-below-updated">{network.withheld} raw estimates withheld by the shared quality rules; calibration or further review is needed.</p>}
+              </section>
+            ))}
           </div>
           <div className="home-live-tec-below-updated">
-            SANSA readings are provisional measured code VTEC in TECU; receiver and satellite code biases are not corrected. Measurements remain available for up to 10 minutes during stream rotation. Missing TEC does not confirm a station outage.
+            Both networks use the same code-TEC formula and station quality rules. Values are provisional: receiver and satellite code biases are not corrected. Measurements remain available for up to 10 minutes during stream rotation. Missing TEC does not confirm a station outage.
           </div>
         </div>
       )}

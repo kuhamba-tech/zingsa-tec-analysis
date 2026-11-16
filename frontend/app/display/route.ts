@@ -215,7 +215,6 @@ export async function GET(request: NextRequest) {
       label: "Estimated GNSS Risk",
       value: typeof weather?.gnss_risk === "string" && weather.gnss_risk ? weather.gnss_risk : "Unavailable",
       valueColor: typeof weather?.gnss_risk_color === "string" ? weather.gnss_risk_color : "#ffffff",
-      note: "Provisional estimate · local positioning impact has not been verified",
       source: "ZGIIS risk label",
       freshness: monitoringFreshness(observed, Date.now(), Boolean(weather?.gnss_risk)),
     },
