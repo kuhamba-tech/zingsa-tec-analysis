@@ -256,7 +256,7 @@ class LiveVtecPipeline:
             }
         )
 
-    def latest_by_station(self, *, max_age_s: float = 180.0) -> dict[str, float]:
+    def latest_by_station(self, *, max_age_s: float = 180.0, regional: bool = False) -> dict[str, float]:
         """Fresh live NTRIP VTEC per station using the same PRN consensus as the map.
 
         A single latest sample is not enough: mounts like TSHO/BEIT often end on a
@@ -264,16 +264,20 @@ class LiveVtecPipeline:
         Aggregate the recent in-memory window with ``_fresh_station_vtec_from_group``.
         """
         now = datetime.now(timezone.utc)
-        window_s = min(float(max_age_s), _RECENT_VTEC_WINDOW_S)
+        window_s = float(max_age_s) if regional else min(float(max_age_s), _RECENT_VTEC_WINDOW_S)
         out: dict[str, float] = {}
         try:
             from zgiis.maps.heatmap_data import _fresh_station_vtec_from_group
         except Exception:
             _fresh_station_vtec_from_group = None  # type: ignore[assignment]
 
-        for code, rows in self._recent.items():
+        for code, rows in list(self._recent.items()):
             fresh_rows: list[dict] = []
-            for row in rows:
+            for row in list(rows):
+                if regional and row.get("tec_method") != "gopi_eq_4_11_code_live":
+                    # Unleveled carrier-phase TEC has an unknown ambiguity and
+                    # cannot be labelled as an absolute station TEC reading.
+                    continue
                 raw = row.get("vtec_tecu")
                 if raw is None:
                     continue
@@ -293,6 +297,19 @@ class LiveVtecPipeline:
                     }
                 )
             if not fresh_rows:
+                continue
+            if regional:
+                # Receiver biases differ by network. Do not apply Zimbabwe's
+                # quiet-day 55 TECU display ceiling to South African code TEC.
+                # Give each satellite equal weight and reject isolated outliers.
+                frame = pd.DataFrame(fresh_rows)
+                frame = frame[np.isfinite(frame["vtec_tecu"]) & (frame["vtec_tecu"] > 0) & (frame["vtec_tecu"] < 200)]
+                medians = frame.groupby("prn")["vtec_tecu"].median().to_numpy()
+                if len(medians):
+                    center = float(np.median(medians))
+                    mad = float(np.median(np.abs(medians - center)))
+                    kept = medians[np.abs(medians - center) <= max(12.0, 3.0 * mad / 0.6745)]
+                    out[str(code)] = float(np.median(kept))
                 continue
             value: float | None = None
             if _fresh_station_vtec_from_group is not None:
@@ -314,8 +331,11 @@ class LiveVtecPipeline:
                 out[str(code)] = float(value)
 
         # Stations that only have a single latest sample (no recent deque yet).
-        for code, row in self._latest.items():
+        for code, row in list(self._latest.items()):
             if code in out:
+                continue
+            if regional:
+                # Only the validated recent observation window supplies regional values.
                 continue
             raw = row.get("vtec_tecu")
             if raw is None:
@@ -333,7 +353,8 @@ class LiveVtecPipeline:
 
     def diagnostics_by_station(self) -> dict[str, dict]:
         """Per-station ingest counters for explaining connected-but-no-VTEC states."""
-        return {code: dict(row) for code, row in self._diagnostics.items()}
+        return {code: {**row, "latest_vtec_tecu": self._latest.get(code, {}).get("vtec_tecu")}
+                for code, row in list(self._diagnostics.items())}
 
     def ingest(self, obs: dict) -> None:
         code = str(obs.get("station", "")).lower().rstrip("_")

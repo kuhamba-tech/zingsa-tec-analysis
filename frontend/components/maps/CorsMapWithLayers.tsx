@@ -266,6 +266,8 @@ export default function CorsMapWithLayers({
         status_source: row.stream_configured ? "ntrip" as const : "catalog" as const,
         constellations: row.constellations,
         current_tec: sameTime ? row.vtec : null,
+        site_server: row.stream_configured ? "SANSA" : "TrigNet",
+        last_update: row.vtec_time,
         height_m: null,
         mountpoint: row.mountpoint,
       };
@@ -519,7 +521,7 @@ export default function CorsMapWithLayers({
           </div>
           <div className="home-map-toolbar-summary">
             {trignetActive
-              ? `${trignet?.station_count ?? "…"} TrigNet · ${trignet?.stations.filter((row) => row.streaming).length ?? 0} streaming / ${trignet?.stations.filter((row) => row.stream_configured).length ?? 0} configured · ${stations.length} Zimbabwe · G ${trignetHeatmap?.station_count ?? 0} · Gg ${Object.keys(trignetGgCombined).length}`
+              ? `${trignet?.station_count ?? "…"} TrigNet · ${trignet?.stations.filter((row) => row.streaming).length ?? 0} streaming / ${trignet?.stations.filter((row) => row.stream_configured).length ?? 0} configured · SANSA TEC ${trignet?.stations.filter((row) => row.stream_configured && row.vtec != null).length ?? 0} · ${stations.length} Zimbabwe · G ${trignetHeatmap?.station_count ?? 0} · Gg ${Object.keys(trignetGgCombined).length}`
               : `${liveCounts.total} stations · ${liveLabel}`}
             {networkDistancesActive && (showTelone || showDemographics) && (
               <p className="home-map-tec-note">
@@ -804,7 +806,7 @@ export default function CorsMapWithLayers({
               : "Reading the TrigNet sourcetable."}
           </div>
           <div className="home-live-tec-below-updated">
-            TEC is shown only for the live time. A site without a fresh TEC sample has unknown measurement status; this does not confirm a station outage.
+            SANSA readings are provisional measured code VTEC in TECU; receiver and satellite code biases are not corrected. Measurements remain available for up to 10 minutes during stream rotation. Missing TEC does not confirm a station outage.
           </div>
         </div>
       )}

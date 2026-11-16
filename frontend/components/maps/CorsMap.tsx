@@ -1169,6 +1169,8 @@ export default function CorsMap({
             ? `<div style="color:#ffffff;font-size:0.68rem">${
                 s.status_source === "catalog"
                   ? "G = GOPI · Gg = Cesaroni · latest TrigNet RINEX hour"
+                  : s.site_server === "SANSA"
+                    ? "G = measured SANSA code VTEC · provisional, uncalibrated"
                   : "G = GOPI · Gg = Cesaroni · live Zimbabwe NTRIP"
               }</div>`
             : heatmapStation

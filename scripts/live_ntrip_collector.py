@@ -1,9 +1,9 @@
-"""Persistent NTRIP collector for production live VTEC ingestion.
+"""Persistent collector for production live VTEC ingestion.
 
-Run this on an always-on machine. It connects to the ZINGSA NTRIP caster,
-decodes RTCM observations, computes VTEC, and writes to Supabase/Postgres so the
-Vercel dashboard can read real live values without running long-lived streams
-inside serverless functions.
+Run this on an always-on machine. It connects to the ZINGSA and configured
+TrigNet/SANSA NTRIP casters, decodes RTCM observations, computes VTEC, and
+writes to Supabase/Postgres so the Vercel dashboard can read live values
+without running long-lived streams inside serverless functions.
 """
 from __future__ import annotations
 
@@ -359,6 +359,13 @@ def main() -> int:
         nav_cache,
         interval_s=max(300.0, float(os.getenv("ZGIIS_EPHEMERIS_REFRESH_S", "3600"))),
     )
+    try:
+        from zgiis.cors.trignet import start_trignet_tec
+
+        start_trignet_tec()
+        log.info("TrigNet/SANSA TEC collector started")
+    except Exception:
+        log.exception("TrigNet/SANSA TEC collector failed to start")
     log.info(
         "Collector started for %d station(s), db=%s",
         len(mountpoints),

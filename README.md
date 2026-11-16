@@ -81,6 +81,13 @@ python scripts/init_supabase_schema.py
 
 If `SUPABASE_DATABASE_URL` is missing, database routes return HTTP 503.
 
+The always-on `scripts/live_ntrip_collector.py` worker also collects live TEC
+from South African TrigNet/SANSA sites and publishes a current station snapshot
+to this database for the Vercel dashboard. Set the optional `TRIGNET_NTRIP_*`
+settings in the collector's `backend/.env` to enable authenticated SANSA RTCM
+streams; public TrigNet station/RINEX data remains available without those
+credentials. Keep these separate from the Zimbabwe `NTRIP_*` credentials.
+
 ### One-click Windows launcher
 
 Use PowerShell:

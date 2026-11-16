@@ -583,7 +583,7 @@ def status() -> dict[str, Any]:
     with _LOCK:
         tec = dict(_TEC)
     links = _LIVE_MANAGER.status() if _LIVE_MANAGER is not None else {}
-    live_values = _LIVE_PIPELINE.latest_by_station() if _LIVE_PIPELINE is not None else {}
+    live_values = _LIVE_PIPELINE.latest_by_station(max_age_s=600, regional=True) if _LIVE_PIPELINE is not None else {}
     diagnostics = _LIVE_PIPELINE.diagnostics_by_station() if _LIVE_PIPELINE is not None else {}
     for row in rows:
         saved = tec.get(row["code"]) or {}
@@ -609,6 +609,9 @@ def status() -> dict[str, Any]:
             "streaming": streaming,
             "stream_configured": key in links,
             "message_count": link.get("rtcm_count", link.get("msg_count", 0)),
+            "tec_diagnostics": diagnostics.get(key, {}),
+            "tec_method": "gopi_code_vtec_uncalibrated" if live_value is not None else None,
+            "tec_quality": "provisional_no_dcb" if live_value is not None else None,
             "vtec": saved.get("vtec") if fresh else None,
             "gg_vtec": gg_value,
             "vtec_time": saved.get("time") if fresh else None,
@@ -620,6 +623,9 @@ def status() -> dict[str, Any]:
         "G is GOPI code TEC and Gg is Cesaroni calibration on the same samples. "
         "A value is shown only when it is within 30 minutes of the live Zimbabwe time. "
         "No fresh TEC sample does not establish that a station is offline."
+        " SANSA live values use measured dual-frequency code TEC, aggregated equally by satellite; "
+        "receiver/satellite differential code biases are not corrected. Values are provisional. "
+        "Recent measurements are retained for up to 10 minutes during stream rotation."
     )
     configured = _configured_caster()
     casters = [f"{CASTER_HOST}:{CASTER_PORT}"]
