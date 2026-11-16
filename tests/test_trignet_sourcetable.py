@@ -196,6 +196,77 @@ def test_earlier_rinex_hour_does_not_match_the_live_time():
     assert sample_matches_live_time(None, now) is False
 
 
+def test_rinex_vtec_uses_the_shared_live_code_formula_and_elevation_mask(monkeypatch):
+    from types import SimpleNamespace
+
+    import georinex
+    import numpy as np
+
+    from zgiis.cors import trignet
+    from zgiis.live import satellite_geometry
+    from zgiis.live.stec_vtec import tecg_from_pseudorange, vtec_from_stec
+    from zgiis.processing.elevation_mask import ELEVATION_MIN_DEG
+
+    class Observations:
+        data_vars = {"C1C": None, "C2W": None}
+        position_geodetic = np.array([-25.73, 28.28, 0.0])
+        time = SimpleNamespace(
+            values=np.array(
+                [
+                    "2026-10-21T22:00:00",
+                    "2026-10-21T22:00:30",
+                    "2026-10-21T22:01:00",
+                    "2026-10-21T22:01:30",
+                ],
+                dtype="datetime64[ns]",
+            )
+        )
+        sv = SimpleNamespace(values=np.array(["G12"]))
+        C1C = np.full((4, 1), 20_200_000.0)
+        C2W = C1C + 0.5
+
+        def __contains__(self, name):
+            return name in self.data_vars
+
+        def __getitem__(self, name):
+            return SimpleNamespace(values=getattr(self, name))
+
+    observations = Observations()
+    monkeypatch.setattr(georinex, "load", lambda *args, **kwargs: observations)
+    monkeypatch.setattr(
+        trignet,
+        "_download",
+        lambda _source, destination: destination.write_bytes(b"compressed"),
+    )
+    monkeypatch.setattr(
+        trignet,
+        "_decompress_obs",
+        lambda _source, destination: destination.write_bytes(b"rinex"),
+    )
+    monkeypatch.setattr(
+        trignet,
+        "catalog",
+        lambda: [{"code": "PRET", "lat": -25.73, "lon": 28.28}],
+    )
+    monkeypatch.setattr(satellite_geometry, "look_angles_ecef", lambda *_: (ELEVATION_MIN_DEG, 0.0))
+    monkeypatch.setattr(trignet, "median_gg_vtec", lambda _rows: (None, 0))
+
+    day = datetime(2026, 10, 21).date()
+    result = trignet.compute_station_vtec("PRET", day, {12: {}})
+    expected_stec = tecg_from_pseudorange(20_200_000.0, 20_200_000.5)
+
+    assert result is not None
+    assert result["samples"] == 2
+    assert result["vtec"] == round(vtec_from_stec(expected_stec, ELEVATION_MIN_DEG), 2)
+
+    monkeypatch.setattr(
+        satellite_geometry,
+        "look_angles_ecef",
+        lambda *_: (ELEVATION_MIN_DEG - 0.01, 0.0),
+    )
+    assert trignet.compute_station_vtec("PRET", day, {12: {}}) is None
+
+
 def test_median_gg_uses_cesaroni_fit_on_the_same_samples():
     start = datetime(2026, 10, 21, 22, 0, tzinfo=timezone.utc)
     rows = []

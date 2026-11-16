@@ -319,7 +319,8 @@ def compute_station_vtec(code: str, day: date, nav_by_sv: dict[int, dict]) -> di
     import pandas as pd
 
     from zgiis.live.satellite_geometry import llh_to_ecef, look_angles_ecef
-    from zgiis.live.stec_vtec import mapping_function, tecg_from_pseudorange
+    from zgiis.live.stec_vtec import tecg_from_pseudorange, vtec_from_stec
+    from zgiis.processing.elevation_mask import ELEVATION_MIN_DEG
 
     yy = day.year % 100
     doy = day.timetuple().tm_yday
@@ -388,9 +389,10 @@ def compute_station_vtec(code: str, day: date, nav_by_sv: dict[int, dict]) -> di
                 if nav is None:
                     continue
                 look = look_angles_ecef(rx, nav, epoch)
-                if look is None or look[0] < 30.0:
+                if look is None or look[0] < ELEVATION_MIN_DEG:
                     continue
-                vtec = tecg_from_pseudorange(p1, p2) / mapping_function(look[0])
+                stec = tecg_from_pseudorange(p1, p2)
+                vtec = vtec_from_stec(stec, look[0])
                 if math.isfinite(vtec) and 0.5 < vtec < 150:
                     values.append(vtec)
                     last_time = epoch

@@ -175,6 +175,33 @@ def test_sansa_1004_and_zimbabwe_msm_use_identical_code_tec_math():
     assert results[0] == results[1]
 
 
+def test_zimbabwe_and_sansa_pipeline_and_station_screening_are_identical():
+    """Network/station identity must not change TEC or accept a rejected high estimate."""
+    now = datetime.now(timezone.utc)
+    for base_vtec, expected_display in [(27.0, 28.0), (83.0, None)]:
+        displayed = []
+        for station, lookback in [("beit", 90.0), ("ptbg", 600.0)]:
+            pipeline = LiveVtecPipeline()
+            for i, prn in enumerate(["G03", "G06", "G12"]):
+                p1 = 21_000_000.0
+                stec = (base_vtec + i) * mapping_function(60.0)
+                p2 = p1 + stec * 1e16 / _K
+                for band, pseudo, frequency in [(1, p1, _F1), (2, p2, _F2)]:
+                    pipeline.ingest({"station": station, "prn": prn, "epoch": now,
+                        "constellation": "GPS", "sig_idx": band, "pseudorange_m": pseudo,
+                        "carrier_phase_cycles": (p1 + band * .25) * frequency / _C_LIGHT,
+                        "freq1_hz": _F1, "freq2_hz": _F2, "elevation_deg": 60.0})
+            assert pipeline._latest[station]["bias_method"] == "none_live_no_dcb"
+            assert abs(pipeline._latest[station]["vtec_tecu"] - (base_vtec + 2)) < .0001
+            value = pipeline.latest_by_station(max_age_s=lookback).get(station)
+            displayed.append(value)
+            if expected_display is None:
+                assert value is None
+            else:
+                assert abs(value - expected_display) < .0001
+        assert displayed[0] == displayed[1]
+
+
 def test_pipeline_flush_db_on_pending():
     class FakeDB:
         def __init__(self):

@@ -52,3 +52,13 @@ ESA describes the frequency- and code-dependent instrumental delays in [GNSS Bas
 - Shared mapping and GPS semicircle-to-radian conversions have regression tests.
 - A rejected high raw estimate remains in diagnostics and is not relabelled as quality-screened G.
 - 36 targeted pipeline, station-status, aggregation and transport tests pass; frontend TypeScript checks pass.
+
+## Re-verification of shared processing
+
+Checked at: 2026-11-16T13:17:30.777206+00:00
+
+Both live station identities were fed identical three-satellite observations through the complete pipeline and default station-summary rules. A 27/28/29 TECU input set produces the same 28 TECU station summary for Zimbabwe and SANSA. An 83/84/85 TECU input set is withheld for both networks by the existing display screening, while the underlying raw calculations remain unchanged.
+
+The SANSA RINEX fallback now calls the same `tecg_from_pseudorange` and `vtec_from_stec` functions and shared elevation-mask constant as live processing, rather than keeping a separate copy of the equations. The RINEX regression checks both acceptance at the shared elevation mask and rejection below it.
+
+All 38 targeted tests pass. These tests establish calculation and screening parity, not absolute ionospheric accuracy or completed receiver/satellite bias calibration.
