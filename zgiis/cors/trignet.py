@@ -502,6 +502,8 @@ def sample_matches_live_time(sample_time: str | None, now: datetime | None = Non
 
 def start_trignet_tec() -> None:
     """Background GOPI pass over the latest public TrigNet day. One station at a time."""
+    if os.getenv("VERCEL"):
+        return  # Includes startup warmup, not just the public status route.
     global _STARTED
     with _LOCK:
         if _STARTED:

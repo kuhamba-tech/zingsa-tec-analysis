@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 
 from zgiis.db.config import checkout, database_dsn, release
@@ -52,6 +53,26 @@ def expire_snapshot(payload: dict, saved_at: float, now: float | None = None) ->
 
 
 def load_snapshot() -> dict | None:
+    # Serverless instances share a small SQL pool with the dashboard's other
+    # readers. The read-only HTTPS endpoint avoids consuming another SQL slot.
+    base = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
+    key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+    if os.getenv("VERCEL") and base.startswith("https://") and key:
+        try:
+            import requests
+
+            response = requests.get(
+                f"{base}/rest/v1/trignet_live_snapshot",
+                params={"id": "eq.1", "select": "saved_at,payload"},
+                headers={"apikey": key, "Authorization": f"Bearer {key}"},
+                timeout=5,
+            )
+            response.raise_for_status()
+            rows = response.json()
+            if rows:
+                return expire_snapshot(rows[0]["payload"], float(rows[0]["saved_at"]))
+        except Exception:
+            log.warning("TrigNet HTTPS snapshot reader unavailable; trying SQL")
     conn = None
     try:
         conn = checkout(database_dsn())

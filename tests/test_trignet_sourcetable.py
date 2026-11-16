@@ -124,6 +124,36 @@ def test_stopped_collector_expires_online_status_and_tec():
     assert original["stations"][0]["streaming"]
 
 
+def test_vercel_warmup_does_not_start_collector(monkeypatch):
+    from zgiis.cors import trignet
+
+    monkeypatch.setenv("VERCEL", "1")
+    monkeypatch.setattr(trignet, "_STARTED", False)
+    monkeypatch.setattr(trignet.threading, "Thread", lambda **kw: (_ for _ in ()).throw(AssertionError("No serverless collector")))
+    trignet.start_trignet_tec()
+    assert not trignet._STARTED
+
+
+def test_vercel_snapshot_uses_https_without_borrowing_sql_slot(monkeypatch):
+    import time
+    import requests
+    from unittest.mock import Mock
+    from zgiis.cors import trignet_store
+
+    monkeypatch.setenv("VERCEL", "1")
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "test-private-key")
+    response = Mock()
+    response.json.return_value = [{"saved_at": time.time(), "payload": {"stations": [{"code": "TDOU", "streaming": True}]}}]
+    fetch = Mock(return_value=response)
+    monkeypatch.setattr(requests, "get", fetch)
+    monkeypatch.setattr(trignet_store, "checkout", lambda *a: (_ for _ in ()).throw(AssertionError("No SQL slot required")))
+    result = trignet_store.load_snapshot()
+    assert result["stations"][0]["streaming"]
+    assert fetch.call_args.kwargs["timeout"] == 5
+    assert fetch.call_args.kwargs["headers"]["apikey"] == "test-private-key"
+
+
 def test_mountpoint_selection_and_failure_keep_known_locations(monkeypatch):
     from zgiis.cors import trignet
 
