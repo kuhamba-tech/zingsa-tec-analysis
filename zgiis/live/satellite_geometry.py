@@ -67,6 +67,11 @@ def _nav_row_from_rtcm_1019(msg) -> tuple[int, dict] | None:
         }
     except (TypeError, ValueError):
         return None
+    # RTCM 1019 broadcasts these angles/rates in semicircles. pyrtcm applies
+    # the binary scale but leaves semicircles unchanged; RINEX/orbit geometry
+    # expects radians. Harmonic corrections Cuc/Cus/Cic/Cis are already radians.
+    for field in ("M0", "DeltaN", "omega", "Omega0", "OmegaDot", "Io", "IDOT"):
+        nav[field] *= math.pi
     if nav["sqrtA"] <= 0:
         return None
     return sv, nav

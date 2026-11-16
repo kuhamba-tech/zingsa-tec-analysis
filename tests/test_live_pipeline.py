@@ -74,6 +74,24 @@ def test_live_nav_cache_elevation_for_gps_with_ephemeris():
     assert -90.0 <= elev <= 90.0
 
 
+def test_rtcm_1019_semicircles_match_rinex_radians():
+    from types import SimpleNamespace
+    from zgiis.live.satellite_geometry import _nav_row_from_rtcm_1019
+
+    msg = SimpleNamespace(DF009=5, DF092=5153.5, DF090=0.01,
+                          DF088=0.5, DF087=1e-9, DF099=0.2, DF095=-0.3,
+                          DF100=-2e-9, DF097=0.31, DF079=1e-10,
+                          DF089=1e-6, DF091=2e-6, DF098=50.0, DF086=20.0,
+                          DF094=3e-6, DF096=4e-6, DF093=86400.0)
+    sv, nav = _nav_row_from_rtcm_1019(msg)
+    assert sv == 5
+    for name, raw in [("M0", .5), ("DeltaN", 1e-9), ("omega", .2), ("Omega0", -.3),
+                      ("OmegaDot", -2e-9), ("Io", .31), ("IDOT", 1e-10)]:
+        assert np.isclose(nav[name], raw * np.pi, rtol=1e-12, atol=0)
+    assert nav["Cuc"] == 1e-6
+    assert nav["Cis"] == 4e-6
+
+
 def test_accumulator_requires_elevation():
     epoch = datetime.now(tz=timezone.utc)
     f1, f2 = 1575.42e6, 1227.60e6
