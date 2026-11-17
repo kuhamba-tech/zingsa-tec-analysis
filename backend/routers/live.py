@@ -460,6 +460,54 @@ def _station_method_summary(
     return stations, summary
 
 
+def _actual_pytecgg_summary(gopi, codes, network):
+    """Preserve G, but use only actual package results for every live Gg label."""
+    from datetime import datetime, timezone
+    from zgiis.processing.pytecgg_live import MAX_RESULT_AGE_SECONDS
+    stations, _ = _station_method_summary(gopi, [])
+    by_code = {row.station.lower().rstrip("_"): row for row in stations}
+    observations = []
+    for raw_code in codes:
+        code = str(raw_code).lower().rstrip("_")
+        result = network.get(code, {})
+        row = by_code.get(code)
+        if row is None:
+            row = TecMethodStationCompare(station=code.upper())
+            stations.append(row)
+            by_code[code] = row
+        row.gg_engine, row.gg_version = "pytecgg", "1.3.0"
+        row.gg_status = result.get("gg_status", "awaiting_pytecgg_observations")
+        if result.get("gg_engine") != "pytecgg" or result.get("gg_version") != "1.3.0":
+            continue
+        value = result.get("gg_vtec")
+        try:
+            stamp = datetime.fromisoformat(str(result.get("gg_time", "")).replace("Z", "+00:00"))
+            age = (datetime.now(timezone.utc) - stamp).total_seconds()
+            if value is None or not math.isfinite(float(value)) or float(value) <= 0 or not -120 <= age <= MAX_RESULT_AGE_SECONDS:
+                continue
+        except (ValueError, TypeError):
+            continue
+        row.gg_latest = float(value)
+        row.gg_time = result["gg_time"]
+        row.gg_samples = int(result.get("gg_samples", 0))
+        row.gg_veq = result.get("gg_veq")
+        row.gg_batch_cutoff = result.get("gg_batch_cutoff")
+        samples = result.get("gg_observations", [])
+        observations.extend(LiveObservation(**sample) for sample in samples)
+        values = [float(sample["vtec_tecu"]) for sample in samples if sample.get("vtec_tecu") is not None]
+        row.gg_mean = sum(values) / len(values) if values else row.gg_latest
+        if row.gopi_latest is not None:
+            row.delta_latest = row.gg_latest - row.gopi_latest
+        if row.gopi_mean is not None:
+            row.delta_mean = row.gg_mean - row.gopi_mean
+    paired = [row.delta_latest for row in stations if row.delta_latest is not None]
+    return observations, stations, {
+        "station_count": len(stations), "paired_stations": len(paired),
+        "mean_delta_latest_tecu": sum(paired) / len(paired) if paired else None,
+        "gg_engine": "pytecgg", "gg_version": "1.3.0",
+    }
+
+
 def _build_tec_method_comparison(
     *,
     hours: float,
@@ -467,10 +515,8 @@ def _build_tec_method_comparison(
     limit: int,
 ) -> TecMethodComparisonResponse:
     from zgiis.processing.gg_calibration import (
-        calibrate_gg_from_observations,
         method_catalog,
         references,
-        try_pytecgg_available,
     )
 
     # Bound samples per receiver: a busy site must not hide the other stations.
@@ -510,100 +556,31 @@ def _build_tec_method_comparison(
             )
         )
 
-    # Station lat/lon feed MODIP μ and Local Time (notebook §3.2) — calibration key.
-    try:
-        from zgiis.cors.stations import get_station as _get_cors_station
-    except Exception:  # pragma: no cover
-        _get_cors_station = None  # type: ignore[assignment]
-
-    station_ll: dict[str, tuple[float, float]] = {}
-
-    def _station_ll(code: str) -> tuple[float, float]:
-        key = (code or "").lower()
-        if key in station_ll:
-            return station_ll[key]
-        lat, lon = -19.0, 30.0
-        if _get_cors_station is not None and key:
-            try:
-                st = _get_cors_station(key)
-                if st is not None:
-                    lat, lon = float(st.lat), float(st.lon)
-            except Exception:
-                pass
-        station_ll[key] = (lat, lon)
-        return lat, lon
-
-    gg_input: list[dict] = []
-    for o in gopi:
-        lat, lon = _station_ll(o.station)
-        gg_input.append(
-            {
-                "time": o.time,
-                "station": o.station,
-                "prn": o.prn,
-                "constellation": o.constellation,
-                "elevation_deg": o.elevation_deg,
-                "azimuth_deg": o.azimuth_deg,
-                "stec_tecu": o.stec_tecu,
-                "vtec_tecu": o.vtec_tecu,
-                "lat": lat,
-                "lon": lon,
-            }
-        )
-
-    # Keep receiver/satellite bias arcs independent across stations.
-    gg_raw = []
-    for code in dict.fromkeys(o["station"] for o in gg_input):
-        samples = sorted((o for o in gg_input if o["station"] == code), key=lambda o: o["time"])
-        gg_raw.extend(calibrate_gg_from_observations(samples))
-    gg = [
-        LiveObservation(
-            time=str(r.get("time") or ""),
-            station=str(r.get("station") or ""),
-            vtec_tecu=r.get("vtec_tecu"),
-            stec_tecu=r.get("stec_tecu"),
-            elevation_deg=r.get("elevation_deg"),
-            azimuth_deg=r.get("azimuth_deg"),
-            constellation=r.get("constellation"),
-            prn=r.get("prn"),
-            tec_method=str(r.get("tec_method") or "gg_ciraolo_window_ls"),
-            bias_method=str(r.get("bias_method") or "gg_arc_bias_modip_lt_poly"),
-            arc_bias_tecu=r.get("arc_bias_tecu"),
-        )
-        for r in gg_raw
-    ]
-
-    stations, summary = _station_method_summary(gopi, gg)
-    pytecgg = try_pytecgg_available()
-    engine = "gg_modip_lt_window_ls"
-    if pytecgg:
-        engine_note = (
-            f"Engine {engine} (PyTECGg importable): live comparison applies Gg = Cesaroni "
-            "MODIP×LT windowed least-squares to streaming CORS rows — not a full "
-            "RINEX-day PyTECGg run (that path is for offline obs+nav processing)."
-        )
-    else:
-        engine_note = (
-            f"Engine {engine}: Gg = Cesaroni arc-bias + VTEC(MODIP μ, LT) "
-            "polynomial on the same streaming samples (PyTECGg not installed for full RINEX days)."
-        )
+    from zgiis.live.pytecgg_service import snapshot as pytecgg_snapshot
+    network = pytecgg_snapshot().get("zimbabwe", {})
+    gg, stations, summary = _actual_pytecgg_summary(gopi, codes, network)
+    methods = method_catalog()
+    for method in methods:
+        if method["id"] == "gg":
+            method.update(engine="pytecgg_1_3_0", calibration=(
+                "Actual PyTECGg 1.3.0 on raw GPS code/phase and navigation; "
+                "350 km shell, 20-degree mask, degree 3, batch_size_epochs=30. "
+                "Same engine and scheduler as SANSA; receiver biases fitted independently."))
     note = (
-        "Method 1 (GOPI / Seemala) is the live CORS NTRIP dual-frequency path shown on the "
-        "TEC Heat Map. Method 2 (Gg = Cesaroni) uses Ciraolo/Cesaroni calibration "
-        "(refs Ciraolo 2007, Cesaroni 2015/2021, Ventriglia/PyTECGg 2026). "
-        f"{engine_note} Both methods use elev ≥ 30° and IPP shell 350 km so ΔVTEC = Gg − GOPI "
-        "reflects calibration, not geometry. Large live gaps usually mean underconstrained "
-        "Gg arc biases on short NTRIP windows (not a second ionosphere) — trust G for "
-        "operations; Gg is a research overlay until a full RINEX-day PyTECGg run."
+        "G is unchanged live GOPI code TEC (30-degree mask). Gg is actual PyTECGg 1.3.0 "
+        "(20-degree mask), using the same configuration and calibration cycle as SANSA. "
+        "Only fresh package results are shown; no custom-fit, neighbour adjustment or GOPI substitute is used. "
+        "Per-satellite latest-epoch VTEC and zenith VEq are different quantities. "
+        "Stations awaiting valid raw phase arcs remain pending."
     )
     return TecMethodComparisonResponse(
-        available=bool(gopi),
+        available=bool(gopi or gg),
         hours=hours,
         sample_limit=limit,
         gopi=gopi,
         gg=gg,
         stations=stations,
-        methods=[TecMethodInfo(**m) for m in method_catalog()],
+        methods=[TecMethodInfo(**m) for m in methods],
         references=[TecMethodReference(**r) for r in references()],
         note=note,
         summary=summary,
@@ -617,11 +594,10 @@ async def tec_method_comparison(
     limit: int = Query(2500, ge=100, le=10000),
     _=Depends(require_api_key),
 ):
-    """Compare GOPI / Seemala live TEC with Gg (Ciraolo–Cesaroni) calibration.
+    """Compare unchanged GOPI G with actual collector-produced PyTECGg Gg.
 
-    Same underlying CORS samples and geometry (elev ≥ 30°, IPP 350 km);
-    Gg applies arc-bias + windowed VTEC polynomial calibration so differences
-    reflect calibration method, not a different network or shell model.
+    G uses a 30-degree mask; Gg follows the notebook's 20-degree mask.
+    Zimbabwe and SANSA Gg share the same engine, cycle and output rules.
     """
     # Cap work: comparison UI does not need 10k samples and two parallel builds
     # were hanging the single uvicorn worker (socket hang-ups → blank page).

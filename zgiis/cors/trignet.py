@@ -554,34 +554,6 @@ def _publish_live_status() -> None:
         time.sleep(20)
 
 
-def _pytecgg_worker(rows: list[dict]) -> None:
-    """Use real raw observables and navigation with the notebook's engine."""
-    from zgiis.live.broadcast_ephemeris import _download_brdc
-    from zgiis.live.satellite_geometry import llh_to_ecef
-    nav_path = None
-    nav_at = 0.0
-    while True:
-        try:
-            if nav_path is None or time.monotonic() - nav_at > 3600:
-                fresh = _download_brdc(datetime.now(timezone.utc), timeout=15)
-                if fresh is not None:
-                    if nav_path is not None:
-                        nav_path.unlink(missing_ok=True)
-                    nav_path, nav_at = fresh, time.monotonic()
-            if nav_path is not None:
-                for row in rows:
-                    try:
-                        _PYTECGG.calibrate(row["code"].lower(),
-                            llh_to_ecef(row["lat"], row["lon"], 0.0), nav_path)
-                    except Exception as exc:
-                        _PYTECGG.failed(row["code"].lower(), "pytecgg_calibration_failed")
-                        log.warning("SANSA PyTECGg calibration unavailable for %s: %s", row["code"], exc)
-                    time.sleep(1)
-        except Exception:
-            log.exception("SANSA PyTECGg worker failed")
-        time.sleep(30)
-
-
 def _start_live_streams() -> None:
     """Use the separate SANSA account for actual RTCM observations."""
     global _LIVE_MANAGER, _LIVE_PIPELINE, _PYTECGG
@@ -593,7 +565,7 @@ def _start_live_streams() -> None:
     from zgiis.live.stec_vtec import LiveVtecPipeline
     from zgiis.db.timescale import TecDB
     from zgiis.live.broadcast_ephemeris import start_refresh_thread
-    from zgiis.processing.sansa_pytecgg import LivePytecgg
+    from zgiis.live.pytecgg_service import register_network, calibration_session_seconds
 
     while _LIVE_MANAGER is None:
         try:
@@ -609,7 +581,7 @@ def _start_live_streams() -> None:
             # estimator can fit each SANSA receiver independently, as in Zimbabwe.
             pipeline = LiveVtecPipeline(nav_cache=nav, db=TecDB(),
                                         db_flush_n=5)
-            _PYTECGG = LivePytecgg()
+            _PYTECGG = register_network("sansa", rows)
             def on_observation(obs):
                 _PYTECGG.ingest(obs)
                 pipeline.ingest(obs)
@@ -618,14 +590,12 @@ def _start_live_streams() -> None:
                 max_concurrent=max(1, int(os.getenv("TRIGNET_NTRIP_LIVE_MAX_CONCURRENT", "1"))),
                 # PyTECGg needs >=30 observations per continuous arc. Two-minute
                 # visits cannot provide that at slower caster cadences.
-                max_session_s=max(600, float(os.getenv("TRIGNET_NTRIP_LIVE_SESSION_S", "600"))),
+                max_session_s=calibration_session_seconds(os.getenv("TRIGNET_NTRIP_LIVE_SESSION_S")),
             )
             _LIVE_PIPELINE = pipeline
             _LIVE_MANAGER = manager
             manager.start({r["code"].lower(): r["mountpoint"] for r in rows})
             start_refresh_thread(nav, interval_s=3600)
-            threading.Thread(target=_pytecgg_worker, args=(rows,), daemon=True,
-                             name="sansa-pytecgg").start()
         except Exception:
             log.warning("South Africa live-stream startup failed; retrying in 30 seconds")
             time.sleep(30)
@@ -658,6 +628,8 @@ def status() -> dict[str, Any]:
     live_values = _LIVE_PIPELINE.latest_by_station(max_age_s=600) if _LIVE_PIPELINE is not None else {}
     raw_values = _LIVE_PIPELINE.latest_by_station(max_age_s=600, regional=True) if _LIVE_PIPELINE is not None else {}
     diagnostics = _LIVE_PIPELINE.diagnostics_by_station() if _LIVE_PIPELINE is not None else {}
+    from zgiis.live.pytecgg_service import snapshot as pytecgg_snapshot
+    gg_networks = pytecgg_snapshot()
     for row in rows:
         saved = tec.get(row["code"]) or {}
         key = row["code"].lower()
@@ -674,7 +646,7 @@ def status() -> dict[str, Any]:
         same_time = sample_matches_live_time(saved.get("time") if saved.get("day") == day_key else None)
         fresh = same_time and saved.get("vtec") is not None
         # Legacy sample-median fits are never advertised as PyTECGg results.
-        gg_result = _PYTECGG.status(key) if _PYTECGG is not None else {}
+        gg_result = gg_networks.get("sansa", {}).get(key, {})
         gg_value = gg_result.get("gg_vtec")
         if fresh:
             ready += 1
@@ -719,7 +691,7 @@ def status() -> dict[str, Any]:
         "The existing Zimbabwe display rules include a 55 TECU ceiling; this is not proof that larger raw estimates are physically impossible. "
         "Raw SANSA estimates remain available separately for verification; "
         "G remains uncorrected code TEC. Gg follows the notebook's 350 km shell, 20-degree mask, "
-        "degree-3 polynomial, batch_size_epochs=30 and package arc detection; Zimbabwe Gg is a separate live approximation. "
+        "degree-3 polynomial, batch_size_epochs=30 and package arc detection, shared with Zimbabwe Gg. "
         "Live observations are archived for the shared daily receiver-bias estimator; values are provisional. "
         "Recent measurements are retained for up to 10 minutes during stream rotation."
     )
@@ -735,6 +707,7 @@ def status() -> dict[str, Any]:
         "station_count": len(stations),
         "tec_ready": ready,
         "gg_ready": gg_ready,
+        "pytecgg_networks": gg_networks,
         "note": note,
         "stations": stations,
     }

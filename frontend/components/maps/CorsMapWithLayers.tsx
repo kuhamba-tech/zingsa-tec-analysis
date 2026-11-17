@@ -5,13 +5,14 @@ import CorsMap from "./CorsMap";
 import DeferredMount from "@/components/spaceWeather/DeferredMount";
 import NetworkDistancesPanel from "./NetworkDistancesPanel";
 import { TecMapColorbar } from "./TecHeatMapLegend";
-import { getTecMethodComparison, getTrigNet } from "@/lib/api";
+import { getTrigNet } from "@/lib/api";
 import { idwFillByStation, stationCodeKey, type LatLonSite } from "@/lib/idwSurface";
 import { measuredLiveTec } from "@/lib/measuredLiveTec";
 import { trigNetTecReading } from "@/lib/trignetTec";
 import { startVisiblePolling } from "@/lib/visiblePolling";
 import { trignetCache } from "@/lib/trignetCache";
 import { TRIGNET_CATALOG } from "@/lib/trignetCatalog";
+import { freshPytecggReading } from "@/lib/pytecggReading";
 import { heatmapQualityBanner, icaoTecLabel, icaoTecLevel, inferHeatmapQuality } from "@/lib/icaoTecAdvisory";
 import type { ProposedCorsSite } from "@/lib/corsGeneticOptimizer";
 import type { Station, TecHeatmapResponse, TrigNetResponse } from "@/lib/types";
@@ -79,16 +80,6 @@ export const NETWORK_DISTANCES_LAYERS: MapLayer[] = ["Network Distances"];
 export const BASE_MAP_LAYERS: MapLayer[] = ["Hybrid", "Satellite", "Street"];
 
 const LAYERS: MapLayer[] = HOME_MAP_LAYERS;
-/** One caster rotation. Own Gg inside this window stays; older gaps are interpolated. */
-const GG_FRESH_MS = 30 * 60_000;
-/** TrigNet TEC must fall in this window around now, the same window as the live feed. */
-const SAME_TIME_MS = 30 * 60_000;
-
-function isSameLiveTime(iso: string | null | undefined): boolean {
-  const ms = Date.parse(iso ?? "");
-  return Number.isFinite(ms) && Math.abs(Date.now() - ms) <= SAME_TIME_MS;
-}
-
 function zimbabweLiveGopi(station: Station, heatmap: TecHeatmapResponse | null): number | null {
   const key = stationCodeKey(station.code);
   const heat = heatmap?.stations?.find((row) => stationCodeKey(row.code) === key);
@@ -220,7 +211,6 @@ export default function CorsMapWithLayers({
   const [proposedCorsSites, setProposedCorsSites] = useState<ProposedCorsSite[]>([]);
   const [showTelone, setShowTelone] = useState(true);
   const [showDemographics, setShowDemographics] = useState(true);
-  const [measuredGg, setMeasuredGg] = useState<Record<string, number>>({});
   const [trignet, setTrignet] = useState<TrigNetResponse | null>(() => trignetCache.peek() ?? TRIGNET_CATALOG);
 
   useEffect(() => {
@@ -239,7 +229,7 @@ export default function CorsMapWithLayers({
   const hasTrigNet = availableLayers.includes("TrigNet");
 
   useEffect(() => {
-    if (!hasTrigNet) return;
+    if (!hasTrigNet && !tecLayerActive) return;
     let cancelled = false;
     const load = () => {
       return getTrigNet()
@@ -252,12 +242,12 @@ export default function CorsMapWithLayers({
     };
     // Warm station locations before the user switches layers. Reuse the cache
     // across maps/routes; refresh faster only while the layer is selected.
-    const stop = startVisiblePolling(load, trignetActive ? 20_000 : 60_000, trignetActive ? 0 : 1500);
+    const stop = startVisiblePolling(load, trignetActive || tecLayerActive ? 20_000 : 60_000, trignetActive || tecLayerActive ? 0 : 1500);
     return () => {
       cancelled = true;
       stop();
     };
-  }, [trignetActive, hasTrigNet]);
+  }, [trignetActive, hasTrigNet, tecLayerActive]);
 
   const trignetStations = useMemo<Station[]>(() => {
     const trigCodes = new Set((trignet?.stations ?? []).map((row) => row.code.toLowerCase()));
@@ -297,7 +287,7 @@ export default function CorsMapWithLayers({
   const trignetGg = useMemo(() => {
     const map: Record<string, number> = {};
     for (const row of trignet?.stations ?? []) {
-      if (!isSameLiveTime(row.gg_time ?? row.vtec_time)) continue;
+      if (!freshPytecggReading(row, trignet?.collector_age_s)) continue;
       if (typeof row.gg_vtec === "number" && Number.isFinite(row.gg_vtec) && row.gg_vtec > 0) {
         map[row.code.toLowerCase()] = row.gg_vtec;
       }
@@ -331,42 +321,6 @@ export default function CorsMapWithLayers({
     };
   }, [trignetStations, trignet?.rinex_day]);
 
-  // Load Gg / Cesaroni VTEC for dual map labels on the TEC heat map and TrigNet.
-  useEffect(() => {
-    if (!tecLayerActive && !trignetActive) return;
-    let cancelled = false;
-    const load = () => {
-      return getTecMethodComparison(2, undefined, 300, 45_000)
-        .then((res) => {
-          if (cancelled) return;
-          const map: Record<string, number> = {};
-          for (const row of res.stations ?? []) {
-            const code = row.station.toLowerCase().replace(/_+$/, "");
-            const val =
-              typeof row.gg_latest === "number" && Number.isFinite(row.gg_latest)
-                ? row.gg_latest
-                : null;
-            const observationMs = Date.parse(row.gg_time ?? "");
-            // Historical calibration means must never masquerade as live labels.
-            if (val == null || !Number.isFinite(observationMs) || Date.now() - observationMs > GG_FRESH_MS) {
-              continue;
-            }
-            map[code] = val;
-          }
-          setMeasuredGg(map);
-        })
-        .catch(() => {
-          if (!cancelled) setMeasuredGg({});
-        });
-    };
-    // Gg labels are extra. Let station markers and the TEC grid use the API first.
-    const stop = startVisiblePolling(load, 90_000, 5_000);
-    return () => {
-      cancelled = true;
-      stop();
-    };
-  }, [tecLayerActive, trignetActive]);
-
   useEffect(() => {
     if (!networkDistancesActive && proposedCorsSites.length > 0) {
       setProposedCorsSites([]);
@@ -394,7 +348,13 @@ export default function CorsMapWithLayers({
     return [...byCode.values()];
   }, [stations, heatmap]);
 
-  const ggByStation = measuredGg;
+  const ggByStation = useMemo(() => {
+    const values: Record<string, number> = {};
+    for (const [code, result] of Object.entries(trignet?.pytecgg_networks?.zimbabwe ?? {})) {
+      if (freshPytecggReading(result, trignet?.collector_age_s)) values[stationCodeKey(code)] = result.gg_vtec!;
+    }
+    return values;
+  }, [trignet]);
 
   const trignetGgCombined = useMemo(() => {
     const map: Record<string, number> = { ...trignetGg };

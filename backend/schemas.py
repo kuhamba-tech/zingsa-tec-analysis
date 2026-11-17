@@ -1429,6 +1429,11 @@ class TecMethodStationCompare(BaseModel):
     gg_samples: int = 0
     gopi_time: str | None = None
     gg_time: str | None = None
+    gg_engine: str | None = None
+    gg_version: str | None = None
+    gg_status: str | None = None
+    gg_veq: float | None = None
+    gg_batch_cutoff: str | None = None
 
 
 class TecMethodComparisonResponse(BaseModel):

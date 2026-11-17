@@ -342,6 +342,13 @@ def main() -> int:
             log.warning("Connected-station list unavailable: %s", exc)
 
     _refresh_connected_stations(refresh=True)
+    from zgiis.live.pytecgg_service import register_zimbabwe, calibration_session_seconds
+    gg_engine = register_zimbabwe(mountpoints)
+
+    def on_observation(obs):
+        gg_engine.ingest(obs)
+        pipeline.ingest(obs)
+
     manager = LiveNtripManager(
         {
             "host": host,
@@ -350,9 +357,10 @@ def main() -> int:
             "password": password,
             "connection": connection,
         },
-        on_observation=pipeline.ingest,
+        on_observation=on_observation,
         nav_cache=nav_cache,
         max_concurrent=max_concurrent,
+        max_session_s=calibration_session_seconds(os.getenv("NTRIP_LIVE_SESSION_S")),
     )
     manager.start(mountpoints, hold_back=connected.waiting)
     start_refresh_thread(

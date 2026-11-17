@@ -27,6 +27,7 @@ class ProbeVtecSampler:
 
     def ingest_msg(self, msg: Any, msg_type: int, epoch: datetime | None = None) -> None:
         from zgiis.live.ntrip_stream import _ALL_MSM, _constellation_for, _extract_msm
+        from zgiis.live.pytecgg_service import ingest_zimbabwe
 
         t_recv = epoch or datetime.now(tz=timezone.utc)
 
@@ -46,6 +47,7 @@ class ProbeVtecSampler:
         except Exception:
             return
         for rec in records:
+            ingest_zimbabwe(rec)
             self._pipeline.ingest(rec)
 
     def summary(self) -> dict[str, float | int]:

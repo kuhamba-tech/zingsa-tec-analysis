@@ -371,7 +371,11 @@ def start(*, priority_codes: list[str] | None = None) -> None:
         db_flush_n=_db_flush_n(),
     )
 
+    from zgiis.live.pytecgg_service import register_zimbabwe, calibration_session_seconds
+    gg_engine = register_zimbabwe(mountpoints)
+
     def _on_observation(obs: dict) -> None:
+        gg_engine.ingest(obs)
         pipeline.ingest(obs)
 
     ntrip_cfg = {
@@ -393,6 +397,7 @@ def start(*, priority_codes: list[str] | None = None) -> None:
         on_observation=_on_observation,
         max_concurrent=max_concurrent,
         nav_cache=nav_cache,
+        max_session_s=calibration_session_seconds(os.getenv("NTRIP_LIVE_SESSION_S")),
     )
     manager.start(mountpoints)
 

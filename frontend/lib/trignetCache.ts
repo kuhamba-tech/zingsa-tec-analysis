@@ -20,6 +20,7 @@ export function createTrigNetCache(persist = false) {
       ...cached.payload, collector_age_s: age,
       tec_ready: age > 180 ? 0 : cached.payload.tec_ready,
       gg_ready: age > 180 ? 0 : cached.payload.gg_ready,
+      pytecgg_networks: age > 180 ? {} : cached.payload.pytecgg_networks,
       stations: cached.payload.stations.map(row => ({
         ...row,
         ...(age > 90 ? { connected: false, streaming: false } : {}),

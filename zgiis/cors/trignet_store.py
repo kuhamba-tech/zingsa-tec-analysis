@@ -51,6 +51,7 @@ def expire_snapshot(payload: dict, saved_at: float, now: float | None = None) ->
                                "raw_code_vtec": None, "raw_code_vtec_time": None,
                                "samples": 0, "gg_samples": 0} for r in result.get("stations", [])]
         result["tec_ready"] = result["gg_ready"] = 0
+        result["pytecgg_networks"] = {}
     return result
 
 

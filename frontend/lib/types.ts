@@ -439,6 +439,7 @@ export interface TrigNetStation {
 }
 
 export interface TrigNetResponse {
+  pytecgg_networks?: Record<string, Record<string, import("./pytecggReading").PytecggReading>>;
   collector_age_s?: number;
   source: string;
   source_url: string;

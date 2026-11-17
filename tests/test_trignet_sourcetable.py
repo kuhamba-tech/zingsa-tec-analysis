@@ -149,6 +149,8 @@ def test_live_gg_is_available_when_uncalibrated_g_is_withheld(monkeypatch):
     engine.status.return_value = {"gg_vtec": 62.0, "gg_samples": 24, "gg_status": "ready",
                                   "gg_time": datetime.now(timezone.utc).isoformat()}
     monkeypatch.setattr(trignet, "_PYTECGG", engine)
+    from zgiis.live import pytecgg_service
+    monkeypatch.setattr(pytecgg_service, "snapshot", lambda: {"sansa": {"tdou": engine.status.return_value}})
     result = trignet.status()
     row = result["stations"][0]
     assert row["vtec"] is None
@@ -157,7 +159,6 @@ def test_live_gg_is_available_when_uncalibrated_g_is_withheld(monkeypatch):
     assert row["gg_status"] == "ready"
     assert row["gg_time"] is not None
     assert result["gg_ready"] == 1
-    engine.status.assert_called_once_with("tdou")
     assert row["gg_engine"] == "pytecgg"
 
 

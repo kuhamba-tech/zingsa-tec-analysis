@@ -127,7 +127,10 @@ def test_adapter_agrees_with_direct_notebook_pipeline(monkeypatch):
     expected = calculate_vertical_equivalent(df_calibrated=expected, ctx=ctx,
         max_polynomial_degree=3, batch_size_epochs=30)
     actual = calibrate_observations(obs, {}, receiver, "tdou")
+    zimbabwe = calibrate_observations(obs, {}, receiver, "beit")
     assert actual["vtec"].drop_nulls().len() > 0
     columns = ["epoch", "sv", "bias", "stec", "vtec", "veq"]
     assert_frame_equal(actual.select(columns).sort(["epoch", "sv"]),
                        expected.select(columns).sort(["epoch", "sv"]))
+    assert_frame_equal(zimbabwe.select(columns).sort(["epoch", "sv"]),
+                       actual.select(columns).sort(["epoch", "sv"]))
