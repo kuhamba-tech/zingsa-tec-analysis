@@ -93,6 +93,7 @@ import type {
   GeomagneticTheoryPayload,
   UnderstandingTecPayload,
 } from "./types";
+import { trignetCache } from "./trignetCache";
 import { peekSpaceWeather, publishSpaceWeather } from "./spaceWeatherStore";
 import { peekSolarActivity, publishSolarActivity } from "./solarActivityStore";
 import { peekHeliosphericMonitor, rememberHeliosphericMonitor } from "./heliosphericStore";
@@ -1373,7 +1374,7 @@ export const getGfzKpAnalysis = (start: string, end: string, station?: string) =
 export const getWdcKyotoAnalysis = (start: string, end: string, station?: string) =>
   get<WdcKyotoAnalysisResponse>("/tec/wdc-kyoto-analysis", { start, end, station, _ts: Date.now() }, ANALYSIS_TIMEOUT_MS);
 export const getTrigNet = () =>
-  get<TrigNetResponse>("/tec/trignet", { _ts: Date.now() }, 30_000);
+  trignetCache.load(() => get<TrigNetResponse>("/tec/trignet", { _ts: Date.now() }, 30_000));
 
 export const getIntermagnetLatest = () =>
   get<IntermagnetLatestResponse>("/tec/intermagnet-latest", { _ts: Date.now() }, 25_000);

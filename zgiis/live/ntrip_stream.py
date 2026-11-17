@@ -233,7 +233,9 @@ def _extract_gps_1004(msg, station: str, epoch: datetime) -> list[dict]:
                 "freq1_hz": _FREQ1["GPS"], "freq2_hz": _FREQ2["GPS"],
                 "gps_epoch": _gps_source_epoch(msg, epoch),
                 "signal_code": ({0: "1C", 1: "1P"}.get(field("DF010")) if band == 1
-                                else {0: "2C", 1: "2P", 2: "2W"}.get(field("DF016"))),
+                                # RTCM 1004 L2 codes, matching RTKLIB's L2codes:
+                                # https://github.com/tomojitakasu/RTKLIB/blob/master/src/rtcm3.c
+                                else {0: "2X", 1: "2P", 2: "2D", 3: "2W"}.get(field("DF016"))),
             })
     return records
 

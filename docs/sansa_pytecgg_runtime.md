@@ -27,3 +27,9 @@ Local validation: PyTECGg 1.3.0 and Polars 1.38.1 installed; package dependency 
 Full RINEX comparison is available via `calibrate_rinex(obs_path, nav_path, station)`. Use the same observation/navigation data and receiver coordinates as the reference notebook. Python package versions alone do not make independently chosen sample windows or constellations comparable.
 
 Zimbabwe's Gg approximation and both networks' GOPI paths remain unchanged. Earlier comparison audits describe the pre-integration SANSA approximation and are historical evidence, not the current engine selection.
+
+## Faster station loading and legacy input correction
+
+The map preloads TrigNet after mounting, shares pending requests, and reuses a short-lived/session cache across views. Cached locations may remain visible while refreshing, but collector age advances locally: online flags expire after 90 seconds and TEC fields after 180 seconds, matching snapshot rules. This does not relax TEC quality screening or imply that a connected station has valid TEC.
+
+The RTCM 1004 L2 code mapping was corrected to `0=2X, 1=2P, 2=2D, 3=2W`, following RTKLIB's `L2codes` in https://github.com/tomojitakasu/RTKLIB/blob/master/src/rtcm3.c. The initial adapter omitted indicator 3 and misidentified indicators 0 and 2. This affected PyTECGg raw input, not the GOPI equations. Tests now check that all four indicators reach the calibration buffer. Receivers previously appearing L1-only may have been affected by this adapter bug; that observation did not establish that their caster lacked L2.

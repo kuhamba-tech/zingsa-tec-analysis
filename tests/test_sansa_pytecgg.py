@@ -13,7 +13,7 @@ def test_rtcm_source_epoch_and_signals_are_preserved_for_pytecgg():
     received = datetime(2026, 11, 17, 6, 0, 0, 123456, tzinfo=timezone.utc)
     msg = SimpleNamespace(DF006=1, DF004=194400000, DF009_01=12,
         DF011_01=100000.0, DF014_01=70, DF017_01=8.0,
-        DF012_01=.25, DF018_01=.5, DF010_01=0, DF016_01=2)
+        DF012_01=.25, DF018_01=.5, DF010_01=0, DF016_01=3)
     records = _extract_gps_1004(msg, "tdou", received)
     assert [r["signal_code"] for r in records] == ["1C", "2W"]
     assert all(r["epoch"] == received for r in records)  # GOPI receipt time unchanged
@@ -29,6 +29,21 @@ def test_incomplete_metadata_is_not_relabelled_as_pytecgg():
     live.ingest({"station": "tdou", "constellation": "GPS", "vtec_tecu": 22.0})
     assert not live._rows
     assert live.status("tdou")["gg_input_epochs"] == 0
+
+
+@pytest.mark.parametrize("indicator,signal", [(0, "2X"), (1, "2P"), (2, "2D"), (3, "2W")])
+def test_all_legacy_l2_code_indicators_reach_the_package_input(indicator, signal):
+    from zgiis.live.ntrip_stream import _extract_gps_1004
+    received = datetime.now(timezone.utc)
+    msg = SimpleNamespace(DF006=1, DF004=194400000, DF009_01=12,
+        DF011_01=100000.0, DF014_01=70, DF017_01=8.0,
+        DF012_01=.25, DF018_01=.5, DF010_01=0, DF016_01=indicator)
+    records = _extract_gps_1004(msg, "tdou", received)
+    assert records[1]["signal_code"] == signal
+    live = LivePytecgg()
+    for record in records:
+        live.ingest(record)
+    assert live.status("tdou")["gg_input_signals"] == ["1C", signal]
 
 
 def test_raw_receiver_buffers_are_independent_and_results_expire():

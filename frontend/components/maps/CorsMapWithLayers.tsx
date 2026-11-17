@@ -10,6 +10,7 @@ import { idwFillByStation, stationCodeKey, type LatLonSite } from "@/lib/idwSurf
 import { measuredLiveTec } from "@/lib/measuredLiveTec";
 import { trigNetTecReading } from "@/lib/trignetTec";
 import { startVisiblePolling } from "@/lib/visiblePolling";
+import { trignetCache } from "@/lib/trignetCache";
 import { heatmapQualityBanner, icaoTecLabel, icaoTecLevel, inferHeatmapQuality } from "@/lib/icaoTecAdvisory";
 import type { ProposedCorsSite } from "@/lib/corsGeneticOptimizer";
 import type { Station, TecHeatmapResponse, TrigNetResponse } from "@/lib/types";
@@ -219,7 +220,7 @@ export default function CorsMapWithLayers({
   const [showTelone, setShowTelone] = useState(true);
   const [showDemographics, setShowDemographics] = useState(true);
   const [measuredGg, setMeasuredGg] = useState<Record<string, number>>({});
-  const [trignet, setTrignet] = useState<TrigNetResponse | null>(null);
+  const [trignet, setTrignet] = useState<TrigNetResponse | null>(() => trignetCache.peek());
 
   useEffect(() => {
     if (!availableLayers.includes(layer)) {
@@ -234,9 +235,10 @@ export default function CorsMapWithLayers({
   const networkDistancesActive = layer === "Network Distances";
   const trignetActive = layer === "TrigNet";
   const showLayerSwitcher = availableLayers.length > 1;
+  const hasTrigNet = availableLayers.includes("TrigNet");
 
   useEffect(() => {
-    if (!trignetActive) return;
+    if (!hasTrigNet) return;
     let cancelled = false;
     const load = () => {
       return getTrigNet()
@@ -247,12 +249,14 @@ export default function CorsMapWithLayers({
           if (!cancelled) setTrignet(null);
         });
     };
-    const stop = startVisiblePolling(load, 20_000);
+    // Warm station locations before the user switches layers. Reuse the cache
+    // across maps/routes; refresh faster only while the layer is selected.
+    const stop = startVisiblePolling(load, trignetActive ? 20_000 : 60_000, trignetActive ? 0 : 1500);
     return () => {
       cancelled = true;
       stop();
     };
-  }, [trignetActive]);
+  }, [trignetActive, hasTrigNet]);
 
   const trignetStations = useMemo<Station[]>(() => {
     const trigCodes = new Set((trignet?.stations ?? []).map((row) => row.code.toLowerCase()));
@@ -557,6 +561,8 @@ export default function CorsMapWithLayers({
                     }}
                     className={`home-map-layer-btn${active ? " is-active" : ""}`}
                     aria-pressed={active}
+                    onPointerEnter={l === "TrigNet" ? () => { void getTrigNet().catch(() => {}); } : undefined}
+                    onFocus={l === "TrigNet" ? () => { void getTrigNet().catch(() => {}); } : undefined}
                   >
                     {l}
                   </button>
