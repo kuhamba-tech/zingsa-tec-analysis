@@ -194,10 +194,17 @@ def _extract_msm(msg, msg_type: int, constellation: str, station: str, epoch: da
                 "lock_time":          lock_time,
                 "freq1_hz":           freq1,
                 "freq2_hz":           freq2,
+                "signal_code": str(cell_sig),
+                "gps_epoch": _gps_source_epoch(msg, epoch) if constellation == "GPS" else None,
             })
     except Exception as exc:
         log.debug("MSM parse error [%s]: %s", station, exc)
     return records
+
+
+def _gps_source_epoch(msg, received: datetime):
+    from zgiis.processing.sansa_pytecgg import gps_epoch
+    return gps_epoch(getattr(msg, "DF004", None), received)
 
 
 def _extract_gps_1004(msg, station: str, epoch: datetime) -> list[dict]:
@@ -224,6 +231,9 @@ def _extract_gps_1004(msg, station: str, epoch: datetime) -> list[dict]:
                 "pseudorange_m": pseudo, "carrier_phase_cycles": phase * frequency / _C_LIGHT,
                 "cnr_dbhz": cnr, "lock_time": lock,
                 "freq1_hz": _FREQ1["GPS"], "freq2_hz": _FREQ2["GPS"],
+                "gps_epoch": _gps_source_epoch(msg, epoch),
+                "signal_code": ({0: "1C", 1: "1P"}.get(field("DF010")) if band == 1
+                                else {0: "2C", 1: "2P", 2: "2W"}.get(field("DF016"))),
             })
     return records
 

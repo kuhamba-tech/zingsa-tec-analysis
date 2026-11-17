@@ -131,6 +131,36 @@ def test_discovered_receiver_has_geometry():
     assert np.allclose(nav.receiver_ecef("tdou"), llh_to_ecef(-23.0, 30.0, 500.0))
 
 
+def test_live_gg_is_available_when_uncalibrated_g_is_withheld(monkeypatch):
+    from unittest.mock import Mock
+    from zgiis.cors import trignet
+
+    monkeypatch.delenv("VERCEL", raising=False)
+    monkeypatch.setattr(trignet, "start_trignet_tec", lambda: None)
+    monkeypatch.setattr(trignet, "catalog", lambda: [trignet.parse_sourcetable(SAMPLE)[0]])
+    monkeypatch.setattr(trignet, "_TEC", {})
+    monkeypatch.setattr(trignet, "_DAY", {"day": None})
+    monkeypatch.setattr(trignet, "_LIVE_MANAGER", None)
+    pipeline = Mock()
+    pipeline.latest_by_station.side_effect = lambda **kw: {"tdou": 65.0} if kw.get("regional") else {}
+    pipeline.diagnostics_by_station.return_value = {"tdou": {"last_vtec_at": datetime.now(timezone.utc).isoformat()}}
+    monkeypatch.setattr(trignet, "_LIVE_PIPELINE", pipeline)
+    engine = Mock()
+    engine.status.return_value = {"gg_vtec": 62.0, "gg_samples": 24, "gg_status": "ready",
+                                  "gg_time": datetime.now(timezone.utc).isoformat()}
+    monkeypatch.setattr(trignet, "_PYTECGG", engine)
+    result = trignet.status()
+    row = result["stations"][0]
+    assert row["vtec"] is None
+    assert row["gg_vtec"] == 62.0
+    assert row["gg_samples"] == 24
+    assert row["gg_status"] == "ready"
+    assert row["gg_time"] is not None
+    assert result["gg_ready"] == 1
+    engine.status.assert_called_once_with("tdou")
+    assert row["gg_engine"] == "pytecgg"
+
+
 def test_serverless_reads_collector_without_starting_streams(monkeypatch):
     from zgiis.cors import trignet, trignet_store
 
@@ -291,3 +321,42 @@ def test_median_gg_uses_cesaroni_fit_on_the_same_samples():
     assert gg is not None
     assert count >= 8
     assert 5.0 < gg < 40.0
+
+
+def test_sansa_live_calibration_matches_zimbabwe_engine_and_isolates_receivers(monkeypatch):
+    from collections import defaultdict, deque
+    import numpy as np
+    from zgiis.cors import trignet
+    from zgiis.processing.gg_calibration import calibrate_gg_from_observations
+
+    monkeypatch.setattr(trignet, "_LIVE_CALIBRATION_ROWS", defaultdict(lambda: deque(maxlen=20000)))
+    start = datetime.now(timezone.utc) - timedelta(minutes=12)
+    samples = []
+    for minute in range(12):
+        sample = {"epoch": start + timedelta(minutes=minute), "station": "pret",
+                  "prn": "G12", "elevation_deg": 55.0, "vtec_tecu": 22 + minute * .05,
+                  "tec_method": "gopi_eq_4_11_code_live"}
+        trignet._record_live_calibration(sample)
+        trignet._record_live_calibration({**sample, "station": "tdou", "vtec_tecu": 70.0})
+        samples.append({**sample, "time": sample["epoch"], "lat": -25.73, "lon": 28.28})
+    # Zimbabwe's comparison endpoint invokes this engine per receiver.
+    expected = calibrate_gg_from_observations(samples)
+    value, count = trignet._live_gg_vtec("pret", -25.73, 28.28)
+    assert count == len(expected) and count >= 8
+    assert value == round(float(np.median([row["vtec_tecu"] for row in expected])), 2)
+    assert trignet._live_gg_vtec("missing", -25.73, 28.28) == (None, 0)
+
+
+def test_sansa_live_calibration_excludes_stale_and_phase_only_samples(monkeypatch):
+    from collections import defaultdict, deque
+    from zgiis.cors import trignet
+
+    monkeypatch.setattr(trignet, "_LIVE_CALIBRATION_ROWS", defaultdict(lambda: deque(maxlen=20000)))
+    sample = {"epoch": datetime.now(timezone.utc), "station": "pret", "prn": "G12",
+              "elevation_deg": 55.0, "vtec_tecu": 22.0,
+              "tec_method": "gopi_eq_4_12_phase_only_live_unleveled"}
+    trignet._record_live_calibration(sample)
+    assert not trignet._LIVE_CALIBRATION_ROWS
+    trignet._record_live_calibration({**sample, "tec_method": "gopi_eq_4_11_code_live",
+                                     "epoch": sample["epoch"] - timedelta(hours=1)})
+    assert trignet._live_gg_vtec("pret", -25.73, 28.28) == (None, 0)

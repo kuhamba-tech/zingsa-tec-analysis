@@ -428,6 +428,11 @@ export interface TrigNetStation {
   format: string;
   vtec: number | null;
   gg_vtec: number | null;
+  gg_time?: string | null;
+  gg_engine?: string;
+  gg_version?: string;
+  gg_status?: string;
+  gg_veq?: number | null;
   vtec_time: string | null;
   samples: number;
   gg_samples?: number;

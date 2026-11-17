@@ -10,3 +10,6 @@ numpy>=1.26.0
 pandas>=2.2.0
 requests>=2.31.0
 georinex>=1.16.0
+# SANSA Gg uses the actual notebook calibration engine.
+pytecgg==1.3.0
+polars==1.38.1

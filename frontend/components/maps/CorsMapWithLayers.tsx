@@ -292,7 +292,7 @@ export default function CorsMapWithLayers({
   const trignetGg = useMemo(() => {
     const map: Record<string, number> = {};
     for (const row of trignet?.stations ?? []) {
-      if (!isSameLiveTime(row.vtec_time)) continue;
+      if (!isSameLiveTime(row.gg_time ?? row.vtec_time)) continue;
       if (typeof row.gg_vtec === "number" && Number.isFinite(row.gg_vtec) && row.gg_vtec > 0) {
         map[row.code.toLowerCase()] = row.gg_vtec;
       }
