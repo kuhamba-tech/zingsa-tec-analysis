@@ -41,7 +41,8 @@ def gps_epoch(tow_ms: float | None, received: datetime) -> datetime | None:
     return min(candidates, key=lambda epoch: abs((epoch - anchor).total_seconds())).replace(tzinfo=timezone.utc)
 
 
-def calibrate_observations(obs_data, nav_data, receiver_pos, station: str, *, rinex_version="3.04"):
+def calibrate_observations(obs_data, nav_data, receiver_pos, station: str, *,
+                           rinex_version="3.04", ephemeris=None):
     """Run the notebook's executable pipeline; return package rows unchanged."""
     if version("pytecgg") != VERSION:
         raise RuntimeError(f"Live Gg requires pytecgg=={VERSION}")
@@ -55,7 +56,8 @@ def calibrate_observations(obs_data, nav_data, receiver_pos, station: str, *, ri
 
     ctx = GNSSContext(receiver_pos=tuple(receiver_pos), receiver_name=station,
                       rinex_version=rinex_version, h_ipp=SHELL_M, systems=["GPS"])
-    ephemeris = prepare_ephemeris(nav_data, ctx)
+    if ephemeris is None:
+        ephemeris = prepare_ephemeris(nav_data, ctx)
     linear = calculate_linear_combinations(obs_data=obs_data, ctx=ctx,
         combinations=["gflc_phase", "gflc_code", "mw"], selection_mode="quality")
     if linear.is_empty():
@@ -74,6 +76,16 @@ def calibrate_observations(obs_data, nav_data, receiver_pos, station: str, *, ri
         return calibrated
     return calculate_vertical_equivalent(df_calibrated=calibrated, ctx=ctx,
         max_polynomial_degree=DEGREE, batch_size_epochs=BATCH_SIZE)
+
+
+def prepare_live_ephemeris(nav_data):
+    """Prepare GPS ephemeris once for reuse across receiver fits in a cycle."""
+    from pytecgg import GNSSContext
+    from pytecgg.satellites.ephemeris import prepare_ephemeris
+
+    ctx = GNSSContext(receiver_pos=(0.0, 0.0, 0.0), receiver_name="shared",
+                      rinex_version="3.04", h_ipp=SHELL_M, systems=["GPS"])
+    return prepare_ephemeris(nav_data, ctx)
 
 
 def calibrate_rinex(obs_path: Path, nav_path: Path, station: str):
@@ -128,7 +140,8 @@ class LivePytecgg:
             while rows and rows[0][0] < cutoff:
                 rows.popleft()
 
-    def calibrate(self, code: str, receiver_pos, nav_path: Path, *, cutoff: datetime | None = None) -> None:
+    def calibrate(self, code: str, receiver_pos, nav_path: Path, *, cutoff: datetime | None = None,
+                  nav_data=None, ephemeris=None) -> None:
         import polars as pl
         from pytecgg.parsing import read_rinex_nav
         with self._lock:
@@ -148,7 +161,9 @@ class LivePytecgg:
                                  {"epoch": epoch, "sv": sv, "observable": f"L{signal}", "value": phase}])
         obs = pl.DataFrame(observations).unique(subset=["epoch", "sv", "observable"], keep="last").sort(["epoch", "sv"])
         # A single common time system and receiver position applies to the batch.
-        calibrated = calibrate_observations(obs, read_rinex_nav(nav_path), receiver_pos, code)
+        if nav_data is None:
+            nav_data = read_rinex_nav(nav_path)
+        calibrated = calibrate_observations(obs, nav_data, receiver_pos, code, ephemeris=ephemeris)
         result = summarize(calibrated)
         result["gg_batch_cutoff"] = cutoff.isoformat()
         if result["gg_vtec"] is not None:

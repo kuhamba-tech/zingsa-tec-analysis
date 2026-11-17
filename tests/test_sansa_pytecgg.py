@@ -112,7 +112,6 @@ def test_adapter_agrees_with_direct_notebook_pipeline(monkeypatch):
             for observable, value in [("C1C", p1), ("C2W", p2), ("L1C", l1), ("L2W", l2)]:
                 raw.append(dict(epoch=epoch, sv=sv, observable=observable, value=value))
     obs, coords = pl.DataFrame(raw), pl.DataFrame(geometry)
-    monkeypatch.setattr(ephemeris, "prepare_ephemeris", lambda *args: {})
     monkeypatch.setattr(positions, "satellite_coordinates", lambda **kwargs: coords)
 
     # Independent reference: literal notebook calls, no SANSA summary or helpers.
@@ -126,8 +125,11 @@ def test_adapter_agrees_with_direct_notebook_pipeline(monkeypatch):
     expected = calculate_tec(df=arcs, ctx=ctx, max_polynomial_degree=3, batch_size_epochs=30)
     expected = calculate_vertical_equivalent(df_calibrated=expected, ctx=ctx,
         max_polynomial_degree=3, batch_size_epochs=30)
-    actual = calibrate_observations(obs, {}, receiver, "tdou")
-    zimbabwe = calibrate_observations(obs, {}, receiver, "beit")
+    shared_ephemeris = {}
+    monkeypatch.setattr(ephemeris, "prepare_ephemeris",
+                        lambda *args: pytest.fail("cached ephemeris should be reused"))
+    actual = calibrate_observations(obs, {}, receiver, "tdou", ephemeris=shared_ephemeris)
+    zimbabwe = calibrate_observations(obs, {}, receiver, "beit", ephemeris=shared_ephemeris)
     assert actual["vtec"].drop_nulls().len() > 0
     columns = ["epoch", "sv", "bias", "stec", "vtec", "veq"]
     assert_frame_equal(actual.select(columns).sort(["epoch", "sv"]),

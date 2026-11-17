@@ -7,7 +7,9 @@ import threading
 import time
 from datetime import datetime, timezone
 
-from zgiis.processing.pytecgg_live import LivePytecgg, ENGINE, VERSION
+from zgiis.processing.pytecgg_live import (
+    LivePytecgg, ENGINE, VERSION, prepare_live_ephemeris,
+)
 
 log = logging.getLogger(__name__)
 _lock = threading.Lock()
@@ -91,14 +93,19 @@ def _worker() -> None:
     from zgiis.live.broadcast_ephemeris import _download_brdc
     from zgiis.live.satellite_geometry import llh_to_ecef
     nav_path, nav_at = None, 0.0
+    nav_data, ephemeris = None, None
     while True:
         try:
             if nav_path is None or time.monotonic() - nav_at > 3600:
                 fresh = _download_brdc(datetime.now(timezone.utc), timeout=15)
                 if fresh is not None:
+                    from pytecgg.parsing import read_rinex_nav
+                    fresh_nav_data = read_rinex_nav(fresh)
+                    fresh_ephemeris = prepare_live_ephemeris(fresh_nav_data)
                     if nav_path is not None:
                         nav_path.unlink(missing_ok=True)
                     nav_path, nav_at = fresh, time.monotonic()
+                    nav_data, ephemeris = fresh_nav_data, fresh_ephemeris
             if nav_path is not None:
                 with _lock:
                     networks = dict(_networks)
@@ -110,7 +117,8 @@ def _worker() -> None:
                         code = str(site["code"]).lower().rstrip("_")
                         try:
                             engine.calibrate(code, llh_to_ecef(site["lat"], site["lon"], site.get("height", 0.0)),
-                                             nav_path, cutoff=cutoff)
+                                             nav_path, cutoff=cutoff, nav_data=nav_data,
+                                             ephemeris=ephemeris)
                         except Exception as exc:
                             engine.failed(code, "pytecgg_calibration_failed")
                             log.warning("%s PyTECGg unavailable for %s: %s", name, code, exc)

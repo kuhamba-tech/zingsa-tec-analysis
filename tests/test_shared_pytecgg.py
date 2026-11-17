@@ -9,11 +9,15 @@ from zgiis.processing.pytecgg_live import LivePytecgg
 
 def test_networks_use_same_calibration_cycle_cutoff_and_navigation(monkeypatch):
     calls = []
+    nav_data = object()
+    ephemeris = object()
+
     class Engine:
-        def calibrate(self, code, position, nav, *, cutoff):
-            calls.append((code, nav, cutoff))
+        def calibrate(self, code, position, nav, *, cutoff, nav_data=None, ephemeris=None):
+            calls.append((code, nav, cutoff, nav_data, ephemeris))
         def status(self, code):
             return {}
+
     monkeypatch.setattr(service, "_networks", {
         "zimbabwe": (Engine(), [{"code": "beit", "lat": -22.2, "lon": 30.0}]),
         "sansa": (Engine(), [{"code": "tdou", "lat": -23.08, "lon": 30.38}]),
@@ -21,13 +25,24 @@ def test_networks_use_same_calibration_cycle_cutoff_and_navigation(monkeypatch):
     monkeypatch.setattr(service, "_published", {})
     from zgiis.live import broadcast_ephemeris
     monkeypatch.setattr(broadcast_ephemeris, "_download_brdc", lambda *a, **k: Path("test-nav.rnx"))
+    import pytecgg.parsing
+    reads = []
+    monkeypatch.setattr(pytecgg.parsing, "read_rinex_nav", lambda nav: reads.append(nav) or nav_data)
+    preparations = []
+    monkeypatch.setattr(service, "prepare_live_ephemeris",
+                        lambda nav: preparations.append(nav) or ephemeris)
+
     def stop(_):
         raise SystemExit
+
     monkeypatch.setattr(service.time, "sleep", stop)
     with pytest.raises(SystemExit):
         service._worker()
     assert len(calls) == 2
     assert calls[0][1:] == calls[1][1:]
+    assert reads == [Path("test-nav.rnx")]
+    assert preparations == [nav_data]
+    assert calls[0][3:] == calls[1][3:] == (nav_data, ephemeris)
     assert set(service._published) == {"zimbabwe", "sansa"}
 
 
