@@ -9648,3 +9648,51 @@ a.home-map-layer-btn {
   .chart-date-range input { width: 100%; }
   .chart-date-range .btn { width: 100%; min-height: 44px; }
 }
+
+/* Keep map controls and dense station results usable across screen sizes. */
+.home-map-toolbar-left,
+.home-tec-network,
+.home-tec-network-methods > div { min-width: 0; }
+.home-map-toolbar-summary { overflow-wrap: anywhere; }
+.home-map-layer-btn { min-height: 40px; touch-action: manipulation; }
+.home-live-tec-below-stations {
+  max-height: 15rem;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
+  padding: 0.25rem;
+}
+.home-live-tec-station { max-width: 100%; overflow-wrap: anywhere; }
+
+@media (max-width: 768px) {
+  .app-topbar {
+    height: calc(52px + env(safe-area-inset-top, 0px));
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-left: max(0.75rem, env(safe-area-inset-left, 0px));
+    padding-right: max(0.75rem, env(safe-area-inset-right, 0px));
+  }
+  .app-main {
+    padding-top: calc(52px + env(safe-area-inset-top, 0px) + 1rem);
+    padding-bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px));
+  }
+  .app-topbar-title { white-space: normal; line-height: 1.25; }
+  .home-map-toolbar-center {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    justify-content: flex-start;
+    padding: 0.25rem 0.2rem 0.6rem;
+    scroll-padding-inline: 0.2rem;
+    scrollbar-width: thin;
+  }
+  .home-map-toolbar-center > * { flex-shrink: 0; }
+  .home-map-layer-btn { min-height: 44px; }
+  .home-live-tec-below-stations { max-height: 11rem; }
+  .home-tec-network-methods strong { overflow-wrap: anywhere; }
+  .app-main :where(input, select, textarea) { font-size: max(16px, 1em); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-sidebar,
+  .home-map-layer-btn { transition: none; }
+}

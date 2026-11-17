@@ -9,6 +9,7 @@ import { getTecMethodComparison, getTrigNet } from "@/lib/api";
 import { idwFillByStation, stationCodeKey, type LatLonSite } from "@/lib/idwSurface";
 import { measuredLiveTec } from "@/lib/measuredLiveTec";
 import { trigNetTecReading } from "@/lib/trignetTec";
+import { startVisiblePolling } from "@/lib/visiblePolling";
 import { heatmapQualityBanner, icaoTecLabel, icaoTecLevel, inferHeatmapQuality } from "@/lib/icaoTecAdvisory";
 import type { ProposedCorsSite } from "@/lib/corsGeneticOptimizer";
 import type { Station, TecHeatmapResponse, TrigNetResponse } from "@/lib/types";
@@ -238,7 +239,7 @@ export default function CorsMapWithLayers({
     if (!trignetActive) return;
     let cancelled = false;
     const load = () => {
-      getTrigNet()
+      return getTrigNet()
         .then((payload) => {
           if (!cancelled) setTrignet(payload);
         })
@@ -246,11 +247,10 @@ export default function CorsMapWithLayers({
           if (!cancelled) setTrignet(null);
         });
     };
-    load();
-    const timer = window.setInterval(load, 20_000);
+    const stop = startVisiblePolling(load, 20_000);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      stop();
     };
   }, [trignetActive]);
 
@@ -331,7 +331,7 @@ export default function CorsMapWithLayers({
     if (!tecLayerActive && !trignetActive) return;
     let cancelled = false;
     const load = () => {
-      getTecMethodComparison(2, undefined, 300, 45_000)
+      return getTecMethodComparison(2, undefined, 300, 45_000)
         .then((res) => {
           if (cancelled) return;
           const map: Record<string, number> = {};
@@ -355,12 +355,10 @@ export default function CorsMapWithLayers({
         });
     };
     // Gg labels are extra. Let station markers and the TEC grid use the API first.
-    const start = window.setTimeout(load, 5_000);
-    const id = window.setInterval(load, 90_000);
+    const stop = startVisiblePolling(load, 90_000, 5_000);
     return () => {
       cancelled = true;
-      window.clearTimeout(start);
-      window.clearInterval(id);
+      stop();
     };
   }, [tecLayerActive, trignetActive]);
 
@@ -536,7 +534,7 @@ export default function CorsMapWithLayers({
           </div>
         </div>
 
-        <div className="home-map-toolbar-center">
+        <div className="home-map-toolbar-center" role="group" aria-label="Map layers">
           {showLayerSwitcher && (
             <>
               <span className="home-map-layer-label">Map Layer</span>
@@ -558,6 +556,7 @@ export default function CorsMapWithLayers({
                       setLayer(l);
                     }}
                     className={`home-map-layer-btn${active ? " is-active" : ""}`}
+                    aria-pressed={active}
                   >
                     {l}
                   </button>
@@ -791,7 +790,8 @@ export default function CorsMapWithLayers({
                     </div>
                   ))}
                 </div>
-                <div className="home-live-tec-below-stations">
+                <div className="home-live-tec-below-stations" tabIndex={0} role="region"
+                  aria-label={`${network.title} station readings`}>
                   {network.lines.length
                     ? network.lines.map((line) => <span className="home-live-tec-station" key={line}>{line}</span>)
                     : "Waiting for fresh station measurements."}

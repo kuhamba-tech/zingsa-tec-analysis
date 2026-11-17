@@ -30,19 +30,15 @@ const CorsMapWithLayers = dynamic(
 );
 
 function useCorsMapHeight(preferred = 440): number {
-  const [height, setHeight] = useState(() => {
-    if (typeof window === "undefined") return preferred;
-    const w = window.innerWidth;
-    if (w <= 560) return 360;
-    if (w <= 768) return 400;
-    return preferred;
-  });
+  const [height, setHeight] = useState(preferred);
 
   useEffect(() => {
     const apply = () => {
       const w = window.innerWidth;
-      if (w <= 560) setHeight(360);
-      else if (w <= 768) setHeight(400);
+      // Leave room for navigation and layer controls on landscape phones.
+      const mobileHeight = Math.max(220, Math.floor(window.innerHeight * 0.55));
+      if (w <= 560) setHeight(Math.min(360, mobileHeight));
+      else if (w <= 768) setHeight(Math.min(400, mobileHeight));
       else setHeight(preferred);
     };
     apply();

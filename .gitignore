@@ -1,6 +1,7 @@
 # Python
 .venv/
 .verification-pytecgg/
+.verification-ui/
 venv/
 env/
 __pycache__/
