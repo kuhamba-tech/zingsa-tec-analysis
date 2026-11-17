@@ -11,6 +11,7 @@ import { measuredLiveTec } from "@/lib/measuredLiveTec";
 import { trigNetTecReading } from "@/lib/trignetTec";
 import { startVisiblePolling } from "@/lib/visiblePolling";
 import { trignetCache } from "@/lib/trignetCache";
+import { TRIGNET_CATALOG } from "@/lib/trignetCatalog";
 import { heatmapQualityBanner, icaoTecLabel, icaoTecLevel, inferHeatmapQuality } from "@/lib/icaoTecAdvisory";
 import type { ProposedCorsSite } from "@/lib/corsGeneticOptimizer";
 import type { Station, TecHeatmapResponse, TrigNetResponse } from "@/lib/types";
@@ -220,7 +221,7 @@ export default function CorsMapWithLayers({
   const [showTelone, setShowTelone] = useState(true);
   const [showDemographics, setShowDemographics] = useState(true);
   const [measuredGg, setMeasuredGg] = useState<Record<string, number>>({});
-  const [trignet, setTrignet] = useState<TrigNetResponse | null>(() => trignetCache.peek());
+  const [trignet, setTrignet] = useState<TrigNetResponse | null>(() => trignetCache.peek() ?? TRIGNET_CATALOG);
 
   useEffect(() => {
     if (!availableLayers.includes(layer)) {
@@ -246,7 +247,7 @@ export default function CorsMapWithLayers({
           if (!cancelled) setTrignet(payload);
         })
         .catch(() => {
-          if (!cancelled) setTrignet(null);
+          if (!cancelled) setTrignet(trignetCache.peek() ?? TRIGNET_CATALOG);
         });
     };
     // Warm station locations before the user switches layers. Reuse the cache
