@@ -14,6 +14,57 @@ STR;Lsma-SB;Lsma-SB;RTCM 3.1;1004;2;GPS+GLO;TrigNet;ZAF;28.55;29.76;0;0;Trimble;
 """
 
 
+def test_stream_start_does_not_wait_for_database(monkeypatch):
+    from unittest.mock import Mock
+    from zgiis.cors import trignet
+    from zgiis.live import ntrip_stream, satellite_geometry, stec_vtec, pytecgg_service, broadcast_ephemeris
+    from zgiis.db import timescale
+
+    monkeypatch.setattr(trignet, "_LIVE_MANAGER", None)
+    monkeypatch.setattr(trignet, "_LIVE_PIPELINE", None)
+    monkeypatch.setattr(trignet, "_PYTECGG", None)
+    monkeypatch.setattr(trignet, "_configured_caster", lambda: {"host": "example.test"})
+    monkeypatch.setattr(trignet, "_fetch_sourcetable_text", lambda **_: SAMPLE)
+    monkeypatch.delenv("TRIGNET_NTRIP_MOUNTPOINTS", raising=False)
+    db = Mock(side_effect=RuntimeError("database offline"))
+    monkeypatch.setattr(timescale, "TecDB", db)
+    manager = Mock()
+    monkeypatch.setattr(ntrip_stream, "LiveNtripManager", Mock(return_value=manager))
+    monkeypatch.setattr(satellite_geometry, "LiveNavCache", Mock())
+    pipeline = Mock()
+    constructor = Mock(return_value=pipeline)
+    monkeypatch.setattr(stec_vtec, "LiveVtecPipeline", constructor)
+    monkeypatch.setattr(pytecgg_service, "register_network", Mock())
+    monkeypatch.setattr(broadcast_ephemeris, "start_refresh_thread", Mock())
+    thread = Mock()
+    monkeypatch.setattr(trignet.threading, "Thread", thread)
+
+    trignet._start_live_streams()
+
+    manager.start.assert_called_once()
+    db.assert_not_called()
+    assert "db" not in constructor.call_args.kwargs
+    assert thread.call_args.kwargs["target"] is trignet._connect_live_archive
+
+
+def test_live_archive_retries_and_attaches_after_recovery(monkeypatch):
+    from unittest.mock import Mock
+    from zgiis.cors import trignet
+    from zgiis.db import timescale
+
+    recovered = Mock()
+    factory = Mock(side_effect=[RuntimeError("database offline"), recovered])
+    monkeypatch.setattr(timescale, "TecDB", factory)
+    pause = Mock()
+    monkeypatch.setattr(trignet.time, "sleep", pause)
+    pipeline = Mock()
+
+    trignet._connect_live_archive(pipeline)
+
+    pause.assert_called_once_with(30)
+    pipeline.set_database.assert_called_once_with(recovered)
+
+
 def test_parse_keeps_single_bases_and_orders_north_first():
     rows = parse_sourcetable(SAMPLE)
     assert [row["code"] for row in rows] == ["TDOU", "PRET", "LSMA"]
@@ -75,7 +126,8 @@ def test_station_response_does_not_wait_for_rinex_ftp(monkeypatch):
     monkeypatch.setattr(trignet, "_DAY", {"at": 0.0, "day": None})
     monkeypatch.setattr(trignet, "latest_rinex_day", lambda: (_ for _ in ()).throw(AssertionError("FTP must stay in background")))
     payload = trignet.status()
-    assert payload["station_count"] == 3
+    assert payload["station_count"] == 6  # Three TrigNet, Ghanzi, Senegal and Ghana.
+    assert payload["unlocated_stations"][0]["mountpoint"] == "SurveyWorldBotswana"
     assert payload["rinex_day"] is None
     assert "password" not in payload and "username" not in payload
 

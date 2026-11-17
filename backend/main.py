@@ -52,8 +52,10 @@ from backend.routers import (
 
 
 def _background_services_enabled() -> bool:
-    raw = os.getenv("ZGIIS_BACKGROUND_SERVICES", "").strip().lower()
-    return raw in {"1", "true", "yes", "on"}
+    raw = os.getenv("ZGIIS_BACKGROUND_SERVICES")
+    if raw is None:
+        return True
+    return raw.strip().lower() not in {"0", "false", "no", "off"}
 
 
 @asynccontextmanager

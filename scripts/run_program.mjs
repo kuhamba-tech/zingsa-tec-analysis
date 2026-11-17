@@ -133,7 +133,8 @@ async function main() {
       root,
       "API :8000",
       {
-        // Warm NOAA/solar caches in background so the first dashboard APIs stay fast.
+        // Default local startup to live CORS/status polling so the dashboard
+        // reflects real network connectivity instead of an always-off line item.
         ZGIIS_BACKGROUND_SERVICES: process.env.ZGIIS_BACKGROUND_SERVICES || "1",
         // Defer heavy NTRIP ingest briefly so boot HTTP stays responsive.
         ZGIIS_LIVE_START_DELAY_SEC: process.env.ZGIIS_LIVE_START_DELAY_SEC || "15",

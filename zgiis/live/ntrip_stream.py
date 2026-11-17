@@ -264,6 +264,7 @@ class StationStream(threading.Thread):
         nav_cache=None,
         max_session_s: Optional[float] = None,
         hold_back: Optional[Callable[[], bool]] = None,
+        ntrip_version: str = "2",
     ):
         super().__init__(name=f"ntrip-{station}", daemon=True)
         self.station = station
@@ -274,6 +275,7 @@ class StationStream(threading.Thread):
         self._pass = password
         self._on_record = on_record
         self._tls = use_tls
+        self._ntrip_version = str(ntrip_version)
         self._reconnect_delay = reconnect_delay
         self._max_reconnect_delay = max_reconnect_delay
         # Caps how many StationStreams hold an open caster connection at once —
@@ -398,11 +400,12 @@ class StationStream(threading.Thread):
         raw = socket.create_connection((self._host, self._port), timeout=10)
         sock = ssl.create_default_context().wrap_socket(raw, server_hostname=self._host) if self._tls else raw
         token = base64.b64encode(f"{self._user}:{self._pass}".encode()).decode()
+        v1 = self._ntrip_version == "1"
         request = (
-            f"GET /{self._mp} HTTP/1.1\r\n"
+            f"GET /{self._mp} HTTP/{'1.0' if v1 else '1.1'}\r\n"
             f"Host: {self._host}:{self._port}\r\n"
-            f"Ntrip-Version: Ntrip/2.0\r\n"
-            f"User-Agent: ZGIIS-Live/1.0\r\n"
+            + ("" if v1 else "Ntrip-Version: Ntrip/2.0\r\n")
+            + f"User-Agent: NTRIP ZGIIS-Live/1.0\r\n"
             f"Authorization: Basic {token}\r\n\r\n"
         )
         sock.sendall(request.encode())
@@ -413,6 +416,8 @@ class StationStream(threading.Thread):
             if not chunk:
                 raise ConnectionError("Empty response from caster")
             header += chunk
+            if v1 and header == b"ICY 200 OK\r\n":
+                break
             if len(header) > 16384:
                 sock.close()
                 raise ConnectionError("Caster response headers exceed 16 KiB")
@@ -584,6 +589,7 @@ class LiveNtripManager:
                 nav_cache=self._nav_cache,
                 max_session_s=self._max_session_s,
                 hold_back=(lambda code=station: hold_back(code)) if hold_back else None,
+                ntrip_version=str(self._cfg.get("ntrip_version", "2")),
             )
             self._streams[station] = s
             s.start()

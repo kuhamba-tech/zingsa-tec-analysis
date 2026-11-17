@@ -539,6 +539,10 @@ def start_trignet_tec() -> None:
     threading.Thread(target=_worker, daemon=True, name="trignet-tec").start()
     threading.Thread(target=_start_live_streams, daemon=True, name="trignet-live").start()
     threading.Thread(target=_publish_live_status, daemon=True, name="trignet-publish").start()
+    from zgiis.cors.botswana import start as start_botswana
+    start_botswana()
+    from zgiis.cors.west_africa import start as start_west_africa
+    start_west_africa()
 
 
 def _publish_live_status() -> None:
@@ -554,6 +558,22 @@ def _publish_live_status() -> None:
         time.sleep(20)
 
 
+def _connect_live_archive(pipeline) -> None:
+    """Database outages must not prevent the caster from streaming observations."""
+    from zgiis.db.timescale import TecDB
+
+    while True:
+        try:
+            db = TecDB()
+        except Exception:
+            log.warning("Live TEC archive unavailable; streams continue, retrying in 30 seconds")
+            time.sleep(30)
+            continue
+        pipeline.set_database(db)
+        log.info("Live TEC archive connected")
+        return
+
+
 def _start_live_streams() -> None:
     """Use the separate SANSA account for actual RTCM observations."""
     global _LIVE_MANAGER, _LIVE_PIPELINE, _PYTECGG
@@ -563,7 +583,6 @@ def _start_live_streams() -> None:
     from zgiis.live.ntrip_stream import LiveNtripManager
     from zgiis.live.satellite_geometry import LiveNavCache
     from zgiis.live.stec_vtec import LiveVtecPipeline
-    from zgiis.db.timescale import TecDB
     from zgiis.live.broadcast_ephemeris import start_refresh_thread
     from zgiis.live.pytecgg_service import register_network, calibration_session_seconds
 
@@ -579,8 +598,7 @@ def _start_live_streams() -> None:
                 nav.set_receiver_location(row["code"], row["lat"], row["lon"])
             # Persist raw observations so the shared daily receiver sigma-min
             # estimator can fit each SANSA receiver independently, as in Zimbabwe.
-            pipeline = LiveVtecPipeline(nav_cache=nav, db=TecDB(),
-                                        db_flush_n=5)
+            pipeline = LiveVtecPipeline(nav_cache=nav, db_flush_n=5)
             _PYTECGG = register_network("sansa", rows)
             def on_observation(obs):
                 _PYTECGG.ingest(obs)
@@ -595,6 +613,8 @@ def _start_live_streams() -> None:
             _LIVE_PIPELINE = pipeline
             _LIVE_MANAGER = manager
             manager.start({r["code"].lower(): r["mountpoint"] for r in rows})
+            threading.Thread(target=_connect_live_archive, args=(pipeline,),
+                             daemon=True, name="trignet-live-archive").start()
             start_refresh_thread(nav, interval_s=3600)
         except Exception:
             log.warning("South Africa live-stream startup failed; retrying in 30 seconds")
@@ -682,6 +702,13 @@ def status() -> dict[str, Any]:
             "samples": saved.get("samples") if fresh else 0,
             "gg_samples": gg_result.get("gg_samples", 0) if gg_value is not None else 0,
         })
+    from zgiis.cors.botswana import status as botswana_status
+    botswana = botswana_status(gg_networks)
+    from zgiis.cors.west_africa import status as west_africa_status
+    regional = botswana + west_africa_status(gg_networks)
+    stations.extend(row for row in regional if row["location_known"])
+    ready += sum(row["vtec"] is not None for row in regional)
+    gg_ready += sum(row["gg_vtec"] is not None for row in regional)
     note = (
         "South African single-base CORS from TrigNet and the configured SANSA caster. "
         "G is GOPI code TEC. Gg is PyTECGg 1.3.0 on raw GPS code/phase observations with navigation. "
@@ -710,4 +737,5 @@ def status() -> dict[str, Any]:
         "pytecgg_networks": gg_networks,
         "note": note,
         "stations": stations,
+        "unlocated_stations": [row for row in botswana if not row["location_known"]],
     }

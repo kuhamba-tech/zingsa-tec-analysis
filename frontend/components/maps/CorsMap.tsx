@@ -50,9 +50,9 @@ const ZIMBABWE_CENTER: [number, number] = [29.5, -19.0];
 const ZIMBABWE_ZOOM = 6.2;
 const GLOBAL_TEC_CENTER: [number, number] = [0, 0];
 const GLOBAL_TEC_ZOOM = 2;
-/** Zimbabwe through South Africa, so both CORS networks sit in one frame. */
-const TRIGNET_CENTER: [number, number] = [26.5, -25.2];
-const TRIGNET_ZOOM = 4.65;
+/** West and southern African partner networks in one initial frame. */
+const TRIGNET_CENTER: [number, number] = [10.0, -10.0];
+const TRIGNET_ZOOM = 2.7;
 /** Whole-Earth dip equator, with Zimbabwe still inside the frame. */
 const GEOMAGNETIC_CENTER: [number, number] = [0, 0];
 const GEOMAGNETIC_ZOOM = 2;
@@ -213,10 +213,14 @@ function formatDualTecLabel(code: string, gopi: number | null, gg: number | null
   return id;
 }
 
-function formatGeomagneticLabel(code: string, gopi: number | null): string {
+function formatGeomagneticLabel(code: string, gopi: number | null, gg: number | null = null): string {
   const key = code.toLowerCase().replace(/_+$/, "");
-  // ZINGSA HQ sits in Harare. At world scale it is the station the label should name.
-  const id = key === "zinh" ? "HARARE" : code.toUpperCase();
+  // Keep station identity distinct from the highlighted Gutu station.
+  const id = key === "ghanzibw1" ? "GHANZI · BOTSWANA" : key === "zinh" ? "HARARE" : code.toUpperCase();
+  if (key === "kstd" && gg != null) return `${id} Gg ${gg.toFixed(1)}`;
+  if (["simo", "herg", "hnus"].includes(key)) {
+    return [id, gopi != null ? `G ${gopi.toFixed(1)}` : null, gg != null ? `Gg ${gg.toFixed(1)}` : null].filter(Boolean).join("\n");
+  }
   return gopi != null ? `${id} G ${gopi.toFixed(1)}` : id;
 }
 
@@ -225,7 +229,7 @@ function geomagneticLabelRank(station: { code?: string; status?: string; status_
   if (!station) return 9;
   const code = String(station.code ?? "").toLowerCase().replace(/_+$/, "");
   const status = getLiveStationStatus(station as Station);
-  if (code === "zinh") return 0;
+  if (code === "gutu") return 0;
   if (status === "online") return 1;
   if (status === "offline" || status === "unavailable") return 4;
   return 2;
@@ -293,7 +297,7 @@ export default function CorsMap({
   const onStationSelectRef = useRef(onStationSelect);
   /** Tracks layer used for the last view animation — ignore heatmap-only updates. */
   const viewLayerRef = useRef<MapLayer | null>(null);
-  /** TrigNet must frame Zimbabwe and South Africa once the map exists. */
+  /** TrigNet must frame the African partner networks once the map exists. */
   const trigNetFramedRef = useRef(false);
   const [selected, setSelected] = useState<Station | null>(null);
   const [globalTecSrc, setGlobalTecSrc] = useState<string | null>(null);
@@ -374,7 +378,7 @@ export default function CorsMap({
       const liveStatus = getLiveStationStatus(s);
       const connected = liveStatus === "online";
       const measuredTec = connected ? stationTecValue(s, heatmapRef.current) : null;
-      const measuredGg = connected ? stationGgValue(s, ggByStationRef.current) : null;
+      const measuredGg = connected || geomagnetic ? stationGgValue(s, ggByStationRef.current) : null;
       const tecValue = measuredTec;
       const ggValue = measuredGg;
       const trigTec =
@@ -399,11 +403,16 @@ export default function CorsMap({
           : "#00ff88"
         : STATUS_COLOR[liveStatus];
       const dualTec = (showTecLabels || trigNet) && (labelG != null || labelGg != null);
-      const harareLabel = stationKey(s.code) === "zinh";
+      const gutuLabel = stationKey(s.code) === "gutu";
+      const botswanaLabel = stationKey(s.code) === "ghanzibw1";
+      const kstdLabel = stationKey(s.code) === "kstd";
+      const capeCode = stationKey(s.code);
+      const capeLabel = ["simo", "herg", "hnus"].includes(capeCode);
+      const alwaysVisible = geomagnetic && (gutuLabel || botswanaLabel || kstdLabel || capeLabel);
       const label = geomagnetic
-        ? !harareLabel && (liveStatus === "offline" || liveStatus === "unavailable")
+        ? !alwaysVisible && (liveStatus === "offline" || liveStatus === "unavailable")
           ? ""
-          : formatGeomagneticLabel(s.code, liveStatus === "online" ? tecValue : null)
+          : formatGeomagneticLabel(s.code, liveStatus === "online" ? tecValue : null, ggValue)
         : trigNet
         ? labelG == null && labelGg == null && connected
           ? `${s.code.toUpperCase()}\nTEC pending`
@@ -424,6 +433,7 @@ export default function CorsMap({
         new Style({
           zIndex: geomagnetic ? 100 - geomagneticLabelRank(s) * 10 : undefined,
           image: new Circle({
+            declutterMode: alwaysVisible ? "none" : undefined,
             radius: isHighlight ? baseRadius + 3 : baseRadius,
             fill: new Fill({ color: markerColor }),
             stroke: new Stroke({
@@ -432,8 +442,10 @@ export default function CorsMap({
             }),
           }),
           text: new Text({
+            declutterMode: alwaysVisible ? "none" : undefined,
             text: label,
-            offsetY: geomagnetic ? -16 : dualLines ? (narrowMap ? -22 : -30) : trigTec != null || (showTecLabels && !networkMode) ? -22 : -14,
+            offsetX: geomagnetic ? botswanaLabel ? -12 : capeCode === "simo" ? -18 : capeLabel ? 18 : 0 : 0,
+            offsetY: geomagnetic ? capeCode === "hnus" ? 32 : capeCode === "herg" ? -32 : kstdLabel ? 20 : -16 : dualLines ? (narrowMap ? -22 : -30) : trigTec != null || (showTecLabels && !networkMode) ? -22 : -14,
             fill: new Fill({ color: "#fff" }),
             stroke: new Stroke({ color: "#000", width: narrowMap ? 2 : 3 }),
             font: dualLines
@@ -443,7 +455,7 @@ export default function CorsMap({
               : showTecLabels && !networkMode
                 ? "bold 11px sans-serif"
                 : "bold 10px sans-serif",
-            textAlign: "center",
+            textAlign: geomagnetic && (botswanaLabel || capeCode === "simo") ? "right" : geomagnetic && capeLabel ? "left" : "center",
           }),
         }),
       );

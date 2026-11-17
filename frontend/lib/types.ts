@@ -411,6 +411,9 @@ export interface ScientificDiscussion {
 
 // ── CORS Network ──────────────────────────────────────────────────────────────
 export interface TrigNetStation {
+  country?: string;
+  network?: string;
+  connection_status?: string;
   raw_code_vtec?: number | null;
   raw_code_vtec_time?: string | null;
   tec_diagnostics?: { last_vtec_at?: string | null; last_code_vtec_at?: string | null };
@@ -439,6 +442,7 @@ export interface TrigNetStation {
 }
 
 export interface TrigNetResponse {
+  unlocated_stations?: Array<Omit<TrigNetStation, "lat" | "lon"> & { lat: null; lon: null }>;
   pytecgg_networks?: Record<string, Record<string, import("./pytecggReading").PytecggReading>>;
   collector_age_s?: number;
   source: string;

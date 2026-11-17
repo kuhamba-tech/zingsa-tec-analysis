@@ -21,6 +21,9 @@ export function createTrigNetCache(persist = false) {
       tec_ready: age > 180 ? 0 : cached.payload.tec_ready,
       gg_ready: age > 180 ? 0 : cached.payload.gg_ready,
       pytecgg_networks: age > 180 ? {} : cached.payload.pytecgg_networks,
+      unlocated_stations: cached.payload.unlocated_stations?.map(row => ({
+        ...row, ...(age > 90 ? { connected: false, streaming: false } : {}),
+      })),
       stations: cached.payload.stations.map(row => ({
         ...row,
         ...(age > 90 ? { connected: false, streaming: false } : {}),

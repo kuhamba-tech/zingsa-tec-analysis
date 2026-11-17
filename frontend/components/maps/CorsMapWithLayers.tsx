@@ -12,6 +12,7 @@ import { trigNetTecReading } from "@/lib/trignetTec";
 import { startVisiblePolling } from "@/lib/visiblePolling";
 import { trignetCache } from "@/lib/trignetCache";
 import { TRIGNET_CATALOG } from "@/lib/trignetCatalog";
+import westAfricaCatalog from "@/lib/westAfricaCorsCatalog.json";
 import { freshPytecggReading } from "@/lib/pytecggReading";
 import { heatmapQualityBanner, icaoTecLabel, icaoTecLevel, inferHeatmapQuality } from "@/lib/icaoTecAdvisory";
 import type { ProposedCorsSite } from "@/lib/corsGeneticOptimizer";
@@ -19,7 +20,7 @@ import type { Station, TecHeatmapResponse, TrigNetResponse } from "@/lib/types";
 import { igrf14Epoch } from "@/lib/geomagneticEquator";
 import { anomalyReading, dipLatitudeDeg } from "@/lib/igrf14Dip";
 import { IONOLAB_IONOSPHERE_URL, IONOSPHERE_REGIONS } from "@/lib/tecPrimer";
-import { getLiveStationStatus, isSurveyorGeneral, type LiveStationCounts } from "@/lib/liveStationStatus";
+import { countLiveStationStatuses, getLiveStationStatus, isSurveyorGeneral, type LiveStationCounts } from "@/lib/liveStationStatus";
 
 const StationVtecTimePlots = dynamic(
   () => import("@/components/charts/StationVtecTimePlots"),
@@ -229,7 +230,7 @@ export default function CorsMapWithLayers({
   const hasTrigNet = availableLayers.includes("TrigNet");
 
   useEffect(() => {
-    if (!hasTrigNet && !tecLayerActive) return;
+    if (!hasTrigNet && !tecLayerActive && !geomagneticLayerActive) return;
     let cancelled = false;
     const load = () => {
       return getTrigNet()
@@ -242,12 +243,13 @@ export default function CorsMapWithLayers({
     };
     // Warm station locations before the user switches layers. Reuse the cache
     // across maps/routes; refresh faster only while the layer is selected.
-    const stop = startVisiblePolling(load, trignetActive || tecLayerActive ? 20_000 : 60_000, trignetActive || tecLayerActive ? 0 : 1500);
+    const active = trignetActive || tecLayerActive || geomagneticLayerActive;
+    const stop = startVisiblePolling(load, active ? 5_000 : 60_000, active ? 0 : 1500);
     return () => {
       cancelled = true;
       stop();
     };
-  }, [trignetActive, hasTrigNet, tecLayerActive]);
+  }, [trignetActive, hasTrigNet, tecLayerActive, geomagneticLayerActive]);
 
   const trignetStations = useMemo<Station[]>(() => {
     const trigCodes = new Set((trignet?.stations ?? []).map((row) => row.code.toLowerCase()));
@@ -263,7 +265,7 @@ export default function CorsMapWithLayers({
         constellations: row.constellations,
         current_tec: reading?.value ?? null,
         tec_provisional: reading?.provisional ?? false,
-        site_server: row.stream_configured ? "SANSA" : "TrigNet",
+        site_server: row.country === "BWA" ? "RTK2go" : row.country === "SEN" ? "Centipede" : row.country === "GHA" ? "IGS" : row.stream_configured ? "SANSA" : "TrigNet",
         last_update: reading?.observedAt,
         height_m: null,
         mountpoint: row.mountpoint,
@@ -283,6 +285,22 @@ export default function CorsMapWithLayers({
       });
     return [...zimbabwe, ...trig];
   }, [trignet, stations, heatmap]);
+
+  const geomagneticStations = useMemo(() => {
+    const partnerCodes = new Set((trignet?.stations ?? [])
+      .filter(row => row.country === "SEN" || row.country === "BWA" || ["kstd", "simo", "herg", "hnus"].includes(stationCodeKey(row.code)))
+      .map(row => stationCodeKey(row.code)));
+    const combined = new Map(stations
+      .filter(station => ["gutu", "gokw"].includes(stationCodeKey(station.code)))
+      .map(station => [stationCodeKey(station.code), station]));
+    for (const station of trignetStations) {
+      if (partnerCodes.has(stationCodeKey(station.code))) combined.set(stationCodeKey(station.code), station);
+    }
+    return [...combined.values()];
+  }, [stations, trignet, trignetStations]);
+  const displayedCounts = useMemo(() => geomagneticLayerActive
+    ? countLiveStationStatuses(geomagneticStations, 0) : liveCounts,
+  [geomagneticLayerActive, geomagneticStations, liveCounts]);
 
   const trignetGg = useMemo(() => {
     const map: Record<string, number> = {};
@@ -371,14 +389,20 @@ export default function CorsMapWithLayers({
   }, [trignetGg, ggByStation, stations, trignet]);
 
   const trignetNetworkSummaries = useMemo(() => {
-    const southAfricanCodes = new Set((trignet?.stations ?? []).map((row) => stationCodeKey(row.code)));
+    const countries = new Map((trignet?.stations ?? []).map(row => [stationCodeKey(row.code), row.country ?? "ZAF"]));
     const valid = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value > 0;
     const range = (values: number[]) => values.length ? `${Math.min(...values).toFixed(1)}–${Math.max(...values).toFixed(1)}` : null;
     return [
-      { title: "Zimbabwe CORS", southAfrican: false },
-      { title: "South Africa · TrigNet / SANSA CORS", southAfrican: true },
+      { title: "Zimbabwe CORS", country: "ZWE" },
+      { title: "South Africa · TrigNet / SANSA CORS", country: "ZAF" },
+      { title: "Botswana · RTK2go CORS", country: "BWA" },
+      { title: "Senegal · Centipede CORS", country: "SEN" },
+      { title: "Ghana · IGS CORS", country: "GHA" },
     ].map((network) => {
-      const sites = trignetStations.filter((station) => southAfricanCodes.has(stationCodeKey(station.code)) === network.southAfrican);
+      const sites = trignetStations.filter((station) => {
+        const code = stationCodeKey(station.code);
+        return (countries.get(code) ?? "ZWE") === network.country;
+      });
       const gopi = sites.map((station) => station.current_tec).filter(valid);
       const gg = sites.map((station) => trignetGgCombined[stationCodeKey(station.code)]).filter(valid);
       const lines = sites.flatMap((station) => {
@@ -433,7 +457,7 @@ export default function CorsMapWithLayers({
   const liveLabel = stationsLoading
     ? "NTRIP probe running…"
     : ntripProbedAt || stations.length > 0
-      ? `Online ${liveCounts.online} · Offline ${liveCounts.offline}${liveCounts.unavailable > 0 ? ` · Unavailable ${liveCounts.unavailable}` : ""}`
+      ? `Online ${displayedCounts.online} · Offline ${displayedCounts.offline}${displayedCounts.unavailable > 0 ? ` · Unavailable ${displayedCounts.unavailable}` : ""}`
       : "Live stream status";
 
   const sourcetableMismatches = stations.filter((s) => s.sourcetable_mismatch);
@@ -470,7 +494,7 @@ export default function CorsMapWithLayers({
               {networkDistancesActive
                 ? "CORS Network Distances — Zimbabwe"
                 : trignetActive
-                  ? "TrigNet + Zimbabwe CORS"
+                  ? "African CORS · TrigNet and partner networks"
                   : geomagneticLayerActive
                     ? "Equatorial anomaly — magnetic equator and crests"
                     : "Zimbabwe CORS Network"}
@@ -478,8 +502,8 @@ export default function CorsMapWithLayers({
           </div>
           <div className="home-map-toolbar-summary">
             {trignetActive
-              ? `${trignet?.station_count ?? "…"} TrigNet · ${trignet?.stations.filter((row) => row.streaming).length ?? 0} streaming / ${trignet?.stations.filter((row) => row.stream_configured).length ?? 0} configured · SANSA calculated TEC ${trignetStations.filter((row) => row.site_server === "SANSA" && row.current_tec != null).length} · ${stations.length} Zimbabwe · G ${trignetHeatmap?.station_count ?? 0} · Gg ${Object.keys(trignetGgCombined).length}`
-              : `${liveCounts.total} stations · ${liveLabel}`}
+              ? `${trignet?.station_count ?? "…"} TrigNet · ${trignet?.stations.filter((row) => row.streaming).length ?? 0} streaming / ${trignet?.stations.filter((row) => row.stream_configured).length ?? 0} configured · SANSA calculated TEC ${trignetStations.filter((row) => row.site_server === "SANSA" && (row.current_tec != null || trignetGg[row.code] != null)).length} · ${stations.length} Zimbabwe · G ${trignetHeatmap?.station_count ?? 0} · Gg ${Object.keys(trignetGgCombined).length}`
+              : `${displayedCounts.total} stations · ${liveLabel}`}
             {networkDistancesActive && (showTelone || showDemographics) && (
               <p className="home-map-tec-note">
                 {showTelone
@@ -548,12 +572,12 @@ export default function CorsMapWithLayers({
       >
         <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
         <CorsMap
-          stations={trignetActive ? trignetStations : stations}
+          stations={trignetActive ? trignetStations : geomagneticLayerActive ? geomagneticStations : stations}
           height={height}
           layer={layer}
           basemap={basemap}
           heatmap={trignetActive ? trignetHeatmap : heatmap}
-          ggByStation={trignetActive ? trignetGgCombined : tecLayerActive ? ggByStation : {}}
+          ggByStation={trignetActive || geomagneticLayerActive ? trignetGgCombined : tecLayerActive ? ggByStation : {}}
           proposedCorsSites={networkDistancesActive ? proposedCorsSites : []}
           showTeloneCentres={networkDistancesActive && showTelone}
           showDemographics={networkDistancesActive && showDemographics}
@@ -699,9 +723,9 @@ export default function CorsMapWithLayers({
               </>
             )}
             <div className="map-status-note" style={{ fontSize: "0.62rem", fontWeight: 400, color: "var(--text-muted)", marginTop: "0.15rem", maxWidth: "210px" }}>
-              {trignetActive ? "South African green markers have recent RTCM data or fresh TEC. Grey-blue markers have no recent measurements. Connections rotate across the configured sites. Zimbabwe status comes from Spider. " : "Live from Spider Site Status"}
-              {liveCounts.online + liveCounts.offline > 0
-                ? ` (Status=${liveCounts.online} online)`
+              {trignetActive ? "Partner network green markers have recent RTCM data or fresh TEC. Grey-blue markers have no recent measurements. Connections rotate across the configured sites. Zimbabwe status comes from Spider. " : geomagneticLayerActive ? "Zimbabwe: Spider Site Status. Senegal and Botswana: live NTRIP." : "Live from Spider Site Status"}
+              {displayedCounts.online + displayedCounts.offline > 0
+                ? ` (Status=${displayedCounts.online} online)`
                 : ""}
               . Green = online, red = offline, grey = Surveyor General. Click a marker for Details.
               {" "}
@@ -734,7 +758,34 @@ export default function CorsMapWithLayers({
       </div>
 
       {geomagneticLayerActive && (
-        <GeomagneticCorsTable stations={stations} heatmap={heatmap} />
+        <GeomagneticCorsTable stations={geomagneticStations} heatmap={heatmap} />
+      )}
+      {trignetActive && (
+        <section className="card" aria-label="Senegal and Ghana stations" style={{ marginTop: "1rem", padding: "1rem" }}>
+          <h3>Senegal and Ghana</h3>
+          <ul>
+            {westAfricaCatalog.map(site => {
+              const row = trignet?.stations.find(row => row.mountpoint === site.mountpoint);
+              const state = row?.streaming ? "Streaming" : row?.connected ? "Connected; waiting for observations" : row?.stream_configured ? "Connecting" : site.country === "SEN" ? "Connecting to public Centipede stream" : "IGS account credentials required";
+              return <li key={site.code}><strong>{site.name} · {site.mountpoint}</strong> — {site.caster_host}:{site.caster_port} · {state}</li>;
+            })}
+          </ul>
+          <p>Senegal uses the public Centipede login. Ghana requires an IGS account; the RTK2go email alone does not grant access.</p>
+        </section>
+      )}
+      {trignetActive && (
+        <section className="card" aria-label="Botswana RTK2go stations" style={{ marginTop: "1rem", padding: "1rem" }}>
+          <h3>Botswana · RTK2go</h3>
+          <p>rtk2go.com:2101 · NTRIP V1 · Username: your valid email · Password: none</p>
+          <ul>
+            {[{ mount: "GHANZIBW1", location: "Ghanzi · −21.74000, 21.70000" },
+              { mount: "SurveyWorldBotswana", location: "Coordinates unknown · not plotted on the map; TEC needs receiver coordinates" }].map(site => {
+              const row = [...(trignet?.stations ?? []), ...(trignet?.unlocated_stations ?? [])].find(row => row.mountpoint === site.mount);
+              const state = row?.streaming ? "Streaming" : row?.connected ? "Connected; waiting for observations" : row?.stream_configured ? "Connecting" : "Waiting for RTK2go email configuration";
+              return <li key={site.mount}><strong>{site.mount}</strong> — {site.location} · {state}</li>;
+            })}
+          </ul>
+        </section>
       )}
 
       {trignetActive && (
@@ -768,7 +819,7 @@ export default function CorsMapWithLayers({
             ))}
           </div>
           <div className="home-live-tec-below-updated">
-            Both networks use the same code-TEC formula. G* marks a calculated raw estimate that has not passed the shared display screening; these estimates are excluded from the interpolated heat layer. Receiver and satellite code biases are not corrected. Readings expire after 10 minutes; TEC pending means usable measurements are not yet available.
+            All networks use the same code-TEC formula. G* marks a calculated raw estimate that has not passed the shared display screening; these estimates are excluded from the interpolated heat layer. Receiver and satellite code biases are not corrected. Readings expire after 10 minutes; TEC pending means usable measurements are not yet available.
           </div>
         </div>
       )}

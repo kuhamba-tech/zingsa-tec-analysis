@@ -419,6 +419,11 @@ class LiveVtecPipeline:
                 if len(self._pending) >= self._flush_n:
                     self.flush_db()
 
+    def set_database(self, db) -> None:
+        """Attach an archive after startup without interrupting live observations."""
+        with self._pending_lock:
+            self._db = db
+
     def flush_db(self) -> None:
         """Force-flush any remaining records to the database."""
         with self._pending_lock:

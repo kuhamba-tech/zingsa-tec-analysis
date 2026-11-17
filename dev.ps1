@@ -49,16 +49,10 @@ if (-not (Test-Path $venvPython)) {
 Write-Host "Starting backend (uvicorn) on port $BackendPort..."
 $backendLog = Join-Path $projectRoot "backend-dev.log"
 $backendErrLog = Join-Path $projectRoot "backend-dev.err.log"
-# NOTE: ZGIIS_BACKGROUND_SERVICES=1 would start the local live NTRIP pipeline
-# (backend/main.py's lifespan) so CORS Connected reads real numbers instead
-# of always 0/24 -- tried this, but it opens ~24+ concurrent connections to
-# the SAME shared Supabase pooler that scripts/live_ntrip_collector.py's
-# always-on Task Scheduler job and production Vercel traffic also use.
-# In testing this exhausted the pooler (Postgres connect timeouts, requests
-# hanging 280s+) rather than just being locally slow. Leave this OFF for
-# local dev -- the standalone collector (already running via the
-# ZGIIS-NTRIP-Collector scheduled task) is the correct always-on source for
-# live station status; don't duplicate live ingestion here too.
+# Default local startup to live CORS/network polling so the dashboard reflects
+# real connectivity instead of leaving the station count stuck at 0/19. A
+# caller can still opt out with `$env:ZGIIS_BACKGROUND_SERVICES=0`.
+$env:ZGIIS_BACKGROUND_SERVICES = "1"
 Start-Process -FilePath $venvPython `
     -ArgumentList "-m", "uvicorn", "backend.main:app", "--host", "127.0.0.1", "--port", "$BackendPort" `
     -WorkingDirectory $projectRoot `

@@ -1,0 +1,4 @@
+[
+  {"code":"NKHR","name":"NKHR, Senegal","mountpoint":"NKHR","country":"SEN","network":"senegal","lat":14.479,"lon":-16.404,"height":0,"constellations":["GPS","GLO","GAL","BDS"],"format":"RTCM 3","caster_host":"crtk.net","caster_port":2101,"source_url":"https://docs.centipede.fr/"},
+  {"code":"ACRG00GHA0","name":"Accra, Ghana","mountpoint":"ACRG00GHA0","country":"GHA","network":"ghana","lat":5.641472,"lon":-0.207111,"height":83.4,"constellations":["GPS","GLO","GAL"],"format":"RTCM 3.3","caster_host":"igs-ip.net","caster_port":2101,"source_url":"https://network.igs.org/ACRG00GHA"}
+]
