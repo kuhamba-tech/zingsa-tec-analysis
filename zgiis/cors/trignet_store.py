@@ -17,6 +17,25 @@ DDL = """CREATE TABLE IF NOT EXISTS trignet_live_snapshot (
 
 
 def save_snapshot(payload: dict) -> bool:
+    # Publish through HTTPS without competing with background jobs for SQL slots.
+    base = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
+    key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+    if base.startswith("https://") and key:
+        try:
+            import requests
+
+            response = requests.post(
+                f"{base}/rest/v1/trignet_live_snapshot",
+                params={"on_conflict": "id"},
+                headers={"apikey": key, "Authorization": f"Bearer {key}",
+                         "Prefer": "resolution=merge-duplicates,return=minimal"},
+                json={"id": 1, "saved_at": time.time(), "payload": payload},
+                timeout=5,
+            )
+            response.raise_for_status()
+            return True
+        except Exception:
+            log.warning("TrigNet HTTPS snapshot writer unavailable; trying SQL")
     conn = None
     try:
         conn = checkout(database_dsn())
