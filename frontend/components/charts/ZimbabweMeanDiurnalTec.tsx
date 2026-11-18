@@ -282,7 +282,7 @@ export default function ZimbabweMeanDiurnalTec({
     setDayChoice(day);
     if (calendar && !analysisDomain) calendar.setDay(day === "all" || day === "latest" ? "" : day);
   };
-  const [region, setRegion] = useState<RegionChoice>(null);
+  const [region, setRegion] = useState<RegionChoice>(analysisDomain ? "all" : null);
   const [explainOpen, setExplainOpen] = useState(false);
 
   useEffect(() => {
@@ -658,7 +658,8 @@ export default function ZimbabweMeanDiurnalTec({
                 key={choice.id}
                 type="button"
                 className={region === choice.id ? "active" : ""}
-                onClick={() => setRegion(current => current === choice.id ? null : choice.id)}
+                aria-pressed={region === choice.id}
+                onClick={() => setRegion(current => !analysisDomain && current === choice.id ? null : choice.id)}
               >
                 {choice.label}
               </button>

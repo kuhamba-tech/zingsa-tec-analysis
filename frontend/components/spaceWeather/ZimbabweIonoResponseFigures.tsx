@@ -300,6 +300,8 @@ export default function ZimbabweIonoResponseFigures({
                 },
                 y2: {
                   position: "right",
+                  min: -45,
+                  max: 25,
                   title: { display: true, text: "Dst [nT]", color: "#f8fafc" },
                   ticks: { color: "#f8fafc" },
                   grid: { drawOnChartArea: false },

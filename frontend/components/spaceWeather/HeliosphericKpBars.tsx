@@ -123,7 +123,7 @@ export default function HeliosphericKpBars({
     const low = Math.min(...values, 0);
     const high = Math.max(...values, 0);
     const pad = Math.max(10, Math.round((high - low) * 0.2));
-    const min = Math.floor((low - pad) / 10) * 10;
+    const min = Math.min(-45, Math.floor((low - pad) / 10) * 10);
     const max = Math.ceil((high + pad) / 10) * 10;
     return min === max ? { min: min - 20, max: max + 20 } : { min, max };
   }, [dstAligned]);
