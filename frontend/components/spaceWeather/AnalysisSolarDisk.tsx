@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { getSolarArchiveDay, type SolarArchiveDay } from "@/lib/api";
 import { startVisiblePolling } from "@/lib/visiblePolling";
 
@@ -26,7 +26,7 @@ function nearestFrame(frames: ArchiveFrame[] | undefined, time: number) {
   return frame;
 }
 
-function SolarArchivePanel({ channel, frame, regions, flare, status }: {
+const SolarArchivePanel = memo(function SolarArchivePanel({ channel, frame, regions, flare, status }: {
   channel: 131 | 193;
   frame?: ArchiveFrame;
   regions?: SolarArchiveDay["regions"];
@@ -51,7 +51,7 @@ function SolarArchivePanel({ channel, frame, regions, flare, status }: {
       {showImage ? <>
         {/* eslint-disable-next-line @next/next/no-img-element -- SDO serves timestamped archive JPEGs. */}
         <img key={frame.url} src={frame.url} alt={`SDO AIA ${channel} Å solar disk recorded ${utcLabel(frame.time)}`}
-          width={size} height={size} decoding="async" onError={() => setFailedImage(frame.url)}
+          width={size} height={size} decoding="async" fetchPriority="high" onError={() => setFailedImage(frame.url)}
           style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />
         {channel === 193 && <svg viewBox="0 0 100 100" aria-hidden="true"
           style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }}>
@@ -88,7 +88,7 @@ function SolarArchivePanel({ channel, frame, regions, flare, status }: {
       AIA {channel} Å · {showImage ? utcLabel(frame.time) : "Frame unavailable"}
     </figcaption>
   </figure>;
-}
+});
 
 export default function AnalysisSolarDisk({ time, peaks, selectedFlare, onPick, onArchive }: {
   time: number;

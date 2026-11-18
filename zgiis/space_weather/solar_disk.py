@@ -178,18 +178,19 @@ def _add_live_edited_regions(flares: list[dict[str, Any]], payload: str) -> None
 def _load_solar_archive(day: date, cache_slot: int) -> dict[str, Any]:
     folder = f"{day:%Y/%m}"
     stamp = day.strftime("%Y%m%d")
-    with ThreadPoolExecutor(max_workers=3) as pool:
+    recent = 0 <= (datetime.now(timezone.utc).date() - day).days <= 7
+    with ThreadPoolExecutor(max_workers=5) as pool:
         listing = pool.submit(_archive_text, f"{BROWSE_ROOT}/{day:%Y/%m/%d}/")
         events = pool.submit(_archive_text, f"{_NOAA_DAILY}/solar_event_reports/{folder}/{stamp}events.txt")
         regions = pool.submit(_archive_text, f"{_NOAA_DAILY}/solar_region_summaries/{folder}/{stamp}SRS.txt")
+        report = events.result()
+        goes = pool.submit(_archive_text, _NOAA_GOES_FLARES) if recent and not report else None
+        edited = pool.submit(_archive_text, _NOAA_EDITED_EVENTS) if recent and not report else None
         frames = _aia_archive_frames(day, listing.result())
         summary = regions.result()
         parsed = parse_solar_region_summary(summary)
-        report = events.result()
         flares = _flare_regions(day, report, summary)
-        if not report and 0 <= (datetime.now(timezone.utc).date() - day).days <= 7:
-            goes = pool.submit(_archive_text, _NOAA_GOES_FLARES)
-            edited = pool.submit(_archive_text, _NOAA_EDITED_EVENTS)
+        if not report and recent and goes is not None and edited is not None:
             flares = _recent_goes_flare_times(day, goes.result())
             _add_live_edited_regions(flares, edited.result())
         payload = {

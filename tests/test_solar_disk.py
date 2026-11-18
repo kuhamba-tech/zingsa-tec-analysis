@@ -1,6 +1,7 @@
 """NOAA region numbers land on the visible solar disk."""
 
 import json
+import threading
 from datetime import datetime, timedelta, timezone
 
 from zgiis.space_weather.solar_disk import _latest_image, newest_continuum_frame, parse_solar_region_summary
@@ -42,6 +43,34 @@ def test_recent_goes_supplies_end_time_if_edited_report_is_unavailable(monkeypat
     assert recovered["edited_report_available"] is True
     assert recovered["flare_regions"][0]["region"] == 4578
     solar_disk._load_solar_archive.cache_clear()
+
+
+def test_recent_archive_starts_live_flare_feeds_while_sdo_listing_loads(monkeypatch):
+    day = datetime.now(timezone.utc).date()
+    listing_started = threading.Event()
+    fallback_started = threading.Event()
+    listing_timed_out = threading.Event()
+
+    def archive_text(url: str) -> str:
+        if url.endswith("/"):
+            listing_started.set()
+            if not fallback_started.wait(timeout=2):
+                listing_timed_out.set()
+            return ""
+        if url in (solar_disk._NOAA_GOES_FLARES, solar_disk._NOAA_EDITED_EVENTS):
+            fallback_started.set()
+            return "[]" if url == solar_disk._NOAA_GOES_FLARES else ""
+        return ""
+
+    solar_disk._load_solar_archive.cache_clear()
+    monkeypatch.setattr(solar_disk, "_archive_text", archive_text)
+    payload = solar_disk.solar_archive_day(day)
+
+    assert listing_started.is_set()
+    assert not listing_timed_out.is_set()
+    assert payload["edited_report_available"] is False
+    solar_disk._load_solar_archive.cache_clear()
+
 
 SRS = """
 :Issued: 2026 Oct 31 0030 UTC

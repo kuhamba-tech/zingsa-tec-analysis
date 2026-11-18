@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import dynamic from "next/dynamic";
 import { getGfzKpAnalysis, getHeliosphericMonitor, getLiveVtecByStation, type SolarArchiveDay } from "@/lib/api";
 import { peekHeliosphericMonitor } from "@/lib/heliosphericStore";
@@ -15,11 +15,13 @@ import { readFlarePeak } from "@/lib/flareEruption";
 import { SOLAR_WIND_SPEED_SCALE } from "@/lib/spaceWeatherMetrics";
 import AnalysisSolarDisk from "./AnalysisSolarDisk";
 import flareTable from "./FlareActivityTable.module.css";
+import styles from "./StormAnalysis.module.css";
 import { buildNetworkMeanVtecSeries, nearestReading, referenceTec, type AnalysisPoint } from "@/lib/stormAnalysis";
 import type { HeliosphericMonitorResponse, LiveStationVtecSeries } from "@/lib/types";
 
 const LineChart = dynamic(() => loadLineChart().then(module => module.default), { ssr: false });
-const SolarFlareMonthChart = dynamic(() => import("./SolarFlareMonthChart"), { ssr: false });
+const SolarFlareMonthChart = memo(dynamic(() => import("./SolarFlareMonthChart"), { ssr: false }));
+const FLARE_COLUMNS = ["Solar flare", "Region of origin", "Start time (UT)", "End time (UT)", "Peak time (UT)", "Duration (min)"];
 
 function flareTime(value: unknown): number {
   if (typeof value !== "string" || !value) return NaN;
@@ -55,21 +57,22 @@ function SelectedFlareTable({ time, events, archive }: {
     .sort((a, b) => Math.abs(time - a.peak) - Math.abs(time - b.peak))[0];
   const clock = (ms: number) => Number.isFinite(ms) ? new Date(ms).toISOString().slice(11, 16) : "–";
   const tones: Record<string, string> = { C: flareTable.flareC, M: flareTable.flareM, X: flareTable.flareX };
-  return <div className={flareTable.eventsScroll} style={{ margin: ".75rem 0 1rem" }}>
+  return <div className={`${flareTable.eventsScroll} ${styles.flareTable}`} style={{ margin: ".75rem 0 1rem" }}>
     <table className={flareTable.eventsTable} aria-label="Flare at the pink analysis marker">
       <thead><tr>
-        {["Solar flare", "Region of origin", "Start time (UT)", "End time (UT)", "Peak time (UT)", "Duration (min)"]
-          .map(heading => <th key={heading} scope="col">{heading}</th>)}
+        {FLARE_COLUMNS.map(heading => <th key={heading} scope="col">{heading}</th>)}
       </tr></thead>
-      <tbody>{selected ? <tr>
-        <td><span className={`${flareTable.flare} ${tones[selected.label[0]]}`}>{selected.label}</span></td>
-        <td><span className={selected.region ? flareTable.region : flareTable.regionEmpty}>{selected.region ?? "–"}</span></td>
-        <td className={flareTable.clock}>{clock(selected.start)}</td>
-        <td className={flareTable.clock}>{clock(selected.end)}</td>
-        <td className={flareTable.clock}>{clock(selected.peak)}</td>
-        <td className={flareTable.clock}>{selected.end >= selected.start
-          ? Math.round((selected.end - selected.start) / 6000) / 10 : "–"}</td>
-      </tr> : <tr><td colSpan={6}>No cataloged C-, M-, or X-class flare at the selected time.</td></tr>}</tbody>
+      <tbody role="rowgroup">{selected ? <tr role="row">
+        {[
+          <span key="class" className={`${flareTable.flare} ${tones[selected.label[0]]}`}>{selected.label}</span>,
+          <span key="region" className={selected.region ? flareTable.region : flareTable.regionEmpty}>{selected.region ?? "–"}</span>,
+          clock(selected.start), clock(selected.end), clock(selected.peak),
+          selected.end >= selected.start ? Math.round((selected.end - selected.start) / 6000) / 10 : "–",
+        ].map((value, index) => (
+          <td key={FLARE_COLUMNS[index]} role="cell" data-label={FLARE_COLUMNS[index]}
+            className={index > 1 ? flareTable.clock : undefined}>{value}</td>
+        ))}
+      </tr> : <tr role="row"><td role="cell" colSpan={6}>No cataloged C-, M-, or X-class flare at the selected time.</td></tr>}</tbody>
     </table>
   </div>;
 }
@@ -254,7 +257,7 @@ export default function StormAnalysis({
     if (distance > 5 * 60_000) return closest;
     return !closest || distance < Math.abs(closest.x - selectedTime) ? peak : closest;
   }, null);
-  const pick = (time: number) => setPicked(Math.round(time / 60000) * 60000);
+  const pick = useCallback((time: number) => setPicked(Math.round(time / 60000) * 60000), []);
   const changeEndDay = (day: string) => {
     const midnight = Date.parse(`${day}T00:00:00Z`);
     if (!Number.isFinite(midnight)) return;
@@ -405,7 +408,7 @@ export default function StormAnalysis({
 
   return <section className="card" aria-label="Storm analysis">
     <h2>Analysis · Sun–Earth–ionosphere</h2>
-    <div style={{ display: "flex", gap: ".75rem", flexWrap: "wrap" }}>
+    <div className={styles.controls}>
       <label>End UTC day <input type="date" value={endDay} max={today} onChange={event => changeEndDay(event.target.value)} /></label>
       <label>Window <select value={days} onChange={event => setDays(Number(event.target.value))}>{[1, 3, 7].map(value => <option key={value} value={value}>{value} day(s)</option>)}</select></label>
       <label>Station code <input value={station} maxLength={12} onChange={event => setStation(event.target.value.replace(/[^a-zA-Z0-9_]/g, "").toLowerCase())} /></label>
@@ -416,9 +419,9 @@ export default function StormAnalysis({
     {(error || tecError || referenceError) && <p role="status">{[error, tecError, referenceError].filter(Boolean).join(" ")}</p>}
     {loading && <p role="status">Loading station archive…</p>}
     <p>Pink analysis marker: <strong>{new Date(selectedTime).toISOString().replace("T", " ").replace("Z", " UTC")}</strong></p>
-    <details style={{ margin: "1rem 0" }}><summary>Fine time adjustment</summary>
+    <details className={styles.fineTime}><summary>Fine time adjustment</summary>
     <label style={{ display: "block" }}>Move the analysis time
-      <input aria-label="Move pink analysis marker" type="range" min={domain.min} max={domain.max - 60000} step={60000} value={Math.min(selectedTime, domain.max - 60000)} onChange={event => pick(Number(event.target.value))} style={{ width: "100%", accentColor: "#ff00d4" }} />
+      <input aria-label="Move pink analysis marker" type="range" min={domain.min} max={domain.max - 60000} step={60000} value={Math.min(selectedTime, domain.max - 60000)} onChange={event => pick(Number(event.target.value))} />
     </label></details>
     <p>Drag the continuous pink line or its arrow to move the marker through the shared UTC timeline. Focus the line and use the arrow keys for fine adjustment. The regional daily TEC chart plots all measured days in the window by default.</p>
     <div style={{ marginBottom: "1rem" }}>

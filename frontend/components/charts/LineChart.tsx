@@ -729,8 +729,14 @@ export default function LineChart({
                     includeBounds: true,
                     font: { size: 10 },
                     callback: formatXTick
-                      ? (value) => {
-                          const label = formatXTick(typeof value === "number" ? value : Number(value));
+                      ? function (value) {
+                          const time = Number(value);
+                          const label = formatXTick(time);
+                          if (label && xMajorStepMs && xMin != null && xMax != null && this.chart.width < 520 && !label.includes("\n")) {
+                            const availableLabels = Math.max(2, Math.floor((this.chart.width - 100) / 65));
+                            const stride = Math.max(1, Math.ceil((xMax - xMin) / xMajorStepMs / availableLabels));
+                            if (Math.round(time / xMajorStepMs) % stride !== 0) return "";
+                          }
                           // Multi-line ticks: `00:00` then `18 Sep 2026` underneath.
                           if (label.includes("\n")) return label.split("\n");
                           return label;
