@@ -233,7 +233,7 @@ class LiveVtecPipeline:
         nav_cache=None,
         ipp_height_km: float = _IPP_KM,
         elevation_mask_deg: float = _ELEV_MASK,
-        db_flush_n: int = 50,
+        db_flush_n: int | None = 50,
         outbox=None,
     ):
         self._acc = LiveVtecAccumulator(ipp_height_km, elevation_mask_deg)
@@ -243,6 +243,7 @@ class LiveVtecPipeline:
         self._outbox = outbox
         self._pending: list[dict] = outbox.replay() if outbox else []
         self._pending_lock = threading.RLock()
+        self._write_lock = threading.Lock()
         self._flush_n = db_flush_n
         self._latest: dict[str, dict] = {}
         self._recent: dict[str, deque] = defaultdict(lambda: deque(maxlen=_RECENT_VTEC_MAX))
@@ -416,8 +417,9 @@ class LiveVtecPipeline:
                 if self._outbox:
                     self._outbox.stage(vtec)
                 self._pending.append(vtec)
-                if len(self._pending) >= self._flush_n:
-                    self.flush_db()
+                flush_due = self._flush_n is not None and len(self._pending) >= self._flush_n
+            if flush_due:
+                self.flush_db()
 
     def set_database(self, db) -> None:
         """Attach an archive after startup without interrupting live observations."""
@@ -426,13 +428,17 @@ class LiveVtecPipeline:
 
     def flush_db(self) -> None:
         """Force-flush any remaining records to the database."""
-        with self._pending_lock:
-            if self._db and self._pending:
+        with self._write_lock:
+            with self._pending_lock:
+                db = self._db
+                batch = self._pending[:1000] if self._flush_n is None else self._pending.copy()
+            if db and batch:
                 try:
-                    written = self._db.insert_vtec(self._pending)
-                    if written == len(self._pending):
-                        if self._outbox:
-                            self._outbox.acknowledge(self._pending)
-                        self._pending.clear()
+                    written = db.insert_vtec(batch)
+                    if written == len(batch):
+                        with self._pending_lock:
+                            if self._outbox:
+                                self._outbox.acknowledge(batch)
+                            del self._pending[:len(batch)]
                 except Exception as exc:
                     log.warning("DB flush error: %s", exc)

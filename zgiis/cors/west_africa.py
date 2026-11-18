@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -11,6 +12,13 @@ SITES = json.loads((Path(__file__).resolve().parents[2] / "frontend/lib/westAfri
 _lock = threading.Lock()
 _networks: dict[str, tuple] = {}
 _earthscope_inputs: tuple | None = None
+
+
+def _write_earthscope_archive(pipeline, connect) -> None:
+    connect(pipeline)
+    while True:
+        pipeline.flush_db()
+        time.sleep(2)
 
 
 def configuration(site: dict) -> dict | None:
@@ -54,11 +62,13 @@ def start(*, sites: list[dict] | None = None) -> None:
             shared = _earthscope_inputs if earthscope else None
             if shared is None:
                 nav = LiveNavCache()
-                pipeline = LiveVtecPipeline(nav_cache=nav, db_flush_n=100 if earthscope else 5)
+                pipeline = LiveVtecPipeline(nav_cache=nav, db_flush_n=None if earthscope else 5)
                 if earthscope:
                     _earthscope_inputs = nav, pipeline
                 start_refresh_thread(nav)
-                threading.Thread(target=_connect_live_archive, args=(pipeline,),
+                target = _write_earthscope_archive if earthscope else _connect_live_archive
+                args = (pipeline, _connect_live_archive) if earthscope else (pipeline,)
+                threading.Thread(target=target, args=args,
                                  daemon=True, name=f"{name}-live-archive").start()
             else:
                 nav, pipeline = shared

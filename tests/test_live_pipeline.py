@@ -219,6 +219,34 @@ def test_pipeline_flush_db_on_pending():
     assert pipeline._pending == []
 
 
+def test_archive_write_releases_pending_lock_until_batch_finishes():
+    import threading
+
+    writing = threading.Event()
+    finish = threading.Event()
+
+    class SlowDB:
+        def insert_vtec(self, rows):
+            writing.set()
+            return len(rows) if finish.wait(3) else 0
+
+    pipeline = LiveVtecPipeline(db=SlowDB(), db_flush_n=None)
+    pipeline._pending.append({"station": "rubo"})
+    worker = threading.Thread(target=pipeline.flush_db)
+    worker.start()
+    try:
+        assert writing.wait(2)
+        assert pipeline._pending_lock.acquire(timeout=1)
+        try:
+            pipeline._pending.append({"station": "cn64"})
+        finally:
+            pipeline._pending_lock.release()
+    finally:
+        finish.set()
+        worker.join(timeout=3)
+    assert pipeline._pending == [{"station": "cn64"}]
+
+
 def test_llh_to_ecef_reasonable_magnitude():
     ecef = llh_to_ecef(-17.78, 31.05, 1525.0)
     assert np.linalg.norm(ecef) > 6.3e6
