@@ -126,7 +126,7 @@ def test_station_response_does_not_wait_for_rinex_ftp(monkeypatch):
     monkeypatch.setattr(trignet, "_DAY", {"at": 0.0, "day": None})
     monkeypatch.setattr(trignet, "latest_rinex_day", lambda: (_ for _ in ()).throw(AssertionError("FTP must stay in background")))
     payload = trignet.status()
-    assert payload["station_count"] == 6  # Three TrigNet, Ghanzi, Senegal and Ghana.
+    assert payload["station_count"] == 23  # Also includes five equatorial IGS and four northern-crest sites.
     assert payload["unlocated_stations"][0]["mountpoint"] == "SurveyWorldBotswana"
     assert payload["rinex_day"] is None
     assert "password" not in payload and "username" not in payload

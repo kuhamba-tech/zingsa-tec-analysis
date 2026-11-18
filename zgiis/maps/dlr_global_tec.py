@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -285,14 +286,52 @@ def persist_global_tec_samples(snapshot: dict[str, Any]) -> int:
         return 0
 
 
+def _global_tec_https_rows(since: str) -> list[dict[str, Any]]:
+    """Read the sparse DLR archive without consuming a SQL pooler session."""
+    base = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
+    key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+    if not base.startswith("https://") or not key:
+        return []
+    rows: list[dict[str, Any]] = []
+    try:
+        for offset in range(0, 10000, 1000):
+            response = requests.get(
+                f"{base}/rest/v1/vtec_obs",
+                params={"select": "station,time,vtec_tecu,tec_method",
+                        "tec_method": f"eq.{DLR_TEC_METHOD}", "time": f"gte.{since}",
+                        "order": "time.asc,station.asc", "offset": offset, "limit": 1000},
+                headers={"apikey": key, "Authorization": f"Bearer {key}"}, timeout=5,
+            )
+            response.raise_for_status()
+            batch = response.json()
+            if not isinstance(batch, list):
+                return []
+            rows.extend(batch)
+            if len(batch) < 1000:
+                break
+        return rows
+    except Exception:
+        log.warning("DLR historical HTTPS read failed")
+        return []
+
+
 def query_global_tec_series(*, hours: float = 6.0) -> list[dict[str, Any]]:
     """Return logged DLR Global TEC samples grouped by station."""
+    since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
     try:
         from backend.live_manager import get_db
 
-        df = get_db().query_recent(hours=hours)
+        db = get_db()
+        placeholder = "%s" if db._is_pg else "?"
+        df = db._read_sql(
+            f"SELECT station, time, vtec_tecu, tec_method FROM vtec_obs "
+            f"WHERE tec_method = {placeholder} AND time >= {placeholder} ORDER BY time",
+            [DLR_TEC_METHOD, since],
+        )
     except Exception:
-        return []
+        import pandas as pd
+
+        df = pd.DataFrame(_global_tec_https_rows(since))
     if df is None or getattr(df, "empty", True):
         return []
     if "tec_method" not in df.columns:
@@ -440,14 +479,25 @@ def refresh_and_query_global_tec(*, hours: float = 6.0, latest_only: bool = Fals
             "latest": snapshot.get("stations") or [],
             "message": snapshot.get("message"),
         }
-    snapshot = cached_global_tec_snapshot(points)
-    inserted = 0
     series = query_global_tec_series(hours=hours)
+    if series:
+        # A historical graph must not wait for today's external download.
+        _schedule_global_tec_refresh(points)
+        epoch = max(row["points"][-1]["time"] for row in series)
+        return {
+            "available": True, "epoch": epoch,
+            "source": "DLR IMPC 1h forecast Global TEC", "inserted": 0,
+            "stations": series,
+            "latest": [{"station": row["station"], "vtec_tecu": row["latest_vtec"]}
+                       for row in series if row["points"][-1]["time"] == epoch],
+            "message": None,
+        }
+    snapshot = cached_global_tec_snapshot(points)
     return {
         "available": bool(series) or bool(snapshot.get("available")),
         "epoch": snapshot.get("epoch"),
         "source": snapshot.get("source") or "DLR IMPC 1h forecast Global TEC",
-        "inserted": inserted,
+        "inserted": 0,
         "stations": series,
         "latest": snapshot.get("stations") or [],
         "message": snapshot.get("message"),

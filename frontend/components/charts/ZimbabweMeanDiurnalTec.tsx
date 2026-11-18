@@ -328,7 +328,9 @@ export default function ZimbabweMeanDiurnalTec({
         if (!cancelled) applyGlobal(payload);
       })
       .catch(() => null);
-    getGlobalVtecByStation(24)
+    // Match the multi-day observation view, including the oldest day's midnight.
+    // Refresh only the recent tail after the initial history has loaded.
+    getGlobalVtecByStation(refresh > 0 ? 24 : 192)
       .then((payload) => {
         if (cancelled) return;
         applyGlobal(payload);

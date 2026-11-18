@@ -13,6 +13,8 @@ import { startVisiblePolling } from "@/lib/visiblePolling";
 import { trignetCache } from "@/lib/trignetCache";
 import { TRIGNET_CATALOG } from "@/lib/trignetCatalog";
 import westAfricaCatalog from "@/lib/westAfricaCorsCatalog.json";
+import earthscopeCatalog from "@/lib/earthscopeCorsCatalog.json";
+import magneticEquatorCatalog from "@/lib/magneticEquatorCorsCatalog.json";
 import { freshPytecggReading } from "@/lib/pytecggReading";
 import { heatmapQualityBanner, icaoTecLabel, icaoTecLevel, inferHeatmapQuality } from "@/lib/icaoTecAdvisory";
 import type { ProposedCorsSite } from "@/lib/corsGeneticOptimizer";
@@ -265,7 +267,7 @@ export default function CorsMapWithLayers({
         constellations: row.constellations,
         current_tec: reading?.value ?? null,
         tec_provisional: reading?.provisional ?? false,
-        site_server: row.country === "BWA" ? "RTK2go" : row.country === "SEN" ? "Centipede" : row.country === "GHA" ? "IGS" : row.stream_configured ? "SANSA" : "TrigNet",
+        site_server: row.network?.startsWith("earthscope_") ? "EarthScope" : row.network?.startsWith("igs_") ? "IGS" : row.country === "BWA" ? "RTK2go" : row.country === "SEN" ? "Centipede" : row.country === "GHA" ? "IGS" : row.stream_configured ? "SANSA" : "TrigNet",
         last_update: reading?.observedAt,
         height_m: null,
         mountpoint: row.mountpoint,
@@ -288,10 +290,10 @@ export default function CorsMapWithLayers({
 
   const geomagneticStations = useMemo(() => {
     const partnerCodes = new Set((trignet?.stations ?? [])
-      .filter(row => row.country === "SEN" || row.country === "BWA" || ["kstd", "simo", "herg", "hnus"].includes(stationCodeKey(row.code)))
+      .filter(row => row.network?.startsWith("earthscope_") || row.network?.startsWith("igs_") || row.country === "SEN" || row.country === "BWA" || ["kstd", "simo", "herg", "hnus"].includes(stationCodeKey(row.code)))
       .map(row => stationCodeKey(row.code)));
     const combined = new Map(stations
-      .filter(station => ["gutu", "gokw"].includes(stationCodeKey(station.code)))
+      .filter(station => stationCodeKey(station.code) === "gutu")
       .map(station => [stationCodeKey(station.code), station]));
     for (const station of trignetStations) {
       if (partnerCodes.has(stationCodeKey(station.code))) combined.set(stationCodeKey(station.code), station);
@@ -398,6 +400,17 @@ export default function CorsMapWithLayers({
       { title: "Botswana · RTK2go CORS", country: "BWA" },
       { title: "Senegal · Centipede CORS", country: "SEN" },
       { title: "Ghana · IGS CORS", country: "GHA" },
+      { title: "Rwanda · EarthScope low-latitude CORS", country: "RWA" },
+      { title: "USA · EarthScope mid-latitude CORS", country: "USA" },
+      { title: "Chile · Zimbabwe geographic-latitude comparison", country: "CHL" },
+      { title: "Sri Lanka · Magnetic equator", country: "LKA" },
+      { title: "Micronesia · Magnetic equator", country: "FSM" },
+      { title: "Brazil · Magnetic equator", country: "BRA" },
+      { title: "Ethiopia · Magnetic equator", country: "ETH" },
+      { title: "Costa Rica · Northern EIA crest", country: "CRI" },
+      { title: "Grenada · Northern EIA crest", country: "GRD" },
+      { title: "Venezuela · Northern EIA crest", country: "VEN" },
+      { title: "Saint Lucia · Northern EIA crest", country: "LCA" },
     ].map((network) => {
       const sites = trignetStations.filter((station) => {
         const code = stationCodeKey(station.code);
@@ -758,7 +771,41 @@ export default function CorsMapWithLayers({
       </div>
 
       {geomagneticLayerActive && (
+        <div style={{ marginTop: "0.75rem" }}>
+          <StationVtecTimePlots networkMeanOnly stationCodes={geomagneticStations.map(station => station.code)} magneticRegionStations={geomagneticStations} />
+        </div>
+      )}
+      {geomagneticLayerActive && (
         <GeomagneticCorsTable stations={geomagneticStations} heatmap={heatmap} />
+      )}
+      {trignetActive && (
+        <section className="card" aria-label="Magnetic-equator IGS stations" style={{ marginTop: "1rem", padding: "1rem" }}>
+          <h3>IGS · Near the magnetic equator</h3>
+          <ul>
+            {magneticEquatorCatalog.map(site => {
+              const row = trignet?.stations.find(row => row.mountpoint === site.mountpoint);
+              const state = row?.streaming ? "Streaming" : row?.connected ? "Connected; waiting for observations" : row?.stream_configured ? "Connecting" : "IGS NTRIP credentials required";
+              return <li key={site.code}><strong>{site.name} · {site.mountpoint}</strong> — {state}</li>;
+            })}
+          </ul>
+          <p>These sites lie within approximately 2° of the magnetic equator in the app’s IGRF model. IGS access is separate from EarthScope.</p>
+        </section>
+      )}
+      {trignetActive && (
+        <section className="card" aria-label="EarthScope stations" style={{ marginTop: "1rem", padding: "1rem" }}>
+          <h3>EarthScope · Equatorial and mid-latitude sites</h3>
+          <p>BYAH and RUBO: low magnetic latitude, near the southern anomaly crest. ACSB and AGMT: magnetic mid-latitudes.</p>
+          <p>PCCL, FBAQ, IQQE and GTA1 in Chile share Zimbabwe’s geographic-latitude range; their magnetic latitudes differ.</p>
+          <p>ISCO, CN46, CN64 and CN47 sample the northern EIA crest region, around +15° to +17° magnetic latitude.</p>
+          <ul>
+            {earthscopeCatalog.map(site => {
+              const row = trignet?.stations.find(row => row.mountpoint === site.mountpoint);
+              const state = row?.streaming ? "Streaming" : row?.connected ? "Connected; waiting for observations" : row?.stream_configured ? "Connecting" : "EarthScope NTRIP credentials required";
+              return <li key={site.code}><strong>{site.name} · {site.mountpoint}</strong> — {state}</li>;
+            })}
+          </ul>
+          <p>Listed locations do not indicate a live connection. TEC appears only after suitable observations arrive.</p>
+        </section>
       )}
       {trignetActive && (
         <section className="card" aria-label="Senegal and Ghana stations" style={{ marginTop: "1rem", padding: "1rem" }}>

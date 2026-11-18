@@ -11,6 +11,7 @@ import type {
 } from "@/lib/types";
 import LineChart from "@/components/charts/LineChart";
 import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
+import MagneticRegionTecChart from "./MagneticRegionTecChart";
 import { idwFillByStation, type LatLonSite } from "@/lib/idwSurface";
 import { isSurveyorGeneral, ZINGSA_STATION_TOTAL } from "@/lib/liveStationStatus";
 import { runMeanVtecEkf } from "@/lib/meanVtecEkf";
@@ -565,11 +566,19 @@ interface Props {
   /** Optional title override for embedding contexts. */
   title?: string;
   className?: string;
+  /** Compact embedding of the network mean graph without station comparisons. */
+  networkMeanOnly?: boolean;
+  /** Limit the embedded mean to the map's displayed stations. */
+  stationCodes?: string[];
+  magneticRegionStations?: Station[];
 }
 
 export default function StationVtecTimePlots({
   title = "Live VTEC vs time — every CORS station",
   className,
+  networkMeanOnly = false,
+  stationCodes,
+  magneticRegionStations,
 }: Props) {
   // 24h opens today's UTC day. The day chips plot any of the last 7 days.
   const [hours, setHours] = useState<(typeof HOUR_OPTIONS)[number]>(24);
@@ -587,6 +596,7 @@ export default function StationVtecTimePlots({
   const [retry, setRetry] = useState(0);
   const seriesRef = useRef<LiveStationVtecSeries[]>([]);
   seriesRef.current = series;
+  const stationFilter = stationCodes?.map(normalizeStationCode).sort().join(",");
 
   useEffect(() => {
     let cancelled = false;
@@ -598,9 +608,10 @@ export default function StationVtecTimePlots({
       if (!background) setStatus("pending");
       try {
         const lookback = fetchHoursFor(hours, selectedDay);
+        const requestedStations = stationFilter?.split(",");
         const resample = resampleMinutesForHours(selectedDay ? 24 : hours);
         const timeoutMs = timeoutForHours(lookback);
-        const loadRows = () => getLiveVtecByStation(lookback, resample, timeoutMs, selectedDay);
+        const loadRows = () => getLiveVtecByStation(lookback, resample, timeoutMs, selectedDay, requestedStations);
         let rows: LiveStationVtecSeries[];
         try {
           rows = await loadRows();
@@ -608,12 +619,12 @@ export default function StationVtecTimePlots({
           // One retry with extra headroom — concurrent map/lab traffic can stall the first call.
           await new Promise((r) => setTimeout(r, 600));
           if (cancelled) return;
-          rows = await getLiveVtecByStation(lookback, resample, timeoutMs + 30_000, selectedDay);
+          rows = await getLiveVtecByStation(lookback, resample, timeoutMs + 30_000, selectedDay, requestedStations);
         }
         if (rows.length === 0) {
           await new Promise((r) => setTimeout(r, 800));
           if (cancelled) return;
-          rows = await getLiveVtecByStation(lookback, resample, timeoutMs + 30_000, selectedDay);
+          rows = await getLiveVtecByStation(lookback, resample, timeoutMs + 30_000, selectedDay, requestedStations);
         }
         // [] is a failed history read. A real empty day is the station catalog with no points.
         if (rows.length === 0) {
@@ -625,6 +636,8 @@ export default function StationVtecTimePlots({
         setSeries(rows);
         setError(null);
         setStatus("ok");
+
+        if (networkMeanOnly) return;
 
         const cmpHours = Math.min(hours, GG_COMPARE_HOURS_CAP);
         const [globalPayload, methodPayload, catalog] = await Promise.all([
@@ -710,12 +723,12 @@ export default function StationVtecTimePlots({
       window.clearInterval(id);
       clearTimeout(retryTimer);
     };
-  }, [hours, selectedDay, retry]);
+  }, [hours, selectedDay, retry, networkMeanOnly, stationFilter]);
 
   const loadingSlow = status === "pending" && hours >= 12;
   const networkMean = useMemo(
-    () => buildNetworkMeanSeries(series, hours, selectedDay),
-    [series, hours, selectedDay],
+    () => buildNetworkMeanSeries(stationFilter == null ? series : series.filter(row => stationFilter.split(",").includes(normalizeStationCode(row.station))), hours, selectedDay),
+    [series, hours, selectedDay, stationFilter],
   );
   const networkEkf = useMemo(() => runMeanVtecEkf(networkMean.values), [networkMean.values]);
   const networkEkfReady = networkEkf.predicted.some((value) => value != null);
@@ -848,8 +861,13 @@ export default function StationVtecTimePlots({
   }, [series, hours, selectedDay]);
   const globalReporting = useMemo(() => Object.keys(globalByStation).length, [globalByStation]);
 
+  if (magneticRegionStations) return <MagneticRegionTecChart stations={magneticRegionStations} series={series}
+    day={selectedDay} hours={hours} pending={status === "pending"} error={error}
+    onDayChange={day => { setHours(24); setSelectedDay(day); }} onRetry={() => setRetry(value => value + 1)} />;
+
   return (
-    <section className={`station-vtec-plots ${className ?? ""}`.trim()} aria-label={title} suppressHydrationWarning>
+    <section className={`station-vtec-plots ${className ?? ""}`.trim()} aria-label={networkMeanOnly ? "Network mean VTEC" : title} suppressHydrationWarning>
+      {!networkMeanOnly && <>
       <div className="station-vtec-plots-header" suppressHydrationWarning>
         <div>
           <h2 className="home-section-heading" suppressHydrationWarning>{title}</h2>
@@ -917,6 +935,7 @@ export default function StationVtecTimePlots({
         )}
       </div>
 
+      </>}
       {status === "pending" && series.length === 0 && (
         <div className="banner banner-info">
           {loadingSlow
@@ -935,7 +954,7 @@ export default function StationVtecTimePlots({
           {" "}<button className="btn" type="button" onClick={() => setRetry(value => value + 1)}>Retry station graphs</button>
         </div>
       )}
-      {status === "ok" && (
+      {!networkMeanOnly && status === "ok" && (
         <p suppressHydrationWarning className="station-vtec-plots-meta">
           {reporting} of {ZINGSA_STATION_TOTAL} stations reporting{" "}
           {selectedDay ? `on ${selectedDay} UTC (00:00–24:00)` : `in the last ${hours} h`}
@@ -970,7 +989,7 @@ export default function StationVtecTimePlots({
             <div>
               <strong>Network mean VTEC</strong>
               <span>
-                Average of stations with live GOPI samples
+                {stationCodes ? "Average of stations shown on the map above with live GOPI samples" : "Average of stations with live GOPI samples"}
                 {selectedDay ? ` on ${selectedDay} UTC, plotted across 00:00–24:00` : ` for the last ${hours} h`}.
                 Elevation below 30° and TEC outside 0–50 TECU are excluded.
                 The dashed line is the Extended Kalman Filter forecast; a one-bin jump stays on the solid line.
@@ -983,7 +1002,7 @@ export default function StationVtecTimePlots({
                 )?.toFixed(1) ?? "—"}{" "}
                 TECU
               </em>
-              <small>{networkMean.stationCount} stations</small>
+              <small>{networkMean.stationCount}{stationCodes ? ` of ${stationCodes.length} mapped` : ""} stations</small>
             </div>
           </div>
           {networkMean.values.some((value) => value != null) ? (
@@ -1045,7 +1064,7 @@ export default function StationVtecTimePlots({
         </article>
       )}
 
-      {methodCompareChart && (
+      {!networkMeanOnly && methodCompareChart && (
         <article suppressHydrationWarning
           className="card station-vtec-plot-card station-vtec-plot-card--wide"
           aria-label="GOPI vs Gg latest VTEC"
@@ -1109,7 +1128,7 @@ export default function StationVtecTimePlots({
         </article>
       )}
 
-      <div className="station-vtec-plots-grid">
+      {!networkMeanOnly && <div className="station-vtec-plots-grid">
         {orderedSeries.map((row) => {
           const code = normalizeStationCode(row.station);
           return (
@@ -1125,7 +1144,7 @@ export default function StationVtecTimePlots({
             />
           );
         })}
-      </div>
+      </div>}
     </section>
   );
 }

@@ -684,6 +684,7 @@ async def live_vtec_by_station(
     resample_minutes: int = Query(2, ge=1, le=60),
     latest_only: bool = Query(False),
     day: str | None = Query(None, max_length=10),
+    stations: str | None = Query(None, max_length=1024),
     _=Depends(require_api_key),
 ):
     """Binned live NTRIP VTEC vs time for every Zimbabwe CORS station.
@@ -697,6 +698,7 @@ async def live_vtec_by_station(
     satellite consensus. The ionosphere card uses that path so a slow chart
     query cannot blank the current station mean.
     """
+    selected_stations = tuple(sorted({code.strip().lower().rstrip("_") for code in stations.split(",") if code.strip()})) if isinstance(stations, str) else None
     if latest_only:
         global _VTEC_LATEST_CACHE
         now = time.time()
@@ -722,6 +724,8 @@ async def live_vtec_by_station(
         selected_day = ""
 
     cache_key = (selected_day or float(hours), int(resample_minutes))
+    if selected_stations is not None:
+        cache_key = (*cache_key, selected_stations)
     now = time.time()
     cache_ttl = 300.0 if (selected_day or hours >= 48) else _VTEC_BY_STATION_CACHE_TTL_S
     cached = _VTEC_BY_STATION_CACHE.get(cache_key)
@@ -738,6 +742,7 @@ async def live_vtec_by_station(
                         hours=h,
                         resample_minutes=step,
                         day=chosen or None,
+                        **({"station_codes": selected_stations} if selected_stations is not None else {}),
                     ),
                 )
             except Exception:
@@ -840,6 +845,7 @@ def _build_live_vtec_by_station(
     hours: float,
     resample_minutes: int,
     day: str | None = None,
+    station_codes: tuple[str, ...] | None = None,
 ) -> list[LiveStationVtecSeries]:
     """Binned GOPI history for the station charts.
 
@@ -855,6 +861,21 @@ def _build_live_vtec_by_station(
         s.code.lower().rstrip("_"): s
         for s in ZIMBABWE_CORS_STATIONS
     }
+    if station_codes is not None:
+        import json
+        from pathlib import Path
+        from types import SimpleNamespace
+        from zgiis.cors.botswana import SITES as botswana_sites
+        from zgiis.cors.west_africa import SITES as west_africa_sites
+        from zgiis.cors.earthscope import SITES as earthscope_sites
+        from zgiis.cors.magnetic_equator import SITES as magnetic_equator_sites
+
+        source = Path(__file__).resolve().parents[2] / "frontend/lib/southAfricaCorsCatalog.json"
+        regional = json.loads(source.read_text()) + botswana_sites + west_africa_sites + earthscope_sites + magnetic_equator_sites
+        for site in regional:
+            code = str(site["code"]).lower().rstrip("_")
+            catalog.setdefault(code, SimpleNamespace(name=site["name"]))
+        catalog = {code: station for code, station in catalog.items() if code in station_codes}
     empty = [
         LiveStationVtecSeries(station=code, name=station.name, points=[])
         for code, station in sorted(catalog.items(), key=lambda item: item[0])
@@ -883,6 +904,8 @@ def _build_live_vtec_by_station(
         else (since,)
     )
     historical_day = day_start is not None and day_start.date() < datetime.now(tz=timezone.utc).date()
+    scope_sql = " AND LOWER(RTRIM(station, '_')) = ANY(%s)" if station_codes is not None else ""
+    scope_params = (list(catalog),) if station_codes is not None else ()
     bin_rows = None
     latest_rows = None
     for dsn in dsns:
@@ -903,6 +926,7 @@ def _build_live_vtec_by_station(
                            COUNT(*) AS obs_count
                     FROM vtec_obs
                     WHERE {time_sql}
+                      {scope_sql}
                       AND vtec_tecu IS NOT NULL
                       AND vtec_tecu > 0
                       AND vtec_tecu <= 50
@@ -912,7 +936,7 @@ def _build_live_vtec_by_station(
                     GROUP BY 1, 2
                     ORDER BY 1, 2
                     """,
-                    (float(step * 60), float(step * 60), *time_params, "%code_live%"),
+                    (float(step * 60), float(step * 60), *time_params, *scope_params, "%code_live%"),
                 )
                 bin_rows = cur.fetchall()
                 if historical_day:
@@ -925,13 +949,14 @@ def _build_live_vtec_by_station(
                            AVG(vtec_tecu) AS mean_vtec
                     FROM vtec_obs
                     WHERE time >= %s
+                      {scope_sql}
                       AND vtec_tecu > 0
                       AND vtec_tecu <= 50
                       AND elevation_deg >= {ELEVATION_MIN_DEG:g}
                       AND tec_method LIKE %s
                     GROUP BY 1
                     """,
-                    (latest_since, "%code_live%"),
+                    (latest_since, *scope_params, "%code_live%"),
                 )
                 latest_rows = cur.fetchall()
             break
@@ -969,7 +994,8 @@ def _build_live_vtec_by_station(
             continue
         if not (value > 0 and value <= 50):
             continue
-        when = observed_at if isinstance(observed_at, datetime) else bucket
+        # The selected-map mean needs simultaneous bins across receivers.
+        when = bucket if station_codes is not None else observed_at if isinstance(observed_at, datetime) else bucket
         if not isinstance(when, datetime):
             continue
         stamp = _utc_iso(when)

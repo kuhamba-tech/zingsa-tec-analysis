@@ -76,6 +76,23 @@ The same tab includes Senegal's `NKHR` at `crtk.net:2101` using the public
 not grant IGS stream access. Each network uses its own stream connection and
 the shared TEC/PyTECGg pipeline; pending readings are not filled with invented TEC.
 
+The TrigNet and Geomagnetic views also list EarthScope stations BYAH and RUBO
+(Rwanda, low magnetic latitude) and ACSB and AGMT (USA, magnetic mid-latitudes).
+PCCL, FBAQ, IQQE and GTA1 in Chile provide geographic-latitude comparisons
+with Zimbabwe; they are not matches for Zimbabwe's magnetic latitude.
+ISCO (Costa Rica), CN46 (Grenada), CN64 (Venezuela) and CN47 (Saint Lucia)
+cover the northern EIA crest region at approximately +15° to +17° magnetic latitude.
+Set `EARTHSCOPE_NTRIP_USERNAME` and `EARTHSCOPE_NTRIP_PASSWORD` in `backend/.env`
+to credentials issued by EarthScope for an active streaming licence, then
+restart the backend. Connections use NTRIP V2 and TLS at
+`ntrip.earthscope.org:3101`. A directory listing does not prove the local stream
+is connected; TEC stays empty until suitable raw observations are available.
+
+Magnetic-equator comparison sites SGOC (Sri Lanka), POHN (Micronesia), POVE
+and NAUS (Brazil), and ADIS (Ethiopia) use the IGS caster at `igs-ip.net:2101`.
+They share the `IGS_NTRIP_USERNAME` and `IGS_NTRIP_PASSWORD` settings with Ghana.
+EarthScope credentials are not used on the IGS caster.
+
 ## Supabase database
 
 Supabase is the recommended hosted Postgres replacement for the live ZGIIS app.

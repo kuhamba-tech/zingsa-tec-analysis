@@ -13,6 +13,14 @@ _networks: dict[str, tuple] = {}
 
 
 def configuration(site: dict) -> dict | None:
+    if site.get("provider") == "earthscope":
+        username = os.getenv("EARTHSCOPE_NTRIP_USERNAME", "").strip()
+        password = os.getenv("EARTHSCOPE_NTRIP_PASSWORD", "")
+        if not username or not password:
+            return None
+        return {"host": site["caster_host"], "port": site["caster_port"],
+                "connection": "TLS", "ntrip_version": "2",
+                "username": username, "password": password}
     if site["country"] == "SEN":
         return {"host": site["caster_host"], "port": site["caster_port"],
                 "username": "centipede", "password": "centipede"}
@@ -24,7 +32,7 @@ def configuration(site: dict) -> dict | None:
             "username": username, "password": password}
 
 
-def start() -> None:
+def start(*, sites: list[dict] | None = None) -> None:
     if os.getenv("VERCEL"):
         return
     from zgiis.live.ntrip_stream import LiveNtripManager
@@ -35,7 +43,7 @@ def start() -> None:
     from zgiis.cors.trignet import _connect_live_archive
 
     with _lock:
-        for site in SITES:
+        for site in SITES if sites is None else sites:
             name = site["network"]
             config = configuration(site)
             if name in _networks or config is None:
@@ -56,11 +64,11 @@ def start() -> None:
                              daemon=True, name=f"{name}-live-archive").start()
 
 
-def status(networks: dict) -> list[dict]:
+def status(networks: dict, *, sites: list[dict] | None = None) -> list[dict]:
     rows = []
     with _lock:
         running = dict(_networks)
-    for site in SITES:
+    for site in SITES if sites is None else sites:
         key, name = site["code"].lower(), site["network"]
         manager, pipeline = running.get(name, (None, None))
         link = manager.status().get(key, {}) if manager is not None else {}
@@ -72,7 +80,7 @@ def status(networks: dict) -> list[dict]:
             "connected": bool(link.get("connected")),
             "streaming": bool(last and (datetime.now(timezone.utc) - last).total_seconds() < 90),
             "stream_configured": manager is not None,
-            "connection_status": "configured" if manager is not None else "igs_credentials_required",
+            "connection_status": "configured" if manager is not None else "earthscope_credentials_required" if site.get("provider") == "earthscope" else "igs_credentials_required",
             "message_count": link.get("rtcm_count", link.get("msg_count", 0)),
             "tec_diagnostics": diag, "vtec": values.get(key),
             "vtec_time": diag.get("last_code_vtec_at"), "samples": diag.get("vtec_emitted", 0),

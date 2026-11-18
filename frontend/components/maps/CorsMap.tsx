@@ -56,6 +56,31 @@ const TRIGNET_ZOOM = 2.7;
 /** Whole-Earth dip equator, with Zimbabwe still inside the frame. */
 const GEOMAGNETIC_CENTER: [number, number] = [0, 0];
 const GEOMAGNETIC_ZOOM = 2;
+const GEOMAGNETIC_LABEL_OFFSETS: Record<string, { x: number; y: number; align: "left" | "center" | "right" }> = {
+  gutu: { x: 0, y: -16, align: "center" },
+  ghanzibw1: { x: -12, y: -16, align: "right" },
+  kstd: { x: 0, y: 20, align: "center" },
+  simo: { x: -18, y: -16, align: "right" },
+  herg: { x: 18, y: -32, align: "left" },
+  hnus: { x: 18, y: 32, align: "left" },
+  byah: { x: -12, y: -24, align: "right" },
+  rubo: { x: 12, y: 20, align: "left" },
+  acsb: { x: -12, y: 20, align: "right" },
+  agmt: { x: 12, y: -20, align: "left" },
+  pccl: { x: -12, y: -28, align: "right" },
+  fbaq: { x: 12, y: -8, align: "left" },
+  iqqe: { x: -12, y: 8, align: "right" },
+  gta1: { x: 12, y: 28, align: "left" },
+  sgoc: { x: 12, y: -20, align: "left" },
+  pohn: { x: 12, y: -20, align: "left" },
+  pove: { x: -12, y: 16, align: "right" },
+  adis: { x: 12, y: -20, align: "left" },
+  naus: { x: 12, y: -20, align: "left" },
+  isco: { x: -12, y: -20, align: "right" },
+  cn46: { x: 12, y: 20, align: "left" },
+  cn64: { x: -12, y: 20, align: "right" },
+  cn47: { x: 12, y: -20, align: "left" },
+};
 
 function mapFrame(layer: MapLayer): { center: [number, number]; zoom: number } {
   if (layer === "Global TEC") return { center: GLOBAL_TEC_CENTER, zoom: GLOBAL_TEC_ZOOM };
@@ -403,12 +428,8 @@ export default function CorsMap({
           : "#00ff88"
         : STATUS_COLOR[liveStatus];
       const dualTec = (showTecLabels || trigNet) && (labelG != null || labelGg != null);
-      const gutuLabel = stationKey(s.code) === "gutu";
-      const botswanaLabel = stationKey(s.code) === "ghanzibw1";
-      const kstdLabel = stationKey(s.code) === "kstd";
-      const capeCode = stationKey(s.code);
-      const capeLabel = ["simo", "herg", "hnus"].includes(capeCode);
-      const alwaysVisible = geomagnetic && (gutuLabel || botswanaLabel || kstdLabel || capeLabel);
+      const labelOffset = geomagnetic ? GEOMAGNETIC_LABEL_OFFSETS[stationKey(s.code)] : undefined;
+      const alwaysVisible = labelOffset != null;
       const label = geomagnetic
         ? !alwaysVisible && (liveStatus === "offline" || liveStatus === "unavailable")
           ? ""
@@ -444,8 +465,8 @@ export default function CorsMap({
           text: new Text({
             declutterMode: alwaysVisible ? "none" : undefined,
             text: label,
-            offsetX: geomagnetic ? botswanaLabel ? -12 : capeCode === "simo" ? -18 : capeLabel ? 18 : 0 : 0,
-            offsetY: geomagnetic ? capeCode === "hnus" ? 32 : capeCode === "herg" ? -32 : kstdLabel ? 20 : -16 : dualLines ? (narrowMap ? -22 : -30) : trigTec != null || (showTecLabels && !networkMode) ? -22 : -14,
+            offsetX: labelOffset?.x ?? 0,
+            offsetY: labelOffset?.y ?? (geomagnetic ? -16 : dualLines ? (narrowMap ? -22 : -30) : trigTec != null || (showTecLabels && !networkMode) ? -22 : -14),
             fill: new Fill({ color: "#fff" }),
             stroke: new Stroke({ color: "#000", width: narrowMap ? 2 : 3 }),
             font: dualLines
@@ -455,7 +476,7 @@ export default function CorsMap({
               : showTecLabels && !networkMode
                 ? "bold 11px sans-serif"
                 : "bold 10px sans-serif",
-            textAlign: geomagnetic && (botswanaLabel || capeCode === "simo") ? "right" : geomagnetic && capeLabel ? "left" : "center",
+            textAlign: labelOffset?.align ?? "center",
           }),
         }),
       );

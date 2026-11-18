@@ -644,7 +644,7 @@ async def global_forecast_image(_=Depends(require_api_key)):
 
 @router.get("/global-vtec-by-station")
 def global_vtec_by_station(
-    hours: float = Query(6.0, ge=0.5, le=48),
+    hours: float = Query(6.0, ge=0.5, le=192),
     latest_only: bool = Query(False, description="Return the current DLR sample only"),
     _=Depends(require_api_key),
 ):

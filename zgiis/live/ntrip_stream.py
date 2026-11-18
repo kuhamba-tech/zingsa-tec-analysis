@@ -276,6 +276,7 @@ class StationStream(threading.Thread):
         self._on_record = on_record
         self._tls = use_tls
         self._ntrip_version = str(ntrip_version)
+        self._rtcm_encoding = 0
         self._reconnect_delay = reconnect_delay
         self._max_reconnect_delay = max_reconnect_delay
         # Caps how many StationStreams hold an open caster connection at once —
@@ -397,6 +398,7 @@ class StationStream(threading.Thread):
         return delay * (0.75 + random.random() * 0.5)
 
     def _connect(self) -> socket.socket:
+        self._rtcm_encoding = 0
         raw = socket.create_connection((self._host, self._port), timeout=10)
         sock = ssl.create_default_context().wrap_socket(raw, server_hostname=self._host) if self._tls else raw
         token = base64.b64encode(f"{self._user}:{self._pass}".encode()).decode()
@@ -428,6 +430,11 @@ class StationStream(threading.Thread):
         if b"sourcetable" in header.lower() or b"content-type: text/html" in header.lower():
             sock.close()
             raise ConnectionError("Caster rejected observation stream: returned a station table")
+        transfer = next((line.partition(b":")[2].strip().lower()
+                         for line in header.split(b"\r\n")
+                         if line.lower().startswith(b"transfer-encoding:")), b"")
+        # pyrtcm's socket wrapper removes chunk boundaries before validating RTCM.
+        self._rtcm_encoding = 1 if any(part.strip() == b"chunked" for part in transfer.split(b",")) else 0
         return sock
 
     def _stream(self, sock: socket.socket):
@@ -443,7 +450,7 @@ class StationStream(threading.Thread):
         session_started = time.monotonic()
         session_msgs = 0
         try:
-            for _, msg in RTCMReader(sock):
+            for _, msg in RTCMReader(sock, encoding=self._rtcm_encoding):
                 if self._stop.is_set():
                     break
                 if (

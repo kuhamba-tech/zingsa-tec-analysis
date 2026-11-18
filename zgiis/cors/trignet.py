@@ -543,6 +543,10 @@ def start_trignet_tec() -> None:
     start_botswana()
     from zgiis.cors.west_africa import start as start_west_africa
     start_west_africa()
+    from zgiis.cors.earthscope import start as start_earthscope
+    start_earthscope()
+    from zgiis.cors.magnetic_equator import start as start_magnetic_equator
+    start_magnetic_equator()
 
 
 def _publish_live_status() -> None:
@@ -705,7 +709,9 @@ def status() -> dict[str, Any]:
     from zgiis.cors.botswana import status as botswana_status
     botswana = botswana_status(gg_networks)
     from zgiis.cors.west_africa import status as west_africa_status
-    regional = botswana + west_africa_status(gg_networks)
+    from zgiis.cors.earthscope import status as earthscope_status
+    from zgiis.cors.magnetic_equator import status as magnetic_equator_status
+    regional = botswana + west_africa_status(gg_networks) + earthscope_status(gg_networks) + magnetic_equator_status(gg_networks)
     stations.extend(row for row in regional if row["location_known"])
     ready += sum(row["vtec"] is not None for row in regional)
     gg_ready += sum(row["gg_vtec"] is not None for row in regional)
