@@ -57,10 +57,10 @@ function readClass(row: Record<string, unknown>): string | null {
   return match[2] ? `${match[1].toUpperCase()}${match[2]}` : match[1].toUpperCase();
 }
 
-function readPeak(row: Record<string, unknown>): FlarePeak | null {
+export function readFlarePeak(row: Record<string, unknown>, requirePeak = false): FlarePeak | null {
   const classText = readClass(row);
   const letter = flareLetterOf(classText);
-  const peakMs = parseTime(row.peakTime ?? row.max_time ?? row.beginTime ?? row.begin_time);
+  const peakMs = parseTime(row.peakTime ?? row.max_time ?? (requirePeak ? null : row.beginTime ?? row.begin_time));
   if (!classText || !letter || peakMs == null) return null;
   return { classText, letter, peakMs, peakLabel: formatUtc(peakMs) };
 }
@@ -80,7 +80,7 @@ export function buildFlareWatch(solar: SolarActivityFull | null, now = Date.now(
   const rows = Array.isArray(solar?.donki_flares) ? solar.donki_flares : [];
   for (const row of rows) {
     if (!row || typeof row !== "object") continue;
-    const peak = readPeak(row as Record<string, unknown>);
+    const peak = readFlarePeak(row as Record<string, unknown>);
     if (!peak) continue;
     counts[peak.letter] += 1;
     peaks.push(peak);

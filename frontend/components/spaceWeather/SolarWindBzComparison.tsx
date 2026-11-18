@@ -1,5 +1,6 @@
 "use client";
 
+import type { PlotAreaReporter } from "@/lib/chartPlotArea";
 import { useContext, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { ChartDateRangeContext, utcDayBounds } from "@/components/charts/ChartDateRange";
@@ -11,6 +12,7 @@ import type { HeliosphericMonitorResponse } from "@/lib/types";
 import type { SolarBriefResponse } from "@/lib/api";
 
 const LineChart = dynamic(() => loadLineChart().then(module => module.default), { ssr: false });
+const observationStyle = { fill: false, tension: 0, omitMissingPoints: true, spanGaps: 35 * 60_000 };
 
 export default function SolarWindBzComparison({
   data,
@@ -18,13 +20,15 @@ export default function SolarWindBzComparison({
   analysisDomain,
   selectedTime,
   onPlotAreaChange,
+  onPlasmaPlotAreaChange,
   onPickTime,
 }: {
   data: HeliosphericMonitorResponse;
   brief?: SolarBriefResponse | null;
   analysisDomain?: { min: number; max: number };
   selectedTime?: number;
-  onPlotAreaChange?: (area: { left: number; right: number; top: number; bottom: number }) => void;
+  onPlotAreaChange?: PlotAreaReporter;
+  onPlasmaPlotAreaChange?: PlotAreaReporter;
   onPickTime?: (ms: number) => void;
 }) {
   const calendar = useContext(ChartDateRangeContext);
@@ -62,9 +66,11 @@ export default function SolarWindBzComparison({
   const hasBz = samples.bz.some(value => value != null);
   const unavailable = [
     !hasSpeed ? "Solar wind speed" : null,
+    !hasBz ? "IMF Bz" : null,
+  ].filter((value): value is string => value != null);
+  const plasmaUnavailable = [
     !hasDensity ? "Solar wind density" : null,
     !hasTemperature ? "Proton temperature" : null,
-    !hasBz ? "IMF Bz" : null,
   ].filter((value): value is string => value != null);
 
   return <section className="card" aria-label="Solar wind velocity and IMF Bz comparison">
@@ -74,7 +80,7 @@ export default function SolarWindBzComparison({
         {[24, 48, 72].map(value => <button key={value} type="button" className="btn" aria-pressed={hours === value} disabled={Boolean(calendar?.day)} onClick={() => setHours(value)}>{value} h</button>)}
       </div>}
     </div>
-    <p style={{ fontSize: ".78rem" }}>NOAA SWPC RTSW · speed on the left axis · GSM Bz, density, and proton temperature on separate right axes · UTC observation times</p>
+    <p style={{ fontSize: ".78rem" }}>NOAA SWPC RTSW · speed on the left axis · GSM Bz on the right axis · UTC observation times</p>
     {selectedReadings && selectedTime != null && <p aria-live="polite" style={{ fontSize: ".8rem", margin: "0 0 .45rem" }}>
       Selected {new Date(selectedTime).toISOString().replace("T", " ").slice(0, 16)} UTC
       {" · "}Speed: {selectedReadings.speed ? `${selectedReadings.speed.value!.toFixed(1)} km/s` : "N/A"}
@@ -84,15 +90,38 @@ export default function SolarWindBzComparison({
     </p>}
     <LineChart labels={samples.times.map(time => new Date(time).toISOString())} xValues={samples.times} epochMs={samples.times}
       datasets={[
-        { label: "Solar wind speed", data: samples.speed, color: "#eab308", fill: false, tension: 0 },
-        { label: "IMF Bz (GSM)", data: samples.bz, color: "#ef4444", yAxisId: "y2", fill: false, tension: 0 },
-        { label: "Solar wind density", data: samples.density, color: "#38bdf8", yAxisId: "y3", fill: false, tension: 0 },
-        { label: "Proton temperature", data: samples.temperature, color: "#f97316", yAxisId: "y4", fill: false, tension: 0 },
+        { label: "Solar wind speed", data: samples.speed, color: "#eab308", ...observationStyle },
+        { label: "IMF Bz (GSM)", data: samples.bz, color: "#ef4444", yAxisId: "y2", ...observationStyle },
         { label: "Bz = 0 nT", data: samples.times.map(() => 0), color: "#94a3b8", yAxisId: "y2", dashed: true, borderWidth: 1 },
-      ]} yLabel="Speed (km/s)" secondaryYLabel="IMF Bz (nT)" tertiaryYLabel="Density (cm³)" quaternaryYLabel="Proton temp. (K)" height={340} pointRadius={0}
+      ]} yLabel="Speed (km/s)" secondaryYLabel="IMF Bz (nT)" height={340} pointRadius={1}
+      yMin={250} yMax={700}
       preserveSamples toggleableLegend verticalMarkers={markers} onPlotAreaChange={onPlotAreaChange} onPickTime={onPickTime}
+      markerReadout={selectedTime != null && selectedReadings ? { x: selectedTime, lines: [
+        `${new Date(selectedTime).toISOString().slice(11, 16)} UTC`,
+        `Speed: ${selectedReadings.speed ? selectedReadings.speed.value!.toFixed(1) + " km/s" : "N/A"} · Bz: ${selectedReadings.bz ? selectedReadings.bz.value!.toFixed(2) + " nT" : "N/A"}`,
+        `Density: ${selectedReadings.density ? selectedReadings.density.value!.toFixed(2) + " cm⁻³" : "N/A"} · Temp: ${selectedReadings.temperature ? selectedReadings.temperature.value!.toLocaleString("en-US", { maximumFractionDigits: 0 }) + " K" : "N/A"}`,
+      ] } : undefined}
       {...utcTimeAxisProps(domain, { majorHours: 3 })} />
     {unavailable.length > 0 && <p role="status">{unavailable.join(", ")} observations unavailable in this window. Missing data remains empty.</p>}
-    <p style={{ fontSize: ".78rem" }}>Source fetched: {data.updated_utc ?? "unavailable"}. Speed, density, and temperature come from measured NOAA RTSW plasma samples; Bz is the measured GSM IMF series. Values share a UTC minute grid; gaps remain null and no observation values are synthesized. The display connects successive measured samples, like the source panels. {markers.length > 0 && "Red lines mark available M/X flare peak times from the latest NOAA flare list (past 24 hours). Flare radiation reaches Earth in about eight minutes; these markers do not identify solar-wind arrival times or establish causation. "}Southward Bz (below zero) can favour magnetospheric coupling.</p>
+    <p style={{ fontSize: ".78rem" }}>Source fetched: {data.updated_utc ?? "unavailable"}. Speed, density, and temperature come from NOAA RTSW plasma samples. Bz comes from the NOAA GSM magnetic field series. Older readings use archived 15-minute averages. Gaps appear when readings are more than 35 minutes apart. {markers.length > 0 && "Red lines mark available M/X flare peak times from the latest NOAA flare list (past 24 hours). Flare radiation reaches Earth in about eight minutes; these markers do not identify solar-wind arrival times or establish causation. "}Southward Bz (below zero) can favour magnetospheric coupling.</p>
+    <div style={{ borderTop: "1px solid rgba(148,163,184,.25)", marginTop: "1rem", paddingTop: "1rem" }}>
+      <strong>Solar wind density and proton temperature</strong>
+      <p style={{ fontSize: ".78rem", margin: ".35rem 0" }}>
+        NOAA SWPC RTSW plasma parameters · density on the left axis · proton temperature on the right axis · UTC observation times
+      </p>
+      {plasmaUnavailable.length > 0 && <p role="status">{plasmaUnavailable.join(", ")} observations unavailable in this window. Missing data remains empty.</p>}
+      <LineChart labels={samples.times.map(time => new Date(time).toISOString())} xValues={samples.times} epochMs={samples.times}
+        datasets={[
+          { label: "Solar wind density", data: samples.density, color: "#38bdf8", ...observationStyle },
+          { label: "Proton temperature", data: samples.temperature, color: "#f97316", yAxisId: "y2", ...observationStyle },
+        ]} yLabel="Density (cm³)" secondaryYLabel="Proton temp. (K)" height={300} pointRadius={1}
+        preserveSamples toggleableLegend verticalMarkers={markers}
+        onPlotAreaChange={onPlasmaPlotAreaChange} onPickTime={onPickTime}
+        markerReadout={selectedTime != null && selectedReadings ? { x: selectedTime, lines: [
+          `${new Date(selectedTime).toISOString().slice(11, 16)} UTC`,
+          `Density: ${selectedReadings.density ? selectedReadings.density.value!.toFixed(2) + " cm⁻³" : "N/A"} · Temp: ${selectedReadings.temperature ? selectedReadings.temperature.value!.toLocaleString("en-US", { maximumFractionDigits: 0 }) + " K" : "N/A"}`,
+        ] } : undefined}
+        {...utcTimeAxisProps(domain, { majorHours: 3 })} />
+    </div>
   </section>;
 }

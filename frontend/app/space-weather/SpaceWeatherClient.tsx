@@ -1261,6 +1261,7 @@ export default function SpaceWeatherClient({
       {tab === 3 && (
         <StormAnalysis
           xrayTimeline={xrayTimeline}
+          flareEvents={sa?.donki_flares}
           fallbackXraySeries={sa?.xray_series}
           fallbackXrayUpdated={sa?.updated}
           xrayRange={xrayRange}

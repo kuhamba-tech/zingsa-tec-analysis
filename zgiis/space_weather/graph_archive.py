@@ -230,6 +230,7 @@ def _merge_panel(
     stored: dict[str, list[tuple[datetime, float]]],
     *,
     live_points: int,
+    preserve_history: bool = False,
 ) -> dict[str, Any]:
     live = _panel_rows(panel.get("times") or [], {key: panel.get(key) or [] for key in fields.values()})
     by_time = {row["t"]: row for row in _stored_rows(stored, fields)}
@@ -243,10 +244,17 @@ def _merge_panel(
             if value is not None:
                 merged_row[key] = value
         by_time[row["t"]] = merged_row
-    combined = _stride(
-        [by_time[stamp] for stamp in sorted(by_time)],
-        max(live_points, _LIVE_POINTS),
-    )
+    combined = [by_time[stamp] for stamp in sorted(by_time)]
+    if preserve_history:
+        # Older observations already arrive in 15-minute bins. A single
+        # point budget across both cadences makes those hours look empty.
+        live_start = live[0]["t"] if live else None
+        if live_start is not None:
+            history = [row for row in combined if row["t"] < live_start]
+            recent = combined[len(history):]
+            combined = history + _stride(recent, live_points)
+    else:
+        combined = _stride(combined, max(live_points, _LIVE_POINTS))
     rebuilt = _rows_to_panel(combined, list(fields.values()))
     for extra in ("unit",):
         if extra in panel:
@@ -271,6 +279,7 @@ def extend_monitor_payload(
         {"imf_bt": "bt", "imf_by": "by", "imf_bz": "bz"},
         stored,
         live_points=_LIVE_POINTS,
+        preserve_history=True,
     )
     merged["solar_wind"] = _merge_panel(
         payload.get("solar_wind") or {},
@@ -281,6 +290,7 @@ def extend_monitor_payload(
         },
         stored,
         live_points=_LIVE_POINTS,
+        preserve_history=True,
     )
     merged["dst"] = _merge_panel(
         payload.get("dst") or {},

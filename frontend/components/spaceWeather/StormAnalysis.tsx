@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import dynamic from "next/dynamic";
 import { getHeliosphericMonitor, getLiveVtecByStation } from "@/lib/api";
 import { peekHeliosphericMonitor } from "@/lib/heliosphericStore";
@@ -8,8 +8,10 @@ import type { GoesXrayRange } from "@/components/spaceWeather/GoesSolarXrayCard"
 import { loadLineChart } from "@/lib/loadLineChart";
 import type { GoesXrayTimelinePoint } from "@/lib/types";
 import { seriesEpochsFromApi, utcTimeAxisProps } from "@/lib/chartTimeAxis";
+import type { PlotArea, PlotAreaReporter, PlotBounds } from "@/lib/chartPlotArea";
 import { startVisiblePolling } from "@/lib/visiblePolling";
 import { runMeanVtecEkf } from "@/lib/meanVtecEkf";
+import { readFlarePeak } from "@/lib/flareEruption";
 import { buildNetworkMeanVtecSeries, nearestReading, referenceTec, type AnalysisPoint } from "@/lib/stormAnalysis";
 import type { HeliosphericMonitorResponse, LiveStationVtecSeries } from "@/lib/types";
 
@@ -23,6 +25,7 @@ const GoesSolarXrayCard = dynamic(
 );
 const SolarWindBzComparison = dynamic(() => import("@/components/spaceWeather/SolarWindBzComparison"), { ssr: false });
 const HeliosphericKpBars = dynamic(() => import("@/components/spaceWeather/HeliosphericKpBars"), { ssr: false });
+const DstKpOverview = dynamic(() => import("@/components/spaceWeather/ZimbabweIonoResponseFigures"), { ssr: false });
 const ZimbabweMeanDiurnalTec = dynamic(() => import("@/components/charts/ZimbabweMeanDiurnalTec"), { ssr: false });
 const PROTON_COLORS: Record<string, string> = {
   ">=10 MeV": "#38bdf8",
@@ -30,16 +33,112 @@ const PROTON_COLORS: Record<string, string> = {
   ">=100 MeV": "#f97316",
   ">=500 MeV": "#ef4444",
 };
+const PLOTS = ["xray", "wind", "windPlasma", "proton", "overview", "kp", "dst", "speed", "bz", "meanTec", "regionalTec", "delta"] as const;
+type Plot = (typeof PLOTS)[number];
+type PlotLayout = { areas: Partial<Record<Plot, PlotArea>>; bounds?: PlotBounds };
 const points = (times: string[], values: (number | null)[]): AnalysisPoint[] => times.map((time, index) => ({ time: Date.parse(time), value: values[index] ?? null })).filter(point => Number.isFinite(point.time));
+
+function sameBounds(a?: PlotBounds, b?: PlotBounds): boolean {
+  if (!a || !b) return a === b;
+  return Math.abs(a.left - b.left) < .5 && Math.abs(a.right - b.right) < .5;
+}
+
+function createPlotLayout(getRect: () => DOMRect | undefined) {
+  const listeners = new Set<() => void>();
+  const reports = new Map<Plot, { natural: PlotBounds; redraw: () => void; readArea: () => PlotArea | null }>();
+  let snapshot: PlotLayout = { areas: {} };
+  let alignedBounds: PlotBounds | undefined;
+  let width = 0;
+  let frame: number | null = null;
+
+  function schedule() {
+    if (frame == null) frame = requestAnimationFrame(flush);
+  }
+
+  function flush() {
+    frame = null;
+    const rect = getRect();
+    if (!rect) return;
+    for (const [plot, report] of reports) {
+      if (!report.readArea()) reports.delete(plot);
+    }
+    if (!reports.size) return;
+    const samples = [...reports.values()];
+    const bounds = {
+      left: Math.max(...samples.map(report => report.natural.left)),
+      right: Math.min(...samples.map(report => report.natural.right)),
+    };
+    if (bounds.right <= bounds.left) return;
+
+    // Only a new shared horizontal range requires rerunning Chart.js.
+    // Vertical movements only change the marker overlay.
+    if (!sameBounds(bounds, alignedBounds)) {
+      alignedBounds = bounds;
+      samples.forEach(report => report.redraw());
+    }
+
+    const areas: PlotLayout["areas"] = {};
+    let changed = !sameBounds(alignedBounds, snapshot.bounds);
+    for (const [plot, report] of reports) {
+      const screen = report.readArea();
+      if (!screen) continue;
+      const area = { left: screen.left - rect.left, right: screen.right - rect.left, top: screen.top - rect.top, bottom: screen.bottom - rect.top };
+      const old = snapshot.areas[plot];
+      areas[plot] = area;
+      changed ||= !old || !sameBounds(area, old) ||
+        Math.abs(area.top - old.top) >= .5 || Math.abs(area.bottom - old.bottom) >= .5;
+    }
+    if (!changed && Object.keys(snapshot.areas).length === reports.size) return;
+    snapshot = { areas, bounds: alignedBounds };
+    listeners.forEach(listener => listener());
+  }
+
+  const reporters = Object.fromEntries(PLOTS.map(plot => {
+    const report: PlotAreaReporter = (natural, align, redraw, readArea) => {
+      const rect = getRect();
+      if (!rect) return;
+      if (Math.abs(rect.width - width) >= .5) {
+        width = rect.width;
+        reports.clear();
+        alignedBounds = undefined;
+      }
+      if (alignedBounds) align({ left: alignedBounds.left + rect.left, right: alignedBounds.right + rect.left });
+      reports.set(plot, {
+        natural: { left: natural.left - rect.left, right: natural.right - rect.left },
+        redraw,
+        readArea,
+      });
+      schedule();
+    };
+    return [plot, report];
+  })) as Record<Plot, PlotAreaReporter>;
+
+  return {
+    getRect,
+    reporters,
+    schedule,
+    getSnapshot: () => snapshot,
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => { listeners.delete(listener); };
+    },
+    cancel() {
+      if (frame != null) cancelAnimationFrame(frame);
+      frame = null;
+    },
+  };
+}
 
 export default function StormAnalysis({
   xrayTimeline,
+  flareEvents,
   fallbackXraySeries,
   fallbackXrayUpdated,
   xrayRange,
   onXrayRangeChange,
 }: {
   xrayTimeline: GoesXrayTimelinePoint[];
+  flareEvents?: Record<string, unknown>[];
   fallbackXraySeries?: number[] | null;
   fallbackXrayUpdated?: string | null;
   xrayRange: GoesXrayRange;
@@ -59,32 +158,38 @@ export default function StormAnalysis({
   const [picked, setPicked] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const stackRef = useRef<HTMLDivElement>(null);
-  const dragging = useRef(false);
-  const [plotAreas, setPlotAreas] = useState<Record<number, { left: number; right: number; top: number; bottom: number }>>({});
-  const reportArea = useCallback((index: number, area: { left: number; right: number; top: number; bottom: number }) => {
-    const rect = stackRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const next = { left: area.left - rect.left, right: area.right - rect.left, top: area.top - rect.top, bottom: area.bottom - rect.top };
-    setPlotAreas(current => {
-      const previous = current[index];
-      return previous && Object.keys(next).every(key => Math.abs(next[key as keyof typeof next] - previous[key as keyof typeof next]) < .5) ? current : { ...current, [index]: next };
-    });
-  }, []);
-  const reportFirst = useCallback((area: { left: number; right: number; top: number; bottom: number }) => reportArea(0, area), [reportArea]);
-  const reportXray = useCallback((area: { left: number; right: number; top: number; bottom: number }) => reportArea(-1, area), [reportArea]);
-  const reportLast = useCallback((area: { left: number; right: number; top: number; bottom: number }) => reportArea(4, area), [reportArea]);
+  const [plotLayout] = useState(() => createPlotLayout(() => stackRef.current?.getBoundingClientRect()));
+  useEffect(() => {
+    const stack = stackRef.current;
+    if (!stack) return;
+    const observer = new ResizeObserver(plotLayout.schedule);
+    observer.observe(stack);
+    return () => {
+      observer.disconnect();
+      plotLayout.cancel();
+    };
+  }, [plotLayout]);
   const domain = useMemo(() => {
     const max = Date.parse(`${endDay}T00:00:00Z`) + 86400000;
     return { min: max - days * 86400000, max };
   }, [endDay, days]);
   const selectedTime = Math.max(domain.min, Math.min(domain.max, picked ?? Date.now()));
+  const flarePeaks = useMemo(() => {
+    const peaks = new Map<string, { x: number; label: string }>();
+    for (const event of flareEvents ?? []) {
+      const peak = readFlarePeak(event, true);
+      if (!peak || (peak.letter !== "M" && peak.letter !== "X")) continue;
+      if (peak.peakMs < domain.min || peak.peakMs >= domain.max) continue;
+      peaks.set(`${peak.peakMs}:${peak.classText}`, { x: peak.peakMs, label: peak.classText });
+    }
+    return [...peaks.values()].sort((a, b) => a.x - b.x);
+  }, [domain, flareEvents]);
+  const selectedFlare = flarePeaks.reduce<(typeof flarePeaks)[number] | null>((closest, peak) => {
+    const distance = Math.abs(peak.x - selectedTime);
+    if (distance > 5 * 60_000) return closest;
+    return !closest || distance < Math.abs(closest.x - selectedTime) ? peak : closest;
+  }, null);
   const pick = (time: number) => setPicked(Math.round(time / 60000) * 60000);
-  const moveMarker = (clientX: number) => {
-    const rect = stackRef.current?.getBoundingClientRect(), area = plotAreas[0];
-    if (!rect || !area || area.right <= area.left) return;
-    const fraction = Math.max(0, Math.min(1, (clientX - rect.left - area.left) / (area.right - area.left)));
-    pick(domain.min + fraction * (domain.max - domain.min));
-  };
 
   useEffect(() => {
     let cancelled = false;
@@ -168,11 +273,11 @@ export default function StormAnalysis({
     }));
   }, [helio, protonChart, selectedTime]);
   const panels = [
-    { title: "Dst", unit: "Dst (nT)", color: "#f8fafc", tolerance: 35 * 60000, cadence: 65 * 60000, data: points(helio?.dst?.times ?? [], helio?.dst?.dst ?? []) },
-    { title: "Solar wind speed", unit: "Vsw (km/s)", color: "#3b82f6", tolerance: 10 * 60000, cadence: 10 * 60000, data: points(helio?.solar_wind.times ?? [], helio?.solar_wind.speed ?? []) },
-    { title: "IMF Bz (GSM)", unit: "Bz (nT)", color: "#f8fafc", tolerance: 10 * 60000, cadence: 10 * 60000, data: points(helio?.imf.times ?? [], helio?.imf.bz ?? []) },
-    { title: "Network mean VTEC", unit: "VTEC (TECU)", color: "#00ff88", tolerance: 8 * 60000, cadence: 20 * 60000, data: networkMean },
-    { title: "Relative VTEC difference", unit: "ΔVTEC (%)", color: "#f8fafc", tolerance: 8 * 60000, cadence: 20 * 60000, data: measurements.map(point => ({ time: point.time, value: point.delta })) },
+    { plot: "dst" as const, title: "Dst", unit: "Dst (nT)", color: "#f8fafc", tolerance: 35 * 60000, cadence: 65 * 60000, data: points(helio?.dst?.times ?? [], helio?.dst?.dst ?? []) },
+    { plot: "speed" as const, title: "Solar wind speed", unit: "Vsw (km/s)", color: "#3b82f6", tolerance: 10 * 60000, cadence: 10 * 60000, data: points(helio?.solar_wind.times ?? [], helio?.solar_wind.speed ?? []) },
+    { plot: "bz" as const, title: "IMF Bz (GSM)", unit: "Bz (nT)", color: "#f8fafc", tolerance: 10 * 60000, cadence: 10 * 60000, data: points(helio?.imf.times ?? [], helio?.imf.bz ?? []) },
+    { plot: "meanTec" as const, title: "Network mean VTEC", unit: "VTEC (TECU)", color: "#00ff88", tolerance: 8 * 60000, cadence: 20 * 60000, data: networkMean },
+    { plot: "delta" as const, title: "Relative VTEC difference", unit: "ΔVTEC (%)", color: "#f8fafc", tolerance: 8 * 60000, cadence: 20 * 60000, data: measurements.map(point => ({ time: point.time, value: point.delta })) },
   ];
 
   return <section className="card" aria-label="Storm analysis">
@@ -192,7 +297,13 @@ export default function StormAnalysis({
     <label style={{ display: "block" }}>Move the analysis time
       <input aria-label="Move pink analysis marker" type="range" min={domain.min} max={domain.max - 60000} step={60000} value={Math.min(selectedTime, domain.max - 60000)} onChange={event => pick(Number(event.target.value))} style={{ width: "100%", accentColor: "#ff00d4" }} />
     </label></details>
-    <p>Drag the continuous pink line or its arrow to move the marker through all nine shared-timeline plots. Click a plot to select a time, or focus the line and use the arrow keys. The regional daily TEC chart uses the same Analysis UTC axis for its selected day. The marker is an analysis time, not a detected sudden storm commencement.</p>
+    <p>Drag the continuous pink line or its arrow to move the marker through the shared UTC timeline. Focus the line and use the arrow keys for fine adjustment. The regional daily TEC chart plots all measured days in the window by default.</p>
+    <p style={{ fontSize: ".8rem" }}>
+      {flarePeaks.length ? "Red lines mark cataloged M/X flare peaks across the Analysis graphs." : "No cataloged M/X flare peaks in this window."}
+      {selectedFlare && <strong style={{ color: "#fda4af" }}>
+        {" "}{selectedFlare.label} flare peaked at {new Date(selectedFlare.x).toISOString().slice(11, 16)} UTC.
+      </strong>}
+    </p>
     <div ref={stackRef} style={{ position: "relative", paddingBottom: "3rem" }}>
     <GoesSolarXrayCard
       title="1 · GOES X-ray flux (NOAA SWPC)"
@@ -203,10 +314,10 @@ export default function StormAnalysis({
       onRangeChange={onXrayRangeChange}
       analysisDomain={domain}
       selectedTime={selectedTime}
-      onPlotAreaChange={reportXray}
+      onPlotAreaChange={plotLayout.reporters.xray}
       onPickTime={pick}
     />
-    {helio && <SolarWindBzComparison data={helio} analysisDomain={domain} selectedTime={selectedTime} onPickTime={pick} />}
+    {helio && <SolarWindBzComparison data={helio} analysisDomain={domain} selectedTime={selectedTime} onPickTime={pick} onPlotAreaChange={plotLayout.reporters.wind} onPlasmaPlotAreaChange={plotLayout.reporters.windPlasma} />}
     {helio && <section className="card" aria-label="GOES proton flux">
       <strong>GOES proton flux</strong>
       <p style={{ fontSize: ".78rem" }}>Integral channels · NOAA SWPC · pfu (particles cm⁻² s⁻¹ sr⁻¹) · shared Analysis UTC window</p>
@@ -223,6 +334,7 @@ export default function StormAnalysis({
           yLabel="Proton flux (pfu)"
           height={260}
           toggleableLegend
+          onPlotAreaChange={plotLayout.reporters.proton}
           onPickTime={pick}
           {...utcTimeAxisProps(domain, { majorHours: 3 })}
         />
@@ -230,6 +342,9 @@ export default function StormAnalysis({
         ? "Proton flux unavailable. NOAA has not returned recent or cached observations."
         : "Proton flux timestamps could not be aligned to UTC; the chart is omitted."}</p>}
     </section>}
+    <section aria-label="Dst and Kp overview" style={{ margin: "1rem 0" }}>
+      <DstKpOverview analysisDomain={domain} onPlotAreaChange={plotLayout.reporters.overview} onPickTime={pick} />
+    </section>
     {helio && (
       <section className="card" aria-label="GFZ and NOAA planetary Kp observed and forecast">
         <strong>GFZ / NOAA planetary Kp · observed &amp; forecast</strong>
@@ -249,6 +364,7 @@ export default function StormAnalysis({
           dstEpochMs={helio.dst?.epoch_ms}
           analysisDomain={domain}
           onPickTime={pick}
+          onPlotAreaChange={plotLayout.reporters.kp}
         />
       </section>
     )}
@@ -289,7 +405,7 @@ export default function StormAnalysis({
       return <div key={panel.title} style={{ marginTop: "1rem" }}>
         {panel.title === "Relative VTEC difference" && <div style={{ marginBottom: "1.25rem" }}>
           <strong>Mean daily TEC — northern, central and southern Zimbabwe</strong>
-          <ZimbabweMeanDiurnalTec embedded analysisDomain={domain} analysisDay={endDay} />
+          <ZimbabweMeanDiurnalTec embedded analysisDomain={domain} analysisDay={endDay} onPlotAreaChange={plotLayout.reporters.regionalTec} />
         </div>}
         <strong>{panel.title}</strong> · {reading ? `${reading.value!.toFixed(1)} ${panel.unit.match(/\((.*)\)/)?.[1] ?? ""} at ${new Date(reading.time).toISOString()}` : "No observation near the marker"}
         <LineChart labels={sorted.map(point => new Date(point.time).toISOString())} xValues={sorted.map(point => point.time)} epochMs={sorted.map(point => point.time)}
@@ -298,27 +414,87 @@ export default function StormAnalysis({
           ySuggestedMin={suggestedMin} ySuggestedMax={suggestedMax} yMin={index === 3 ? 0 : undefined}
           preserveSamples pointRadius={index === 0 ? 2 : 0}
           thresholds={index === 4 ? [{ value: 25, label: "+25% guide", color: "#f87171" }, { value: -25, label: "−25% guide", color: "#f87171" }] : index === 0 || index === 2 ? [{ value: 0, label: "Zero", color: "#64748b" }] : undefined}
-          onPlotAreaChange={index === 0 ? reportFirst : index === 4 ? reportLast : undefined}
+          onPlotAreaChange={plotLayout.reporters[panel.plot]}
           onPickTime={pick} {...utcTimeAxisProps(domain)} />
       </div>;
     })}
-    {plotAreas[0] && plotAreas[4] && <div role="slider" tabIndex={0} aria-label="Drag pink analysis line" aria-valuemin={domain.min} aria-valuemax={domain.max} aria-valuenow={selectedTime} aria-valuetext={new Date(selectedTime).toISOString()}
-      onPointerDown={event => { dragging.current = true; event.currentTarget.setPointerCapture(event.pointerId); event.preventDefault(); }}
+    <AnalysisMarker layout={plotLayout} domain={domain} selectedTime={selectedTime}
+      flarePeaks={flarePeaks} selectedFlare={selectedFlare} pick={pick} />
+    </div>
+    <p>ΔVTEC = 100 × (observed − reference) / reference, matched to the same station and UTC quarter-hour. Missing or zero reference values produce gaps. ±25% lines are comparison guides, not validated storm thresholds. No reference curve or historical storm values are invented. Solar-wind, Bz and Dst are limited to loaded NOAA source coverage. NOAA source fetched: {helio?.updated_utc ?? "unavailable"}.</p>
+  </section>;
+}
+
+type FlareMarker = { x: number; label: string };
+
+function AnalysisMarker({ layout, domain, selectedTime, flarePeaks, selectedFlare, pick }: {
+  layout: ReturnType<typeof createPlotLayout>;
+  domain: { min: number; max: number };
+  selectedTime: number;
+  flarePeaks: FlareMarker[];
+  selectedFlare: FlareMarker | null;
+  pick: (time: number) => void;
+}) {
+  const dragging = useRef(false);
+  const timeFraction = (time: number) => (time - domain.min) / (domain.max - domain.min);
+  const plotX = ({ left, right }: PlotBounds, time: number) => left + (right - left) * timeFraction(time);
+  const { areas: plotAreas, bounds } = useSyncExternalStore(layout.subscribe, layout.getSnapshot, layout.getSnapshot);
+  const markerTop = plotAreas.xray?.top ?? plotAreas.wind?.top ?? plotAreas.proton?.top ?? plotAreas.overview?.top ?? plotAreas.dst?.top;
+  const markerEnd = bounds && plotAreas.delta ? { x: plotX(bounds, selectedTime), y: plotAreas.delta.bottom } : null;
+  const moveMarker = (clientX: number) => {
+    const rect = layout.getRect();
+    if (!rect || !bounds || bounds.right <= bounds.left) return;
+    const { left, right } = bounds;
+    const fraction = Math.max(0, Math.min(1, (clientX - rect.left - left) / (right - left)));
+    pick(domain.min + fraction * (domain.max - domain.min));
+  };
+
+  if (markerTop == null || !markerEnd) return null;
+  return <>
+    <svg role="slider" tabIndex={0} aria-label="Drag pink analysis line" aria-valuemin={domain.min} aria-valuemax={domain.max} aria-valuenow={selectedTime} aria-valuetext={new Date(selectedTime).toISOString()}
+      onPointerDown={event => {
+        dragging.current = true;
+        event.currentTarget.focus({ preventScroll: true });
+        event.currentTarget.setPointerCapture(event.pointerId);
+        event.preventDefault();
+      }}
       onPointerMove={event => { if (dragging.current) moveMarker(event.clientX); }}
       onPointerUp={event => { dragging.current = false; if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }}
       onLostPointerCapture={() => { dragging.current = false; }}
       onKeyDown={event => {
         if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); pick(Math.max(domain.min, Math.min(domain.max, selectedTime + (event.key === "ArrowLeft" ? -1 : 1) * (event.shiftKey ? 15 : 1) * 60000))); }
       }}
-      style={{ position: "absolute", left: plotAreas[0].left + (selectedTime - domain.min) / (domain.max - domain.min) * (plotAreas[0].right - plotAreas[0].left),
-        top: plotAreas[-1]?.top ?? plotAreas[0].top, height: plotAreas[4].bottom - (plotAreas[-1]?.top ?? plotAreas[0].top) + 18, width: 28, transform: "translateX(-50%)", zIndex: 5, cursor: "ew-resize", touchAction: "none", color: "#ff00d4" }}>
-      <div aria-hidden="true" style={{ position: "absolute", top: 0, bottom: 0, left: 13, width: 3, background: "#ff00d4" }} />
-      <div aria-hidden="true" style={{ position: "absolute", bottom: -1, left: 6, width: 0, height: 0, borderLeft: "8px solid transparent", borderRight: "8px solid transparent", borderTop: "14px solid #ff00d4" }} />
-      <span style={{ position: "absolute", top: "100%", left: 14, transform: "translateX(-50%)", fontWeight: 800, whiteSpace: "nowrap", fontSize: ".85rem", background: "var(--surface)" }}>
+      style={{ position: "absolute", inset: 0, width: "100%", height: "100%", zIndex: 5, pointerEvents: "none", cursor: "ew-resize", touchAction: "none" }}>
+      {PLOTS.map(plot => {
+        const area = plotAreas[plot];
+        if (!area || !flarePeaks.length) return null;
+        return <g key={plot} aria-hidden="true" data-flare-plot={plot}>
+          {flarePeaks.map((peak, index) => {
+            const x = plotX(area, peak.x);
+            const highlighted = peak === selectedFlare;
+            const labelOnLeft = area.right - x < peak.label.length * 8 + 8;
+            return <g key={`${peak.x}:${peak.label}`}>
+              <line x1={x} x2={x} y1={area.top} y2={area.bottom} stroke="#f87171" strokeWidth={highlighted ? 2 : 1} />
+              <text x={x + (labelOnLeft ? -5 : 5)} y={area.top + 14 + (index % 3) * 14}
+                textAnchor={labelOnLeft ? "end" : "start"}
+                fill={highlighted ? "#fff" : "#f87171"} fontSize={highlighted ? 12 : 11}
+                fontWeight={highlighted ? 700 : 400}
+                stroke={highlighted ? "#be123c" : "#0c121c"} strokeWidth={highlighted ? 5 : 2}
+                strokeLinejoin="round" paintOrder="stroke">
+                {peak.label}
+              </text>
+            </g>;
+          })}
+        </g>;
+      })}
+      <line aria-hidden="true" x1={markerEnd.x} x2={markerEnd.x} y1={markerTop} y2={markerEnd.y + 12}
+        stroke="#ff00d4" strokeWidth={3} />
+      <line aria-hidden="true" x1={markerEnd.x} x2={markerEnd.x} y1={markerTop} y2={markerEnd.y + 18}
+        stroke="transparent" strokeWidth={28} style={{ pointerEvents: "stroke", touchAction: "none" }} />
+      <polygon aria-hidden="true" points={`${markerEnd.x - 8},${markerEnd.y + 5} ${markerEnd.x + 8},${markerEnd.y + 5} ${markerEnd.x},${markerEnd.y + 19}`} fill="#ff00d4" />
+    </svg>
+      <span aria-hidden="true" style={{ position: "absolute", top: markerEnd.y + 18, left: markerEnd.x, transform: "translateX(-50%)", zIndex: 5, pointerEvents: "none", color: "#ff00d4", fontWeight: 800, whiteSpace: "nowrap", fontSize: ".85rem", background: "var(--surface)" }}>
         Pick {new Date(selectedTime).toISOString().slice(5, 16).replace("T", " ")} UTC
       </span>
-    </div>}
-    </div>
-    <p>ΔVTEC = 100 × (observed − reference) / reference, matched to the same station and UTC quarter-hour. Missing or zero reference values produce gaps. ±25% lines are comparison guides, not validated storm thresholds. No reference curve or historical storm values are invented. Solar-wind, Bz and Dst are limited to loaded NOAA source coverage. NOAA source fetched: {helio?.updated_utc ?? "unavailable"}.</p>
-  </section>;
+  </>;
 }

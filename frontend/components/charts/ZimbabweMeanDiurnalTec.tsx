@@ -16,12 +16,14 @@ import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
 import { getGlobalVtecByStation, getLiveVtecByStation } from "@/lib/api";
 import type { LiveStationVtecSeries } from "@/lib/types";
 import {
+  latBandDiurnalTimeline,
   latBandDiurnalMeanStd,
   utcDaysInStationSeries,
   type LatBandDiurnalStats,
   type ZimbabweLatBandId,
 } from "@/lib/zimbabweLatBands";
 import { ONE_H_MS, utcTimeAxisProps } from "@/lib/chartTimeAxis";
+import { reportPlotAreaPlugin, type PlotAreaReporter } from "@/lib/chartPlotArea";
 
 import ChartDateRange, { ChartDateRangeContext } from "./ChartDateRange";
 
@@ -36,7 +38,7 @@ const BANDS: { id: ZimbabweLatBandId; label: string; color: string }[] = [
   { id: "southern", label: "Southern Zimbabwe", color: "#eab308" },
 ];
 
-type RegionChoice = "all" | ZimbabweLatBandId;
+type RegionChoice = "all" | ZimbabweLatBandId | null;
 
 type MeanPoint = {
   x: number;
@@ -176,7 +178,11 @@ function bandDatasets(
   globalStats: LatBandDiurnalStats | null,
   region: RegionChoice,
 ) {
-  const bands = region === "all" ? BANDS : BANDS.filter((band) => band.id === region);
+  const bands = region == null
+    ? []
+    : region === "all"
+      ? BANDS
+      : BANDS.filter((band) => band.id === region);
   const datasets: {
     label: string;
     data: MeanPoint[];
@@ -257,11 +263,13 @@ export default function ZimbabweMeanDiurnalTec({
   embedded = false,
   analysisDomain,
   analysisDay,
+  onPlotAreaChange,
 }: {
   /** Hide the outer title when the parent panel already names the chart. */
   embedded?: boolean;
   analysisDomain?: { min: number; max: number };
   analysisDay?: string;
+  onPlotAreaChange?: PlotAreaReporter;
 } = {}) {
   const calendar=useContext(ChartDateRangeContext);
   const [rows, setRows] = useState<LiveStationVtecSeries[] | null>(null);
@@ -269,12 +277,12 @@ export default function ZimbabweMeanDiurnalTec({
   const [failed, setFailed] = useState(false);
   const [refresh, setRefresh] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
-  const [dayChoice, setDayChoice] = useState<string>("latest");
+  const [dayChoice, setDayChoice] = useState<string>(analysisDomain ? "all" : "latest");
   const chooseDay = (day: string) => {
     setDayChoice(day);
     if (calendar && !analysisDomain) calendar.setDay(day === "all" || day === "latest" ? "" : day);
   };
-  const [region, setRegion] = useState<RegionChoice>("all");
+  const [region, setRegion] = useState<RegionChoice>(null);
   const [explainOpen, setExplainOpen] = useState(false);
 
   useEffect(() => {
@@ -355,16 +363,36 @@ export default function ZimbabweMeanDiurnalTec({
     return () => window.clearTimeout(timer);
   }, [refreshing, refresh]);
 
+  const rowsForView = useMemo(() => {
+    if (!rows || !analysisDomain) return rows;
+    return rows.map(row => ({
+      ...row,
+      points: row.points.filter(point => {
+        const time = Date.parse(point.time);
+        return Number.isFinite(time) && time >= analysisDomain.min && time < analysisDomain.max;
+      }),
+    })).filter(row => row.points.length > 0);
+  }, [rows, analysisDomain]);
+  const globalRowsForView = useMemo(() => {
+    if (!globalRows || !analysisDomain) return globalRows;
+    return globalRows.map(row => ({
+      ...row,
+      points: row.points.filter(point => {
+        const time = Date.parse(point.time);
+        return Number.isFinite(time) && time >= analysisDomain.min && time < analysisDomain.max;
+      }),
+    })).filter(row => row.points.length > 0);
+  }, [globalRows, analysisDomain]);
   const latestObservation = useMemo(() => {
     let latest = 0;
-    for (const row of rows ?? []) for (const point of row.points) {
+    for (const row of rowsForView ?? []) for (const point of row.points) {
       const stamp = Date.parse(point.time);
       if (point.vtec_tecu != null && Number.isFinite(point.vtec_tecu) && Number.isFinite(stamp)) latest = Math.max(latest, stamp);
     }
     return latest ? new Date(latest).toISOString().slice(0, 16).replace("T", " ") + " UTC" : null;
-  }, [rows]);
+  }, [rowsForView]);
 
-  const days = useMemo(() => (rows ? utcDaysInStationSeries(rows) : []), [rows]);
+  const days = useMemo(() => (rowsForView ? utcDaysInStationSeries(rowsForView) : []), [rowsForView]);
   const today = utcToday();
   const analysisStartDay = analysisDomain ? new Date(analysisDomain.min).toISOString().slice(0, 10) : "";
   const analysisEndDay = analysisDomain ? new Date(analysisDomain.max - 1).toISOString().slice(0, 10) : "";
@@ -373,7 +401,9 @@ export default function ZimbabweMeanDiurnalTec({
     : days;
   const analysisDayInRange = analysisDay != null && analysisDay >= analysisStartDay && analysisDay <= analysisEndDay;
   const selectedDay = analysisDomain
-    ? dayChoice !== "latest" && dayChoice !== "all" && dayChoice >= analysisStartDay && dayChoice <= analysisEndDay
+    ? dayChoice === "all"
+      ? null
+      : dayChoice !== "latest" && dayChoice >= analysisStartDay && dayChoice <= analysisEndDay
       ? dayChoice
       : analysisDayInRange ? analysisDay : visibleDays[visibleDays.length - 1] ?? null
     : calendar
@@ -382,54 +412,116 @@ export default function ZimbabweMeanDiurnalTec({
   const dayIndex = selectedDay ? visibleDays.indexOf(selectedDay) : -1;
 
   const stats = useMemo(
-    () => (rows ? latBandDiurnalMeanStd(rows, undefined, selectedDay) : null),
-    [rows, selectedDay],
+    () => (rowsForView ? latBandDiurnalMeanStd(rowsForView, undefined, selectedDay) : null),
+    [rowsForView, selectedDay],
   );
   const globalStats = useMemo(
-    () => (globalRows && globalRows.length ? latBandDiurnalMeanStd(globalRows, undefined, selectedDay) : null),
-    [globalRows, selectedDay],
+    () => (globalRowsForView && globalRowsForView.length ? latBandDiurnalMeanStd(globalRowsForView, undefined, selectedDay) : null),
+    [globalRowsForView, selectedDay],
   );
 
-  const visibleBands = region === "all" ? BANDS : BANDS.filter((band) => band.id === region);
+  const visibleBands = region == null
+    ? []
+    : region === "all"
+      ? BANDS
+      : BANDS.filter((band) => band.id === region);
   const datasets = useMemo(
     () => (stats ? bandDatasets(stats, globalStats, region) : []),
     [stats, globalStats, region],
   );
   const plottedDatasets = useMemo(() => {
-    if (!analysisDomain || !selectedDay) return datasets;
-    const dayStart = Date.parse(`${selectedDay}T00:00:00Z`);
-    return datasets.map(dataset => ({
-      ...dataset,
-      data: dataset.data.map(point => ({ ...point, x: dayStart + point.x * ONE_H_MS })),
-    }));
-  }, [analysisDomain, datasets, selectedDay]);
+    if (!analysisDomain) return datasets;
+    const selectedRows = selectedDay
+      ? (rowsForView ?? []).map(row => ({
+          ...row,
+          points: row.points.filter(point => Number.isFinite(Date.parse(point.time))
+            && new Date(point.time).toISOString().slice(0, 10) === selectedDay),
+        }))
+      : rowsForView ?? [];
+    const selectedGlobalRows = selectedDay
+      ? (globalRowsForView ?? []).map(row => ({
+          ...row,
+          points: row.points.filter(point => Number.isFinite(Date.parse(point.time))
+            && new Date(point.time).toISOString().slice(0, 10) === selectedDay),
+        }))
+      : globalRowsForView ?? [];
+    const observed = latBandDiurnalTimeline(selectedRows, analysisDomain.min, analysisDomain.max);
+    const global = latBandDiurnalTimeline(selectedGlobalRows, analysisDomain.min, analysisDomain.max);
+    const bands = region == null
+      ? []
+      : region === "all"
+        ? BANDS
+        : BANDS.filter(band => band.id === region);
+    return bands.flatMap(band => {
+      const observedDataset = {
+        label: region === "all" ? band.label : "Observed",
+        data: observed.map(point => ({
+          x: point.time,
+          y: point.values[band.id],
+          std: point.std[band.id],
+          observed: point.values[band.id],
+          source: "observed" as const,
+        })),
+        borderColor: band.color,
+        backgroundColor: band.color,
+        borderWidth: 2,
+        pointRadius: 3,
+        pointHoverRadius: 5,
+        tension: 0.25,
+        spanGaps: false,
+      };
+      const globalDataset = global.some(point => point.values[band.id] != null) ? [{
+        label: region === "all" ? `${band.label.replace(" Zimbabwe", "")} global` : "Global TEC",
+        data: global.map(point => ({
+          x: point.time,
+          y: point.values[band.id],
+          std: null,
+          observed: point.values[band.id],
+          source: "global" as const,
+        })),
+        borderColor: band.color,
+        backgroundColor: "transparent",
+        borderWidth: 2,
+        borderDash: [6, 4],
+        pointRadius: 2,
+        pointHoverRadius: 5,
+        tension: 0.25,
+        spanGaps: false,
+      }] : [];
+      return [observedDataset, ...globalDataset];
+    });
+  }, [analysisDomain, datasets, selectedDay, rowsForView, globalRowsForView, region]);
   const analysisAxis = analysisDomain ? utcTimeAxisProps(analysisDomain, { majorHours: 6 }) : null;
 
   const yMax = useMemo(() => {
     let high = 8;
-    for (const dataset of datasets) {
+    for (const dataset of plottedDatasets) {
       for (const point of dataset.data) {
         if (point.y != null) high = Math.max(high, point.y + (point.std ?? 0));
       }
     }
     return Math.ceil(high + 1);
-  }, [datasets]);
+  }, [plottedDatasets]);
 
   const period = selectedDay
     ? `${selectedDay} UTC`
     : stats?.period
       ? `${stats.period[0]} to ${stats.period[1]} UTC`
       : "the measured window";
-  const regionTitle = region === "all"
-    ? "northern, central and southern Zimbabwe"
-    : BANDS.find((band) => band.id === region)?.label ?? "Zimbabwe";
-  const regionNote = region === "all"
-    ? "Blue is northern Zimbabwe (latitude north of −18.2°), orange is central (north of −20.2°), and yellow is southern."
-    : region === "northern"
-      ? "Northern Zimbabwe is latitude north of −18.2°."
-      : region === "central"
-        ? "Central Zimbabwe is latitude from −20.2° to −18.2°."
-        : "Southern Zimbabwe is latitude south of −20.2°.";
+  const regionTitle = region == null
+    ? "no region selected"
+    : region === "all"
+      ? "northern, central and southern Zimbabwe"
+      : BANDS.find((band) => band.id === region)?.label ?? "Zimbabwe";
+  const regionNote = region == null
+    ? "Select All regions or one region to plot measured TEC."
+    : region === "all"
+      ? "Blue is northern Zimbabwe (latitude north of −18.2°), orange is central (north of −20.2°), and yellow is southern."
+      : region === "northern"
+        ? "Northern Zimbabwe is latitude north of −18.2°."
+        : region === "central"
+          ? "Central Zimbabwe is latitude from −20.2° to −18.2°."
+          : "Southern Zimbabwe is latitude south of −20.2°.";
   const hasSamples = visibleBands.some((band) => stats?.[band.id].some((value) => value != null));
   const analysis = useMemo(() => {
     if (!stats) return { lead: "", bullets: [] as string[] };
@@ -512,7 +604,7 @@ export default function ZimbabweMeanDiurnalTec({
               <input
                 type="date"
                 aria-label="Select TEC observation day in UTC"
-                value={selectedDay ?? ""}
+                value={selectedDay ?? (analysisDomain ? analysisDay : null) ?? ""}
                 min={analysisDomain ? analysisStartDay : days[0]}
                 max={analysisDomain ? analysisEndDay : days[days.length - 1]}
                 onChange={(event) => {
@@ -523,13 +615,13 @@ export default function ZimbabweMeanDiurnalTec({
                 }}
               />
             </label>}
-            {!analysisDomain && <button
+            <button
               type="button"
               className={selectedDay == null ? "active" : ""}
               onClick={() => chooseDay("all")}
             >
               All days
-            </button>}
+            </button>
             <button
               type="button"
               disabled={dayIndex <= 0}
@@ -566,7 +658,7 @@ export default function ZimbabweMeanDiurnalTec({
                 key={choice.id}
                 type="button"
                 className={region === choice.id ? "active" : ""}
-                onClick={() => setRegion(choice.id)}
+                onClick={() => setRegion(current => current === choice.id ? null : choice.id)}
               >
                 {choice.label}
               </button>
@@ -582,7 +674,9 @@ export default function ZimbabweMeanDiurnalTec({
       )}
       {!failed && stats && !hasSamples && (
         <p className="station-vtec-plots-sub">
-          No measured GOPI for {region === "all" ? "these regions" : regionTitle} on {period}.
+          {region == null
+            ? "Select All regions or one region to display the TEC graph."
+            : `No measured GOPI for ${region === "all" ? "these regions" : regionTitle} on ${period}.`}
         </p>
       )}
       {stats && hasSamples && (
@@ -596,7 +690,7 @@ export default function ZimbabweMeanDiurnalTec({
           <div style={{ height: 380 }}>
             <Line
               data={{ datasets: plottedDatasets }}
-              plugins={[errorBars]}
+              plugins={onPlotAreaChange ? [errorBars, reportPlotAreaPlugin<"line">(onPlotAreaChange)] : [errorBars]}
               options={{
                 responsive: true,
                 maintainAspectRatio: false,

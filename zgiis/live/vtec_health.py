@@ -3,25 +3,13 @@ from __future__ import annotations
 
 import os
 from datetime import datetime, timezone, timedelta
-from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parents[2]
-_COLLECTOR_LOCK = ROOT / "static" / "data" / ".live_ntrip_collector.lock"
+from zgiis.live.process_health import collector_pid_alive as _collector_pid_alive
+
 _FRESH_OBS_S = 120.0
-
-
-def _collector_pid_alive() -> bool:
-    try:
-        if not _COLLECTOR_LOCK.is_file():
-            return False
-        pid = int(_COLLECTOR_LOCK.read_text(encoding="utf-8").strip())
-        from zgiis.live.process_health import pid_alive
-        return pid_alive(pid)
-    except (OSError, ValueError, TypeError):
-        return False
 
 
 def _newest_obs_age_s(db) -> float | None:

@@ -42,14 +42,14 @@ def _runtime_mode() -> str:
 
 
 def _external_collector_running() -> bool:
-    """True when an operator explicitly reserved ingest for the dedicated collector.
+    """Use the dedicated collector when it already owns local ingest."""
+    if _env_enabled("ZGIIS_EXTERNAL_COLLECTOR") or _env_enabled("ZGIIS_DISABLE_API_INGEST"):
+        return True
 
-    Do not auto-disable API ingest just because ``live_ntrip_collector`` is
-    running — that process writes Supabase while local uvicorn
-    uses SQLite for the dashboard. Dual-writing the *same* SQLite file is
-    opted out with ZGIIS_DISABLE_API_INGEST / ZGIIS_EXTERNAL_COLLECTOR.
-    """
-    return _env_enabled("ZGIIS_EXTERNAL_COLLECTOR") or _env_enabled("ZGIIS_DISABLE_API_INGEST")
+    from zgiis.live.process_health import collector_pid_alive
+
+    # Both processes use the same archive and share the caster account limit.
+    return collector_pid_alive()
 
 
 def _ingest_allowed() -> bool:

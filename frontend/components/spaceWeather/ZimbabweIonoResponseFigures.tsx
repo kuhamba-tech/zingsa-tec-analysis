@@ -13,6 +13,8 @@ import {
 import { Chart } from "react-chartjs-2";
 import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
 import { getIonoResponseFigures } from "@/lib/api";
+import { formatUtcAxisTick, ONE_H_MS } from "@/lib/chartTimeAxis";
+import { reportPlotAreaPlugin, type PlotAreaReporter } from "@/lib/chartPlotArea";
 import type { IonoResponseFigures, IonoResponsePoint } from "@/lib/types";
 
 ChartJS.register(LinearScale, PointElement, LineElement, BarElement, Tooltip, Legend);
@@ -79,7 +81,15 @@ function Figure({
   );
 }
 
-export default function ZimbabweIonoResponseFigures() {
+export default function ZimbabweIonoResponseFigures({
+  analysisDomain,
+  onPlotAreaChange,
+  onPickTime,
+}: {
+  analysisDomain?: { min: number; max: number };
+  onPlotAreaChange?: PlotAreaReporter;
+  onPickTime?: (time: number) => void;
+} = {}) {
   const [data, setData] = useState<IonoResponseFigures | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
@@ -109,10 +119,14 @@ export default function ZimbabweIonoResponseFigures() {
   }, [retry]);
 
   const kpChart = useMemo(() => {
-    if (!data) return null;
-    const kp = data.kp.filter((point) => finite(point.kp) || finite(point.ekf));
-    const dst = data.dst.filter((point) => finite(point.dst) || finite(point.ekf));
-    if (kp.length === 0 && dst.length === 0) return null;
+    if (!data && !analysisDomain) return null;
+    const inWindow = (point: IonoResponsePoint) => {
+      const ms = epoch(point.time);
+      return !analysisDomain || (ms >= analysisDomain.min && ms < analysisDomain.max);
+    };
+    const kp = (data?.kp ?? []).filter((point) => inWindow(point) && (finite(point.kp) || finite(point.ekf)));
+    const dst = (data?.dst ?? []).filter((point) => inWindow(point) && (finite(point.dst) || finite(point.ekf)));
+    if (!analysisDomain && kp.length === 0 && dst.length === 0) return null;
     return {
       kp,
       dst,
@@ -125,7 +139,8 @@ export default function ZimbabweIonoResponseFigures() {
             backgroundColor: "rgba(147, 197, 253, 0.85)",
             borderWidth: 0,
             yAxisID: "y",
-            barThickness: 2,
+            barThickness: analysisDomain ? "flex" as const : 2,
+            maxBarThickness: analysisDomain ? 24 : undefined,
             order: 2,
           },
           {
@@ -163,7 +178,12 @@ export default function ZimbabweIonoResponseFigures() {
         ],
       },
     };
-  }, [data]);
+  }, [data, analysisDomain]);
+
+  const plotAreaPlugin = reportPlotAreaPlugin<"bar" | "line">(onPlotAreaChange);
+
+  const start = analysisDomain ? new Date(analysisDomain.min).toISOString().slice(0, 10) : data?.start;
+  const end = analysisDomain ? new Date(analysisDomain.max - 1).toISOString().slice(0, 10) : data?.end;
 
   const analysis = useMemo(() => {
     if (!data || !kpChart) return { lead: "", bullets: [] as string[] };
@@ -208,19 +228,26 @@ export default function ZimbabweIonoResponseFigures() {
       ? `Where the dashed forecast is drawn, ${filterBits.join(", and ")}. A one-step jump that the filter does not follow stays on the observed series.`
       : "The dashed forecast stays off until the filter has a real observed start. No prediction is invented for a series the filter cannot run.";
     return {
-      lead: `This graph means the planetary magnetic response from ${data.start} to ${data.end}. The pale bars are observed Kp, from 0 to 9, on the left axis. The white line is observed Kyoto Dst, in nanotesla, on the right axis. The dashed lines are the Extended Kalman Filter forecast made before each sample is seen: blue for Kp and amber for Dst. Its importance is whether the field at Earth has already become a storm. Kp 4 is active. A G-scale rating starts at Kp 5. Zimbabwe is checked with TEC and scintillation on the CORS network.`,
+      lead: `This graph means the planetary magnetic response from ${start} to ${end}. The pale bars are observed Kp, from 0 to 9, on the left axis. The white line is observed Kyoto Dst, in nanotesla, on the right axis. The dashed lines are the Extended Kalman Filter forecast made before each sample is seen: blue for Kp and amber for Dst. Its importance is whether the field at Earth has already become a storm. Kp 4 is active. A G-scale rating starts at Kp 5. Zimbabwe is checked with TEC and scintillation on the CORS network.`,
       bullets: [kpSentence, dstSentence, filterSentence],
     };
-  }, [data, kpChart]);
+  }, [data, kpChart, start, end]);
 
   const xMin = data ? Date.parse(`${data.start}T00:00:00Z`) : undefined;
   const xMax = data ? Date.parse(`${data.end}T23:00:00Z`) : undefined;
   const axis = {
-    min: xMin,
-    max: xMax,
-    ticks: { color: "#ffffff", maxTicksLimit: 8, callback: (value: string | number) => dayMonth(Number(value)) },
-    grid: { color: "rgba(148, 163, 184, 0.2)" },
-    title: { display: true, text: "Day-Month", color: "#ffffff" },
+    min: analysisDomain?.min ?? xMin,
+    max: analysisDomain?.max ?? xMax,
+    offset: analysisDomain ? false : undefined,
+    ticks: analysisDomain ? {
+      color: "#ffffff",
+      autoSkip: true,
+      stepSize: (analysisDomain.max - analysisDomain.min > 72 * ONE_H_MS ? 12 : 3) * ONE_H_MS,
+      maxRotation: 0,
+      callback: (value: string | number) => formatUtcAxisTick(Number(value), { majorHours: 3 }).split("\n"),
+    } : { color: "#ffffff", maxTicksLimit: 8, callback: (value: string | number) => dayMonth(Number(value)) },
+    grid: { color: "rgba(148, 163, 184, 0.2)", offset: analysisDomain ? false : undefined },
+    title: { display: true, text: analysisDomain ? "UTC" : "Day-Month", color: "#ffffff" },
   };
 
   return (
@@ -234,14 +261,22 @@ export default function ZimbabweIonoResponseFigures() {
           <Chart
             type="bar"
             data={kpChart.chart}
+            plugins={[plotAreaPlugin]}
             options={{
               responsive: true,
               maintainAspectRatio: false,
+              onClick: (event, _elements, chart) => {
+                if (event.x == null || !onPickTime) return;
+                const time = chart.scales.x.getValueForPixel(event.x);
+                if (typeof time === "number" && Number.isFinite(time)) onPickTime(time);
+              },
               plugins: {
                 legend: { position: "bottom", labels: { color: "#ffffff", boxWidth: 12 } },
                 tooltip: {
                   callbacks: {
-                    title: (items) => dayMonth(Number(items[0]?.parsed.x)),
+                    title: ([item]) => item && analysisDomain
+                      ? new Date(Number(item.parsed.x)).toISOString().slice(0, 16).replace("T", " ") + " UTC"
+                      : dayMonth(Number(item?.parsed.x)),
                     label: (item) => {
                       const ms = Number(item.parsed.x);
                       const unit = item.dataset.yAxisID === "y2" ? "nT" : "";
@@ -274,7 +309,10 @@ export default function ZimbabweIonoResponseFigures() {
           />
         </Figure>
       )}
-      {kpChart && (
+      {analysisDomain && data && kpChart && !kpChart.kp.length && !kpChart.dst.length && (
+        <p role="status">No Dst or Kp observations for the selected Analysis window.</p>
+      )}
+      {data && kpChart && (
         <>
           <button
             type="button"
@@ -304,7 +342,7 @@ export default function ZimbabweIonoResponseFigures() {
       )}
       {data && (
         <p className="sw-supporting-text" style={{ margin: 0 }}>
-          {data.start} to {data.end}. {data.kp_source} {data.dst_source} {data.rmse_definition} {data.note} Kp 4 is active, not a G-scale storm. Read a Dst fall through −50 nT with southward Bz as the main phase, then check whether the TEC map RMSE left its usual band.
+          {start} to {end}. {data.kp_source} {data.dst_source} {data.rmse_definition} {data.note} Kp 4 is active, not a G-scale storm. Read a Dst fall through −50 nT with southward Bz as the main phase, then check whether the TEC map RMSE left its usual band.
         </p>
       )}
     </div>

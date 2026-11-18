@@ -226,6 +226,55 @@ export function latBandDiurnalMeanStd(
     : null;
   return { ...base, std, period };
 }
+
+export type LatBandTimelinePoint = {
+  time: number;
+  values: Record<ZimbabweLatBandId, number | null>;
+  std: Record<ZimbabweLatBandId, number | null>;
+};
+
+/** Build measured hourly regional means for every UTC day in a shared time window. */
+export function latBandDiurnalTimeline(
+  series: LiveStationVtecSeries[],
+  startMs: number,
+  endMs: number,
+  latByStation?: Map<string, number>,
+): LatBandTimelinePoint[] {
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return [];
+  const filtered = series.map(row => ({
+    ...row,
+    points: row.points.filter(point => {
+      const time = Date.parse(point.time);
+      return Number.isFinite(time) && time >= startMs && time < endMs;
+    }),
+  })).filter(row => row.points.length > 0);
+  const firstDay = Math.floor(startMs / 86_400_000) * 86_400_000;
+  const output: LatBandTimelinePoint[] = [];
+
+  for (let dayStart = firstDay; dayStart < endMs; dayStart += 86_400_000) {
+    const day = new Date(dayStart).toISOString().slice(0, 10);
+    const stats = latBandDiurnalMeanStd(filtered, latByStation, day);
+    for (let index = 0; index < stats.hours.length; index++) {
+      const time = dayStart + stats.hours[index] * 3_600_000;
+      if (time < startMs || time >= endMs) continue;
+      output.push({
+        time,
+        values: {
+          northern: stats.northern[index],
+          central: stats.central[index],
+          southern: stats.southern[index],
+        },
+        std: {
+          northern: stats.std.northern[index],
+          central: stats.std.central[index],
+          southern: stats.std.southern[index],
+        },
+      });
+    }
+  }
+  return output;
+}
+
 export function latBandDiurnalFromStationSeries(
   series: LiveStationVtecSeries[],
   latByStation?: Map<string, number>,

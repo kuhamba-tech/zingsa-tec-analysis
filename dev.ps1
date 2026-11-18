@@ -53,6 +53,11 @@ $backendErrLog = Join-Path $projectRoot "backend-dev.err.log"
 # real connectivity instead of leaving the station count stuck at 0/19. A
 # caller can still opt out with `$env:ZGIIS_BACKGROUND_SERVICES=0`.
 $env:ZGIIS_BACKGROUND_SERVICES = "1"
+# Local dashboard reads share the Supabase archive with the live collector.
+# Prefer the configured transaction pooler so they leave session slots for ingest.
+if (-not (Test-Path Env:ZGIIS_SERVERLESS_DB)) {
+    $env:ZGIIS_SERVERLESS_DB = "1"
+}
 Start-Process -FilePath $venvPython `
     -ArgumentList "-m", "uvicorn", "backend.main:app", "--host", "127.0.0.1", "--port", "$BackendPort" `
     -WorkingDirectory $projectRoot `

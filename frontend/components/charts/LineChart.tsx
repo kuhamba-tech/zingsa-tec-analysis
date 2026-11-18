@@ -17,6 +17,7 @@ import {
 import { Line } from "react-chartjs-2";
 import type { Chart as ChartInstance } from "chart.js";
 import { chartRenderBudget, downsampleIndexes } from "@/lib/chartPerf";
+import { reportPlotAreaPlugin, type PlotAreaReporter } from "@/lib/chartPlotArea";
 
 ChartJS.register(CategoryScale, LinearScale, LogarithmicScale, PointElement, LineElement, Title, Tooltip, Legend, Filler);
 // Space Weather dark UI — never fall back to Chart.js default grey (#666).
@@ -60,14 +61,16 @@ interface ThresholdLine {
 }
 
 interface Props {
+  /** Selected readings displayed immediately above the time marker. */
+  markerReadout?: { x: number; lines: string[] };
   /** Viewport plot bounds, used to align an overlay across stacked charts. */
-  onPlotAreaChange?: (area: { left: number; right: number; top: number; bottom: number }) => void;
+  onPlotAreaChange?: PlotAreaReporter;
   /** Fix left-axis width so stacked time panels share the same plot boundary. */
   yAxisWidth?: number;
   /** Click or drag within a numeric time axis to move a persistent analysis marker. */
   onPickTime?: (ms: number) => void;
   /** UTC/numeric x positions for independently timed event markers. */
-  verticalMarkers?: { x: number; label: string; color?: string }[];
+  verticalMarkers?: { x: number; label: string; color?: string; highlighted?: boolean }[];
   /** Scientific source series: retain all samples and do not smooth curves. */
   preserveSamples?: boolean;
   labels: string[];
@@ -203,6 +206,7 @@ function DatasetToggleLegend({
 }
 
 export default function LineChart({
+  markerReadout,
   onPlotAreaChange,
   yAxisWidth,
   onPickTime,
@@ -283,6 +287,12 @@ export default function LineChart({
   const datasetKey = useMemo(() => drawDatasets.map((d) => d.label).join("\0"), [drawDatasets]);
   const [visible, setVisible] = useState<boolean[]>(() => drawDatasets.map(() => true));
   const chartRef = useRef<ChartInstance<"line"> | null>(null);
+  const verticalMarkersRef = useRef(verticalMarkers);
+
+  useEffect(() => {
+    verticalMarkersRef.current = verticalMarkers;
+    chartRef.current?.update("none");
+  }, [verticalMarkers]);
 
   useEffect(() => {
     setVisible((prev) => {
@@ -302,16 +312,25 @@ export default function LineChart({
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const plugins: any[] = [];
-  if (onPlotAreaChange) plugins.push({
-    id: "reportPlotArea",
-    afterLayout(chart: ChartInstance<"line">) {
-      const rect = chart.canvas.getBoundingClientRect(), area = chart.chartArea;
-      if (!area || !rect.width) return;
-      const sx = rect.width / chart.width, sy = rect.height / chart.height;
-      onPlotAreaChange({ left: rect.left + area.left * sx, right: rect.left + area.right * sx,
-        top: rect.top + area.top * sy, bottom: rect.top + area.bottom * sy });
+  if (markerReadout) plugins.push({
+    id: "selectedMarkerReadout",
+    afterDraw(chart: ChartInstance<"line">) {
+      const { ctx, chartArea, scales: { x } } = chart;
+      if (!x || !chartArea || markerReadout.x < x.min || markerReadout.x > x.max) return;
+      ctx.save(); ctx.font = "bold 12px sans-serif";
+      const width = Math.min(chartArea.width, Math.max(...markerReadout.lines.map(line => ctx.measureText(line).width)) + 18);
+      const height = markerReadout.lines.length * 17 + 10;
+      const px = x.getPixelForValue(markerReadout.x);
+      const left = Math.max(chartArea.left, Math.min(px - width / 2, chartArea.right - width));
+      const top = chartArea.top - height - 6;
+      ctx.fillStyle = "#0b1220"; ctx.fillRect(left, top, width, height);
+      ctx.strokeStyle = "#ff00d4"; ctx.strokeRect(left, top, width, height);
+      ctx.fillStyle = "#ffffff"; ctx.textAlign = "center"; ctx.textBaseline = "top";
+      markerReadout.lines.forEach((line, index) => ctx.fillText(line, left + width / 2, top + 5 + index * 17, width - 12));
+      ctx.restore();
     },
   });
+  if (onPlotAreaChange) plugins.push(reportPlotAreaPlugin<"line">(onPlotAreaChange));
   const picking = useRef(false);
   const pickPointer = (event: { clientX: number; currentTarget: HTMLCanvasElement }) => {
     const chart = chartRef.current;
@@ -321,22 +340,40 @@ export default function LineChart({
     const value = chart.scales.x.getValueForPixel(Math.max(chart.chartArea.left, Math.min(chart.chartArea.right, pixel)));
     if (typeof value === "number" && Number.isFinite(value)) onPickTime(value);
   };
-  if (verticalMarkers?.length) plugins.push({
+  plugins.push({
     id: "timedEventMarkers",
     afterDraw(chart: ChartInstance<"line">) {
       const { ctx, chartArea, scales: { x } } = chart;
-      if (!x || !chartArea) return;
+      const markers = verticalMarkersRef.current;
+      if (!x || !chartArea || !markers?.length) return;
       ctx.save();
       ctx.beginPath(); ctx.rect(chartArea.left, chartArea.top, chartArea.width, chartArea.height); ctx.clip();
-      ctx.font = "11px sans-serif";
       let labelIndex = 0;
-      for (const marker of verticalMarkers) {
+      let selectedLabel: { text: string; left: number; baseline: number; width: number } | undefined;
+      for (const marker of markers) {
         if (!Number.isFinite(marker.x) || marker.x < x.min || marker.x > x.max) continue;
         const px = x.getPixelForValue(marker.x);
-        ctx.strokeStyle = marker.color ?? "#f87171"; ctx.lineWidth = 1;
+        ctx.strokeStyle = marker.color ?? "#f87171";
+        ctx.lineWidth = marker.highlighted ? 2 : 1;
         ctx.beginPath(); ctx.moveTo(px, chartArea.top); ctx.lineTo(px, chartArea.bottom); ctx.stroke();
-        ctx.fillStyle = marker.color ?? "#f87171";
-        ctx.fillText(marker.label, Math.max(chartArea.left + 2, Math.min(px + 4, chartArea.right - ctx.measureText(marker.label).width - 2)), chartArea.top + 14 + (labelIndex++ % 3) * 14);
+        ctx.font = marker.highlighted ? "bold 12px sans-serif" : "11px sans-serif";
+        const width = ctx.measureText(marker.label).width;
+        const left = Math.max(chartArea.left + 5, Math.min(px + 5, chartArea.right - width - 5));
+        const baseline = chartArea.top + 14 + (labelIndex++ % 3) * 14;
+        if (marker.highlighted) {
+          selectedLabel = { text: marker.label, left, baseline, width };
+        } else {
+          ctx.fillStyle = marker.color ?? "#f87171";
+          ctx.fillText(marker.label, left, baseline);
+        }
+      }
+      if (selectedLabel) {
+        const { text, left, baseline, width } = selectedLabel;
+        ctx.fillStyle = "#be123c";
+        ctx.fillRect(left - 4, baseline - 12, width + 8, 16);
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "bold 12px sans-serif";
+        ctx.fillText(text, left, baseline);
       }
       ctx.restore();
     },
@@ -585,8 +622,8 @@ export default function LineChart({
           maintainAspectRatio: false,
           color: "#ffffff",
           animation: budget.animation,
-          layout: formatXTick
-            ? { padding: { bottom: 22 } }
+          layout: formatXTick || markerReadout
+            ? { padding: { bottom: formatXTick ? 22 : 0, top: markerReadout ? markerReadout.lines.length * 17 + 22 : 0 } }
             : undefined,
           interaction: {
             mode: compact ? "nearest" : "index",

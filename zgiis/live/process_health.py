@@ -1,5 +1,15 @@
 """Read-only process checks: Windows os.kill(pid, 0) terminates the process."""
 import os
+from pathlib import Path
+
+_COLLECTOR_LOCK = Path(__file__).resolve().parents[2] / "static" / "data" / ".live_ntrip_collector.lock"
+
+
+def collector_pid_alive() -> bool:
+    try:
+        return pid_alive(int(_COLLECTOR_LOCK.read_text(encoding="utf-8").strip()))
+    except (OSError, ValueError):
+        return False
 
 
 def pid_alive(pid: int) -> bool:

@@ -8,6 +8,27 @@ from zgiis.space_weather.graph_archive import extend_monitor_payload, iter_monit
 
 
 class GraphArchiveTests(unittest.TestCase):
+    def test_wind_and_imf_keep_archived_quarter_hours(self) -> None:
+        live_start = datetime(2026, 11, 18, 12, tzinfo=timezone.utc)
+        live_times = [(live_start + timedelta(minutes=i)).isoformat() for i in range(1440)]
+        archive_times = [live_start - timedelta(minutes=15 * i) for i in range(1, 97)]
+        payload = {
+            "solar_wind": {"times": live_times, "speed": [400.0] * len(live_times)},
+            "imf": {"times": live_times, "bz": [-2.0] * len(live_times)},
+        }
+        stored = {
+            "solar_wind_speed": [(stamp, 350.0) for stamp in archive_times],
+            "imf_bz": [(stamp, -4.0) for stamp in archive_times],
+        }
+
+        merged = extend_monitor_payload(payload, stored)
+
+        expected_history = [stamp.isoformat().replace("+00:00", "Z") for stamp in reversed(archive_times)]
+        for panel in ("solar_wind", "imf"):
+            self.assertEqual(merged[panel]["times"][:96], expected_history)
+            self.assertEqual(merged[panel]["times"][-1], live_times[-1].replace("+00:00", "Z"))
+            self.assertEqual(len(merged[panel]["times"]), 96 + 361)
+
     def test_monitor_rows_keep_each_series(self) -> None:
         payload = {
             "xray": {

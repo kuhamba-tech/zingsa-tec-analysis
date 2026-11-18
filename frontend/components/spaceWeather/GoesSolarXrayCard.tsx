@@ -1,4 +1,5 @@
 "use client";
+import type { PlotAreaReporter } from "@/lib/chartPlotArea";
 import { useContext } from "react";
 import { ChartDateRangeContext } from "@/components/charts/ChartDateRange";
 
@@ -107,7 +108,7 @@ export default function GoesSolarXrayCard({
   analysis?: ChartAnalysisBlock;
   analysisDomain?: { min: number; max: number };
   selectedTime?: number;
-  onPlotAreaChange?: (area: { left: number; right: number; top: number; bottom: number }) => void;
+  onPlotAreaChange?: PlotAreaReporter;
   onPickTime?: (time: number) => void;
 }) {
   const calendar=useContext(ChartDateRangeContext);
@@ -248,6 +249,11 @@ export default function GoesSolarXrayCard({
             yAxisWidth={analysisDomain ? 80 : undefined}
             onPlotAreaChange={onPlotAreaChange}
             onPickTime={onPickTime}
+            markerReadout={selectedTime != null && selectedReadings ? { x: selectedTime, lines: [
+              `${new Date(selectedTime).toISOString().slice(11, 16)} UTC`,
+              `Long: ${selectedReadings.long ? formatFlux(selectedReadings.long.value) : "N/A"}`,
+              `Short: ${selectedReadings.short ? formatFlux(selectedReadings.short.value) : "N/A"}`,
+            ] } : undefined}
             labels={chart.labels}
             toggleableLegend
             datasets={[
@@ -266,7 +272,7 @@ export default function GoesSolarXrayCard({
               },
             ]}
             yLabel="X-ray flux (W/m²)"
-            height={260}
+            height={selectedTime != null ? 330 : 260}
             yLogScale
             yMin={1e-9}
             yMax={1e-3}

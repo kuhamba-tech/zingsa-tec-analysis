@@ -14,6 +14,7 @@ import {
 } from "chart.js";
 import { Chart } from "react-chartjs-2";
 import { formatUtcDayLabel, seriesEpochsFromApi } from "@/lib/chartTimeAxis";
+import { reportPlotAreaPlugin, type PlotAreaReporter } from "@/lib/chartPlotArea";
 import { alignKpSeriesToDomain, KP_BIN_MS } from "@/lib/kpTimeline";
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, Tooltip, Legend);
@@ -66,6 +67,7 @@ export default function HeliosphericKpBars({
   dstEpochMs,
   analysisDomain,
   onPickTime,
+  onPlotAreaChange,
 }: {
   labels: string[];
   times?: string[];
@@ -79,6 +81,7 @@ export default function HeliosphericKpBars({
   dstEpochMs?: (number | null)[];
   analysisDomain?: { min: number; max: number };
   onPickTime?: (ms: number) => void;
+  onPlotAreaChange?: PlotAreaReporter;
 }) {
   const calendar = useContext(ChartDateRangeContext);
   if (!analysisDomain && calendar?.day) {
@@ -190,6 +193,7 @@ export default function HeliosphericKpBars({
       <Chart
         type="bar"
         data={data}
+        plugins={onPlotAreaChange ? [reportPlotAreaPlugin<"bar" | "line">(onPlotAreaChange)] : undefined}
         options={{
           responsive: true,
           maintainAspectRatio: false,
@@ -234,6 +238,7 @@ export default function HeliosphericKpBars({
           },
           scales: {
             x: {
+              offset: analysisDomain ? false : undefined,
               stacked: true,
               title: {
                 display: true,
@@ -249,7 +254,7 @@ export default function HeliosphericKpBars({
                 maxTicksLimit: 10,
                 font: { size: 10 },
               },
-              grid: { color: "#1e3a5f" },
+              grid: { color: "#1e3a5f", offset: analysisDomain ? false : undefined },
             },
             y: {
               min: 0,
