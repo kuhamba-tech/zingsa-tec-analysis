@@ -35,7 +35,7 @@ export default function DstPressureComparison({ data, brief }: { data: Heliosphe
     <LineChart labels={samples.times.map(time => new Date(time).toISOString())} xValues={samples.times} epochMs={samples.times}
       datasets={[
         { label: "Dst", data: samples.bz, color: "#3b82f6", fill: false, omitMissingPoints: true, spanGaps: 65 * 60_000, tension: 0 },
-        { label: "Solar wind pressure", data: samples.speed, color: "#f8fafc", yAxisId: "y2", fill: false, spanGaps: false, tension: 0 },
+        { label: "Solar wind pressure", data: samples.speed, color: "#f8fafc", yAxisId: "y2", fill: false, omitMissingPoints: true, spanGaps: 35 * 60_000, tension: 0 },
         { label: "Dst = 0 nT", data: samples.times.map(() => 0), color: "#94a3b8", dashed: true, borderWidth: 1 },
       ]} yLabel="Dst (nT)" secondaryYLabel="Psw (nPa)" height={300} pointRadius={0}
       preserveSamples toggleableLegend verticalMarkers={markers} {...utcTimeAxisProps(domain, { majorHours: 3 })} />

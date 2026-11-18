@@ -24,6 +24,7 @@ const GoesSolarXrayCard = dynamic(
   { ssr: false },
 );
 const SolarWindBzComparison = dynamic(() => import("@/components/spaceWeather/SolarWindBzComparison"), { ssr: false });
+const InterplanetaryMagneticFieldChart = dynamic(() => import("@/components/spaceWeather/InterplanetaryMagneticFieldChart"), { ssr: false });
 const HeliosphericKpBars = dynamic(() => import("@/components/spaceWeather/HeliosphericKpBars"), { ssr: false });
 const DstKpOverview = dynamic(() => import("@/components/spaceWeather/ZimbabweIonoResponseFigures"), { ssr: false });
 const ZimbabweMeanDiurnalTec = dynamic(() => import("@/components/charts/ZimbabweMeanDiurnalTec"), { ssr: false });
@@ -33,7 +34,7 @@ const PROTON_COLORS: Record<string, string> = {
   ">=100 MeV": "#f97316",
   ">=500 MeV": "#ef4444",
 };
-const PLOTS = ["xray", "wind", "windPlasma", "proton", "overview", "kp", "dst", "speed", "bz", "meanTec", "regionalTec", "delta"] as const;
+const PLOTS = ["xray", "wind", "windPlasma", "imf", "proton", "overview", "kp", "dst", "speed", "bz", "meanTec", "regionalTec", "delta"] as const;
 type Plot = (typeof PLOTS)[number];
 type PlotLayout = { areas: Partial<Record<Plot, PlotArea>>; bounds?: PlotBounds };
 const points = (times: string[], values: (number | null)[]): AnalysisPoint[] => times.map((time, index) => ({ time: Date.parse(time), value: values[index] ?? null })).filter(point => Number.isFinite(point.time));
@@ -274,8 +275,8 @@ export default function StormAnalysis({
   }, [helio, protonChart, selectedTime]);
   const panels = [
     { plot: "dst" as const, title: "Dst", unit: "Dst (nT)", color: "#f8fafc", tolerance: 35 * 60000, cadence: 65 * 60000, data: points(helio?.dst?.times ?? [], helio?.dst?.dst ?? []) },
-    { plot: "speed" as const, title: "Solar wind speed", unit: "Vsw (km/s)", color: "#3b82f6", tolerance: 10 * 60000, cadence: 10 * 60000, data: points(helio?.solar_wind.times ?? [], helio?.solar_wind.speed ?? []) },
-    { plot: "bz" as const, title: "IMF Bz (GSM)", unit: "Bz (nT)", color: "#f8fafc", tolerance: 10 * 60000, cadence: 10 * 60000, data: points(helio?.imf.times ?? [], helio?.imf.bz ?? []) },
+    { plot: "speed" as const, title: "Solar wind speed", unit: "Vsw (km/s)", color: "#3b82f6", tolerance: 10 * 60000, cadence: 20 * 60000, data: points(helio?.solar_wind.times ?? [], helio?.solar_wind.speed ?? []) },
+    { plot: "bz" as const, title: "IMF Bz (GSM)", unit: "Bz (nT)", color: "#f8fafc", tolerance: 10 * 60000, cadence: 20 * 60000, data: points(helio?.imf.times ?? [], helio?.imf.bz ?? []) },
     { plot: "meanTec" as const, title: "Network mean VTEC", unit: "VTEC (TECU)", color: "#00ff88", tolerance: 8 * 60000, cadence: 20 * 60000, data: networkMean },
     { plot: "delta" as const, title: "Relative VTEC difference", unit: "ΔVTEC (%)", color: "#f8fafc", tolerance: 8 * 60000, cadence: 20 * 60000, data: measurements.map(point => ({ time: point.time, value: point.delta })) },
   ];
@@ -318,6 +319,19 @@ export default function StormAnalysis({
       onPickTime={pick}
     />
     {helio && <SolarWindBzComparison data={helio} analysisDomain={domain} selectedTime={selectedTime} onPickTime={pick} onPlotAreaChange={plotLayout.reporters.wind} onPlasmaPlotAreaChange={plotLayout.reporters.windPlasma} />}
+    {helio && helio.imf.labels.length > 0 && <section className="card" aria-label="Interplanetary magnetic field near Sun-Earth L1">
+      <strong>Interplanetary magnetic field near Sun–Earth L1</strong>
+      <p style={{ fontSize: ".78rem" }}>RTSW magnetometer · Bt magnitude · GSM By / Bz · nT · shared Analysis UTC window</p>
+      <InterplanetaryMagneticFieldChart
+        data={helio.imf}
+        analysisDomain={domain}
+        selectedTime={selectedTime}
+        verticalMarkers={flarePeaks}
+        onPlotAreaChange={plotLayout.reporters.imf}
+        onPickTime={pick}
+        height={300}
+      />
+    </section>}
     {helio && <section className="card" aria-label="GOES proton flux">
       <strong>GOES proton flux</strong>
       <p style={{ fontSize: ".78rem" }}>Integral channels · NOAA SWPC · pfu (particles cm⁻² s⁻¹ sr⁻¹) · shared Analysis UTC window</p>

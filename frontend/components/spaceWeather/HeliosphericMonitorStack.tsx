@@ -6,6 +6,7 @@ import SwSectionBanner from "@/components/spaceWeather/SwSectionBanner";
 import { getHeliosphericMonitor, getSolarBrief, type SolarBriefResponse } from "@/lib/api";
 import { peekHeliosphericMonitor } from "@/lib/heliosphericStore";
 import { loadLineChart } from "@/lib/loadLineChart";
+import InterplanetaryMagneticFieldChart from "./InterplanetaryMagneticFieldChart";
 import {
   alignTimeDomain,
   seriesEpochsFromApi,
@@ -258,7 +259,6 @@ export default function HeliosphericMonitorStack({ only, showWindBz = false }: {
     };
     return {
       protons: build(data.protons.labels, data.protons.epoch_ms, data.protons.times),
-      imf: build(data.imf.labels, data.imf.epoch_ms, data.imf.times),
       solar_wind: build(
         data.solar_wind.labels,
         data.solar_wind.epoch_ms,
@@ -408,19 +408,7 @@ export default function HeliosphericMonitorStack({ only, showWindBz = false }: {
             analysis={analyzeHeliosphericPanel("imf", data, brief)}
           >
             {data.imf.labels.length > 0 ? (
-              <LineChart
-                labels={data.imf.labels}
-                yLabel="IMF (nT)"
-                height={220}
-                toggleableLegend
-                thresholds={[{ value: 0, label: "Bz = 0", color: "#64748b" }]}
-                datasets={[
-                  { label: "IMF Bt", data: data.imf.bt, color: "#f8fafc" },
-                  { label: "IMF GSM By", data: data.imf.by, color: "#38bdf8" },
-                  { label: "IMF GSM Bz", data: data.imf.bz, color: "#ef4444", fill: true },
-                ]}
-                {...panelAxis.imf}
-              />
+              <InterplanetaryMagneticFieldChart data={data.imf} />
             ) : (
               <div className="banner banner-info">
                 IMF series unavailable. NOAA has not returned recent or cached observations.
