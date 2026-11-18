@@ -8,11 +8,14 @@ on the far side and is not counted or drawn.
 
 from __future__ import annotations
 
+import json
 import math
 import re
 import threading
 import time
-from datetime import datetime, timedelta, timezone
+from concurrent.futures import ThreadPoolExecutor
+from datetime import date, datetime, timedelta, timezone
+from functools import lru_cache
 from typing import Any
 
 SRS_URL = "https://services.swpc.noaa.gov/text/srs.txt"
@@ -48,6 +51,172 @@ _ISSUED = re.compile(r":Issued:\s*(.+)", re.IGNORECASE)
 
 _LOCK = threading.Lock()
 _CACHE: dict[str, Any] = {"ts": 0.0, "payload": None}
+_AIA_ARCHIVE_FRAME = re.compile(r"(\d{8})_(\d{6})_(512_0131|1024_0193)\.jpg")
+_NOAA_DAILY = "https://www.ngdc.noaa.gov/stp/space-weather/swpc-products/daily_reports"
+_NOAA_GOES_FLARES = "https://services.swpc.noaa.gov/json/goes/primary/xray-flares-7-day.json"
+_NOAA_EDITED_EVENTS = "https://services.swpc.noaa.gov/json/edited_events.json"
+_XRA_REGION = re.compile(
+    r"^\d{4}[ \t]+(\+?\s*\d{4})[ \t]+(\d{4})[ \t]+(\+?\s*\d{4})[ \t]+[^\r\n]*?\bXRA\s+\S+\s+([CMX]\d+(?:\.\d+)?)\s+\S+(?:[ \t]+(\d{4}))?[ \t]*\r?$",
+    re.MULTILINE,
+)
+
+
+def _archive_text(url: str) -> str:
+    import requests
+
+    try:
+        response = requests.get(url, timeout=(4, 10))
+        response.raise_for_status()
+        return response.text
+    except requests.RequestException:
+        return ""
+
+
+def _aia_archive_frames(day: date, listing: str) -> dict[str, list[dict[str, str]]]:
+    folder = f"{BROWSE_ROOT}/{day:%Y/%m/%d}"
+    frames: dict[str, list[dict[str, str]]] = {"512_0131": [], "1024_0193": []}
+    for stamp, clock, product in sorted(set(_AIA_ARCHIVE_FRAME.findall(listing))):
+        if stamp != day.strftime("%Y%m%d"):
+            continue
+        try:
+            time_utc = datetime.strptime(stamp + clock, "%Y%m%d%H%M%S").replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+        frames[product].append({"time": time_utc.isoformat(), "url": f"{folder}/{stamp}_{clock}_{product}.jpg"})
+    return frames
+
+
+def _flare_regions(day: date, event_report: str, region_summary: str) -> list[dict[str, Any]]:
+    regions = {row["number"]: row for row in parse_solar_region_summary(region_summary)["regions"]}
+    matches = set(_XRA_REGION.findall(event_report))
+    flares = []
+    for start_text, hhmm, end_text, flare_class, region_text in sorted(matches):
+        try:
+            peak = datetime.strptime(f"{day:%Y%m%d}{hhmm}", "%Y%m%d%H%M").replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+        def event_time(text: str) -> datetime | None:
+            try:
+                return peak.replace(hour=int(text[-4:-2]), minute=int(text[-2:]))
+            except ValueError:
+                return None
+
+        start, end = event_time(start_text), event_time(end_text)
+        if start and start > peak:
+            start -= timedelta(days=1)
+        if end and end < peak:
+            end += timedelta(days=1)
+        number = int(region_text) or None if region_text else None
+        region = regions.get(number)
+        position = None
+        if region:
+            # SRS locations are for 00:00 UTC. Advance the central meridian
+            # distance by the approximate synodic rotation before projecting.
+            hours = peak.hour + peak.minute / 60
+            longitude = region["central_meridian_deg"] + hours * (13.2 / 24)
+            if abs(longitude) < 90:
+                position = _place(region["latitude_deg"], longitude)
+        flares.append({
+            "time": peak.isoformat(),
+            "start": start.isoformat() if start else None,
+            "end": end.isoformat() if end else None,
+            "flare_class": flare_class,
+            "region": number,
+            "x": position[0] if position else None,
+            "y": position[1] if position else None,
+        })
+    return flares
+
+
+def _recent_goes_flare_times(day: date, payload: str) -> list[dict[str, Any]]:
+    """Recover recent GOES event times while the edited archive is unavailable."""
+    try:
+        rows = json.loads(payload)
+    except ValueError:
+        return []
+    if not isinstance(rows, list):
+        return []
+    flares = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        peak = row.get("max_time")
+        flare_class = str(row.get("max_class") or "").strip().upper()
+        if not isinstance(peak, str) or peak[:10] != day.isoformat() or not re.fullmatch(r"[CMX]\d+(?:\.\d+)?", flare_class):
+            continue
+        flares.append({
+            "time": peak, "start": row.get("begin_time"), "end": row.get("end_time"),
+            "flare_class": flare_class, "region": None, "x": None, "y": None,
+        })
+    return flares
+
+
+def _add_live_edited_regions(flares: list[dict[str, Any]], payload: str) -> None:
+    """Join live edited X-ray events on UTC peak minute and flare class."""
+    try:
+        rows = json.loads(payload)
+    except ValueError:
+        return
+    if not isinstance(rows, list):
+        return
+    regions: dict[tuple[str, str], set[int]] = {}
+    for row in rows:
+        if not isinstance(row, dict) or row.get("type") != "XRA":
+            continue
+        region = row.get("region")
+        if not isinstance(region, int) or region <= 0:
+            continue
+        key = (str(row.get("max_datetime") or "")[:16], str(row.get("particulars1") or "").strip().upper())
+        regions.setdefault(key, set()).add(region)
+    for flare in flares:
+        matches = regions.get((flare["time"][:16], flare["flare_class"]))
+        if matches and len(matches) == 1:
+            flare["region"] = next(iter(matches))
+
+
+@lru_cache(maxsize=32)
+def _load_solar_archive(day: date, cache_slot: int) -> dict[str, Any]:
+    folder = f"{day:%Y/%m}"
+    stamp = day.strftime("%Y%m%d")
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        listing = pool.submit(_archive_text, f"{BROWSE_ROOT}/{day:%Y/%m/%d}/")
+        events = pool.submit(_archive_text, f"{_NOAA_DAILY}/solar_event_reports/{folder}/{stamp}events.txt")
+        regions = pool.submit(_archive_text, f"{_NOAA_DAILY}/solar_region_summaries/{folder}/{stamp}SRS.txt")
+        frames = _aia_archive_frames(day, listing.result())
+        summary = regions.result()
+        parsed = parse_solar_region_summary(summary)
+        report = events.result()
+        flares = _flare_regions(day, report, summary)
+        if not report and 0 <= (datetime.now(timezone.utc).date() - day).days <= 7:
+            goes = pool.submit(_archive_text, _NOAA_GOES_FLARES)
+            edited = pool.submit(_archive_text, _NOAA_EDITED_EVENTS)
+            flares = _recent_goes_flare_times(day, goes.result())
+            _add_live_edited_regions(flares, edited.result())
+        payload = {
+            "frames": frames["512_0131"],
+            "frames_193": frames["1024_0193"],
+            "regions": [
+                {key: row[key] for key in ("number", "latitude_deg", "central_meridian_deg")}
+                for row in parsed["regions"] + parsed["plages"]
+            ],
+            "flare_regions": flares,
+            "edited_report_available": bool(report),
+        }
+        if not report:
+            raise _IncompleteSolarArchive(payload)
+        return payload
+
+
+class _IncompleteSolarArchive(Exception):
+    def __init__(self, payload: dict[str, Any]):
+        self.payload = payload
+
+
+def solar_archive_day(day: date) -> dict[str, Any]:
+    try:
+        return _load_solar_archive(day, int(time.time() // 300))
+    except _IncompleteSolarArchive as incomplete:
+        return incomplete.payload
 
 
 def build_solar_disk(*, force_refresh: bool = False) -> dict[str, Any]:

@@ -1,14 +1,81 @@
 "use client";
 
-import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import LineChart from "@/components/charts/LineChart";
 import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
 import { getSolarCycleIndices } from "@/lib/api";
 import type { ChartAnalysisBlock } from "@/lib/multiSourceChartAnalysis";
 import { CYCLE_25_SCALE } from "@/lib/scientistBulletin";
+import { SOLAR_FLUX_GUIDES } from "@/lib/solarFluxGuides";
 import type { SolarCycleIndicesResponse } from "@/lib/types";
+import styles from "./SolarCycleFullRecordCharts.module.css";
 
 const START_YEAR = 1965;
+const LIVE_CACHE_MS = 10 * 60_000;
+let snapshotRequest: Promise<SolarCycleIndicesResponse> | undefined;
+let liveRequest: Promise<SolarCycleIndicesResponse> | undefined;
+let liveCachedAt = 0;
+
+function loadSnapshot() {
+  snapshotRequest ??= fetch("/solar-cycle-indices-1965.json")
+    .then(async response => {
+      if (!response.ok) throw new Error("Solar-cycle snapshot unavailable");
+      return await response.json() as SolarCycleIndicesResponse;
+    })
+    .catch(error => {
+      snapshotRequest = undefined;
+      throw error;
+    });
+  return snapshotRequest;
+}
+
+function loadLiveRecord() {
+  if (liveRequest && liveCachedAt && Date.now() - liveCachedAt >= LIVE_CACHE_MS) {
+    liveRequest = undefined;
+  }
+  if (!liveRequest) {
+    liveCachedAt = 0;
+    liveRequest = getSolarCycleIndices(START_YEAR).then(payload => {
+      if (payload.points.length) liveCachedAt = Date.now();
+      else liveRequest = undefined;
+      return payload;
+    }).catch(error => {
+      liveRequest = undefined;
+      throw error;
+    });
+  }
+  return liveRequest;
+}
+
+function mergeMonthlyRecords(snapshot: SolarCycleIndicesResponse | null, live: SolarCycleIndicesResponse | null) {
+  if (!snapshot?.points.length) return live;
+  if (!live?.points.length || (live.updated_utc ?? "") < (snapshot.updated_utc ?? "")) return snapshot;
+
+  const months = new Map(snapshot.points.map(point => [point.year_month, point]));
+  for (const point of live.points) {
+    const saved = months.get(point.year_month);
+    months.set(point.year_month, {
+      ...point,
+      f107: point.f107 ?? saved?.f107 ?? null,
+      f107_source: point.f107 != null ? point.f107_source : saved?.f107_source ?? null,
+      ssn: point.ssn ?? saved?.ssn ?? null,
+      ssn_source: point.ssn != null ? point.ssn_source : saved?.ssn_source ?? null,
+    });
+  }
+  const points = [...months.values()].sort((a, b) => a.year_frac - b.year_frac);
+  const flux = points.filter(point => point.f107 != null);
+  const sunspots = points.filter(point => point.ssn != null);
+  return {
+    ...live,
+    source: [...new Set([snapshot.source, live.source].flatMap(source => source?.split(" · ") ?? []))].join(" · "),
+    point_count: points.length,
+    points,
+    f107_from: flux[0]?.year_month ?? null,
+    f107_to: flux.at(-1)?.year_month ?? null,
+    ssn_from: sunspots[0]?.year_month ?? null,
+    ssn_to: sunspots.at(-1)?.year_month ?? null,
+  };
+}
 
 function formatYearTick(value: number): string {
   return String(Math.round(value));
@@ -46,34 +113,87 @@ const SSN_ANALYSIS: ChartAnalysisBlock = {
   ],
 };
 
+const SOLAR_CYCLE_PLOTS = [
+  {
+    metric: "f107" as const,
+    title: "Solar Flux Index (F10.7)",
+    unit: "SFU",
+    yLabel: "F10.7 (SFU)",
+    color: "#fbbf24",
+    thresholds: SOLAR_FLUX_GUIDES,
+    explanation: F107_ANALYSIS,
+  },
+  {
+    metric: "ssn" as const,
+    title: "Sunspot Number (SSN)",
+    unit: "SSN",
+    yLabel: "SSN",
+    color: "#f97316",
+    thresholds: [
+      { value: 50, label: "Min cycle", color: "#f97316" },
+      { value: 150, label: "Max cycle", color: "#ef4444" },
+    ],
+    explanation: SSN_ANALYSIS,
+  },
+];
+
+const SolarCyclePlot = memo(function SolarCyclePlot({ plot, model, coverage }: {
+  plot: (typeof SOLAR_CYCLE_PLOTS)[number];
+  model: { labels: string[]; xValues: number[]; xMin: number; xMax: number; f107: (number | null)[]; ssn: (number | null)[] };
+  coverage: string;
+}) {
+  return (
+    <section className={styles.plot} aria-label={plot.title}>
+      <h3 className={styles.title}>{plot.title}</h3>
+      <p className={styles.coverage}>Monthly mean ? {coverage} ? {plot.unit}</p>
+      <LineChart
+        labels={model.labels}
+        xValues={model.xValues}
+        xLabel="Year"
+        xMin={model.xMin}
+        xMax={model.xMax}
+        xStepSize={10}
+        formatXTick={formatYearTick}
+        yLabel={plot.yLabel}
+        height="clamp(200px, 34vw, 260px)"
+        datasets={[{ label: plot.title, data: model[plot.metric], color: plot.color }]}
+        thresholds={plot.thresholds}
+      />
+      <details>
+        <summary className={styles.explanation}>Scientific explanation</summary>
+        <ChartAnalysisBox block={plot.explanation} title="Scientific interpretation" />
+      </details>
+    </section>
+  );
+});
+
 export default function SolarCycleFullRecordCharts() {
-  const [data, setData] = useState<SolarCycleIndicesResponse | null>(null);
+  const [snapshot, setSnapshot] = useState<SolarCycleIndicesResponse | null>(null);
+  const [live, setLive] = useState<SolarCycleIndicesResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [selected, setSelected] = useState<"f107" | "ssn" | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setError(null);
-    getSolarCycleIndices(START_YEAR)
-      .then((payload) => {
-        if (cancelled) return;
-        setData(payload);
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        setError(err instanceof Error ? err.message : "Failed to load solar-cycle indices");
-        setData(null);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+    const savedRequest = loadSnapshot().then(payload => {
+      if (!cancelled) setSnapshot(payload);
+    });
+    const freshRequest = loadLiveRecord().then(payload => {
+      if (!cancelled) setLive(payload);
+    });
+    void Promise.allSettled([savedRequest, freshRequest]).then(([saved, fresh]) => {
+      if (cancelled) return;
+      if (saved.status === "rejected" && fresh.status === "rejected") {
+        setError("Could not load monthly solar-cycle indices.");
+      }
+      setLoading(false);
+    });
     return () => {
       cancelled = true;
     };
   }, []);
 
+  const data = useMemo(() => mergeMonthlyRecords(snapshot, live), [snapshot, live]);
   const chartModel = useMemo(() => {
     const points = data?.points ?? [];
     const labels = points.map((p) => p.year_month);
@@ -92,23 +212,14 @@ export default function SolarCycleFullRecordCharts() {
     ? coverageLabel(data.ssn_from ?? data.f107_from, data.ssn_to ?? data.f107_to)
     : `${START_YEAR} – present`;
 
-  const toggle = (id: "f107" | "ssn") => setSelected((prev) => (prev === id ? null : id));
-  const onKeyToggle = (id: "f107" | "ssn") => (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      toggle(id);
-    }
-  };
-
   return (
-    <div className="card" style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+    <section className={`card ${styles.record}`} aria-label="F10.7 and sunspot full record">
       <div>
         <div className="metric-label" style={{ marginBottom: "0.35rem" }}>
           F10.7 &amp; Sunspot Number — Full Record
         </div>
         <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", lineHeight: 1.5 }}>
-          Monthly mean solar flux and sunspot activity · Solar cycles 19–25 · {rangeNote}. Click a
-          chart for the scientific explanation.
+          Monthly mean solar flux and sunspot activity · Solar cycles 19–25 · {rangeNote}.
         </div>
       </div>
 
@@ -136,7 +247,7 @@ export default function SolarCycleFullRecordCharts() {
         </span>
       </div>
 
-      {loading && (
+      {loading && !data?.point_count && (
         <div className="banner banner-info">Loading NOAA / LISIRD monthly solar-cycle indices…</div>
       )}
       {error && !loading && <div className="banner banner-warn">{error}</div>}
@@ -146,95 +257,18 @@ export default function SolarCycleFullRecordCharts() {
         </div>
       )}
 
-      {!loading && data && data.point_count > 0 && (
+      {data && data.point_count > 0 && (
         <>
-          <div
-            role="button"
-            tabIndex={0}
-            aria-expanded={selected === "f107"}
-            aria-label="Solar Flux Index F10.7 graph"
-            onClick={() => toggle("f107")}
-            onKeyDown={onKeyToggle("f107")}
-            style={{
-              background: selected === "f107" ? "rgba(22, 139, 210, 0.12)" : "#0a1929",
-              border: `1px solid ${selected === "f107" ? "var(--accent)" : "var(--border)"}`,
-              borderRadius: 10,
-              padding: "0.85rem 0.9rem 0.5rem",
-              cursor: "pointer",
-            }}
-          >
-            <div style={{ fontWeight: 700, marginBottom: "0.15rem" }}>Solar Flux Index (F10.7)</div>
-            <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginBottom: "0.65rem" }}>
-              Monthly mean · {coverageLabel(data.f107_from, data.f107_to)} · SFU
-            </div>
-            <LineChart
-              labels={chartModel.labels}
-              xValues={chartModel.xValues}
-              xLabel="Year"
-              xMin={chartModel.xMin}
-              xMax={chartModel.xMax}
-              xStepSize={10}
-              formatXTick={formatYearTick}
-              yLabel="F10.7 (SFU)"
-              height={260}
-              datasets={[
-                {
-                  label: "Solar Flux Index (F10.7) (SFU)",
-                  data: chartModel.f107,
-                  color: "#fbbf24",
-                },
-              ]}
-              thresholds={[
-                { value: 70, label: "Quiet", color: "#4ade80" },
-                { value: 150, label: "High", color: "#ef4444" },
-              ]}
+          {SOLAR_CYCLE_PLOTS.map(plot => (
+            <SolarCyclePlot
+              key={plot.metric}
+              plot={plot}
+              model={chartModel}
+              coverage={plot.metric === "f107"
+                ? coverageLabel(data.f107_from, data.f107_to)
+                : coverageLabel(data.ssn_from, data.ssn_to)}
             />
-            {selected === "f107" && <ChartAnalysisBox block={F107_ANALYSIS} title="Scientific interpretation" />}
-          </div>
-
-          <div
-            role="button"
-            tabIndex={0}
-            aria-expanded={selected === "ssn"}
-            aria-label="Sunspot Number graph"
-            onClick={() => toggle("ssn")}
-            onKeyDown={onKeyToggle("ssn")}
-            style={{
-              background: selected === "ssn" ? "rgba(22, 139, 210, 0.12)" : "#0a1929",
-              border: `1px solid ${selected === "ssn" ? "var(--accent)" : "var(--border)"}`,
-              borderRadius: 10,
-              padding: "0.85rem 0.9rem 0.5rem",
-              cursor: "pointer",
-            }}
-          >
-            <div style={{ fontWeight: 700, marginBottom: "0.15rem" }}>Sunspot Number (SSN)</div>
-            <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginBottom: "0.65rem" }}>
-              Monthly mean · {coverageLabel(data.ssn_from, data.ssn_to)} · SSN
-            </div>
-            <LineChart
-              labels={chartModel.labels}
-              xValues={chartModel.xValues}
-              xLabel="Year"
-              xMin={chartModel.xMin}
-              xMax={chartModel.xMax}
-              xStepSize={10}
-              formatXTick={formatYearTick}
-              yLabel="SSN"
-              height={260}
-              datasets={[
-                {
-                  label: "Sunspot Number (SSN) (SSN)",
-                  data: chartModel.ssn,
-                  color: "#f97316",
-                },
-              ]}
-              thresholds={[
-                { value: 50, label: "Min cycle", color: "#f97316" },
-                { value: 150, label: "Max cycle", color: "#ef4444" },
-              ]}
-            />
-            {selected === "ssn" && <ChartAnalysisBox block={SSN_ANALYSIS} title="Scientific interpretation" />}
-          </div>
+          ))}
 
           <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", lineHeight: 1.5 }}>
             Source: {data.source || "NOAA SWPC / LISIRD"}
@@ -245,6 +279,6 @@ export default function SolarCycleFullRecordCharts() {
           </div>
         </>
       )}
-    </div>
+    </section>
   );
 }

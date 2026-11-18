@@ -1,0 +1,42 @@
+.record {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: clamp(.65rem, 2vw, 1rem);
+  min-width: 0;
+}
+
+.plot {
+  min-width: 0;
+  padding: clamp(.5rem, 2vw, .9rem);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #0a1929;
+}
+
+.title {
+  margin: 0 0 .15rem;
+  font-size: 1rem;
+}
+
+.coverage {
+  margin: 0 0 .65rem;
+  color: var(--text-muted);
+  font-size: .78rem;
+}
+
+.explanation {
+  box-sizing: border-box;
+  min-height: 44px;
+  width: fit-content;
+  padding: .65rem .25rem;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: .85rem;
+  line-height: 1.5;
+}
+
+.explanation:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+  border-radius: 3px;
+}

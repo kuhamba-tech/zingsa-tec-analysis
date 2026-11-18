@@ -354,6 +354,41 @@ export type SolarDiskResponse = {
 export const getSolarDisk = () =>
   get<SolarDiskResponse>("/space-weather/solar-disk", { _ts: Date.now() }, 20_000);
 
+export type SolarArchiveDay = {
+  frames: { time: string; url: string }[];
+  frames_193?: { time: string; url: string }[];
+  regions?: { number: number; latitude_deg: number; central_meridian_deg: number }[];
+  edited_report_available?: boolean;
+  flare_regions: { time: string; start?: string | null; end?: string | null; flare_class: string; region: number | null; x: number | null; y: number | null }[];
+};
+
+export const getSolarArchiveDay = (day: string) =>
+  dedupeGet(`solar-archive:${day}`, async () => {
+    const path = "/space-weather/solar-archive";
+    const url = new URL(apiUrl(path));
+    url.searchParams.set("day", day);
+    // Long local TEC requests can occupy the direct FastAPI browser connections.
+    const proxy = process.env.NODE_ENV === "development" ? localApiFallbackUrl(url.toString()) : null;
+    if (!proxy) return get<SolarArchiveDay>(path, { day }, 30_000);
+    const response = await fetchWithTimeout(proxy, { headers: KEY ? { "X-API-Key": KEY } : {} }, 30_000);
+    if (!response.ok) throw new Error("The solar archive is unavailable.");
+    return response.json() as Promise<SolarArchiveDay>;
+  });
+
+export type ZimbabweRotiStation = {
+  code: string;
+  lat: number;
+  lon: number;
+  roti: number;
+  satellites: number;
+  observed_at: string;
+};
+
+export const getZimbabweRoti = () =>
+  dedupeGet("zimbabwe-roti", () =>
+    get<{ stations: ZimbabweRotiStation[]; method: string }>("/tec/zimbabwe-roti", undefined, 25_000),
+  );
+
 export type SolarBriefRegionChance = {
   number: number;
   c_percent: number;

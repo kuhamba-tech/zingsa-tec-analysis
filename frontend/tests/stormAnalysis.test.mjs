@@ -29,6 +29,16 @@ test("missing or invalid reference does not create a baseline or difference", ()
   assert.equal(result[0].baseline,null);
   assert.equal(result[0].delta,null);
 });
+test("five-day reference weights each day equally and leaves incomplete bins empty", () => {
+  const reference = [10, 20, 20, 25, 25].map((value, index) => ({
+    time: day - (index + 1) * 86400000, value,
+  }));
+  reference.push({ time: reference[0].time + 60_000, value: 10 });
+  const result = referenceTec([{ time: day, value: 30 }, { time: day + 900000, value: 30 }], reference, 5);
+  assert.equal(result[0].baseline, 20);
+  assert.equal(result[0].delta, 50);
+  assert.equal(result[1].delta, null);
+});
 test("marker readouts reject observations too far from the selected time", () => {
   const points=[{time:day,value:20},{time:day+900000,value:null}];
   assert.equal(nearestReading(points,day+60000,120000).value,20);

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import dynamic from "next/dynamic";
-import { getHeliosphericMonitor, getLiveVtecByStation } from "@/lib/api";
+import { getGfzKpAnalysis, getHeliosphericMonitor, getLiveVtecByStation, type SolarArchiveDay } from "@/lib/api";
 import { peekHeliosphericMonitor } from "@/lib/heliosphericStore";
 import type { GoesXrayRange } from "@/components/spaceWeather/GoesSolarXrayCard";
 import { loadLineChart } from "@/lib/loadLineChart";
@@ -12,10 +12,67 @@ import type { PlotArea, PlotAreaReporter, PlotBounds } from "@/lib/chartPlotArea
 import { startVisiblePolling } from "@/lib/visiblePolling";
 import { runMeanVtecEkf } from "@/lib/meanVtecEkf";
 import { readFlarePeak } from "@/lib/flareEruption";
+import { SOLAR_WIND_SPEED_SCALE } from "@/lib/spaceWeatherMetrics";
+import AnalysisSolarDisk from "./AnalysisSolarDisk";
+import flareTable from "./FlareActivityTable.module.css";
 import { buildNetworkMeanVtecSeries, nearestReading, referenceTec, type AnalysisPoint } from "@/lib/stormAnalysis";
 import type { HeliosphericMonitorResponse, LiveStationVtecSeries } from "@/lib/types";
 
 const LineChart = dynamic(() => loadLineChart().then(module => module.default), { ssr: false });
+const SolarFlareMonthChart = dynamic(() => import("./SolarFlareMonthChart"), { ssr: false });
+
+function flareTime(value: unknown): number {
+  if (typeof value !== "string" || !value) return NaN;
+  return Date.parse(/(?:Z|[+-]\d{2}:?\d{2})$/i.test(value) ? value : `${value}Z`);
+}
+
+function SelectedFlareTable({ time, events, archive }: {
+  time: number;
+  events?: Record<string, unknown>[];
+  archive?: SolarArchiveDay;
+}) {
+  const candidates = (archive?.flare_regions ?? []).map(report => ({
+    label: report.flare_class, peak: flareTime(report.time), start: flareTime(report.start),
+    end: flareTime(report.end), region: report.region,
+  }));
+  for (const event of events ?? []) {
+    const peak = readFlarePeak(event, true);
+    if (!peak || !/^[CMX]/.test(peak.classText)) continue;
+    const start = flareTime(event.beginTime ?? event.begin_time);
+    const end = flareTime(event.endTime ?? event.end_time);
+    const region = Number(event.activeRegionNum ?? event.region) || null;
+    const report = candidates.find(row => row.label === peak.classText && Math.abs(row.peak - peak.peakMs) <= 120_000);
+    if (report) {
+      if (!Number.isFinite(report.start)) report.start = start;
+      if (!Number.isFinite(report.end)) report.end = end;
+      report.region ??= region;
+    } else {
+      candidates.push({ label: peak.classText, peak: peak.peakMs, start, end, region });
+    }
+  }
+  const selected = candidates
+    .filter(row => (time >= row.start && time <= row.end) || Math.abs(time - row.peak) <= 300_000)
+    .sort((a, b) => Math.abs(time - a.peak) - Math.abs(time - b.peak))[0];
+  const clock = (ms: number) => Number.isFinite(ms) ? new Date(ms).toISOString().slice(11, 16) : "–";
+  const tones: Record<string, string> = { C: flareTable.flareC, M: flareTable.flareM, X: flareTable.flareX };
+  return <div className={flareTable.eventsScroll} style={{ margin: ".75rem 0 1rem" }}>
+    <table className={flareTable.eventsTable} aria-label="Flare at the pink analysis marker">
+      <thead><tr>
+        {["Solar flare", "Region of origin", "Start time (UT)", "End time (UT)", "Peak time (UT)", "Duration (min)"]
+          .map(heading => <th key={heading} scope="col">{heading}</th>)}
+      </tr></thead>
+      <tbody>{selected ? <tr>
+        <td><span className={`${flareTable.flare} ${tones[selected.label[0]]}`}>{selected.label}</span></td>
+        <td><span className={selected.region ? flareTable.region : flareTable.regionEmpty}>{selected.region ?? "–"}</span></td>
+        <td className={flareTable.clock}>{clock(selected.start)}</td>
+        <td className={flareTable.clock}>{clock(selected.end)}</td>
+        <td className={flareTable.clock}>{clock(selected.peak)}</td>
+        <td className={flareTable.clock}>{selected.end >= selected.start
+          ? Math.round((selected.end - selected.start) / 6000) / 10 : "–"}</td>
+      </tr> : <tr><td colSpan={6}>No cataloged C-, M-, or X-class flare at the selected time.</td></tr>}</tbody>
+    </table>
+  </div>;
+}
 const GoesSolarXrayCard = dynamic(
   () =>
     import("@/lib/loadGoesSolarXrayCard").then(({ loadGoesSolarXrayCard }) =>
@@ -27,6 +84,7 @@ const SolarWindBzComparison = dynamic(() => import("@/components/spaceWeather/So
 const InterplanetaryMagneticFieldChart = dynamic(() => import("@/components/spaceWeather/InterplanetaryMagneticFieldChart"), { ssr: false });
 const HeliosphericKpBars = dynamic(() => import("@/components/spaceWeather/HeliosphericKpBars"), { ssr: false });
 const DstKpOverview = dynamic(() => import("@/components/spaceWeather/ZimbabweIonoResponseFigures"), { ssr: false });
+const DstPressureComparison = dynamic(() => import("@/components/spaceWeather/DstPressureComparison"), { ssr: false });
 const ZimbabweMeanDiurnalTec = dynamic(() => import("@/components/charts/ZimbabweMeanDiurnalTec"), { ssr: false });
 const PROTON_COLORS: Record<string, string> = {
   ">=10 MeV": "#38bdf8",
@@ -34,8 +92,11 @@ const PROTON_COLORS: Record<string, string> = {
   ">=100 MeV": "#f97316",
   ">=500 MeV": "#ef4444",
 };
-const PLOTS = ["xray", "wind", "windPlasma", "imf", "proton", "overview", "kp", "dst", "speed", "bz", "meanTec", "regionalTec", "delta"] as const;
+const PLOTS = ["xray", "wind", "windPlasma", "imf", "proton", "pressure", "overview", "kp", "dst", "speed", "bz", "meanTec", "regionalTec", "delta"] as const;
 type Plot = (typeof PLOTS)[number];
+const SOLAR_WIND_SPEED_GUIDES = SOLAR_WIND_SPEED_SCALE
+  .filter(band => band.boundary > 0)
+  .map(band => ({ value: band.boundary, label: `${band.label} (${band.short} km/s)`, color: band.color }));
 type PlotLayout = { areas: Partial<Record<Plot, PlotArea>>; bounds?: PlotBounds };
 const points = (times: string[], values: (number | null)[]): AnalysisPoint[] => times.map((time, index) => ({ time: Date.parse(time), value: values[index] ?? null })).filter(point => Number.isFinite(point.time));
 
@@ -152,11 +213,14 @@ export default function StormAnalysis({
   const [referenceDay, setReferenceDay] = useState("");
   const [helio, setHelio] = useState<HeliosphericMonitorResponse | null>(peekHeliosphericMonitor);
   const [rows, setRows] = useState<LiveStationVtecSeries[]>([]);
+  const [stationRows, setStationRows] = useState<LiveStationVtecSeries[]>([]);
   const [referenceRows, setReferenceRows] = useState<LiveStationVtecSeries[]>([]);
+  const [quietDays, setQuietDays] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [tecError, setTecError] = useState<string | null>(null);
   const [referenceError, setReferenceError] = useState<string | null>(null);
   const [picked, setPicked] = useState<number | null>(null);
+  const [flareArchive, setFlareArchive] = useState<{ day: string; data: SolarArchiveDay } | null>(null);
   const [loading, setLoading] = useState(true);
   const stackRef = useRef<HTMLDivElement>(null);
   const [plotLayout] = useState(() => createPlotLayout(() => stackRef.current?.getBoundingClientRect()));
@@ -174,7 +238,7 @@ export default function StormAnalysis({
     const max = Date.parse(`${endDay}T00:00:00Z`) + 86400000;
     return { min: max - days * 86400000, max };
   }, [endDay, days]);
-  const selectedTime = Math.max(domain.min, Math.min(domain.max, picked ?? Date.now()));
+  const selectedTime = Math.max(domain.min, Math.min(domain.max - 60_000, picked ?? Date.now()));
   const flarePeaks = useMemo(() => {
     const peaks = new Map<string, { x: number; label: string }>();
     for (const event of flareEvents ?? []) {
@@ -191,6 +255,12 @@ export default function StormAnalysis({
     return !closest || distance < Math.abs(closest.x - selectedTime) ? peak : closest;
   }, null);
   const pick = (time: number) => setPicked(Math.round(time / 60000) * 60000);
+  const changeEndDay = (day: string) => {
+    const midnight = Date.parse(`${day}T00:00:00Z`);
+    if (!Number.isFinite(midnight)) return;
+    setEndDay(day);
+    pick(midnight + selectedTime % 86_400_000);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -212,31 +282,83 @@ export default function StormAnalysis({
         for (const day of dayList) {
           const daily = await getLiveVtecByStation(24, 15, 90000, day);
           if (cancelled) return;
-          if (!daily.length) throw new Error("archive unavailable");
           result.push(...daily);
         }
-        if (!cancelled) { setRows(result); setTecError(null); }
+        if (!cancelled) {
+          setRows(result);
+          setTecError(result.length ? null : "No station TEC history is available for this window.");
+        }
       } catch { if (!cancelled) setTecError("Station TEC history could not be loaded; retry by changing the window or station."); }
       finally { if (!cancelled) setLoading(false); }
     };
     const stop = startVisiblePolling(load, 5 * 60_000);
     return () => { cancelled = true; stop(); };
+  }, [domain.min, days]);
+
+  useEffect(() => {
+    let active = true;
+    setStationRows([]);
+    const stop = startVisiblePolling(async () => {
+      const history: LiveStationVtecSeries[] = [];
+      for (let index = 0; index < days && active; index++) {
+        const day = new Date(domain.min + index * 86400000).toISOString().slice(0, 10);
+        const daily = await getLiveVtecByStation(24, 15, 90000, day, [station]).catch(() => []);
+        history.push(...daily);
+      }
+      if (active) setStationRows(history);
+    }, 5 * 60_000);
+    return () => { active = false; stop(); };
   }, [domain.min, days, station]);
 
   useEffect(() => {
     let cancelled = false;
-    setReferenceRows([]); setReferenceError(null);
-    if (referenceDay) getLiveVtecByStation(24, 15, 90000, referenceDay, [station])
-      .then(data => { if (!cancelled) { setReferenceRows(data); if (!data.length) setReferenceError("Reference archive unavailable."); } })
-      .catch(() => { if (!cancelled) setReferenceError("Reference archive unavailable."); });
+    setReferenceRows([]); setQuietDays([]); setReferenceError(null);
+    async function loadReference() {
+      try {
+        if (referenceDay) {
+          const data = await getLiveVtecByStation(24, 15, 90000, referenceDay, [station]);
+          if (!cancelled) {
+            setReferenceRows(data);
+            if (!data.some(row => row.points.length)) setReferenceError("Reference archive unavailable.");
+          }
+          return;
+        }
+        const monthStart = `${endDay.slice(0, 7)}-01`;
+        const [year, month] = monthStart.split("-").map(Number);
+        const monthEnd = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
+        const yesterday = new Date(Date.parse(today) - 86400000).toISOString().slice(0, 10);
+        const end = monthEnd < yesterday ? monthEnd : yesterday;
+        const quietReference = await getGfzKpAnalysis(monthStart, end, station);
+        const ranked = quietReference.series
+          .filter(row => row.date >= monthStart && row.date <= end && row.ap_daily != null)
+          .sort((a, b) => a.ap_daily! - b.ap_daily! || a.date.localeCompare(b.date));
+        const chosen: string[] = [];
+        const history: LiveStationVtecSeries[] = [];
+        for (const candidate of ranked) {
+          if (cancelled || chosen.length === 5) break;
+          const daily = await getLiveVtecByStation(24, 15, 90000, candidate.date, [station]);
+          if (!daily.some(row => row.points.some(point => point.vtec_tecu > 0 && point.vtec_tecu <= 50))) continue;
+          chosen.push(candidate.date);
+          history.push(...daily);
+        }
+        if (cancelled) return;
+        setQuietDays(chosen);
+        setReferenceRows(history);
+        if (chosen.length < 5) setReferenceError(`Only ${chosen.length} of 5 quiet reference days have usable station VTEC.`);
+      } catch {
+        if (!cancelled) setReferenceError("The quiet reference could not be loaded.");
+      }
+    }
+    void loadReference();
     return () => { cancelled = true; };
-  }, [referenceDay, station]);
+  }, [referenceDay, station, endDay, today]);
 
   const measurements = useMemo(() => {
     const normalize = (code: string) => code.toLowerCase().replace(/_+$/, "");
     const fromRows = (data: LiveStationVtecSeries[]) => data.filter(row => normalize(row.station) === normalize(station)).flatMap(row => row.points.map(point => ({ time: Date.parse(point.time), value: point.vtec_tecu })));
-    return referenceTec(fromRows(rows), fromRows(referenceRows)).filter(point => point.time >= domain.min && point.time < domain.max);
-  }, [rows, referenceRows, station, domain]);
+    return referenceTec(fromRows(stationRows), fromRows(referenceRows), referenceDay ? 1 : 5)
+      .filter(point => point.time >= domain.min && point.time < domain.max);
+  }, [stationRows, referenceRows, referenceDay, station, domain]);
   const networkMean = useMemo(
     () => buildNetworkMeanVtecSeries(rows, domain.min, domain.max),
     [rows, domain],
@@ -284,13 +406,13 @@ export default function StormAnalysis({
   return <section className="card" aria-label="Storm analysis">
     <h2>Analysis · Sun–Earth–ionosphere</h2>
     <div style={{ display: "flex", gap: ".75rem", flexWrap: "wrap" }}>
-      <label>End UTC day <input type="date" value={endDay} max={today} onChange={event => { if (event.target.value) setEndDay(event.target.value); }} /></label>
+      <label>End UTC day <input type="date" value={endDay} max={today} onChange={event => changeEndDay(event.target.value)} /></label>
       <label>Window <select value={days} onChange={event => setDays(Number(event.target.value))}>{[1, 3, 7].map(value => <option key={value} value={value}>{value} day(s)</option>)}</select></label>
       <label>Station code <input value={station} maxLength={12} onChange={event => setStation(event.target.value.replace(/[^a-zA-Z0-9_]/g, "").toLowerCase())} /></label>
-      <label>Reference UTC day <input type="date" value={referenceDay} max={today} onChange={event => setReferenceDay(event.target.value)} /></label>
-      <button type="button" className="btn" onClick={() => setReferenceDay("")}>Clear reference</button>
+      <label>Reference UTC day override <input type="date" value={referenceDay} max={today} onChange={event => setReferenceDay(event.target.value)} /></label>
+      <button type="button" className="btn" onClick={() => setReferenceDay("")}>Use five quiet days</button>
     </div>
-    <p>The station code and reference day apply to the ΔVTEC comparison. Network mean VTEC uses measured samples from all reporting stations; its filter line is calculated from that observed series. Dst is a global index. A selected reference day is not automatically a validated quiet-time baseline.</p>
+    <p>The station code and reference apply to ΔVTEC. Network mean VTEC uses measured samples from all reporting stations. Dst is a global index.</p>
     {(error || tecError || referenceError) && <p role="status">{[error, tecError, referenceError].filter(Boolean).join(" ")}</p>}
     {loading && <p role="status">Loading station archive…</p>}
     <p>Pink analysis marker: <strong>{new Date(selectedTime).toISOString().replace("T", " ").replace("Z", " UTC")}</strong></p>
@@ -299,12 +421,16 @@ export default function StormAnalysis({
       <input aria-label="Move pink analysis marker" type="range" min={domain.min} max={domain.max - 60000} step={60000} value={Math.min(selectedTime, domain.max - 60000)} onChange={event => pick(Number(event.target.value))} style={{ width: "100%", accentColor: "#ff00d4" }} />
     </label></details>
     <p>Drag the continuous pink line or its arrow to move the marker through the shared UTC timeline. Focus the line and use the arrow keys for fine adjustment. The regional daily TEC chart plots all measured days in the window by default.</p>
+    <div style={{ marginBottom: "1rem" }}>
+      <SolarFlareMonthChart />
+    </div>
     <p style={{ fontSize: ".8rem" }}>
       {flarePeaks.length ? "Red lines mark cataloged M/X flare peaks across the Analysis graphs." : "No cataloged M/X flare peaks in this window."}
       {selectedFlare && <strong style={{ color: "#fda4af" }}>
         {" "}{selectedFlare.label} flare peaked at {new Date(selectedFlare.x).toISOString().slice(11, 16)} UTC.
       </strong>}
     </p>
+    <AnalysisSolarDisk time={selectedTime} peaks={flarePeaks} selectedFlare={selectedFlare} onPick={pick} onArchive={setFlareArchive} />
     <div ref={stackRef} style={{ position: "relative", paddingBottom: "3rem" }}>
     <GoesSolarXrayCard
       title="1 · GOES X-ray flux (NOAA SWPC)"
@@ -318,6 +444,8 @@ export default function StormAnalysis({
       onPlotAreaChange={plotLayout.reporters.xray}
       onPickTime={pick}
     />
+    <SelectedFlareTable time={selectedTime} events={flareEvents}
+      archive={flareArchive?.day === new Date(selectedTime).toISOString().slice(0, 10) ? flareArchive.data : undefined} />
     {helio && <SolarWindBzComparison data={helio} analysisDomain={domain} selectedTime={selectedTime} onPickTime={pick} onPlotAreaChange={plotLayout.reporters.wind} onPlasmaPlotAreaChange={plotLayout.reporters.windPlasma} />}
     {helio && helio.imf.labels.length > 0 && <section className="card" aria-label="Interplanetary magnetic field near Sun-Earth L1">
       <strong>Interplanetary magnetic field near Sun–Earth L1</strong>
@@ -356,6 +484,9 @@ export default function StormAnalysis({
         ? "Proton flux unavailable. NOAA has not returned recent or cached observations."
         : "Proton flux timestamps could not be aligned to UTC; the chart is omitted."}</p>}
     </section>}
+    {helio && <DstPressureComparison
+      data={helio} analysisDomain={domain} onPlotAreaChange={plotLayout.reporters.pressure} onPickTime={pick}
+    />}
     <section aria-label="Dst and Kp overview" style={{ margin: "1rem 0" }}>
       <DstKpOverview analysisDomain={domain} onPlotAreaChange={plotLayout.reporters.overview} onPickTime={pick} />
     </section>
@@ -412,7 +543,7 @@ export default function StormAnalysis({
         : index === 2 ? -Math.max(10, Math.ceil(Math.max(Math.abs(minimum), Math.abs(maximum)) / 5) * 5)
         : index === 4 ? Math.min(-50, Math.floor(minimum / 25) * 25)
         : index === 0 ? Math.min(-10, Math.floor(minimum / 10) * 10 - 5) : 0;
-      const suggestedMax = index === 1 ? Math.ceil(Math.max(maximum, 600) / 20) * 20
+      const suggestedMax = index === 1 ? Math.ceil(Math.max(maximum, SOLAR_WIND_SPEED_SCALE[3].boundary + 50) / 20) * 20
         : index === 2 ? -suggestedMin : index === 3 ? 50
         : index === 4 ? Math.max(50, Math.ceil(maximum / 25) * 25)
         : Math.max(10, Math.ceil(maximum / 10) * 10 + 5);
@@ -422,12 +553,19 @@ export default function StormAnalysis({
           <ZimbabweMeanDiurnalTec embedded analysisDomain={domain} analysisDay={endDay} onPlotAreaChange={plotLayout.reporters.regionalTec} />
         </div>}
         <strong>{panel.title}</strong> · {reading ? `${reading.value!.toFixed(1)} ${panel.unit.match(/\((.*)\)/)?.[1] ?? ""} at ${new Date(reading.time).toISOString()}` : "No observation near the marker"}
+        {panel.plot === "delta" && <p style={{ fontSize: ".8rem" }}>
+          {referenceDay ? `Single-day override · ${referenceDay} UTC`
+            : quietDays.length ? `Quiet reference dates (UTC) · ${quietDays.join(", ")}`
+              : "Five-day quiet reference pending."}
+        </p>}
         <LineChart labels={sorted.map(point => new Date(point.time).toISOString())} xValues={sorted.map(point => point.time)} epochMs={sorted.map(point => point.time)}
           datasets={datasets}
           yLabel={panel.unit} yAxisWidth={80} height={isNetworkMean ? 320 : 360}
           ySuggestedMin={suggestedMin} ySuggestedMax={suggestedMax} yMin={index === 3 ? 0 : undefined}
           preserveSamples pointRadius={index === 0 ? 2 : 0}
-          thresholds={index === 4 ? [{ value: 25, label: "+25% guide", color: "#f87171" }, { value: -25, label: "−25% guide", color: "#f87171" }] : index === 0 || index === 2 ? [{ value: 0, label: "Zero", color: "#64748b" }] : undefined}
+          thresholds={panel.plot === "speed" ? SOLAR_WIND_SPEED_GUIDES
+            : index === 4 ? [{ value: 25, label: "+25% guide", color: "#f87171" }, { value: -25, label: "−25% guide", color: "#f87171" }]
+            : index === 0 || index === 2 ? [{ value: 0, label: "Zero", color: "#64748b" }] : undefined}
           onPlotAreaChange={plotLayout.reporters[panel.plot]}
           onPickTime={pick} {...utcTimeAxisProps(domain)} />
       </div>;
@@ -435,7 +573,7 @@ export default function StormAnalysis({
     <AnalysisMarker layout={plotLayout} domain={domain} selectedTime={selectedTime}
       flarePeaks={flarePeaks} selectedFlare={selectedFlare} pick={pick} />
     </div>
-    <p>ΔVTEC = 100 × (observed − reference) / reference, matched to the same station and UTC quarter-hour. Missing or zero reference values produce gaps. ±25% lines are comparison guides, not validated storm thresholds. No reference curve or historical storm values are invented. Solar-wind, Bz and Dst are limited to loaded NOAA source coverage. NOAA source fetched: {helio?.updated_utc ?? "unavailable"}.</p>
+    <p>ΔVTEC = 100 × (observed − quiet reference) / quiet reference. The default uses the analysis end month and ranks completed days with station data by GFZ daily Ap. Each UTC quarter-hour requires measurements from all five reference days, weighted equally. The ±25% guides follow <a href="https://doi.org/10.5140/JASS.2026.43.2.93" target="_blank" rel="noreferrer">Guibula et al. (2026)</a>.</p>
   </section>;
 }
 

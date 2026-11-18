@@ -12,7 +12,7 @@ import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 try:
@@ -22,7 +22,6 @@ try:
 except ImportError:
     _REQUESTS_OK = False
 
-from zgiis.space_weather.solar_activity import NASA_DONKI_BASE_URL, _nasa_api_key
 from zgiis.space_weather.solar_cycle_indices import NOAA_OBSERVED_URL, parse_noaa_monthly
 
 NCEI_XRS_BASE = (
@@ -32,6 +31,9 @@ NCEI_XRS_BASE = (
 NCEI_START_YEAR = 1997
 NCEI_END_YEAR = 2016
 DONKI_START_YEAR = 2017
+DONKI_FLR_URL = "https://ccmc.gsfc.nasa.gov/DONKI-API/get/FLR"
+_DONKI_MAX_DAYS = 60
+_PARTIAL_CACHE_TTL_SECONDS = 5 * 60
 
 _CACHE_TTL_SECONDS = 6 * 3600
 _NCEI_CACHE_TTL_SECONDS = 7 * 24 * 3600
@@ -125,19 +127,28 @@ def _fetch_ncei_year(year: int) -> tuple[int, dict[str, int] | None, str | None]
         return year, None, str(exc)
 
 
-def _fetch_donki_year(year: int, api_key: str) -> tuple[int, dict[str, int] | None, str | None]:
-    now = datetime.now(timezone.utc)
-    end = f"{year}-12-31" if year < now.year else now.strftime("%Y-%m-%d")
-    url = (
-        f"{NASA_DONKI_BASE_URL}/FLR"
-        f"?startDate={year}-01-01&endDate={end}&api_key={api_key}"
-    )
+def _fetch_donki_year(year: int, today: date) -> tuple[int, dict[str, int] | None]:
+    start = date(year, 1, 1)
+    end = min(date(year, 12, 31), today)
+    rows = []
+    seen_ids = set()
     try:
-        payload = _fetch_json(url, timeout=90)
-        rows = payload if isinstance(payload, list) else []
-        return year, count_donki_flares(rows), None
-    except Exception as exc:  # noqa: BLE001
-        return year, None, str(exc)
+        while start <= end:
+            stop = min(start + timedelta(days=_DONKI_MAX_DAYS - 1), end)
+            payload = _fetch_json(f"{DONKI_FLR_URL}?startDate={start}&endDate={stop}", timeout=20)
+            if not isinstance(payload, list):
+                return year, None
+            for row in payload:
+                event_id = row.get("flrID") if isinstance(row, dict) else None
+                if event_id:
+                    if event_id in seen_ids:
+                        continue
+                    seen_ids.add(event_id)
+                rows.append(row)
+            start = stop + timedelta(days=1)
+    except Exception:  # noqa: BLE001 — keep other years available
+        return year, None
+    return year, count_donki_flares(rows)
 
 
 def _load_ncei_counts(*, force_refresh: bool) -> dict[int, dict[str, int]]:
@@ -164,43 +175,44 @@ def _load_ncei_counts(*, force_refresh: bool) -> dict[int, dict[str, int]]:
 
 
 def _load_donki_counts(*, force_refresh: bool) -> tuple[dict[int, dict[str, int]], str | None]:
+    today = datetime.now(timezone.utc).date()
+    now_year = today.year
     with _CACHE_LOCK:
         cached = _CACHE.get("donki")
         if (
             not force_refresh
             and isinstance(cached, dict)
-            and time.time() - float(cached.get("at") or 0) < _CACHE_TTL_SECONDS
+            and cached["year"] == now_year
+            and time.time() - float(cached.get("at") or 0) < cached["ttl"]
         ):
             return dict(cached.get("years") or {}), cached.get("note")
 
-    api_key, is_demo = _nasa_api_key()
-    now_year = datetime.now(timezone.utc).year
-    years: dict[int, dict[str, int]] = {}
-    errors: list[str] = []
-    # Keep concurrency modest — DEMO_KEY is rate-limited.
-    workers = 2 if is_demo else 4
-    with ThreadPoolExecutor(max_workers=workers) as pool:
+    previous = dict(cached.get("years") or {}) if isinstance(cached, dict) else {}
+    if cached and cached["year"] != now_year:
+        previous.pop(cached["year"], None)
+    years = dict(previous)
+    errors: list[int] = []
+    with ThreadPoolExecutor(max_workers=8) as pool:
         jobs = [
-            pool.submit(_fetch_donki_year, year, api_key)
+            pool.submit(_fetch_donki_year, year, today)
             for year in range(DONKI_START_YEAR, now_year + 1)
+            if force_refresh or year == now_year or year not in previous
         ]
         for job in as_completed(jobs):
-            year, counts, error = job.result()
+            year, counts = job.result()
             if counts is not None:
                 years[year] = counts
-            elif error:
-                errors.append(f"{year}: {error}")
+            else:
+                errors.append(year)
 
     note = None
-    if is_demo:
-        note = "NASA DONKI is using DEMO_KEY; set NASA_API_KEY for higher rate limits."
-    if errors and not years:
-        note = (note + " " if note else "") + "DONKI yearly flare fetch failed."
-    elif errors:
-        note = (note + " " if note else "") + f"Some DONKI years failed ({len(errors)})."
+    if errors:
+        failed = ", ".join(str(year) for year in sorted(errors))
+        note = f"DONKI could not refresh {failed}. Previously loaded totals are retained where available."
+    ttl = _PARTIAL_CACHE_TTL_SECONDS if errors else _CACHE_TTL_SECONDS
 
     with _CACHE_LOCK:
-        _CACHE["donki"] = {"at": time.time(), "years": years, "note": note}
+        _CACHE["donki"] = {"at": time.time(), "year": now_year, "years": years, "note": note, "ttl": ttl}
     return years, note
 
 
@@ -230,7 +242,8 @@ def build_flare_frequencies(*, force_refresh: bool = False) -> dict[str, Any]:
         if (
             not force_refresh
             and isinstance(cached, dict)
-            and time.time() - float(cached.get("at") or 0) < _CACHE_TTL_SECONDS
+            and cached["payload"]["end_year"] == datetime.now(timezone.utc).year
+            and time.time() - float(cached.get("at") or 0) < cached["ttl"]
         ):
             return dict(cached.get("payload") or {})
 
@@ -295,7 +308,11 @@ def build_flare_frequencies(*, force_refresh: bool = False) -> dict[str, Any]:
         "points": points,
     }
     with _CACHE_LOCK:
-        _CACHE["payload"] = {"at": time.time(), "payload": payload}
+        _CACHE["payload"] = {
+            "at": time.time(),
+            "payload": payload,
+            "ttl": _PARTIAL_CACHE_TTL_SECONDS if donki_note or ssn_error else _CACHE_TTL_SECONDS,
+        }
     return payload
 
 

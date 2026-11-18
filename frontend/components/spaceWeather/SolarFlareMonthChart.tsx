@@ -2,11 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  BarController,
   BarElement,
   CategoryScale,
   Chart as ChartJS,
   Legend,
   LinearScale,
+  LineController,
   LineElement,
   PointElement,
   Tooltip,
@@ -16,7 +18,7 @@ import { getFlareMonth } from "@/lib/api";
 import type { FlareMonthResponse } from "@/lib/types";
 import styles from "./SolarFlareFrequencyChart.module.css";
 
-ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, Tooltip, Legend);
+ChartJS.register(CategoryScale, LinearScale, BarController, BarElement, LineController, LineElement, PointElement, Tooltip, Legend);
 ChartJS.defaults.color = "#ffffff";
 ChartJS.defaults.animation = false;
 
@@ -26,8 +28,7 @@ function niceMax(peak: number, step: number, floor: number): number {
 }
 
 /**
- * Past-month daily C/M/X flares with the sunspot number. Shown when the
- * Solar Flare card is opened. Values come from NOAA's daily solar file.
+ * Past-month daily C/M/X flares and sunspot numbers from NOAA's daily solar file.
  */
 export default function SolarFlareMonthChart() {
   const [payload, setPayload] = useState<FlareMonthResponse | null>(null);

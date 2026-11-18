@@ -10,8 +10,17 @@ import {
 } from "@/lib/chartTimeAxis";
 import type { ImfSeries } from "@/lib/types";
 import type { PlotAreaReporter } from "@/lib/chartPlotArea";
+import { IMF_BT_SCALE } from "@/lib/spaceWeatherMetrics";
 
 const LineChart = dynamic(() => loadLineChart().then(module => module.default), { ssr: false });
+const IMF_GUIDES = [
+  { value: 0, label: "Bz = 0", color: "#64748b" },
+  ...IMF_BT_SCALE.slice(1).map(band => ({
+    value: band.boundary,
+    label: `Bt ${band.label} (${band.range})`,
+    color: band.color,
+  })),
+];
 
 export default function InterplanetaryMagneticFieldChart({
   data,
@@ -77,7 +86,8 @@ export default function InterplanetaryMagneticFieldChart({
       height={height}
       toggleableLegend
       preserveSamples
-      thresholds={[{ value: 0, label: "Bz = 0", color: "#64748b" }]}
+      ySuggestedMax={IMF_BT_SCALE[3].boundary + 2}
+      thresholds={IMF_GUIDES}
       verticalMarkers={verticalMarkers}
       markerReadout={selected ?? undefined}
       onPlotAreaChange={onPlotAreaChange}

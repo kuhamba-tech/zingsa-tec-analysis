@@ -10,6 +10,7 @@ from pathlib import Path
 SITES = json.loads((Path(__file__).resolve().parents[2] / "frontend/lib/westAfricaCorsCatalog.json").read_text())
 _lock = threading.Lock()
 _networks: dict[str, tuple] = {}
+_earthscope_inputs: tuple | None = None
 
 
 def configuration(site: dict) -> dict | None:
@@ -33,6 +34,7 @@ def configuration(site: dict) -> dict | None:
 
 
 def start(*, sites: list[dict] | None = None) -> None:
+    global _earthscope_inputs
     if os.getenv("VERCEL"):
         return
     from zgiis.live.ntrip_stream import LiveNtripManager
@@ -48,10 +50,20 @@ def start(*, sites: list[dict] | None = None) -> None:
             config = configuration(site)
             if name in _networks or config is None:
                 continue
-            nav = LiveNavCache()
+            earthscope = site.get("provider") == "earthscope"
+            shared = _earthscope_inputs if earthscope else None
+            if shared is None:
+                nav = LiveNavCache()
+                pipeline = LiveVtecPipeline(nav_cache=nav, db_flush_n=100 if earthscope else 5)
+                if earthscope:
+                    _earthscope_inputs = nav, pipeline
+                start_refresh_thread(nav)
+                threading.Thread(target=_connect_live_archive, args=(pipeline,),
+                                 daemon=True, name=f"{name}-live-archive").start()
+            else:
+                nav, pipeline = shared
             nav.set_receiver_location(site["code"], site["lat"], site["lon"], site["height"])
             engine = register_network(name, [site])
-            pipeline = LiveVtecPipeline(nav_cache=nav, db_flush_n=5)
             def ingest(obs, engine=engine, pipeline=pipeline):
                 engine.ingest(obs)
                 pipeline.ingest(obs)
@@ -59,21 +71,21 @@ def start(*, sites: list[dict] | None = None) -> None:
                                        max_concurrent=1, max_session_s=0)
             manager.start({site["code"].lower(): site["mountpoint"]})
             _networks[name] = manager, pipeline
-            start_refresh_thread(nav)
-            threading.Thread(target=_connect_live_archive, args=(pipeline,),
-                             daemon=True, name=f"{name}-live-archive").start()
 
 
 def status(networks: dict, *, sites: list[dict] | None = None) -> list[dict]:
     rows = []
+    readings = {}
     with _lock:
         running = dict(_networks)
     for site in SITES if sites is None else sites:
         key, name = site["code"].lower(), site["network"]
         manager, pipeline = running.get(name, (None, None))
         link = manager.status().get(key, {}) if manager is not None else {}
-        values = pipeline.latest_by_station(max_age_s=600) if pipeline is not None else {}
-        diag = pipeline.diagnostics_by_station().get(key, {}) if pipeline is not None else {}
+        if pipeline is not None and pipeline not in readings:
+            readings[pipeline] = pipeline.latest_by_station(max_age_s=600), pipeline.diagnostics_by_station()
+        values, diagnostics = readings.get(pipeline, ({}, {}))
+        diag = diagnostics.get(key, {})
         gg = networks.get(name, {}).get(key, {})
         last = link.get("last_rtcm_at")
         rows.append({**site, "location_known": True,

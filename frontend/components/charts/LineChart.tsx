@@ -76,7 +76,7 @@ interface Props {
   labels: string[];
   datasets: Dataset[];
   yLabel?: string;
-  height?: number;
+  height?: number | string;
   threshold?: ThresholdLine;
   /** Multiple horizontal reference lines (e.g. Moderate/High/Extreme bands). */
   thresholds?: ThresholdLine[];

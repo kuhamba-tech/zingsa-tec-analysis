@@ -46,17 +46,24 @@ export function buildNetworkMeanVtecSeries(
 }
 
 /** Compare the same receiver and UTC quarter-hour; never fabricate a quiet curve. */
-export function referenceTec(points: AnalysisPoint[], reference: AnalysisPoint[]) {
-  const bins = new Map<number, number[]>();
+export function referenceTec(points: AnalysisPoint[], reference: AnalysisPoint[], requiredDays = 1) {
+  const bins = new Map<number, Map<number, number[]>>();
   const utcBin = (time: number) => Math.floor(((time % 86400000) + 86400000) % 86400000 / 900000);
   for (const point of reference) {
     if (!Number.isFinite(point.time) || point.value == null || !Number.isFinite(point.value) || point.value <= 0 || point.value > 50) continue;
-    const bin = utcBin(point.time), values = bins.get(bin) ?? [];
-    values.push(point.value); bins.set(bin, values);
+    const bin = utcBin(point.time);
+    const day = Math.floor(point.time / 86400000);
+    const days = bins.get(bin) ?? new Map<number, number[]>();
+    const values = days.get(day) ?? [];
+    values.push(point.value);
+    days.set(day, values);
+    bins.set(bin, days);
   }
   return points.map(point => {
-    const values = bins.get(utcBin(point.time));
-    const baseline = values ? values.reduce((a, b) => a + b, 0) / values.length : null;
+    const days = bins.get(utcBin(point.time));
+    const baseline = days && days.size >= requiredDays
+      ? [...days.values()].reduce((sum, values) => sum + values.reduce((a, b) => a + b, 0) / values.length, 0) / days.size
+      : null;
     const observed = point.value != null && Number.isFinite(point.value) && point.value > 0 && point.value <= 50 ? point.value : null;
     return { ...point, value: observed, baseline,
       delta: observed != null && baseline != null && baseline > 0 ? 100 * (observed - baseline) / baseline : null };

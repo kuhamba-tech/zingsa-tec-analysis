@@ -5,17 +5,36 @@ import dynamic from "next/dynamic";
 import { ChartDateRangeContext, utcDayBounds } from "@/components/charts/ChartDateRange";
 import { loadLineChart } from "@/lib/loadLineChart";
 import { utcTimeAxisProps } from "@/lib/chartTimeAxis";
+import type { PlotAreaReporter } from "@/lib/chartPlotArea";
 import { windBzComparison, solarWindPressure } from "@/lib/windBzComparison";
+import { DST_RING_SCALE } from "@/lib/spaceWeatherMetrics";
 import type { HeliosphericMonitorResponse } from "@/lib/types";
 import type { SolarBriefResponse } from "@/lib/api";
 
 const LineChart = dynamic(() => loadLineChart().then(module => module.default), { ssr: false });
+const DST_GUIDES = DST_RING_SCALE.flatMap(band => "boundary" in band ? [{
+  value: band.boundary,
+  label: `${band.label} (−${Math.abs(band.boundary)} nT)`,
+  color: band.color,
+}] : []);
 
-export default function DstPressureComparison({ data, brief }: { data: HeliosphericMonitorResponse; brief: SolarBriefResponse | null }) {
+export default function DstPressureComparison({
+  data,
+  brief = null,
+  analysisDomain,
+  onPlotAreaChange,
+  onPickTime,
+}: {
+  data: HeliosphericMonitorResponse;
+  brief?: SolarBriefResponse | null;
+  analysisDomain?: { min: number; max: number };
+  onPlotAreaChange?: PlotAreaReporter;
+  onPickTime?: (time: number) => void;
+}) {
   const calendar = useContext(ChartDateRangeContext);
   const [hours, setHours] = useState(48);
   const end = Date.now();
-  const domain = calendar?.day ? utcDayBounds(calendar.day) : { min: end - hours * 3600_000, max: end };
+  const domain = analysisDomain ?? (calendar?.day ? utcDayBounds(calendar.day) : { min: end - hours * 3600_000, max: end });
   const samples = useMemo(() => windBzComparison(
     { times: data.solar_wind.times, values: solarWindPressure(data.solar_wind.speed, data.solar_wind.density ?? []) },
     { times: data.dst?.times ?? [], values: data.dst?.dst ?? [] }, domain.min, domain.max, true),
@@ -27,9 +46,9 @@ export default function DstPressureComparison({ data, brief }: { data: Heliosphe
   return <section className="card" aria-label="Dst and solar wind dynamic pressure comparison">
     <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", gap: ".75rem" }}>
       <strong>Dst index and solar wind dynamic pressure</strong>
-      <div role="group" aria-label="Dst and pressure live window">
+      {!analysisDomain && <div role="group" aria-label="Dst and pressure live window">
         {[24, 48, 72].map(value => <button key={value} type="button" className="btn" aria-pressed={hours === value} disabled={Boolean(calendar?.day)} onClick={() => setHours(value)}>{value} h</button>)}
-      </div>
+      </div>}
     </div>
     <p style={{ fontSize: ".78rem" }}>NOAA SWPC Dst on the left axis · proton dynamic pressure on the right axis · UTC observation times</p>
     <LineChart labels={samples.times.map(time => new Date(time).toISOString())} xValues={samples.times} epochMs={samples.times}
@@ -38,8 +57,11 @@ export default function DstPressureComparison({ data, brief }: { data: Heliosphe
         { label: "Solar wind pressure", data: samples.speed, color: "#f8fafc", yAxisId: "y2", fill: false, omitMissingPoints: true, spanGaps: 35 * 60_000, tension: 0 },
         { label: "Dst = 0 nT", data: samples.times.map(() => 0), color: "#94a3b8", dashed: true, borderWidth: 1 },
       ]} yLabel="Dst (nT)" secondaryYLabel="Psw (nPa)" height={300} pointRadius={0}
-      preserveSamples toggleableLegend verticalMarkers={markers} {...utcTimeAxisProps(domain, { majorHours: 3 })} />
+      thresholds={DST_GUIDES} ySuggestedMin={DST_RING_SCALE[4].boundary - 10}
+      preserveSamples toggleableLegend verticalMarkers={analysisDomain ? undefined : markers}
+      onPlotAreaChange={onPlotAreaChange} onPickTime={onPickTime}
+      {...utcTimeAxisProps(domain, { majorHours: 3 })} />
     {(!hasWind || !hasBz) && <p role="status">{!hasWind ? "Solar wind pressure" : ""}{!hasWind && !hasBz ? " and " : ""}{!hasBz ? "Dst" : ""} observations unavailable in this window. Missing data remains empty.</p>}
-    <p style={{ fontSize: ".78rem" }}>Source fetched: {data.updated_utc ?? "unavailable"}. Red lines mark available M/X flare peak times from the latest NOAA flare list (past 24 hours). These markers do not identify solar-wind arrival times or establish causation. Pressure (nPa) is calculated as 1.6726e-6 × proton density (cm⁻³) × speed² (km/s) from simultaneous NOAA samples; helium is not included. Dst stays at its measured hourly cadence; gaps longer than 65 minutes are not joined.</p>
+    <p style={{ fontSize: ".78rem" }}>Source fetched: {data.updated_utc ?? "unavailable"}. {!analysisDomain && markers.length > 0 && "Red lines mark M/X flare peaks from the latest NOAA flare list. "}Pressure (nPa) is calculated as 1.6726e-6 × proton density (cm⁻³) × speed² (km/s) from simultaneous NOAA samples; helium is not included. Dst stays at its measured hourly cadence; gaps longer than 65 minutes are not joined.</p>
   </section>;
 }

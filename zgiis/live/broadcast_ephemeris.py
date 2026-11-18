@@ -10,8 +10,8 @@ the live NTRIP stream alone. This module sources the same ephemeris
 independently from public IGS / NGS mirrors, refreshed periodically by
 backend/live_manager.py.
 
-Primary:  BKG combined BRDC (RINEX 3 mixed) when reachable
-Fallback: NOAA NGS daily GPS BRDC (RINEX 2) — used when BKG is down
+Primary: NOAA NGS daily GPS BRDC (RINEX 2) from the public CORS archive
+Fallback: BKG combined BRDC (RINEX 3 mixed) and alternate NOAA URLs
 """
 from __future__ import annotations
 
@@ -31,7 +31,13 @@ log = logging.getLogger(__name__)
 
 # Tried in order for each candidate UTC day.
 _BRDC_URL_TEMPLATES = (
-    # BKG mixed-constellation RINEX 3 (preferred when the mirror is up).
+    # NOAA moved its public CORS archive to this bucket in November 2026.
+    "https://noaa-cors-pds.s3.amazonaws.com/rinex/{year}/{doy:03d}/brdc{doy:03d}0.{yy}n.gz",
+    # BKG's stream-derived RINEX 3 product and its legacy daily alternative.
+    (
+        "https://igs.bkg.bund.de/root_ftp/IGS/BRDC/{year}/{doy:03d}/"
+        "BRDC00WRD_S_{year}{doy:03d}0000_01D_MN.rnx.gz"
+    ),
     (
         "https://igs.bkg.bund.de/root_ftp/IGS/BRDC/{year}/{doy:03d}/"
         "BRDC00WRD_R_{year}{doy:03d}0000_01D_MN.rnx.gz"
@@ -314,7 +320,7 @@ def fetch_gps_nav(reference_time: Optional[datetime] = None) -> dict[int, dict]:
     Return {sv_number: nav_dict} — the most recent valid GPS broadcast
     ephemeris per satellite, as of reference_time (default: now).
 
-    Tries BKG then NOAA NGS mirrors, falling back to the previous UTC day's
+    Tries NOAA then alternate mirrors, falling back to the previous UTC day's
     file if today's has no usable records yet. Returns {} if unreachable /
     unparsable — callers should treat that as "no update available".
     """

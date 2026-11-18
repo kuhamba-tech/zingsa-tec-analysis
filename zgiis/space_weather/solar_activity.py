@@ -134,6 +134,7 @@ def _noaa_flares_to_donki(rows: Any) -> list[dict]:
                 "flrID": f"NOAA-GOES-{begin or i}",
                 "beginTime": begin,
                 "peakTime": row.get("max_time") or begin,
+                "endTime": row.get("end_time"),
                 "classType": row.get("max_class") or row.get("begin_class") or "A",
                 "sourceLocation": "GOES",
             }

@@ -4,7 +4,7 @@ import asyncio
 import logging
 import threading
 import time
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 import numpy as np
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -856,6 +856,23 @@ async def tec_heatmap(
     _cache_heatmap_model(cache_key, model)
     response.headers["X-ZGIIS-Cache"] = "miss"
     return model
+
+
+@router.get("/zimbabwe-roti")
+def zimbabwe_roti(response: Response, _=Depends(require_api_key)):
+    from backend.live_manager import get_db
+    from zgiis.cors.stations import zingsa_cors_stations
+    from zgiis.gnss_prn.roti import FRESH_MINUTES, PAPER_URL, WINDOW_S, summarize_station_roti
+
+    now = datetime.now(timezone.utc)
+    codes = [site.code.lower().rstrip("_") for site in zingsa_cors_stations()]
+    try:
+        rows = get_db().query_roti_phase(codes, now - timedelta(minutes=FRESH_MINUTES, seconds=WINDOW_S), now)
+    except Exception:
+        log.warning("Zimbabwe ROTI phase observations unavailable", exc_info=True)
+        raise HTTPException(status_code=503, detail="Carrier-phase observations are temporarily unavailable.")
+    response.headers["Cache-Control"] = "public, s-maxage=20"
+    return {"stations": summarize_station_roti(rows, now), "method": PAPER_URL}
 
 
 @router.get("/prn/explorer", response_model=PrnExplorerResponse)

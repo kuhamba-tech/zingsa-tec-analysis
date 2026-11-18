@@ -446,6 +446,25 @@ class TecDB:
             if conn is not None:
                 conn.close()
 
+    def query_roti_phase(self, stations: list[str], since: datetime, before: datetime) -> pd.DataFrame:
+        """GPS Gopi carrier-phase STEC, retaining one actual epoch per 30-second slot."""
+        sql = """
+            SELECT DISTINCT ON (station, prn, slot) station, prn, time, tecp_tecu
+            FROM (
+                SELECT LOWER(RTRIM(station, '_')) AS station, prn, time, tecp_tecu,
+                       date_bin(INTERVAL '30 seconds', time + INTERVAL '15 seconds',
+                                TIMESTAMPTZ '2000-01-01') AS slot
+                FROM vtec_obs
+                WHERE time >= %s AND time <= %s
+                  AND LOWER(RTRIM(station, '_')) = ANY(%s)
+                  AND constellation = 'GPS' AND prn IS NOT NULL AND prn NOT IN ('', 'ALL')
+                  AND elevation_deg > 30 AND tecp_tecu IS NOT NULL
+                  AND tec_method IN ('gopi_eq_4_11_code_live', 'gopi_eq_4_12_phase_only_live_unleveled')
+            ) AS phase
+            ORDER BY station, prn, slot, ABS(EXTRACT(EPOCH FROM time - slot)), time
+        """
+        return self._read_sql(sql, (since, before, stations))
+
     def query_prn_observations(
         self,
         hours: float = 168.0,

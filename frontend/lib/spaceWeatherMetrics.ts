@@ -327,20 +327,21 @@ export function noaaGScaleFromKp(kp: number | null | undefined, loading = false)
  */
 export const DST_RING_SCALE = [
   { id: "quiet", range: "> −30", short: ">−30", label: "Quiet", status: "Quiet / Weak Disturbance", color: "#22c55e" },
-  { id: "disturbed", range: "−30 to −50", short: "−30–−50", label: "Disturbed", status: "Disturbed", color: "#eab308" },
-  { id: "moderate", range: "−50 to −100", short: "−50–−100", label: "Moderate", status: "Moderate", color: "#f97316" },
-  { id: "intense", range: "−100 to −200", short: "−100–−200", label: "Intense", status: "Intense", color: "#ef4444" },
-  { id: "severe", range: "≤ −200", short: "≤−200", label: "Severe", status: "Severe", color: "#fb7185" },
+  { id: "disturbed", boundary: -30, range: "−30 to −50", short: "−30–−50", label: "Disturbed", status: "Disturbed", color: "#eab308" },
+  { id: "moderate", boundary: -50, range: "−50 to −100", short: "−50–−100", label: "Moderate", status: "Moderate", color: "#f97316" },
+  { id: "intense", boundary: -100, range: "−100 to −200", short: "−100–−200", label: "Intense", status: "Intense", color: "#ef4444" },
+  { id: "severe", boundary: -200, range: "≤ −200", short: "≤−200", label: "Severe", status: "Severe", color: "#fb7185" },
 ] as const;
 
 export type DstRingScaleId = (typeof DST_RING_SCALE)[number]["id"];
 
 export function dstRingScaleId(dst: number | null | undefined): DstRingScaleId | null {
   if (dst == null || !Number.isFinite(dst)) return null;
-  if (dst > -30) return "quiet";
-  if (dst > -50) return "disturbed";
-  if (dst > -100) return "moderate";
-  if (dst > -200) return "intense";
+  const [, disturbed, moderate, intense, severe] = DST_RING_SCALE;
+  if (dst > disturbed.boundary) return "quiet";
+  if (dst > moderate.boundary) return "disturbed";
+  if (dst > intense.boundary) return "moderate";
+  if (dst > severe.boundary) return "intense";
   return "severe";
 }
 
@@ -365,37 +366,39 @@ function apColor(ap: number | null): string {
 
 /** Solar-wind bulk speed bands, km/s. Exactly 500 km/s is High. Exactly 700 km/s is High. */
 export const SOLAR_WIND_SPEED_SCALE = [
-  { id: "normal", range: "<400 km/s", short: "<400", label: "Normal", color: "#22c55e" },
-  { id: "elevated", range: "400–500 km/s", short: "400–500", label: "Elevated", color: "#eab308" },
-  { id: "high", range: "500–700 km/s", short: "500–700", label: "High", color: "#f97316" },
-  { id: "extreme", range: ">700 km/s", short: ">700", label: "Extreme", color: "#fb7185" },
+  { id: "normal", boundary: 0, range: "<400 km/s", short: "<400", label: "Normal", color: "#22c55e" },
+  { id: "elevated", boundary: 400, range: "400–500 km/s", short: "400–500", label: "Elevated", color: "#eab308" },
+  { id: "high", boundary: 500, range: "500–700 km/s", short: "500–700", label: "High", color: "#f97316" },
+  { id: "extreme", boundary: 700, range: ">700 km/s", short: ">700", label: "Extreme", color: "#fb7185" },
 ] as const;
 
 export type SolarWindSpeedScaleId = (typeof SOLAR_WIND_SPEED_SCALE)[number]["id"];
 
 export function solarWindSpeedScaleId(speed: number | null | undefined): SolarWindSpeedScaleId | null {
   if (speed == null || !Number.isFinite(speed) || speed <= 0) return null;
-  if (speed < 400) return "normal";
-  if (speed < 500) return "elevated";
-  if (speed <= 700) return "high";
+  const [, elevated, high, extreme] = SOLAR_WIND_SPEED_SCALE;
+  if (speed < elevated.boundary) return "normal";
+  if (speed < high.boundary) return "elevated";
+  if (speed <= extreme.boundary) return "high";
   return "extreme";
 }
 
 /** IMF Bt magnitude bands, nT. Exactly 5 nT is Moderate. Exactly 20 nT is Elevated. */
 export const IMF_BT_SCALE = [
-  { id: "quiet", range: "<5 nT", short: "<5", label: "Quiet", color: "#22c55e" },
-  { id: "moderate", range: "5–10 nT", short: "5–10", label: "Moderate", color: "#eab308" },
-  { id: "elevated", range: "10–20 nT", short: "10–20", label: "Elevated", color: "#f97316" },
-  { id: "severe", range: ">20 nT", short: ">20", label: "Strong/Severe", color: "#fb7185" },
+  { id: "quiet", boundary: 0, range: "<5 nT", short: "<5", label: "Quiet", color: "#22c55e" },
+  { id: "moderate", boundary: 5, range: "5–10 nT", short: "5–10", label: "Moderate", color: "#eab308" },
+  { id: "elevated", boundary: 10, range: "10–20 nT", short: "10–20", label: "Elevated", color: "#f97316" },
+  { id: "severe", boundary: 20, range: ">20 nT", short: ">20", label: "Strong/Severe", color: "#fb7185" },
 ] as const;
 
 export type ImfBtScaleId = (typeof IMF_BT_SCALE)[number]["id"];
 
 export function imfBtScaleId(bt: number | null | undefined): ImfBtScaleId | null {
   if (bt == null || !Number.isFinite(bt) || bt <= 0) return null;
-  if (bt < 5) return "quiet";
-  if (bt < 10) return "moderate";
-  if (bt <= 20) return "elevated";
+  const [, moderate, elevated, severe] = IMF_BT_SCALE;
+  if (bt < moderate.boundary) return "quiet";
+  if (bt < elevated.boundary) return "moderate";
+  if (bt <= severe.boundary) return "elevated";
   return "severe";
 }
 

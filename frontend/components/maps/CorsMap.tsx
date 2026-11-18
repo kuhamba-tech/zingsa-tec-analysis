@@ -6,13 +6,14 @@ import { anomalyPaths, anomalyReading, dipLatitudeDeg } from "@/lib/igrf14Dip";
 import { getLiveStationStatus } from "@/lib/liveStationStatus";
 import { buildCorsNetworkEdges, isReferenceCorsStation } from "@/lib/corsNetworkDistances";
 import type { ProposedCorsSite } from "@/lib/corsGeneticOptimizer";
-import { isValidProposedCorsSite } from "@/lib/zimbabweBoundary";
+import { isValidProposedCorsSite, ZIMBABWE_POLYGON } from "@/lib/zimbabweBoundary";
 import { TELONE_CENTRES, teloneCentreHasCors } from "@/lib/teloneCentres";
 import { formatPopulation, PROVINCE_POPULATION_2022 } from "@/lib/zimbabweDemographics";
 import { icaoTecColor, icaoTecDistanceLabel, icaoTecLabel } from "@/lib/icaoTecAdvisory";
 import { liveVtecSourceFromHeatmap, liveVtecSourceLabel } from "@/lib/liveVtecLabels";
 import { measuredLiveTec } from "@/lib/measuredLiveTec";
-import { fetchGlobalTecForecastObjectUrl } from "@/lib/api";
+import { fetchGlobalTecForecastObjectUrl, getZimbabweRoti, type ZimbabweRotiStation } from "@/lib/api";
+import { startVisiblePolling } from "@/lib/visiblePolling";
 import { vtecToRgba } from "@/lib/tecHeatmapColors";
 import { loadOpenLayers } from "@/lib/loadOpenLayers";
 import type { MapLayer } from "./CorsMapWithLayers";
@@ -123,25 +124,46 @@ function isZimbabweScienceLayer(layer: MapLayer): boolean {
   return layer === "Zimbabwe ROTI Map";
 }
 
-function scienceLayerMeta(_layer: MapLayer) {
-  return {
-    title: "Zimbabwe ROTI Map",
-    subtitle: "Rate of TEC Index · ionospheric gradient / irregularity monitor",
-    unit: "TECU/min",
-    note: "ROTI highlights rapid TEC change that can disrupt GNSS carrier tracking.",
-    ticks: ["0.00", "0.25", "0.50", "0.75", "1.00+"],
-    colors: ["#0b33ff", "#00c8ff", "#28f06a", "#ffe600", "#ff3b30"],
-    contours: ["0.25", "0.50", "0.75"],
-  };
-}
+const ROTI_MAP = {
+  ticks: ["0.00", "0.25", "0.50", "0.75", "1.00+"],
+  colors: ["#0b33ff", "#00c8ff", "#28f06a", "#ffe600", "#ff3b30"],
+};
 
-function scienceLayerLabelPositions(_layer: MapLayer): Array<{ label: string; lon: number; lat: number }> {
-  const meta = scienceLayerMeta(_layer);
-  return [
-    { label: meta.contours[0], lon: -62, lat: 4 },
-    { label: meta.contours[1], lon: 2, lat: -6 },
-    { label: meta.contours[2], lon: 55, lat: -20 },
-  ];
+const ROTI_RGB = ROTI_MAP.colors.map(color =>
+  [1, 3, 5].map(offset => parseInt(color.slice(offset, offset + 2), 16)),
+);
+
+function buildRotiSurface(controls: { x: number; y: number; roti: number }[], bounds: number[]) {
+  const raster = document.createElement("canvas");
+  raster.width = raster.height = 128;
+  const ctx = raster.getContext("2d");
+  if (!ctx) return raster;
+  const [west, south, east, north] = bounds;
+  const pixels = ctx.createImageData(raster.width, raster.height);
+  for (let row = 0; row < raster.height; row++) {
+    const y = north - (row + 0.5) * (north - south) / raster.height;
+    for (let col = 0; col < raster.width; col++) {
+      const x = west + (col + 0.5) * (east - west) / raster.width;
+      let total = 0;
+      let weights = 0;
+      for (const station of controls) {
+        const weight = 1 / Math.max(1, (station.x - x) ** 2 + (station.y - y) ** 2);
+        total += station.roti * weight;
+        weights += weight;
+      }
+      const scale = Math.max(0, Math.min(1, total / weights)) * (ROTI_RGB.length - 1);
+      const lower = Math.floor(scale);
+      const upper = Math.min(lower + 1, ROTI_RGB.length - 1);
+      const offset = (row * raster.width + col) * 4;
+      for (let channel = 0; channel < 3; channel++) {
+        const start = ROTI_RGB[lower][channel];
+        pixels.data[offset + channel] = start + (ROTI_RGB[upper][channel] - start) * (scale - lower);
+      }
+      pixels.data[offset + 3] = 150;
+    }
+  }
+  ctx.putImageData(pixels, 0, 0);
+  return raster;
 }
 
 function drawStationVtecMarkers(
@@ -327,7 +349,29 @@ export default function CorsMap({
   const [selected, setSelected] = useState<Station | null>(null);
   const [globalTecSrc, setGlobalTecSrc] = useState<string | null>(null);
   const [globalTecError, setGlobalTecError] = useState<string | null>(null);
-  const scienceMeta = scienceLayerMeta(layer);
+  const [roti, setRoti] = useState<ZimbabweRotiStation[] | null>(null);
+  const [rotiFailed, setRotiFailed] = useState(false);
+  useEffect(() => {
+    if (!isZimbabweScienceLayer(layer)) return;
+    let active = true;
+    setRoti(null);
+    setRotiFailed(false);
+    const stop = startVisiblePolling(async () => {
+      try {
+        const payload = await getZimbabweRoti();
+        if (active) {
+          setRoti(payload.stations);
+          setRotiFailed(false);
+        }
+      } catch {
+        if (active) {
+          setRoti(null);
+          setRotiFailed(true);
+        }
+      }
+    }, 60_000);
+    return () => { active = false; stop(); };
+  }, [layer]);
   const setSelectedRef = useRef(setSelected);
   setSelectedRef.current = setSelected;
   stationsRef.current = stations;
@@ -861,119 +905,75 @@ export default function CorsMap({
     });
   };
 
-  const buildScienceLayer = async () => {
-    const currentLayer = layerRef.current;
-    if (!isZimbabweScienceLayer(currentLayer)) return null;
-
-    const helpers = olHelpersRef.current ?? (await loadOpenLayers());
-    const { fromLonLat, ImageLayer, ImageCanvas } = helpers;
-    const meta = scienceLayerMeta(currentLayer);
-    const labels = scienceLayerLabelPositions(currentLayer);
-
-    const source = new ImageCanvas({
-      projection: "EPSG:3857",
-      canvasFunction: (extent: number[], _resolution: number, _pixelRatio: number, size: number[]) => {
-        const canvas = document.createElement("canvas");
-        canvas.width = size[0];
-        canvas.height = size[1];
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return canvas;
-
-        const [minX, minY, maxX, maxY] = extent as [number, number, number, number];
-        const width = size[0];
-        const heightPx = size[1];
-        const toPixel = (lon: number, lat: number): [number, number] => {
-          const [x, y] = fromLonLat([lon, lat]);
-          return [((x - minX) / (maxX - minX)) * width, ((maxY - y) / (maxY - minY)) * heightPx];
-        };
-
-        const gradient = ctx.createLinearGradient(0, heightPx * 0.46, width, heightPx * 0.56);
-        meta.colors.forEach((color, index) => {
-          gradient.addColorStop(index / Math.max(meta.colors.length - 1, 1), color);
-        });
-        ctx.globalAlpha = 0.46;
-        ctx.fillStyle = gradient;
-        ctx.fillRect(0, 0, width, heightPx);
-
-        const [hotX, hotY] = toPixel(-50, -8);
-        const radius = Math.max(Math.min(width, heightPx) * 0.34, 120);
-        const hot = ctx.createRadialGradient(hotX, hotY, 0, hotX, hotY, radius);
-        hot.addColorStop(0, `${meta.colors[meta.colors.length - 1]}e8`);
-        hot.addColorStop(0.42, `${meta.colors[2]}70`);
-        hot.addColorStop(1, `${meta.colors[0]}00`);
-        ctx.fillStyle = hot;
-        ctx.fillRect(hotX - radius, hotY - radius, radius * 2, radius * 2);
-
-        ctx.globalAlpha = 0.82;
-        ctx.lineCap = "round";
-        ctx.setLineDash([14, 10]);
-        ctx.strokeStyle = "rgba(255,255,255,0.86)";
-        ctx.lineWidth = 4;
-        [-42, -7, 28].forEach((baseLat, index) => {
-          ctx.beginPath();
-          for (let lon = -180; lon <= 180; lon += 4) {
-            const lat = baseLat + Math.sin(((lon + index * 26) * Math.PI) / 58) * 8;
-            const [px, py] = toPixel(lon, lat);
-            if (lon === -180) ctx.moveTo(px, py);
-            else ctx.lineTo(px, py);
-          }
-          ctx.stroke();
-        });
-
-        ctx.setLineDash([6, 7]);
-        ctx.strokeStyle = "rgba(0,0,0,0.52)";
-        ctx.lineWidth = 3;
-        [-90, 0, 90].forEach((baseLon, index) => {
-          ctx.beginPath();
-          for (let lat = -85; lat <= 85; lat += 4) {
-            const lon = baseLon + Math.sin(((lat + index * 30) * Math.PI) / 45) * 6;
-            const [px, py] = toPixel(lon, lat);
-            if (lat === -85) ctx.moveTo(px, py);
-            else ctx.lineTo(px, py);
-          }
-          ctx.stroke();
-        });
-
-        ctx.setLineDash([]);
-        ctx.globalAlpha = 1;
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.font = "800 30px sans-serif";
-        labels.forEach(({ label, lon, lat }) => {
-          const [px, py] = toPixel(lon, lat);
-          ctx.lineWidth = 6;
-          ctx.strokeStyle = "rgba(0,0,0,0.55)";
-          ctx.strokeText(label, px, py);
-          ctx.fillStyle = "#ffffff";
-          ctx.fillText(label, px, py);
-        });
-
-        return canvas;
-      },
-    });
-
-    return new ImageLayer({
-      source,
-      opacity: 0.82,
-      zIndex: 1.6,
-    });
-  };
-
-  const syncScienceLayer = async () => {
+  useEffect(() => {
     const map = olMapRef.current;
-    if (!map) return;
-
-    if (scienceLayerRef.current) {
-      map.removeLayer(scienceLayerRef.current);
+    if (!mapReady || !map || !isZimbabweScienceLayer(layer) || !roti?.length) return;
+    let active = true;
+    void loadOpenLayers().then(({ fromLonLat, ImageLayer, ImageCanvas }) => {
+      if (!active) return;
+      const border = ZIMBABWE_POLYGON.map(point => fromLonLat([...point]));
+      const xs = border.map(([x]) => x);
+      const ys = border.map(([, y]) => y);
+      const bounds = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+      const controls = roti.map(station => {
+        const [x, y] = fromLonLat([station.lon, station.lat]);
+        return { ...station, x, y };
+      });
+      const surface = buildRotiSurface(controls, bounds);
+      const source = new ImageCanvas({
+        projection: "EPSG:3857",
+        canvasFunction: (extent: number[], _resolution: number, pixelRatio: number, size: number[]) => {
+          const canvas = document.createElement("canvas");
+          [canvas.width, canvas.height] = size;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return canvas;
+          const [minX, minY, maxX, maxY] = extent;
+          const pixelX = (x: number) => (x - minX) / (maxX - minX) * canvas.width;
+          const pixelY = (y: number) => (maxY - y) / (maxY - minY) * canvas.height;
+          const [west, south, east, north] = bounds;
+          ctx.save();
+          ctx.beginPath();
+          border.forEach(([x, y], i) => {
+            if (i === 0) ctx.moveTo(pixelX(x), pixelY(y));
+            else ctx.lineTo(pixelX(x), pixelY(y));
+          });
+          ctx.closePath();
+          ctx.clip();
+          ctx.drawImage(surface, pixelX(west), pixelY(north),
+            pixelX(east) - pixelX(west), pixelY(south) - pixelY(north));
+          ctx.restore();
+          ctx.font = `bold ${12 * pixelRatio}px sans-serif`;
+          ctx.textAlign = "center";
+          for (const station of controls) {
+            const px = pixelX(station.x);
+            const py = pixelY(station.y);
+            ctx.beginPath();
+            ctx.arc(px, py, 8 * pixelRatio, 0, 2 * Math.PI);
+            ctx.fillStyle = ROTI_MAP.colors[Math.min(4, Math.floor(station.roti * 4))];
+            ctx.fill();
+            ctx.lineWidth = 1.5 * pixelRatio;
+            ctx.strokeStyle = "#fff";
+            ctx.stroke();
+            const label = `${station.code.toUpperCase()} ${station.roti.toFixed(2)}`;
+            ctx.lineWidth = 3 * pixelRatio;
+            ctx.strokeStyle = "#080e18";
+            ctx.strokeText(label, px, py - 12 * pixelRatio);
+            ctx.fillStyle = "#fff";
+            ctx.fillText(label, px, py - 12 * pixelRatio);
+          }
+          return canvas;
+        },
+      });
+      const overlay = new ImageLayer({ source, zIndex: 4.5 });
+      map.addLayer(overlay);
+      scienceLayerRef.current = overlay;
+    }).catch(() => { if (active) setRotiFailed(true); });
+    return () => {
+      active = false;
+      if (scienceLayerRef.current) map.removeLayer(scienceLayerRef.current);
       scienceLayerRef.current = null;
-    }
-
-    const next = await buildScienceLayer();
-    if (next) {
-      map.getLayers().insertAt(3, next);
-      scienceLayerRef.current = next;
-    }
-  };
+    };
+  }, [layer, mapReady, roti]);
 
   const syncHeatLayer = async () => {
     const map = olMapRef.current;
@@ -1241,7 +1241,6 @@ export default function CorsMap({
       labelTileRef.current = labelTile;
       transportTileRef.current = transportTile;
       await syncHeatLayer();
-      await syncScienceLayer();
       await syncNetworkLayer();
       await syncProposedSitesLayer();
       await syncContextLayers();
@@ -1349,7 +1348,6 @@ export default function CorsMap({
       syncStationFeatures(stationsRef.current);
       await syncHeatLayer();
       if (cancelled) return;
-      await syncScienceLayer();
       if (cancelled) return;
       await syncNetworkLayer();
       if (cancelled) return;
@@ -1408,13 +1406,18 @@ export default function CorsMap({
               }}
             >
               <div style={{ fontSize: "0.66rem", fontWeight: 900, color: "#63c7ff", textTransform: "uppercase" }}>
-                {scienceMeta.title}
+                Zimbabwe ROTI Map
               </div>
               <div style={{ fontSize: "0.84rem", fontWeight: 800, marginTop: "0.2rem" }}>
-                {scienceMeta.subtitle}
+                Carrier-phase ROTI · 5-minute windows
               </div>
               <div style={{ fontSize: "0.66rem", color: "#ffffff", marginTop: "0.35rem", lineHeight: 1.45 }}>
-                {scienceMeta.note}
+                {rotiFailed ? "The ROTI feed is temporarily unavailable."
+                  : roti === null ? "Loading carrier-phase observations…"
+                  : roti.length === 1 ? "Uniform estimate from 1 station. The labeled marker shows the measurement."
+                  : roti.length ? `Interpolated from ${roti.length} stations. Labeled markers show measurements.`
+                  : "No recent station has a usable carrier-phase arc."}
+                {" · "}<a href="https://doi.org/10.1029/2020RS007140" target="_blank" rel="noreferrer" style={{ pointerEvents: "auto", color: "#63c7ff" }}>Carmo et al. (2021), Method 4</a>
               </div>
             </div>
 
@@ -1434,7 +1437,7 @@ export default function CorsMap({
               }}
             >
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.75rem" }}>
-                <strong style={{ fontSize: "0.75rem" }}>{scienceMeta.unit}</strong>
+                <strong style={{ fontSize: "0.75rem" }}>TECU/min</strong>
                 <span style={{ fontSize: "0.65rem", color: "#0b1220" }}>Zimbabwe CORS product</span>
               </div>
               <div
@@ -1442,11 +1445,11 @@ export default function CorsMap({
                   height: "14px",
                   marginTop: "0.45rem",
                   border: "1px solid rgba(15,23,42,0.35)",
-                  background: `linear-gradient(90deg, ${scienceMeta.colors.join(", ")})`,
+                  background: `linear-gradient(90deg, ${ROTI_MAP.colors.join(", ")})`,
                 }}
               />
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.66rem", marginTop: "0.28rem", fontWeight: 700 }}>
-                {scienceMeta.ticks.map((tick) => (
+                {ROTI_MAP.ticks.map((tick) => (
                   <span key={tick}>{tick}</span>
                 ))}
               </div>

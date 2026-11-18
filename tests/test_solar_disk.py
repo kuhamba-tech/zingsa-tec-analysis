@@ -1,8 +1,47 @@
 """NOAA region numbers land on the visible solar disk."""
 
+import json
 from datetime import datetime, timedelta, timezone
 
 from zgiis.space_weather.solar_disk import _latest_image, newest_continuum_frame, parse_solar_region_summary
+from zgiis.space_weather import solar_disk
+
+
+def test_recent_goes_supplies_end_time_if_edited_report_is_unavailable(monkeypatch):
+    day = datetime.now(timezone.utc).date()
+    event = {
+        "begin_time": f"{day}T21:34:00Z",
+        "max_time": f"{day}T21:39:00Z",
+        "end_time": f"{day}T21:42:00Z",
+        "max_class": "M1.7",
+    }
+    monkeypatch.setattr(
+        solar_disk, "_archive_text",
+        lambda url: json.dumps([event, {**event, "max_time": "2000-01-01T21:39:00Z"}])
+        if url == solar_disk._NOAA_GOES_FLARES else "",
+    )
+    payload = solar_disk.solar_archive_day(day)
+    assert payload["edited_report_available"] is False
+    rows = payload["flare_regions"]
+    assert len(rows) == 1
+    assert rows[0]["end"] == event["end_time"]
+    assert rows[0]["region"] is None
+
+    solar_disk._add_live_edited_regions(rows, json.dumps([
+        {"type": "XRA", "max_datetime": f"{day}T21:39:00", "particulars1": "M1.7", "region": 4578},
+        {"type": "XRA", "max_datetime": f"{day}T21:39:00", "particulars1": "M1.8", "region": 9999},
+    ]))
+    assert rows[0]["region"] == 4578
+
+    monkeypatch.setattr(
+        solar_disk, "_archive_text",
+        lambda url: "1234 2134 2139 2142 G16 5 XRA 1-8A M1.7 1.0E-02 4578"
+        if "solar_event_reports" in url else "",
+    )
+    recovered = solar_disk.solar_archive_day(day)
+    assert recovered["edited_report_available"] is True
+    assert recovered["flare_regions"][0]["region"] == 4578
+    solar_disk._load_solar_archive.cache_clear()
 
 SRS = """
 :Issued: 2026 Oct 31 0030 UTC

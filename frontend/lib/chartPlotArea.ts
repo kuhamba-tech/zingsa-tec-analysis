@@ -36,12 +36,15 @@ export function reportPlotAreaPlugin<T extends ChartType>(onChange?: PlotAreaRep
         // Fit axes and labels using the shared horizontal plot space before datasets update.
         const layout = chart.options?.layout;
         if (!layout) return;
-        const original = layout.padding;
-        const padding = typeof original === "number"
-          ? { left: original, right: original, top: original, bottom: original }
-          : typeof original === "object" && "x" in original
-            ? { left: original.x ?? 0, right: original.x ?? 0, top: original.y ?? 0, bottom: original.y ?? 0 }
-            : { left: 0, right: 0, top: 0, bottom: 0, ...original };
+        // Chart.js wraps resolved object options in proxies. Restore the raw
+        // configuration so subsequent layouts cannot wrap the same proxy again.
+        const original = chart.config.options?.layout?.padding;
+        const resolved = layout.padding;
+        const padding = typeof resolved === "number"
+          ? { left: resolved, right: resolved, top: resolved, bottom: resolved }
+          : typeof resolved === "object" && "x" in resolved
+            ? { left: resolved.x ?? 0, right: resolved.x ?? 0, top: resolved.y ?? 0, bottom: resolved.y ?? 0 }
+            : { left: 0, right: 0, top: 0, bottom: 0, ...resolved };
         try {
           // Tick labels can change their margins after the first fit.
           for (let pass = 0; pass < 3; pass++) {
@@ -56,7 +59,13 @@ export function reportPlotAreaPlugin<T extends ChartType>(onChange?: PlotAreaRep
           }
           chart.boxes.forEach(box => { if (box instanceof Scale) box.configure(); });
         } finally {
-          layout.padding = original;
+          if (original === undefined) {
+            delete layout.padding;
+            // The resolver can write to a layout object it creates on demand.
+            delete chart.config.options?.layout?.padding;
+          } else {
+            layout.padding = original;
+          }
         }
       }, () => { if (chart.canvas?.isConnected) chart.update("none"); }, () => {
         if (!chart.canvas?.isConnected) return null;

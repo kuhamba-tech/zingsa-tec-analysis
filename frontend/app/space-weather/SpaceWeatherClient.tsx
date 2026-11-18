@@ -3,7 +3,8 @@ import ChartDateRange, { ChartDateRangeContext } from "@/components/charts/Chart
 
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type KeyboardEvent } from "react";
+import { SOLAR_FLUX_GUIDES } from "@/lib/solarFluxGuides";
 import { getSpaceWeather, getSolarActivity, getTimelines, refreshSpaceWeather, getStations, getEkfStatus, getHeliosphericMonitor, getLiveStationReadings, getCorsConnected, getIonoVtecPair } from "@/lib/api";
 import { loadCorsMapWithLayers } from "@/lib/loadCorsMapWithLayers";
 import { ensureLiveTecHeatmap } from "@/lib/tecHeatmapStore";
@@ -274,11 +275,12 @@ function getGnssImpact(kp: number | null, s4: number | null, flare: string) {
 }
 
 function TimelineCard({
-  graphId, title, pts, color, yLabel, threshold, source, analysis, expanded, onToggle, emptyMsg, ekfPoints, ekfColor,
+  graphId, title, pts, color, yLabel, threshold, thresholds, source, analysis, expanded, onToggle, emptyMsg, ekfPoints, ekfColor,
   syncHoverMs = null, onSyncHoverMs, timeDomain, yMin, yMax,
 }: {
   graphId: string; title: string; pts: TimelinePoint[]; color: string; yLabel: string;
   threshold?: { value: number; label: string; color?: string; fillAbove?: boolean }; source: string;
+  thresholds?: ComponentProps<typeof LineChart>["thresholds"];
   analysis: ChartAnalysisBlock; expanded: boolean; onToggle: (graphId: string) => void; emptyMsg?: string;
   ekfPoints?: EkfPoint[];
   ekfColor?: string;
@@ -367,6 +369,7 @@ function TimelineCard({
             yLabel={yLabel}
             height={220}
             threshold={threshold}
+            thresholds={thresholds}
             xValues={epochs}
             epochMs={epochs}
             xMin={domain.min}
@@ -1259,14 +1262,52 @@ export default function SpaceWeatherClient({
 
       {/* ── Tab 0: Timelines ── */}
       {tab === 3 && (
-        <StormAnalysis
-          xrayTimeline={xrayTimeline}
-          flareEvents={sa?.donki_flares}
-          fallbackXraySeries={sa?.xray_series}
-          fallbackXrayUpdated={sa?.updated}
-          xrayRange={xrayRange}
-          onXrayRangeChange={setXrayRange}
-        />
+        <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+          <StormAnalysis
+            xrayTimeline={xrayTimeline}
+            flareEvents={sa?.donki_flares}
+            fallbackXraySeries={sa?.xray_series}
+            fallbackXrayUpdated={sa?.updated}
+            xrayRange={xrayRange}
+            onXrayRangeChange={setXrayRange}
+          />
+          {/* F10.7 & Sunspot Number — full multi-cycle record */}
+          <DeferredMount
+            className="sw-deferred-block"
+            minHeight={240}
+            rootMargin="200px 0px"
+            fallback={sectionFallback}
+          >
+            <SolarCycleFullRecordCharts />
+          </DeferredMount>
+
+          {/* Solar Cycle Progress */}
+          <div className="card">
+            <div className="metric-label" style={{ marginBottom: "0.8rem" }}>Solar Cycle Progress</div>
+            <div className="sw-double-grid sw-double-grid--center">
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem" }}>
+                  <span style={{ color: "var(--text-muted)" }}>Solar Cycle</span>
+                  <span style={{ fontWeight: 800 }}>25</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem" }}>
+                  <span style={{ color: "var(--text-muted)" }}>Cycle Progress</span>
+                  <span style={{ fontWeight: 800, color: "#f97316" }}>{sc25Progress}%</span>
+                </div>
+                {/* Progress bar */}
+                <div style={{ height: "10px", background: "#1a2a3a", borderRadius: "5px", overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${sc25Progress}%`, background: "linear-gradient(90deg, #22c55e, #eab308, #f97316)", borderRadius: "5px", transition: "width 0.5s" }} />
+                </div>
+                <div style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>Estimated Peak: 2024–2026 (Cycle 25 maximum window)</div>
+              </div>
+              <div style={{ fontSize: "0.85rem", color: "var(--text-muted)", lineHeight: 1.7 }}>
+                <div>Start: December 2019</div>
+                <div>Predicted end: ~2031</div>
+                <div style={{ marginTop: "0.4rem", fontStyle: "italic" }}>Reference cycle window; no synthetic observation values are displayed.</div>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
       {tab === 0 && (
         <ChartDateRangeContext.Provider value={{day:timelineDay,setDay:setTimelineDay}}>
@@ -1307,7 +1348,9 @@ export default function SpaceWeatherClient({
                   pts={f107Points}
                   color="#ffcc00"
                   yLabel="F10.7 (sfu)"
-                  threshold={{ value: 150, label: "High activity (150 sfu)" }}
+                  yMin={60}
+                  yMax={220}
+                  thresholds={SOLAR_FLUX_GUIDES}
                   source="NOAA SWPC F10.7 cm flux feed"
                   analysis={timelineAnalyses.f107}
                   expanded={selectedGraph === "f107"}
@@ -1474,43 +1517,6 @@ export default function SpaceWeatherClient({
             />
             <div style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>
               NOAA GOES X-ray · proxy from {donkiLive ? eventFeedName : "solar flare events"}
-            </div>
-          </div>
-
-          {/* F10.7 & Sunspot Number — full multi-cycle record */}
-          <DeferredMount
-            className="sw-deferred-block"
-            minHeight={240}
-            rootMargin="200px 0px"
-            fallback={sectionFallback}
-          >
-            <SolarCycleFullRecordCharts />
-          </DeferredMount>
-
-          {/* Solar Cycle Progress */}
-          <div className="card">
-            <div className="metric-label" style={{ marginBottom: "0.8rem" }}>Solar Cycle Progress</div>
-            <div className="sw-double-grid sw-double-grid--center">
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem" }}>
-                  <span style={{ color: "var(--text-muted)" }}>Solar Cycle</span>
-                  <span style={{ fontWeight: 800 }}>25</span>
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem" }}>
-                  <span style={{ color: "var(--text-muted)" }}>Cycle Progress</span>
-                  <span style={{ fontWeight: 800, color: "#f97316" }}>{sc25Progress}%</span>
-                </div>
-                {/* Progress bar */}
-                <div style={{ height: "10px", background: "#1a2a3a", borderRadius: "5px", overflow: "hidden" }}>
-                  <div style={{ height: "100%", width: `${sc25Progress}%`, background: "linear-gradient(90deg, #22c55e, #eab308, #f97316)", borderRadius: "5px", transition: "width 0.5s" }} />
-                </div>
-                <div style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>Estimated Peak: 2024–2026 (Cycle 25 maximum window)</div>
-              </div>
-              <div style={{ fontSize: "0.85rem", color: "var(--text-muted)", lineHeight: 1.7 }}>
-                <div>Start: December 2019</div>
-                <div>Predicted end: ~2031</div>
-                <div style={{ marginTop: "0.4rem", fontStyle: "italic" }}>Reference cycle window; no synthetic observation values are displayed.</div>
-              </div>
             </div>
           </div>
 

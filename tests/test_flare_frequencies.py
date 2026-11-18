@@ -1,5 +1,8 @@
 """Unit tests for yearly C/M/X flare frequency parsers."""
 
+from datetime import date
+
+from zgiis.space_weather import flare_frequencies
 from zgiis.space_weather.flare_frequencies import (
     count_donki_flares,
     count_ncei_xrs_text,
@@ -30,6 +33,28 @@ def test_count_donki_flares_by_class_type():
         {"note": "no class"},
     ]
     assert count_donki_flares(rows) == {"c_count": 1, "m_count": 1, "x_count": 1}
+
+
+def test_donki_splits_year_to_date_into_inclusive_windows(monkeypatch):
+    urls = []
+
+    def fetch(url, *, timeout):
+        urls.append(url.split("?")[1])
+        return [{"flrID": "same event", "classType": "M1.1"}]
+
+    monkeypatch.setattr(flare_frequencies, "_fetch_json", fetch)
+    year, counts = flare_frequencies._fetch_donki_year(2024, date(2024, 3, 1))
+    assert year == 2024
+    assert urls == [
+        "startDate=2024-01-01&endDate=2024-02-29",
+        "startDate=2024-03-01&endDate=2024-03-01",
+    ]
+    assert counts == {"c_count": 0, "m_count": 1, "x_count": 0}
+
+
+def test_donki_invalid_window_does_not_count_as_zero(monkeypatch):
+    monkeypatch.setattr(flare_frequencies, "_fetch_json", lambda *args, **kwargs: {"error": "unavailable"})
+    assert flare_frequencies._fetch_donki_year(2024, date(2024, 3, 1)) == (2024, None)
 
 
 def test_daily_solar_data_keeps_flare_counts_and_sunspot_number():

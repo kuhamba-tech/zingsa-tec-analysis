@@ -6,6 +6,7 @@ import threading
 import os
 import time
 from concurrent.futures import Future, ThreadPoolExecutor, TimeoutError as FuturesTimeout
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -979,6 +980,14 @@ async def solar_disk(force_refresh: bool = Query(False), _=Depends(require_api_k
 
     payload = await asyncio.to_thread(build_solar_disk, force_refresh=force_refresh)
     return SolarDiskResponse(**payload)
+
+
+@router.get("/solar-archive")
+def solar_archive(day: date, _=Depends(require_api_key)):
+    """Available NASA SDO 131 Å and 193 Å frames and NOAA regions for a UTC day."""
+    from zgiis.space_weather.solar_disk import solar_archive_day
+
+    return solar_archive_day(day)
 
 
 @router.get("/solar-brief", response_model=SolarBriefResponse)
