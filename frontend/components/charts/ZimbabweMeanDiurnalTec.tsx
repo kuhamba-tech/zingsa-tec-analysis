@@ -21,6 +21,7 @@ import {
   type LatBandDiurnalStats,
   type ZimbabweLatBandId,
 } from "@/lib/zimbabweLatBands";
+import { ONE_H_MS, utcTimeAxisProps } from "@/lib/chartTimeAxis";
 
 import ChartDateRange, { ChartDateRangeContext } from "./ChartDateRange";
 
@@ -254,9 +255,13 @@ async function loadRegionalDailyRows(
 
 export default function ZimbabweMeanDiurnalTec({
   embedded = false,
+  analysisDomain,
+  analysisDay,
 }: {
   /** Hide the outer title when the parent panel already names the chart. */
   embedded?: boolean;
+  analysisDomain?: { min: number; max: number };
+  analysisDay?: string;
 } = {}) {
   const calendar=useContext(ChartDateRangeContext);
   const [rows, setRows] = useState<LiveStationVtecSeries[] | null>(null);
@@ -267,7 +272,7 @@ export default function ZimbabweMeanDiurnalTec({
   const [dayChoice, setDayChoice] = useState<string>("latest");
   const chooseDay = (day: string) => {
     setDayChoice(day);
-    if (calendar) calendar.setDay(day === "all" || day === "latest" ? "" : day);
+    if (calendar && !analysisDomain) calendar.setDay(day === "all" || day === "latest" ? "" : day);
   };
   const [region, setRegion] = useState<RegionChoice>("all");
   const [explainOpen, setExplainOpen] = useState(false);
@@ -361,12 +366,20 @@ export default function ZimbabweMeanDiurnalTec({
 
   const days = useMemo(() => (rows ? utcDaysInStationSeries(rows) : []), [rows]);
   const today = utcToday();
-  const selectedDay = calendar ? (calendar.day || (dayChoice === "all" ? null : days[days.length - 1] ?? null)) : dayChoice === "all"
-    ? null
-    : dayChoice === "latest"
-      ? days[days.length - 1] ?? null
-      : dayChoice;
-  const dayIndex = selectedDay ? days.indexOf(selectedDay) : -1;
+  const analysisStartDay = analysisDomain ? new Date(analysisDomain.min).toISOString().slice(0, 10) : "";
+  const analysisEndDay = analysisDomain ? new Date(analysisDomain.max - 1).toISOString().slice(0, 10) : "";
+  const visibleDays = analysisDomain
+    ? days.filter(day => day >= analysisStartDay && day <= analysisEndDay)
+    : days;
+  const analysisDayInRange = analysisDay != null && analysisDay >= analysisStartDay && analysisDay <= analysisEndDay;
+  const selectedDay = analysisDomain
+    ? dayChoice !== "latest" && dayChoice !== "all" && dayChoice >= analysisStartDay && dayChoice <= analysisEndDay
+      ? dayChoice
+      : analysisDayInRange ? analysisDay : visibleDays[visibleDays.length - 1] ?? null
+    : calendar
+      ? calendar.day || (dayChoice === "all" ? null : days[days.length - 1] ?? null)
+      : dayChoice === "all" ? null : dayChoice === "latest" ? days[days.length - 1] ?? null : dayChoice;
+  const dayIndex = selectedDay ? visibleDays.indexOf(selectedDay) : -1;
 
   const stats = useMemo(
     () => (rows ? latBandDiurnalMeanStd(rows, undefined, selectedDay) : null),
@@ -382,6 +395,15 @@ export default function ZimbabweMeanDiurnalTec({
     () => (stats ? bandDatasets(stats, globalStats, region) : []),
     [stats, globalStats, region],
   );
+  const plottedDatasets = useMemo(() => {
+    if (!analysisDomain || !selectedDay) return datasets;
+    const dayStart = Date.parse(`${selectedDay}T00:00:00Z`);
+    return datasets.map(dataset => ({
+      ...dataset,
+      data: dataset.data.map(point => ({ ...point, x: dayStart + point.x * ONE_H_MS })),
+    }));
+  }, [analysisDomain, datasets, selectedDay]);
+  const analysisAxis = analysisDomain ? utcTimeAxisProps(analysisDomain, { majorHours: 6 }) : null;
 
   const yMax = useMemo(() => {
     let high = 8;
@@ -481,41 +503,43 @@ export default function ZimbabweMeanDiurnalTec({
         </button>
         {failed && " Refresh could not retrieve new measurements; retained observations are shown."}
       </div>
-      {days.length > 0 && (
+      {(days.length > 0 || analysisDomain != null) && (
         <div className="station-vtec-plots-controls">
-          <ChartDateRange />
+          {!analysisDomain && <ChartDateRange />}
           <div className="station-vtec-day-filters" role="group" aria-label="UTC day">
-            {!calendar && <label className="regional-tec-date-picker">
+            {(!calendar || analysisDomain) && <label className="regional-tec-date-picker">
               Day (UTC)
               <input
                 type="date"
                 aria-label="Select TEC observation day in UTC"
                 value={selectedDay ?? ""}
-                min={days[0]}
-                max={days[days.length - 1]}
+                min={analysisDomain ? analysisStartDay : days[0]}
+                max={analysisDomain ? analysisEndDay : days[days.length - 1]}
                 onChange={(event) => {
                   const day = event.currentTarget.value;
-                  if (day && day >= days[0] && day <= days[days.length - 1]) chooseDay(day);
+                  const minDay = analysisDomain ? analysisStartDay : days[0];
+                  const maxDay = analysisDomain ? analysisEndDay : days[days.length - 1];
+                  if (day && day >= minDay && day <= maxDay) chooseDay(day);
                 }}
               />
             </label>}
-            <button
+            {!analysisDomain && <button
               type="button"
               className={selectedDay == null ? "active" : ""}
               onClick={() => chooseDay("all")}
             >
               All days
-            </button>
+            </button>}
             <button
               type="button"
               disabled={dayIndex <= 0}
               onClick={() => {
-                if (dayIndex > 0) chooseDay(days[dayIndex - 1]);
+                if (dayIndex > 0) chooseDay(visibleDays[dayIndex - 1]);
               }}
             >
               Previous day
             </button>
-            {days.map((day) => (
+            {visibleDays.map((day) => (
               <button
                 key={day}
                 type="button"
@@ -528,9 +552,9 @@ export default function ZimbabweMeanDiurnalTec({
             ))}
             <button
               type="button"
-              disabled={dayIndex < 0 || dayIndex >= days.length - 1}
+              disabled={dayIndex < 0 || dayIndex >= visibleDays.length - 1}
               onClick={() => {
-                if (dayIndex >= 0 && dayIndex < days.length - 1) chooseDay(days[dayIndex + 1]);
+                if (dayIndex >= 0 && dayIndex < visibleDays.length - 1) chooseDay(visibleDays[dayIndex + 1]);
               }}
             >
               Next day
@@ -571,7 +595,7 @@ export default function ZimbabweMeanDiurnalTec({
           </p>
           <div style={{ height: 380 }}>
             <Line
-              data={{ datasets }}
+              data={{ datasets: plottedDatasets }}
               plugins={[errorBars]}
               options={{
                 responsive: true,
@@ -586,7 +610,9 @@ export default function ZimbabweMeanDiurnalTec({
                   tooltip: {
                     callbacks: {
                       title: (items) => {
-                        const hour = Number(items[0]?.parsed.x);
+                        const x = Number(items[0]?.parsed.x);
+                        if (!Number.isFinite(x)) return "";
+                        const hour = analysisDomain ? new Date(x).getUTCHours() : x;
                         if (!Number.isInteger(hour)) return "";
                         const clock = `${String(hour).padStart(2, "0")}:00–${String(hour + 1).padStart(2, "0")}:00 UT`;
                         return selectedDay ? `${selectedDay} ${clock}` : clock;
@@ -614,10 +640,15 @@ export default function ZimbabweMeanDiurnalTec({
                 scales: {
                   x: {
                     type: "linear",
-                    min: 0,
-                    max: 23,
-                    title: { display: true, text: "UT", color: "#ffffff", font: { weight: "bold" } },
-                    ticks: {
+                    min: analysisDomain?.min ?? 0,
+                    max: analysisDomain?.max ?? 23,
+                    title: { display: true, text: analysisDomain ? "UTC" : "UT", color: "#ffffff", font: { weight: "bold" } },
+                    ticks: analysisAxis ? {
+                      color: "#ffffff",
+                      stepSize: analysisAxis.xMajorStepMs ?? 6 * ONE_H_MS,
+                      maxRotation: 0,
+                      callback: (value) => analysisAxis.formatXTick?.(Number(value)) ?? "",
+                    } : {
                       color: "#ffffff",
                       stepSize: 1,
                       autoSkip: false,
@@ -630,6 +661,7 @@ export default function ZimbabweMeanDiurnalTec({
                     grid: { color: "#1e3a5f" },
                   },
                   y: {
+                    afterFit: analysisDomain ? (axis) => { axis.width = 80; } : undefined,
                     min: 0,
                     max: yMax,
                     title: { display: true, text: "TEC (TECU)", color: "#ffffff", font: { weight: "bold" } },

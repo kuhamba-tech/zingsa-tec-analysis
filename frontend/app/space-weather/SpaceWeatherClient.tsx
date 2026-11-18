@@ -22,6 +22,7 @@ import { imfSeriesPoints } from "@/lib/imfBzWatch";
 import ClickableMetricGrid from "@/components/spaceWeather/ClickableMetricGrid";
 import DeferredMount from "@/components/spaceWeather/DeferredMount";
 import SwSectionBanner from "@/components/spaceWeather/SwSectionBanner";
+const StormAnalysis = dynamic(() => import("@/components/spaceWeather/StormAnalysis"), { ssr: false });
 import { monitoringFreshness, observationTime } from "@/lib/monitoringStatus";
 import HomeStormAlertBanner from "@/components/layout/HomeStormAlertBanner";
 import {
@@ -1238,7 +1239,7 @@ export default function SpaceWeatherClient({
 
       {/* ── Tabs ── */}
       <div className="tabs sw-space-tabs" role="tablist" aria-label="Space weather views" suppressHydrationWarning>
-        {["Live Metric Timelines", "Solar Activity", "Zimbabwe Ionospheric Response"].map((t, i) => (
+        {["Live Metric Timelines", "Solar Activity", "Zimbabwe Ionospheric Response", "Analysis"].map((t, i) => (
           <button
             key={t}
             type="button"
@@ -1257,6 +1258,15 @@ export default function SpaceWeatherClient({
       </div>
 
       {/* ── Tab 0: Timelines ── */}
+      {tab === 3 && (
+        <StormAnalysis
+          xrayTimeline={xrayTimeline}
+          fallbackXraySeries={sa?.xray_series}
+          fallbackXrayUpdated={sa?.updated}
+          xrayRange={xrayRange}
+          onXrayRangeChange={setXrayRange}
+        />
+      )}
       {tab === 0 && (
         <ChartDateRangeContext.Provider value={{day:timelineDay,setDay:setTimelineDay}}>
         <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }} suppressHydrationWarning>
@@ -1315,7 +1325,7 @@ export default function SpaceWeatherClient({
                 minDelayMs={loadProfile.heavyMountDelayMs}
                 fallback={sectionFallback}
               >
-                <HeliosphericMonitorStack />
+                <HeliosphericMonitorStack showWindBz />
               </DeferredMount>
 
               <DeferredMount

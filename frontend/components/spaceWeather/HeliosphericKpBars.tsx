@@ -14,6 +14,7 @@ import {
 } from "chart.js";
 import { Chart } from "react-chartjs-2";
 import { formatUtcDayLabel, seriesEpochsFromApi } from "@/lib/chartTimeAxis";
+import { alignKpSeriesToDomain, KP_BIN_MS } from "@/lib/kpTimeline";
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, Tooltip, Legend);
 ChartJS.defaults.color = "#ffffff";
@@ -63,6 +64,8 @@ export default function HeliosphericKpBars({
   dstLabels,
   dstTimes,
   dstEpochMs,
+  analysisDomain,
+  onPickTime,
 }: {
   labels: string[];
   times?: string[];
@@ -74,9 +77,11 @@ export default function HeliosphericKpBars({
   dstLabels?: string[];
   dstTimes?: string[];
   dstEpochMs?: (number | null)[];
+  analysisDomain?: { min: number; max: number };
+  onPickTime?: (ms: number) => void;
 }) {
   const calendar = useContext(ChartDateRangeContext);
-  if (calendar?.day) {
+  if (!analysisDomain && calendar?.day) {
     const bounds=utcDayBounds(calendar.day);
     const epochs=seriesEpochsFromApi(labels, epochMs, times);
     const keep=labels.map((_,i)=>i).filter(i=>epochs && epochs[i]>=bounds.min && epochs[i]<bounds.max);
@@ -84,6 +89,16 @@ export default function HeliosphericKpBars({
     times=times ? keep.map(i=>times![i]) : undefined;
     epochMs=epochMs ? keep.map(i=>epochMs![i]) : undefined;
     observed=keep.map(i=>observed[i]); estimated=keep.map(i=>estimated[i]); predicted=keep.map(i=>predicted[i]);
+  }
+  if (analysisDomain) {
+    const epochs = seriesEpochsFromApi(labels, epochMs, times);
+    const aligned = alignKpSeriesToDomain(epochs, { observed, estimated, predicted }, analysisDomain);
+    labels = aligned.epochs.map(formatKpUtcBinLabel);
+    times = aligned.epochs.map(time => new Date(time).toISOString());
+    epochMs = aligned.epochs;
+    observed = aligned.observed;
+    estimated = aligned.estimated;
+    predicted = aligned.predicted;
   }
   const utcLabels = useMemo(() => {
     const epochs = seriesEpochsFromApi(labels, epochMs, times);
@@ -93,9 +108,11 @@ export default function HeliosphericKpBars({
 
   const dstAligned = useMemo(() => {
     const kpEpochs = seriesEpochsFromApi(labels, epochMs, times);
+    const bins = analysisDomain && kpEpochs ? kpEpochs.slice(0, -1) : kpEpochs;
     const dstEpochs = seriesEpochsFromApi(dstLabels ?? [], dstEpochMs, dstTimes);
-    return dstOnKpBins(kpEpochs, dstEpochs, dst);
-  }, [labels, epochMs, times, dst, dstLabels, dstTimes, dstEpochMs]);
+    const aligned = dstOnKpBins(bins, dstEpochs, dst);
+    return analysisDomain && aligned ? [...aligned, null] : aligned;
+  }, [labels, epochMs, times, dst, dstLabels, dstTimes, dstEpochMs, analysisDomain]);
 
   const dstScale = useMemo(() => {
     const values = (dstAligned ?? []).filter((value): value is number => value != null && Number.isFinite(value));
@@ -167,7 +184,7 @@ export default function HeliosphericKpBars({
   );
 
   return (
-    <div><ChartDateRange />
+    <div>{!analysisDomain && <ChartDateRange />}
     {calendar?.day && !labels.length && <p role="status">No loaded Kp observations for {calendar.day} UTC.</p>}
     <div style={{ height: 250, position: "relative" }}>
       <Chart
@@ -178,6 +195,16 @@ export default function HeliosphericKpBars({
           maintainAspectRatio: false,
           color: "#ffffff",
           animation: false,
+          onClick: (event, _elements, chart) => {
+            if (!analysisDomain || !onPickTime || event.x == null) return;
+            if (event.x < chart.chartArea.left || event.x > chart.chartArea.right) return;
+            const categoryValue = chart.scales.x.getValueForPixel(event.x);
+            if (categoryValue == null || !Number.isFinite(categoryValue)) return;
+            const index = Math.round(categoryValue);
+            const binCount = Math.ceil((analysisDomain.max - analysisDomain.min) / KP_BIN_MS);
+            if (!Number.isFinite(index) || index < 0 || index > binCount) return;
+            onPickTime(Math.min(analysisDomain.max - 1, analysisDomain.min + index * KP_BIN_MS));
+          },
           interaction: { mode: "index", intersect: false },
           plugins: {
             legend: {

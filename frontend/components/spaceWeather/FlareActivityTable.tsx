@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { getSolarBrief, type SolarBriefResponse } from "@/lib/api";
 import type { SolarActivityFull } from "@/lib/types";
 import styles from "./FlareActivityTable.module.css";
+import { startVisiblePolling } from "@/lib/visiblePolling";
 
 const SUPERSCRIPTS = "⁰¹²³⁴⁵⁶⁷⁸⁹";
 
@@ -48,24 +49,45 @@ function flareTone(label: string): "A" | "B" | "C" | "M" | "X" {
 export default function FlareActivityTable({ solar }: { solar: SolarActivityFull | null }) {
   const [brief, setBrief] = useState<SolarBriefResponse | null>(null);
   const [failed, setFailed] = useState(false);
+  const [refresh, setRefresh] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  const [utcDay, setUtcDay] = useState(() => new Date().toISOString().slice(0, 10));
 
   useEffect(() => {
     let cancelled = false;
-    getSolarBrief()
+    let first = true;
+    const stop = startVisiblePolling(async () => {
+      setRefreshing(true);
+      setUtcDay(new Date().toISOString().slice(0, 10));
+      await getSolarBrief(first && refresh > 0)
       .then((payload) => {
-        if (!cancelled) setBrief(payload);
+        if (!cancelled) { setBrief(payload); setFailed(false); }
       })
       .catch(() => {
         if (!cancelled) setFailed(true);
       });
+      first = false;
+      if (!cancelled) setRefreshing(false);
+    }, 60_000);
     return () => {
       cancelled = true;
+      stop();
     };
-  }, []);
+  }, [refresh]);
 
   const loading = !brief && !failed;
   const flare = brief?.latest_flare_class?.trim() || null;
-  const events = brief?.sun_events;
+  const events = brief?.sun_events?.filter(event => event.date.replaceAll("/", "-") === utcDay)
+    .slice().sort((a, b) => a.maximum.localeCompare(b.maximum));
+  const counts = { C: 0, M: 0, X: 0 };
+  let strongest = "";
+  const rank = (label: string) => "ABCMX".indexOf(label[0]?.toUpperCase()) * 1000 + (Number(label.slice(1)) || 0);
+  for (const event of events ?? []) {
+    const letter = event.flare_class[0] as keyof typeof counts;
+    if (letter in counts) counts[letter]++;
+    if (!strongest || rank(event.flare_class) > rank(strongest)) strongest = event.flare_class;
+  }
+  const stale = failed || !brief?.updated_utc || Date.now() - Date.parse(brief.updated_utc) > 10 * 60_000;
   const flareClass = {
     A: styles.flareA,
     B: styles.flareB,
@@ -76,7 +98,11 @@ export default function FlareActivityTable({ solar }: { solar: SolarActivityFull
 
   return (
     <section className={styles.panel} aria-label="Are there solar flares today?">
-      <h2 className={styles.title}>Are There Solar Flares Today?</h2>
+      <h2 className={styles.title}>Solar flares on {utcDay} UTC</h2>
+      <p className={styles.eventsNote}>Updates automatically every minute · NOAA data may be cached for up to five minutes.
+        {" "}<button type="button" className="btn" disabled={refreshing} onClick={() => setRefresh(value => value + 1)}>{refreshing ? "Updating…" : "Refresh now"}</button>
+      </p>
+      <p className={styles.eventsNote} role="status">Last successful source fetch: {brief?.updated_utc?.replace("T", " ").replace("Z", " UTC") ?? "Not yet available"}{stale && !loading ? " · Update unavailable or stale; retained values are not confirmed current." : ""}</p>
       <h3 className={styles.section}>Current activity</h3>
       <div className={styles.grid}>
         <Cell label="Active regions" value={countText(brief?.earth_facing_region_count, loading)} />
@@ -87,7 +113,7 @@ export default function FlareActivityTable({ solar }: { solar: SolarActivityFull
 
       <div className={styles.events}>
         <div className={styles.eventsHead}>
-          <h3 className={styles.eventsTitle}>Events on the Sun past 24 hours</h3>
+          <h3 className={styles.eventsTitle}>Today’s GOES flare analysis</h3>
           <span className={styles.eventsUtc}>All times in UTC</span>
         </div>
         {loading ? (
@@ -95,45 +121,45 @@ export default function FlareActivityTable({ solar }: { solar: SolarActivityFull
         ) : events == null ? (
           <p className={styles.eventsNote}>Unavailable</p>
         ) : events.length === 0 ? (
-          <p className={styles.eventsNote}>No solar X-ray flares were recorded in the past 24 hours.</p>
+          <p className={styles.eventsNote}>No solar X-ray flare events are listed for today in the latest available NOAA response.</p>
         ) : (
           <div className={styles.eventsScroll}>
             <table className={styles.eventsTable}>
               <thead>
                 <tr>
-                  <th scope="col">Date</th>
-                  <th scope="col">Region</th>
                   <th scope="col">Solar flare</th>
-                  <th scope="col">Start</th>
-                  <th scope="col">Maximum</th>
-                  <th scope="col">End</th>
+                  <th scope="col">Region of origin</th>
+                  <th scope="col">Start time (UT)</th>
+                  <th scope="col">End time (UT)</th>
+                  <th scope="col">Peak time (UT)</th>
+                  <th scope="col">Duration (min)</th>
                 </tr>
               </thead>
               <tbody>
                 {events.map((event) => (
-                  <tr key={`${event.date}-${event.maximum}-${event.flare_class}`}>
-                    <td>{event.date}</td>
+                  <tr className={/^[MX]/i.test(event.flare_class) ? styles.significant : undefined} key={`${event.date}-${event.maximum}-${event.flare_class}`}>
+                    <td><span className={`${styles.flare} ${flareClass[flareTone(event.flare_class)]}`}>{event.flare_class}</span></td>
                     <td>
                       <span className={event.region ? styles.region : styles.regionEmpty}>
                         {event.region ?? "–"}
                       </span>
                     </td>
-                    <td>
-                      <span className={`${styles.flare} ${flareClass[flareTone(event.flare_class)]}`}>
-                        {event.flare_class}
-                      </span>
-                    </td>
                     <td className={styles.clock}>{event.start ?? "–"}</td>
-                    <td className={styles.clock}>{event.maximum}</td>
                     <td className={styles.clock}>{event.end ?? "–"}</td>
+                    <td className={styles.clock}>{event.maximum}</td>
+                    <td className={styles.clock}>{event.duration_minutes ?? "–"}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         )}
+        {events != null && events.length > 0 && <p className={styles.eventsNote}>
+          {events.length} listed flare event(s) today: {counts.C} C, {counts.M} M and {counts.X} X. Strongest listed flare: <strong>{strongest}</strong>.
+          {" "}M- and X-class events are highlighted. A flare’s X-rays can affect the sunlit ionosphere; this table alone does not establish a TEC disturbance in Zimbabwe.
+        </p>}
         <p className={styles.eventsSource}>
-          Source: NOAA SWPC GOES X-ray flare list, with region numbers from the NOAA edited event file.
+          Source: <a href="https://services.swpc.noaa.gov/json/goes/primary/xray-flares-7-day.json" target="_blank" rel="noreferrer">NOAA SWPC GOES X-ray flare list</a>, with region numbers from the NOAA edited event file. Times are UTC. Duration is end minus start, including events crossing midnight; missing source fields remain blank (–). The instantaneous GOES class above is separate from an event’s peak class.
         </p>
       </div>
     </section>

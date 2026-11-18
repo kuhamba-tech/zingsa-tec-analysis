@@ -88,6 +88,15 @@ restart the backend. Connections use NTRIP V2 and TLS at
 `ntrip.earthscope.org:3101`. A directory listing does not prove the local stream
 is connected; TEC stays empty until suitable raw observations are available.
 
+Additional EarthScope receivers cover the northern crest (PTPP and CN60,
+Panama), southern crest (SRGD and CBAA, Chile), mid latitudes (CONS, Chile;
+AB07, Alaska), and high latitudes (AB09 and AB11, Alaska). Groups use IGRF-14
+dip latitude, not geographic latitude. The active RTCM 3.3 directory checked
+on 2026-11-18 offered no additional receivers within 3 degrees of the dip
+equator; the existing IGS equatorial receivers retain their separate access.
+Catalog positions remain mapped when an older collector snapshot omits them;
+this does not mark those receivers online or supply missing TEC.
+
 Magnetic-equator comparison sites SGOC (Sri Lanka), POHN (Micronesia), POVE
 and NAUS (Brazil), and ADIS (Ethiopia) use the IGS caster at `igs-ip.net:2101`.
 They share the `IGS_NTRIP_USERNAME` and `IGS_NTRIP_PASSWORD` settings with Ghana.

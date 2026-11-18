@@ -253,9 +253,17 @@ export default function CorsMapWithLayers({
     };
   }, [trignetActive, hasTrigNet, tecLayerActive, geomagneticLayerActive]);
 
+  // A collector snapshot may predate newly configured stations. Keep their
+  // catalog positions visible without inventing connections or measurements.
+  const trignetRows = useMemo(() => {
+    const rows = new Map(TRIGNET_CATALOG.stations.map(row => [stationCodeKey(row.code), row]));
+    for (const row of trignet?.stations ?? []) rows.set(stationCodeKey(row.code), row);
+    return [...rows.values()];
+  }, [trignet]);
+
   const trignetStations = useMemo<Station[]>(() => {
-    const trigCodes = new Set((trignet?.stations ?? []).map((row) => row.code.toLowerCase()));
-    const trig = (trignet?.stations ?? []).map((row) => {
+    const trigCodes = new Set(trignetRows.map((row) => row.code.toLowerCase()));
+    const trig = trignetRows.map((row) => {
       const reading = trigNetTecReading(row, Date.now(), trignet?.collector_age_s);
       return {
         code: row.code.toLowerCase(),
@@ -286,10 +294,10 @@ export default function CorsMapWithLayers({
         };
       });
     return [...zimbabwe, ...trig];
-  }, [trignet, stations, heatmap]);
+  }, [trignet, trignetRows, stations, heatmap]);
 
   const geomagneticStations = useMemo(() => {
-    const partnerCodes = new Set((trignet?.stations ?? [])
+    const partnerCodes = new Set(trignetRows
       .filter(row => row.network?.startsWith("earthscope_") || row.network?.startsWith("igs_") || row.country === "SEN" || row.country === "BWA" || ["kstd", "simo", "herg", "hnus"].includes(stationCodeKey(row.code)))
       .map(row => stationCodeKey(row.code)));
     const combined = new Map(stations
@@ -299,7 +307,7 @@ export default function CorsMapWithLayers({
       if (partnerCodes.has(stationCodeKey(station.code))) combined.set(stationCodeKey(station.code), station);
     }
     return [...combined.values()];
-  }, [stations, trignet, trignetStations]);
+  }, [stations, trignetRows, trignetStations]);
   const displayedCounts = useMemo(() => geomagneticLayerActive
     ? countLiveStationStatuses(geomagneticStations, 0) : liveCounts,
   [geomagneticLayerActive, geomagneticStations, liveCounts]);

@@ -153,6 +153,7 @@ class SolarBriefSunEvent(BaseModel):
     start: str | None = None
     maximum: str
     end: str | None = None
+    duration_minutes: float | None = None
 
 
 class SolarBriefImage(BaseModel):

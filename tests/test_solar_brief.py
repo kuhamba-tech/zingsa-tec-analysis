@@ -125,8 +125,26 @@ def test_past_day_events_keep_goes_times_and_the_matching_region():
     assert rows[0]["start"] == "02:37"
     assert rows[0]["maximum"] == "02:48"
     assert rows[0]["end"] == "02:53"
+    assert rows[0]["duration_minutes"] == 16
     assert rows[1]["region"] == 4566
     assert rows[1]["start"] == "21:06"
+
+
+def test_flare_duration_uses_full_utc_dates_and_does_not_invent_missing_end():
+    now = datetime(2026, 11, 18, 2, 0, tzinfo=timezone.utc)
+    rows = recent_sun_events([
+        {"begin_time": "2026-11-17T23:55:00Z", "max_time": "2026-11-18T00:02:00Z",
+         "end_time": "2026-11-18T00:12:00Z", "max_class": "M1.2"},
+        {"begin_time": "2026-11-18T01:00:00Z", "max_time": "2026-11-18T01:10:00Z",
+         "max_class": "C1.0"},
+        {"begin_time": "2026-11-18T01:30:00Z", "max_time": "2026-11-18T01:40:00Z",
+         "end_time": "2026-11-18T01:20:00Z", "max_class": "C2.0"},
+    ], [], now)
+    by_class = {row["flare_class"]: row for row in rows}
+    assert by_class["M1.2"]["duration_minutes"] == 17
+    assert by_class["M1.2"]["date"] == "2026/11/18"
+    assert by_class["C1.0"]["duration_minutes"] is None
+    assert by_class["C2.0"]["duration_minutes"] is None
 
 
 def test_latest_flare_is_the_newest_peak_not_the_largest_class():

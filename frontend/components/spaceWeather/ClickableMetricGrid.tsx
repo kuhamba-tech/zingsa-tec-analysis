@@ -486,6 +486,7 @@ function ExplanationPanel({
     <div className="sw-metric-explain" ref={panelRef}>
       <div className="sw-metric-explain-title">{label}</div>
       <div className="sw-metric-explain-current">Current value: {value}</div>
+      {metricKey === "solar_flare" && <FlareActivityTable solar={solar ?? null} />}
       {metricKey === "solar_activity" && <SunNowCarousel />}
       {metricKey === "dst" && (
         <div style={{ marginTop: "0.85rem" }}>
@@ -648,9 +649,6 @@ function ExplanationPanel({
       {metricKey === "solar_flare" && (
         <div style={{ marginTop: "0.85rem" }}>
           <ActiveRegionInspector />
-          <div style={{ marginTop: "0.85rem" }}>
-            <FlareActivityTable solar={solar ?? null} />
-          </div>
           <SolarFlareMonthChart />
           <SolarFlareFrequencyChart />
         </div>

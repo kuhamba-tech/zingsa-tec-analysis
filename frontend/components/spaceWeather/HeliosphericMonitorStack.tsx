@@ -50,6 +50,8 @@ const SymhRingCurrentChart = dynamic(() => import("./SymhRingCurrentChart"), {
     </div>
   ),
 });
+const SolarWindBzComparison = dynamic(() => import("./SolarWindBzComparison"), { ssr: false });
+const DstPressureComparison = dynamic(() => import("./DstPressureComparison"), { ssr: false });
 
 const PROTON_COLORS: Record<string, string> = {
   ">=10 MeV": "#38bdf8",
@@ -117,7 +119,7 @@ function PanelShell({
   );
 }
 
-export default function HeliosphericMonitorStack({ only }: { only?: "kp" } = {}) {
+export default function HeliosphericMonitorStack({ only, showWindBz = false }: { only?: "kp"; showWindBz?: boolean } = {}) {
   const [data, setData] = useState<HeliosphericMonitorResponse | null>(null);
   const [brief, setBrief] = useState<SolarBriefResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -156,6 +158,7 @@ export default function HeliosphericMonitorStack({ only }: { only?: "kp" } = {})
   useEffect(() => {
     let cancelled = false;
     let attempt = 0;
+    let inFlight = false;
     const cached = peekHeliosphericMonitor();
     if (cached) {
       setData(cached);
@@ -166,6 +169,8 @@ export default function HeliosphericMonitorStack({ only }: { only?: "kp" } = {})
     }
 
     const load = () => {
+      if (inFlight || cancelled) return;
+      inFlight = true;
       attempt += 1;
       getHeliosphericMonitor(retry > 0, attempt > 1)
         .then((payload) => {
@@ -187,6 +192,7 @@ export default function HeliosphericMonitorStack({ only }: { only?: "kp" } = {})
           if (!peekHeliosphericMonitor()) setData(null);
         })
         .finally(() => {
+          inFlight = false;
           if (!cancelled && (attempt >= 2 || peekHeliosphericMonitor())) {
             setLoading(false);
           }
@@ -194,8 +200,10 @@ export default function HeliosphericMonitorStack({ only }: { only?: "kp" } = {})
     };
 
     load();
+    const timer = window.setInterval(() => { if (!document.hidden) load(); }, 60_000);
     return () => {
       cancelled = true;
+      window.clearInterval(timer);
     };
   }, [retry]);
 
@@ -353,6 +361,8 @@ export default function HeliosphericMonitorStack({ only }: { only?: "kp" } = {})
       </div>
 
       {loading && <div className="banner banner-info">Loading NOAA heliospheric timelines…</div>}
+      {showWindBz && data && <SolarWindBzComparison data={data} brief={brief} />}
+      {showWindBz && data && <DstPressureComparison data={data} brief={brief} />}
       {error && !loading && <div className="banner banner-warn">{error}</div>}
       {hasFeedErrors && (
         <div className="banner banner-warn" role="status">

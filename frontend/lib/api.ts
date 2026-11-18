@@ -376,6 +376,7 @@ export type SolarBriefSunEvent = {
   start: string | null;
   maximum: string;
   end: string | null;
+  duration_minutes?: number | null;
 };
 
 export type SolarBriefImage = {
@@ -440,8 +441,8 @@ export type SolarBriefResponse = {
   error: string | null;
 };
 
-export const getSolarBrief = () =>
-  get<SolarBriefResponse>("/space-weather/solar-brief", { _ts: Date.now() }, 70_000);
+export const getSolarBrief = (forceRefresh = false) =>
+  get<SolarBriefResponse>("/space-weather/solar-brief", { _ts: Date.now(), ...(forceRefresh ? { force_refresh: "true" } : {}) }, 70_000);
 
 export const getSolarActivity = (forceRefresh = false, requireNetwork = false) => {
   const cached = peekSolarActivity();

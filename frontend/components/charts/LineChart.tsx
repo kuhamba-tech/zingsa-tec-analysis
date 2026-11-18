@@ -30,6 +30,8 @@ interface PointMeta {
 }
 
 interface Dataset {
+  /** Sparse native cadence on a shared grid; use numeric spanGaps to limit connections. */
+  omitMissingPoints?: boolean;
   label: string;
   data: (number | null)[];
   color?: string;
@@ -39,8 +41,8 @@ interface Dataset {
   borderDash?: number[];
   borderWidth?: number;
   meta?: (PointMeta | null)[];
-  /** Chart.js y-axis id — use "y2"/"y3" for secondary/tertiary scales. */
-  yAxisId?: "y" | "y2" | "y3";
+  /** Chart.js y-axis id — use "y2"/"y3"/"y4" for additional scales. */
+  yAxisId?: "y" | "y2" | "y3" | "y4";
   /** Set false for PRN arcs where nulls mark real observation gaps. */
   spanGaps?: boolean | number;
   /** Straight segments for counts. A curve between sparse samples invents a peak. */
@@ -58,6 +60,14 @@ interface ThresholdLine {
 }
 
 interface Props {
+  /** Viewport plot bounds, used to align an overlay across stacked charts. */
+  onPlotAreaChange?: (area: { left: number; right: number; top: number; bottom: number }) => void;
+  /** Fix left-axis width so stacked time panels share the same plot boundary. */
+  yAxisWidth?: number;
+  /** Click or drag within a numeric time axis to move a persistent analysis marker. */
+  onPickTime?: (ms: number) => void;
+  /** UTC/numeric x positions for independently timed event markers. */
+  verticalMarkers?: { x: number; label: string; color?: string }[];
   /** Scientific source series: retain all samples and do not smooth curves. */
   preserveSamples?: boolean;
   labels: string[];
@@ -76,8 +86,12 @@ interface Props {
   secondaryYLabel?: string;
   /** Extra right-hand axis for a third scale (e.g. proton temperature in K). */
   tertiaryYLabel?: string;
+  /** Extra right-hand axis for a fourth scale. */
+  quaternaryYLabel?: string;
   /** Checkbox legend — show/hide individual series. */
   toggleableLegend?: boolean;
+  /** Draw ±meta.error at measured points; null errors have no bar. */
+  errorBars?: boolean;
   /**
    * Numeric x-values parallel to `labels`/each dataset's `data`. When set,
    * the x-axis switches from the default category scale (ticks at
@@ -189,6 +203,10 @@ function DatasetToggleLegend({
 }
 
 export default function LineChart({
+  onPlotAreaChange,
+  yAxisWidth,
+  onPickTime,
+  verticalMarkers,
   preserveSamples = false,
   labels,
   datasets,
@@ -202,7 +220,9 @@ export default function LineChart({
   compact = false,
   secondaryYLabel,
   tertiaryYLabel,
+  quaternaryYLabel,
   toggleableLegend = false,
+  errorBars = false,
   xValues,
   xLabel,
   xMin,
@@ -259,6 +279,7 @@ export default function LineChart({
   const useNumericX = !!drawXValues && drawXValues.length === drawLabels.length;
   const useSecondary = drawDatasets.some((ds) => ds.yAxisId === "y2");
   const useTertiary = drawDatasets.some((ds) => ds.yAxisId === "y3");
+  const useQuaternary = drawDatasets.some((ds) => ds.yAxisId === "y4");
   const datasetKey = useMemo(() => drawDatasets.map((d) => d.label).join("\0"), [drawDatasets]);
   const [visible, setVisible] = useState<boolean[]>(() => drawDatasets.map(() => true));
   const chartRef = useRef<ChartInstance<"line"> | null>(null);
@@ -281,6 +302,73 @@ export default function LineChart({
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const plugins: any[] = [];
+  if (onPlotAreaChange) plugins.push({
+    id: "reportPlotArea",
+    afterLayout(chart: ChartInstance<"line">) {
+      const rect = chart.canvas.getBoundingClientRect(), area = chart.chartArea;
+      if (!area || !rect.width) return;
+      const sx = rect.width / chart.width, sy = rect.height / chart.height;
+      onPlotAreaChange({ left: rect.left + area.left * sx, right: rect.left + area.right * sx,
+        top: rect.top + area.top * sy, bottom: rect.top + area.bottom * sy });
+    },
+  });
+  const picking = useRef(false);
+  const pickPointer = (event: { clientX: number; currentTarget: HTMLCanvasElement }) => {
+    const chart = chartRef.current;
+    if (!onPickTime || !chart) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const pixel = (event.clientX - rect.left) * chart.width / rect.width;
+    const value = chart.scales.x.getValueForPixel(Math.max(chart.chartArea.left, Math.min(chart.chartArea.right, pixel)));
+    if (typeof value === "number" && Number.isFinite(value)) onPickTime(value);
+  };
+  if (verticalMarkers?.length) plugins.push({
+    id: "timedEventMarkers",
+    afterDraw(chart: ChartInstance<"line">) {
+      const { ctx, chartArea, scales: { x } } = chart;
+      if (!x || !chartArea) return;
+      ctx.save();
+      ctx.beginPath(); ctx.rect(chartArea.left, chartArea.top, chartArea.width, chartArea.height); ctx.clip();
+      ctx.font = "11px sans-serif";
+      let labelIndex = 0;
+      for (const marker of verticalMarkers) {
+        if (!Number.isFinite(marker.x) || marker.x < x.min || marker.x > x.max) continue;
+        const px = x.getPixelForValue(marker.x);
+        ctx.strokeStyle = marker.color ?? "#f87171"; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(px, chartArea.top); ctx.lineTo(px, chartArea.bottom); ctx.stroke();
+        ctx.fillStyle = marker.color ?? "#f87171";
+        ctx.fillText(marker.label, Math.max(chartArea.left + 2, Math.min(px + 4, chartArea.right - ctx.measureText(marker.label).width - 2)), chartArea.top + 14 + (labelIndex++ % 3) * 14);
+      }
+      ctx.restore();
+    },
+  });
+  if (errorBars) plugins.push({
+    id: "measurementErrorBars",
+    afterDatasetsDraw(chart: ChartInstance<"line">) {
+      const { ctx, chartArea } = chart;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(chartArea.left, chartArea.top, chartArea.width, chartArea.height);
+      ctx.clip();
+      drawDatasets.forEach((dataset, datasetIndex) => {
+        if (!chart.isDatasetVisible(datasetIndex)) return;
+        const scale = chart.scales[dataset.yAxisId ?? "y"];
+        if (!scale) return;
+        ctx.strokeStyle = dataset.color ?? COLORS[datasetIndex % COLORS.length];
+        ctx.lineWidth = 1.25;
+        chart.getDatasetMeta(datasetIndex).data.forEach((element, index) => {
+          const value = dataset.data[index], error = dataset.meta?.[index]?.error;
+          if (value == null || error == null || !Number.isFinite(error) || error <= 0) return;
+          const top = scale.getPixelForValue(value + error), bottom = scale.getPixelForValue(value - error);
+          ctx.beginPath();
+          ctx.moveTo(element.x, top); ctx.lineTo(element.x, bottom);
+          ctx.moveTo(element.x - 4, top); ctx.lineTo(element.x + 4, top);
+          ctx.moveTo(element.x - 4, bottom); ctx.lineTo(element.x + 4, bottom);
+          ctx.stroke();
+        });
+      });
+      ctx.restore();
+    },
+  });
   const thresholdLines: ThresholdLine[] = [
     ...(threshold ? [threshold] : []),
     ...(thresholds ?? []),
@@ -430,6 +518,11 @@ export default function LineChart({
       <div style={{ height, position: "relative" }}>
       <Line
         ref={chartRef}
+        style={onPickTime ? { touchAction: "none", cursor: "crosshair" } : undefined}
+        onPointerDown={event => { if (onPickTime) { picking.current = true; event.currentTarget.setPointerCapture(event.pointerId); pickPointer(event); } }}
+        onPointerMove={event => { if (picking.current) pickPointer(event); }}
+        onPointerUp={event => { picking.current = false; if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }}
+        onLostPointerCapture={() => { picking.current = false; }}
         data={{
           labels: useNumericX ? undefined : drawLabels,
           datasets: drawDatasets.map((ds, i) => {
@@ -447,7 +540,7 @@ export default function LineChart({
             return {
             label: ds.label,
             data: useNumericX
-              ? ds.data.map((v, idx) => ({ x: drawXValues![idx], y: v }))
+              ? ds.data.map((v, idx) => ({ x: drawXValues![idx], y: v })).filter(point => !ds.omitMissingPoints || point.y != null)
               : ds.data,
             hidden: !(visible[i] ?? true),
             borderColor: legendColor,
@@ -484,6 +577,7 @@ export default function LineChart({
           }),
         }}
         options={{
+          events: onPickTime ? ["mousemove", "mouseout", "click", "mousedown", "mouseup", "touchstart", "touchmove", "touchend"] : undefined,
           responsive: true,
           // Chart.js does not cancel delayed resize updates on destroy.
           resizeDelay: 0,
@@ -629,6 +723,7 @@ export default function LineChart({
                 }
               : { ticks: { color: "#ffffff", maxTicksLimit: 8 }, grid: { color: "#244d73" } },
             y: {
+              afterFit: yAxisWidth ? (axis) => { axis.width = yAxisWidth; } : undefined,
               position: "left",
               type: yLogScale ? ("logarithmic" as const) : undefined,
               min: yMin,
@@ -670,6 +765,25 @@ export default function LineChart({
                     position: "right" as const,
                     offset: true,
                     title: { display: true, text: tertiaryYLabel ?? "", color: "#ffffff" },
+                    ticks: {
+                      color: "#ffffff",
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                      callback: (value: any) => {
+                        const n = typeof value === "number" ? value : Number(value);
+                        if (!Number.isFinite(n)) return "";
+                        return n >= 1000 ? `${Math.round(n / 1000)}k` : String(Math.round(n));
+                      },
+                    },
+                    grid: { drawOnChartArea: false },
+                  },
+                }
+              : {}),
+            ...(useQuaternary
+              ? {
+                  y4: {
+                    position: "right" as const,
+                    offset: true,
+                    title: { display: true, text: quaternaryYLabel ?? "", color: "#ffffff" },
                     ticks: {
                       color: "#ffffff",
                       // eslint-disable-next-line @typescript-eslint/no-explicit-any

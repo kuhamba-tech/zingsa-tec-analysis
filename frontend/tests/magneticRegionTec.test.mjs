@@ -22,9 +22,23 @@ test("receivers have equal weight despite unequal sample rates", () => {
   ], stations, start, end);
   const north = result.regions.find(r => r.id === "northCrest");
   assert.equal(north.values[0],30);
+  assert.equal(north.std[0],10);
   assert.equal(north.counts[0],2);
   assert.equal(north.reporting.length,2);
   assert.deepEqual(north.values.slice(1),[null,null,null]);
+});
+
+test("hourly means retain missing hours and use receiver spread for error bars", () => {
+  const result = magneticRegionTecSeries([
+    {station:"a",points:[point(0,10),point(15,30),point(59,20),point(120,25)]},
+    {station:"b",points:[point(30,40)]},
+  ], [{code:"a",name:"A",dipLatitude:0},{code:"b",name:"B",dipLatitude:1}],
+  start,start+3*3600000,60);
+  const equator = result.regions.find(r=>r.id==="equator");
+  assert.deepEqual(result.xValues,[0,1,2]);
+  assert.deepEqual(equator.values,[30,null,25]);
+  assert.deepEqual(equator.std,[10,null,null]);
+  assert.deepEqual(equator.counts,[2,0,1]);
 });
 
 test("hidden stations, wrong dates and rejected TEC never enter regional means", () => {

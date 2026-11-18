@@ -730,6 +730,9 @@ export default function StationVtecTimePlots({
     () => buildNetworkMeanSeries(stationFilter == null ? series : series.filter(row => stationFilter.split(",").includes(normalizeStationCode(row.station))), hours, selectedDay),
     [series, hours, selectedDay, stationFilter],
   );
+  const latestNetworkMeanTime = networkMean.values.length
+    ? networkMean.labels[networkMean.values.length - 1] ?? null
+    : null;
   const networkEkf = useMemo(() => runMeanVtecEkf(networkMean.values), [networkMean.values]);
   const networkEkfReady = networkEkf.predicted.some((value) => value != null);
   const networkMeanAnalysis = useMemo(() => {
@@ -956,7 +959,7 @@ export default function StationVtecTimePlots({
       )}
       {!networkMeanOnly && status === "ok" && (
         <p suppressHydrationWarning className="station-vtec-plots-meta">
-          {reporting} of {ZINGSA_STATION_TOTAL} stations reporting{" "}
+          {reporting} of {ZINGSA_STATION_TOTAL} stations had at least one valid GOPI sample{" "}
           {selectedDay ? `on ${selectedDay} UTC (00:00–24:00)` : `in the last ${hours} h`}
           {globalReporting > 0
             ? ` · Global TEC overlay on ${globalReporting} sites${globalSource ? ` (${globalSource})` : ""}`
@@ -993,6 +996,7 @@ export default function StationVtecTimePlots({
                 {selectedDay ? ` on ${selectedDay} UTC, plotted across 00:00–24:00` : ` for the last ${hours} h`}.
                 Elevation below 30° and TEC outside 0–50 TECU are excluded.
                 The dashed line is the Extended Kalman Filter forecast; a one-bin jump stays on the solid line.
+                {latestNetworkMeanTime ? ` Latest recorded sample: ${latestNetworkMeanTime} UTC; later bins have no reading to plot yet.` : ""}
               </span>
             </div>
             <div className="station-vtec-plot-stats">
@@ -1002,7 +1006,10 @@ export default function StationVtecTimePlots({
                 )?.toFixed(1) ?? "—"}{" "}
                 TECU
               </em>
-              <small>{networkMean.stationCount}{stationCodes ? ` of ${stationCodes.length} mapped` : ""} stations</small>
+              <small>
+                {networkMean.stationCount}{stationCodes ? ` of ${stationCodes.length} mapped` : ""} stations with samples
+                {latestNetworkMeanTime ? ` · latest ${latestNetworkMeanTime} UTC` : ""}
+              </small>
             </div>
           </div>
           {networkMean.values.some((value) => value != null) ? (

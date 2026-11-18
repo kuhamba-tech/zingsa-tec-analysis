@@ -8,6 +8,7 @@ import dynamic from "next/dynamic";
 import { FLARE_SCALE, xrayFluxColor } from "@/lib/solarEventColors";
 import type { ChartAnalysisBlock } from "@/lib/multiSourceChartAnalysis";
 import type { GoesXrayTimelinePoint } from "@/lib/types";
+import { nearestReading, type AnalysisPoint } from "@/lib/stormAnalysis";
 import { loadLineChart } from "@/lib/loadLineChart";
 import {
   ONE_H_MS,
@@ -89,6 +90,10 @@ export default function GoesSolarXrayCard({
   explanationOpen,
   onToggle,
   analysis,
+  analysisDomain,
+  selectedTime,
+  onPlotAreaChange,
+  onPickTime,
 }: {
   title?: string;
   timeline?: GoesXrayTimelinePoint[] | null;
@@ -100,6 +105,10 @@ export default function GoesSolarXrayCard({
   explanationOpen?: boolean;
   onToggle?: () => void;
   analysis?: ChartAnalysisBlock;
+  analysisDomain?: { min: number; max: number };
+  selectedTime?: number;
+  onPlotAreaChange?: (area: { left: number; right: number; top: number; bottom: number }) => void;
+  onPickTime?: (time: number) => void;
 }) {
   const calendar=useContext(ChartDateRangeContext);
   const [localRange, setLocalRange] = useState<GoesXrayRange>(xrayRange ?? "1D");
@@ -107,7 +116,7 @@ export default function GoesSolarXrayCard({
   const setRange = onRangeChange ?? setLocalRange;
 
   const chart = useMemo(() => {
-    const hours = calendar?.day ? 168 : RANGE_HOURS[range];
+    const hours = analysisDomain ? (analysisDomain.max - analysisDomain.min) / ONE_H_MS : calendar?.day ? 168 : RANGE_HOURS[range];
     const points = (timeline ?? []).filter((p) => p?.t);
     let epochs: number[] = [];
     let longBand: (number | null)[] = [];
@@ -128,8 +137,8 @@ export default function GoesSolarXrayCard({
               };
         })
         .filter((p): p is NonNullable<typeof p> => p != null);
-      const endMs = parsed[parsed.length - 1]?.ms ?? Date.now();
-      const startMs = endMs - hours * ONE_H_MS;
+      const endMs = analysisDomain?.max ?? parsed[parsed.length - 1]?.ms ?? Date.now();
+      const startMs = analysisDomain?.min ?? endMs - hours * ONE_H_MS;
       const sliced = parsed.filter((p) => p.ms >= startMs && p.ms <= endMs);
       epochs = sliced.map((p) => p.ms);
       longBand = sliced.map((p) => p.long);
@@ -143,24 +152,33 @@ export default function GoesSolarXrayCard({
         v: v > 0 ? v : null,
       }));
       const startMs = endMs - hours * ONE_H_MS;
-      const sliced = all.filter((p) => p.ms >= startMs && p.ms <= endMs);
+      const sliced = all.filter((p) => p.ms >= (analysisDomain?.min ?? startMs) && p.ms <= (analysisDomain?.max ?? endMs));
       epochs = sliced.map((p) => p.ms);
       longBand = sliced.map((p) => p.v);
       shortBand = sliced.map(() => null);
       labels = epochs.map((ms) => new Date(ms).toISOString());
     }
 
-    if (!epochs.length) return null;
-    const endMs = epochs[epochs.length - 1];
-    const startMs = endMs - hours * ONE_H_MS;
+    if (!epochs.length && !analysisDomain) return null;
+    const endMs = analysisDomain?.max ?? epochs[epochs.length - 1];
+    const startMs = analysisDomain?.min ?? endMs - hours * ONE_H_MS;
     const domain = { min: startMs, max: endMs };
     const axis = utcTimeAxisProps(domain, {
       rangeHours: hours,
-      majorHours: hours <= 6 ? 1 : hours <= 24 ? 4 : hours <= 72 ? 12 : 24,
+      majorHours: analysisDomain ? undefined : hours <= 6 ? 1 : hours <= 24 ? 4 : hours <= 72 ? 12 : 24,
     });
     const classDetails = longBand.map((v) => (v != null ? fluxClass(v) : null));
     return { labels, epochs, longBand, shortBand, axis, classDetails, startMs, endMs };
-  }, [timeline, fallbackSeries, fallbackUpdated, range, calendar?.day]);
+  }, [timeline, fallbackSeries, fallbackUpdated, range, calendar?.day, analysisDomain]);
+  const selectedReadings = useMemo(() => {
+    if (!chart || selectedTime == null) return null;
+    const read = (values: (number | null)[]) => nearestReading(
+      chart.epochs.map((time, index): AnalysisPoint => ({ time, value: values[index] ?? null })),
+      selectedTime,
+      5 * 60_000,
+    );
+    return { long: read(chart.longBand), short: read(chart.shortBand) };
+  }, [chart, selectedTime]);
 
   const hasData = Boolean(chart);
   const interactive = Boolean(hasData && onToggle);
@@ -180,7 +198,7 @@ export default function GoesSolarXrayCard({
       aria-label={hasData ? "GOES X-ray flux graph" : undefined}
       onClick={() => interactive && onToggle?.()}
       onKeyDown={onKeyDown}
-      style={{ cursor: interactive ? "pointer" : "default" } satisfies CSSProperties}
+      style={{ cursor: interactive ? "pointer" : "default", ...(analysisDomain ? { padding: "1rem 0", border: 0 } : {}) } satisfies CSSProperties}
     >
       <div
         style={{
@@ -193,7 +211,7 @@ export default function GoesSolarXrayCard({
         }}
       >
         <div className="metric-label">{title}</div>
-        <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap" }} role="group" aria-label="GOES X-ray zoom">
+        {!analysisDomain && <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap" }} role="group" aria-label="GOES X-ray zoom">
           {(["6H", "1D", "3D", "7D"] as const).map((r) => (
             <button
               key={r}
@@ -216,13 +234,20 @@ export default function GoesSolarXrayCard({
               {r === "6H" ? "6 Hour" : r === "1D" ? "1 Day" : r === "3D" ? "3 Day" : "7 Day"}
             </button>
           ))}
-        </div>
+        </div>}
       </div>
 
       {chart ? (
         <>
+          {selectedReadings && selectedTime != null && <p aria-live="polite" style={{ fontSize: ".8rem", margin: "0 0 .45rem" }}>
+            Selected marker · Long: {selectedReadings.long ? `${formatFlux(selectedReadings.long.value)} at ${new Date(selectedReadings.long.time).toISOString().slice(11, 16)} UTC` : "N/A"}
+            {" · "}Short: {selectedReadings.short ? `${formatFlux(selectedReadings.short.value)} at ${new Date(selectedReadings.short.time).toISOString().slice(11, 16)} UTC` : "N/A"}
+          </p>}
           <LineChart
             preserveSamples
+            yAxisWidth={analysisDomain ? 80 : undefined}
+            onPlotAreaChange={onPlotAreaChange}
+            onPickTime={onPickTime}
             labels={chart.labels}
             toggleableLegend
             datasets={[

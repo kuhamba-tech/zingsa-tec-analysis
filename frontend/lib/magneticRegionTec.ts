@@ -59,6 +59,12 @@ export function magneticRegionTecSeries(
     }
     return { ...region, members, reporting,
       values: samples.map(values => values.length ? values.reduce((a, b) => a + b, 0) / values.length : null),
+      // Spread between receiver means, not between unequal raw sample counts.
+      std: samples.map(values => {
+        if (values.length < 2) return null;
+        const mean = values.reduce((a, b) => a + b, 0) / values.length;
+        return Math.sqrt(values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / values.length);
+      }),
       counts: samples.map(values => values.length) };
   });
   return { regions, labels: Array.from({ length: binCount }, (_, i) => new Date(startMs + i * stepMs).toISOString().slice(11, 16)),

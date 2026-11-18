@@ -9,8 +9,8 @@ def test_selected_sites_wait_for_their_own_credentials(monkeypatch):
     monkeypatch.setenv("IGS_NTRIP_PASSWORD", "different-password")
     assert all(west_africa.configuration(site) is None for site in earthscope.SITES)
     rows = earthscope.status({})
-    assert {row["code"] for row in rows} == {"BYAH", "RUBO", "ACSB", "AGMT", "PCCL", "FBAQ", "IQQE", "GTA1", "ISCO", "CN46", "CN64", "CN47"}
-    assert len({row["network"] for row in rows}) == 12
+    assert {row["code"] for row in rows} == {"BYAH", "RUBO", "ACSB", "AGMT", "PCCL", "FBAQ", "IQQE", "GTA1", "ISCO", "CN46", "CN64", "CN47", "PTPP", "CN60", "SRGD", "CBAA", "CONS", "AB07", "AB09", "AB11"}
+    assert len({row["network"] for row in rows}) == 20
     assert all(not row["streaming"] and row["vtec"] is None and row["gg_vtec"] is None for row in rows)
     assert all(row["connection_status"] == "earthscope_credentials_required" for row in rows)
 
@@ -37,10 +37,26 @@ def test_earthscope_results_remain_per_receiver(monkeypatch):
 def test_northern_crest_sites_have_distinct_mounts_and_magnetic_latitudes():
     from zgiis.space_weather.igrf14 import dip_latitude_deg
     sites = [site for site in earthscope.SITES if site["region"] == "Northern EIA crest"]
-    assert {site["code"] for site in sites} == {"ISCO", "CN46", "CN64", "CN47"}
+    assert {site["code"] for site in sites} == {"ISCO", "CN46", "CN64", "CN47", "PTPP", "CN60"}
     for site in sites:
-        assert 12 < dip_latitude_deg(site["lat"], site["lon"], 2026.88) < 18
+        assert 10 < dip_latitude_deg(site["lat"], site["lon"], 2026.88) < 20
         assert site["mountpoint"] == site["code"] + "_RTCM3P3"
+
+
+def test_additional_receivers_match_requested_dip_latitude_bands():
+    from zgiis.space_weather.igrf14 import dip_latitude_deg
+
+    sites = {site["code"]: site for site in earthscope.SITES}
+    bands = {"PTPP": (10, 20), "CN60": (10, 20),
+             "SRGD": (-20, -10), "CBAA": (-20, -10),
+             "CONS": (-60, -20), "AB07": (20, 60),
+             "AB09": (60, 90), "AB11": (60, 90)}
+    for code, (lower, upper) in bands.items():
+        site = sites[code]
+        dip = dip_latitude_deg(site["lat"], site["lon"], 2026.88)
+        assert lower < dip < upper
+        assert abs(dip - site["magnetic_latitude_approx"]) < .01
+        assert "GPS" in site["constellations"]
 
 
 def test_chunked_transport_removes_framing_across_rtcm_bytes(monkeypatch):

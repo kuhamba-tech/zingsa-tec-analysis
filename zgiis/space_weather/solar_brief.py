@@ -269,6 +269,8 @@ def recent_sun_events(
             "start": start.strftime("%H:%M") if start else None,
             "maximum": peak.strftime("%H:%M"),
             "end": end.strftime("%H:%M") if end else None,
+            "duration_minutes": round((end - start).total_seconds() / 60, 1)
+            if start and end and end >= start else None,
         }
         key = peak.strftime("%Y-%m-%dT%H:%M")
         rank = _class_rank(label)

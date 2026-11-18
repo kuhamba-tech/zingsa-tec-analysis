@@ -138,6 +138,11 @@
   border-bottom: 0;
 }
 
+.significant {
+  font-weight: 800;
+  background: rgba(249, 115, 22, 0.09);
+}
+
 .region,
 .regionEmpty,
 .flare {
