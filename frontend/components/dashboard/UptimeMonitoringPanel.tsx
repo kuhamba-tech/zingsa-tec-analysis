@@ -42,6 +42,15 @@ export default function UptimeMonitoringPanel({ hours, station }: { hours: numbe
     return () => { cancelled = true; window.clearInterval(poll); window.clearInterval(clock); };
   }, [hours, station]);
   const healthy = !failed && report?.status === "monitoring";
+  const healthLabel = failed
+    ? "Unavailable"
+    : !report
+      ? "Checking"
+      : healthy
+        ? "Operational"
+        : report.status === "stopped"
+          ? "Worker stopped"
+          : "Communication problem";
   const events = useMemo(() => {
     const rows = report?.events ?? [];
     if (filter === "down") return rows.filter((event) => event.event_type === "DOWN");
@@ -67,7 +76,7 @@ export default function UptimeMonitoringPanel({ hours, station }: { hours: numbe
     <div className="uptime-kpi-grid">
       <div className="uptime-kpi"><span>Active incidents</span><strong className={activeIncidents ? "is-danger" : "is-good"}>{activeIncidents}</strong><small>Confirmed and unresolved</small></div>
       <div className="uptime-kpi"><span>Mean time to repair</span><strong>{meanRepair == null ? "—" : duration("1970-01-01T00:00:00Z", new Date(meanRepair * 60000).toISOString(), 0)}</strong><small>Resolved incidents</small></div>
-      <div className="uptime-kpi"><span>Monitoring health</span><strong className={healthy ? "is-good" : "is-warning"}>{healthy ? "Operational" : "Check status"}</strong><small>Last check: {cat(report?.checked_at ?? null)}</small></div>
+      <div className="uptime-kpi"><span>Monitoring health</span><strong className={healthy ? "is-good" : "is-warning"}>{healthLabel}</strong><small>Last worker check: {cat(report?.checked_at ?? null)}</small></div>
     </div>
     {report?.error && <p className="banner banner-warn" role="alert">{report.error}</p>}
     <div className="uptime-event-toolbar" role="tablist" aria-label="Station event filter">

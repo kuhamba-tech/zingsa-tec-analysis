@@ -9,7 +9,7 @@ import dynamic from "next/dynamic";
 import { FLARE_SCALE, xrayFluxColor } from "@/lib/solarEventColors";
 import type { ChartAnalysisBlock } from "@/lib/multiSourceChartAnalysis";
 import type { GoesXrayTimelinePoint } from "@/lib/types";
-import { nearestReading, type AnalysisPoint } from "@/lib/stormAnalysis";
+import { nearestReading, OBSERVATION_READOUT_TOLERANCE_MS, type AnalysisPoint } from "@/lib/stormAnalysis";
 import { loadLineChart } from "@/lib/loadLineChart";
 import {
   ONE_H_MS,
@@ -176,7 +176,7 @@ export default function GoesSolarXrayCard({
     const read = (values: (number | null)[]) => nearestReading(
       chart.epochs.map((time, index): AnalysisPoint => ({ time, value: values[index] ?? null })),
       selectedTime,
-      5 * 60_000,
+      OBSERVATION_READOUT_TOLERANCE_MS,
     );
     return { long: read(chart.longBand), short: read(chart.shortBand) };
   }, [chart, selectedTime]);
@@ -251,8 +251,8 @@ export default function GoesSolarXrayCard({
             onPickTime={onPickTime}
             markerReadout={selectedTime != null && selectedReadings ? { x: selectedTime, lines: [
               `${new Date(selectedTime).toISOString().slice(11, 16)} UTC`,
-              `Long: ${selectedReadings.long ? formatFlux(selectedReadings.long.value) : "N/A"}`,
-              `Short: ${selectedReadings.short ? formatFlux(selectedReadings.short.value) : "N/A"}`,
+              `Long: ${selectedReadings.long ? `${formatFlux(selectedReadings.long.value)} at ${new Date(selectedReadings.long.time).toISOString().slice(11, 16)} UTC` : "N/A"}`,
+              `Short: ${selectedReadings.short ? `${formatFlux(selectedReadings.short.value)} at ${new Date(selectedReadings.short.time).toISOString().slice(11, 16)} UTC` : "N/A"}`,
             ] } : undefined}
             labels={chart.labels}
             toggleableLegend

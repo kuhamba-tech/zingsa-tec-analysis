@@ -18,7 +18,7 @@ import StationStatusBarChart from "@/components/charts/StationStatusBarChart";
 import ChartAnalysisBox from "@/components/dashboard/ChartAnalysisBox";
 import CorsMapWithLayers, { BASE_MAP_LAYERS } from "@/components/maps/CorsMapWithLayers";
 import { analyzeStationUptime } from "@/lib/dashboardChartAnalysis";
-import { downloadUptimeReportPdf } from "@/lib/reportPdf";
+import { downloadStationDowntimePdf, downloadUptimeReportPdf } from "@/lib/reportPdf";
 import { countLiveStationStatuses } from "@/lib/liveStationStatus";
 import { peekStations } from "@/lib/stationsStore";
 import { mergeTecHeatmapWithStations } from "@/lib/tecHeatmapMerge";
@@ -113,6 +113,8 @@ export default function NetworkUptimePanel({
   const [tecHeatmap, setTecHeatmap] = useState<TecHeatmapResponse | null>(null);
   const [riskLevel, setRiskLevel] = useState("N/A");
   const [analysis, setAnalysis] = useState<StationUptimeAnalysis | null>(null);
+  const [analysisTime, setAnalysisTime] = useState(0);
+  const [downtimeExport, setDowntimeExport] = useState<"idle" | "saving" | "failed">("idle");
   const [activity, setActivity] = useState<StationActivityPayload | null>(null);
   const [events, setEvents] = useState<StationStatusEvent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -175,12 +177,14 @@ export default function NetworkUptimePanel({
       if (generation === loadGeneration.current) setLoading(false);
     }
     try {
+      const requestedAt = Date.now();
       const [analysisResult, eventsResult] = await Promise.allSettled([
         getStationUptimeAnalysis(range.hours, stationArg),
         getStationStatusEvents(range.hours, stationArg),
       ]);
       if (generation !== loadGeneration.current) return;
       setAnalysis(analysisResult.status === "fulfilled" ? analysisResult.value : null);
+      setAnalysisTime(requestedAt);
       setEvents(eventsResult.status === "fulfilled" ? eventsResult.value.slice(-20).reverse() : []);
       if (!activityOk && analysisResult.status === "rejected") {
         const reason = analysisResult.reason;
@@ -297,6 +301,21 @@ export default function NetworkUptimePanel({
     await downloadUptimeReportPdf(analysis, scopeLabel);
   };
 
+  const canExportDowntime = analysis != null && analysis.samples > 0 && analysisTime > 0 && Boolean(station)
+    && analysis.station_code?.toLowerCase().replace(/_+$/, "") === station.toLowerCase().replace(/_+$/, "")
+    && analysis.hours === range.hours;
+
+  const handleExportDowntime = async () => {
+    if (!analysis || !canExportDowntime) return;
+    setDowntimeExport("saving");
+    try {
+      await downloadStationDowntimePdf(analysis, analysisTime);
+      setDowntimeExport("idle");
+    } catch {
+      setDowntimeExport("failed");
+    }
+  };
+
   const activityHasSamples = activity?.stations.some((row) => row.activity !== "no samples") ?? false;
   const hasAnyData =
     activityHasSamples ||
@@ -392,6 +411,16 @@ export default function NetworkUptimePanel({
           </button>
         </div>
       </div>
+
+      {activeTab === "reports" && <section className="uptime-tab-callout" aria-label="Station downtime report">
+        <h3>Station Downtime and Data Availability Assessment</h3>
+        <p>Choose a station and monitoring period to download a ZINGSA letterhead report with downtime records in CAT.</p>
+        <button type="button" className="home-map-layer-btn"
+          onClick={() => void handleExportDowntime()} disabled={!canExportDowntime || downtimeExport === "saving"}>
+          {downtimeExport === "saving" ? "Preparing PDF…" : "Download downtime report PDF"}
+        </button>
+        {downtimeExport === "failed" && <p role="alert">The report could not be saved. Try the download again.</p>}
+      </section>}
 
       {activity && activity.stations.length > 0 && (activeTab === "overview" || activeTab === "details" || activeTab === "reports") && (
         <div style={{ marginBottom: "1.25rem" }}>

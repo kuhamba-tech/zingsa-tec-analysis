@@ -1,4 +1,5 @@
 import type { SolarActivityFull } from "./types";
+import { SOLAR_WIND_SPEED_SCALE, solarWindSpeedScaleId } from "./spaceWeatherMetrics";
 
 function utcEpoch(value: string | null | undefined): number {
   return value ? Date.parse(/(?:Z|[+-]\d\d:\d\d)$/.test(value) ? value : `${value.replace(" ", "T")}Z`) : NaN;
@@ -17,9 +18,18 @@ export function scientificSnapshot(solar: SolarActivityFull | null, now: number)
     return !!feed?.fresh && Number.isFinite(stamp) && now-stamp >= -60_000 && now-stamp <= 20*60_000;
   };
   const xray = valid("goes_xray") && measured(solar?.flux) && solar.flux > 0;
+  const flareLevel = solar?.flare_class?.trim().toUpperCase() || "";
   const plasma = valid("solar_wind_plasma");
   const mag = valid("solar_wind_mag");
   const wind = solar?.solar_wind;
+  const speedBand = plasma && measured(wind?.speed)
+    ? SOLAR_WIND_SPEED_SCALE.find(band => band.id === solarWindSpeedScaleId(wind.speed))
+    : undefined;
+  const bz = mag && measured(wind?.bz) ? wind.bz : null;
+  const coupling = bz == null ? "A fresh IMF Bz sample is needed to assess magnetic coupling."
+    : bz < 0 ? `Bz is southward at ${bz.toFixed(1)} nT, which favours coupling if sustained.`
+      : bz > 0 ? `Bz is northward at ${bz.toFixed(1)} nT, which reduces dayside coupling at this sample.`
+        : "Bz is at 0 nT at this sample.";
   return [
     {
       title: "Solar radiative conditions",
@@ -30,7 +40,10 @@ export function scientificSnapshot(solar: SolarActivityFull | null, now: number)
         : "No fresh GOES sample in the last 20 minutes.",
       meaning: "This card is the Sun's soft X-ray brightness at one sample time. It is the flare level seen on the sunlit side of Earth.",
       explanation: xray
-        ? `Class ${solar.flare_class} is the level at this sample. Over Zimbabwe the flare matters while the country is in daylight: HF links can fade for minutes, and TEC can step up on the dayside. An Earth-directed CME is a separate product; check the CME list and the later solar-wind arrival.`
+        ? `GOES currently measures ${flareLevel || "soft X-ray emission"}. ${/^[MX]/.test(flareLevel)
+          ? "This level can cause HF radio absorption on the sunlit side of Earth."
+          : /^C/.test(flareLevel) ? "This is a small increase in solar X-ray activity."
+            : /^[AB]/.test(flareLevel) ? "Solar X-ray activity is low at this sample." : ""}`.trim()
         : "A new GOES sample is required before a quiet-Sun or flare conclusion is drawn for Zimbabwe.",
     },
     {
@@ -41,9 +54,9 @@ export function scientificSnapshot(solar: SolarActivityFull | null, now: number)
         ? `Speed ${wind.speed.toFixed(0)} km/s${measured(wind.density) ? `; proton density ${wind.density.toFixed(1)} cm⁻³` : ""}${measured(wind.temperature) ? `; temperature ${wind.temperature.toExponential(2)} K` : ""}.`
         : "No fresh solar-wind plasma sample in the last 20 minutes.",
       meaning: "This card is the solar wind measured upstream of Earth, before it reaches the magnetosphere.",
-      explanation: plasma && measured(wind?.speed)
-        ? `${wind.speed.toFixed(0)} km/s is the bulk speed. Quiet wind is about 300–450 km/s, and 500 km/s is the fast-stream line. Name the driver from the official discussion: a coronal-hole stream, a shock, or a CME. Over Zimbabwe, pair this speed with Bz, then with TEC and S4.`
-        : "Until a new plasma sample arrives, the wind driver for Zimbabwe TEC is not identified from this card.",
+      explanation: speedBand && measured(wind?.speed)
+        ? `Solar-wind speed is ${speedBand.label.toLowerCase()} at ${wind.speed.toFixed(0)} km/s. ${coupling}`
+        : "Current solar-wind speed conditions are unavailable while the plasma feed has no fresh measurement.",
     },
     {
       title: "Interplanetary magnetic field",
@@ -53,9 +66,10 @@ export function scientificSnapshot(solar: SolarActivityFull | null, now: number)
         ? `Bz ${wind.bz.toFixed(1)} nT${measured(wind.bt) ? `; Bt ${wind.bt.toFixed(1)} nT` : ""}.${measured(wind.southward_duration_minutes) ? ` Continuous southward duration ${wind.southward_duration_minutes} min.` : " Southward duration awaits a continuous Bz series."}`
         : "No fresh IMF sample in the last 20 minutes.",
       meaning: "This card is Bz, the north–south part of the interplanetary field. Southward Bz is the direction that couples the solar wind to Earth's field.",
-      explanation: mag && measured(wind?.bz)
-        ? `The latest Bz is ${wind.bz.toFixed(1)} nT${wind.bz < 0 ? ", southward" : ", northward"}. A storm level comes from the K-index over the hours that follow this sample. Over Zimbabwe, a GNSS concern is southward Bz held together with Kp of 5 or more, checked on TEC and S4.`
-        : "Until a new IMF sample arrives, the coupling direction for Zimbabwe is not known from this card.",
+      explanation: bz == null
+        ? "Current magnetic coupling conditions are unavailable while the IMF feed has no fresh measurement."
+        : `${coupling}${bz < 0 && measured(wind?.southward_duration_minutes) && wind.southward_duration_minutes > 0
+          ? ` The field has remained southward for ${wind.southward_duration_minutes} minutes.` : ""}`,
     },
   ];
 }

@@ -11,6 +11,7 @@ import {
 import type { ImfSeries } from "@/lib/types";
 import type { PlotAreaReporter } from "@/lib/chartPlotArea";
 import { IMF_BT_SCALE } from "@/lib/spaceWeatherMetrics";
+import { nearestReading, OBSERVATION_READOUT_TOLERANCE_MS, type AnalysisPoint } from "@/lib/stormAnalysis";
 
 const LineChart = dynamic(() => loadLineChart().then(module => module.default), { ssr: false });
 const IMF_GUIDES = [
@@ -57,22 +58,21 @@ export default function InterplanetaryMagneticFieldChart({
   }, [analysisDomain, epochs]);
   const selected = useMemo(() => {
     if (selectedTime == null || !epochs) return null;
-    let nearest = -1;
-    for (const index of visible) {
-      if (nearest < 0 || Math.abs(epochs[index] - selectedTime) < Math.abs(epochs[nearest] - selectedTime)) {
-        nearest = index;
-      }
-    }
-    if (nearest < 0 || Math.abs(epochs[nearest] - selectedTime) > 5 * 60_000) return null;
-    const value = (values: (number | null)[]) => {
-      const sample = values[nearest];
-      return sample != null && Number.isFinite(sample) ? `${sample.toFixed(2)} nT` : "N/A";
+    const read = (values: (number | null)[]) => nearestReading(
+      visible.map((index): AnalysisPoint => ({ time: epochs[index], value: values[index] ?? null })),
+      selectedTime,
+      OBSERVATION_READOUT_TOLERANCE_MS,
+    );
+    const value = (reading: AnalysisPoint | null) => {
+      if (!reading || reading.value == null) return "N/A";
+      const observedAt = new Date(reading.time).toISOString().slice(11, 16);
+      return `${reading.value.toFixed(2)} nT at ${observedAt} UTC`;
     };
     return {
       x: selectedTime,
       lines: [
         `${new Date(selectedTime).toISOString().slice(11, 16)} UTC`,
-        `Bt: ${value(data.bt)} · By: ${value(data.by)} · Bz: ${value(data.bz)}`,
+        `Bt: ${value(read(data.bt))} · By: ${value(read(data.by))} · Bz: ${value(read(data.bz))}`,
       ],
     };
   }, [data.bt, data.by, data.bz, epochs, selectedTime, visible]);

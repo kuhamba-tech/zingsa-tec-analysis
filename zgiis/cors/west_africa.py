@@ -11,10 +11,10 @@ from pathlib import Path
 SITES = json.loads((Path(__file__).resolve().parents[2] / "frontend/lib/westAfricaCorsCatalog.json").read_text())
 _lock = threading.Lock()
 _networks: dict[str, tuple] = {}
-_earthscope_inputs: tuple | None = None
+_shared_inputs: dict[str, tuple] = {}
 
 
-def _write_earthscope_archive(pipeline, connect) -> None:
+def _write_shared_archive(pipeline, connect) -> None:
     connect(pipeline)
     while True:
         pipeline.flush_db()
@@ -42,7 +42,6 @@ def configuration(site: dict) -> dict | None:
 
 
 def start(*, sites: list[dict] | None = None) -> None:
-    global _earthscope_inputs
     if os.getenv("VERCEL"):
         return
     from zgiis.live.ntrip_stream import LiveNtripManager
@@ -58,16 +57,17 @@ def start(*, sites: list[dict] | None = None) -> None:
             config = configuration(site)
             if name in _networks or config is None:
                 continue
-            earthscope = site.get("provider") == "earthscope"
-            shared = _earthscope_inputs if earthscope else None
+            provider = site.get("provider", "centipede" if site["country"] == "SEN" else "igs")
+            share_archive = provider in {"earthscope", "igs"}
+            shared = _shared_inputs.get(provider) if share_archive else None
             if shared is None:
                 nav = LiveNavCache()
-                pipeline = LiveVtecPipeline(nav_cache=nav, db_flush_n=None if earthscope else 5)
-                if earthscope:
-                    _earthscope_inputs = nav, pipeline
+                pipeline = LiveVtecPipeline(nav_cache=nav, db_flush_n=None if share_archive else 5)
+                if share_archive:
+                    _shared_inputs[provider] = nav, pipeline
                 start_refresh_thread(nav)
-                target = _write_earthscope_archive if earthscope else _connect_live_archive
-                args = (pipeline, _connect_live_archive) if earthscope else (pipeline,)
+                target = _write_shared_archive if share_archive else _connect_live_archive
+                args = (pipeline, _connect_live_archive) if share_archive else (pipeline,)
                 threading.Thread(target=target, args=args,
                                  daemon=True, name=f"{name}-live-archive").start()
             else:

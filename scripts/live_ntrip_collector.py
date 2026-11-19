@@ -322,14 +322,16 @@ def main() -> int:
     nav_cache = LiveNavCache()
     from zgiis.live.tec_outbox import TecOutbox
     outbox = TecOutbox(ROOT / "static" / "data" / "tec_capture_outbox.sqlite")
-    pipeline = LiveVtecPipeline(db=db, nav_cache=nav_cache, db_flush_n=int(os.getenv("ZGIIS_DB_FLUSH_N", "5")), outbox=outbox)
+    # The collector loop flushes the durable outbox. Keep remote database
+    # writes off the single-slot NTRIP receiver thread.
+    pipeline = LiveVtecPipeline(db=db, nav_cache=nav_cache, db_flush_n=None, outbox=outbox)
     max_concurrent_raw = os.getenv("NTRIP_LIVE_MAX_CONCURRENT", "1").strip()
     try:
         max_concurrent = max(1, int(max_concurrent_raw)) if max_concurrent_raw else None
     except ValueError:
         max_concurrent = None
 
-    from zgiis.live.connected_rotation import ConnectedStationGate
+    from zgiis.live.connected_rotation import ConnectedStationGate, station_rotation_seconds
 
     connected = ConnectedStationGate()
 
@@ -360,7 +362,9 @@ def main() -> int:
         on_observation=on_observation,
         nav_cache=nav_cache,
         max_concurrent=max_concurrent,
-        max_session_s=calibration_session_seconds(os.getenv("NTRIP_LIVE_SESSION_S")),
+        max_session_s=(station_rotation_seconds if max_concurrent else calibration_session_seconds)(
+            os.getenv("NTRIP_LIVE_SESSION_S")
+        ),
     )
     manager.start(mountpoints, hold_back=connected.waiting)
     start_refresh_thread(

@@ -1,4 +1,5 @@
 export type AnalysisPoint = { time: number; value: number | null };
+export const OBSERVATION_READOUT_TOLERANCE_MS = 30 * 60_000;
 export type StationVtecHistory = {
   station: string;
   points: { time: string; vtec_tecu: number }[];

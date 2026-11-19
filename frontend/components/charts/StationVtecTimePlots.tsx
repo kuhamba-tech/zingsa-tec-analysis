@@ -368,9 +368,11 @@ function buildNetworkMeanSeries(
   formatXTick?: (value: number) => string;
   xLabel?: string;
   stationCount: number;
+  latestStationCount: number;
 } {
   const { windowStartMs, windowEndMs, spanHours } = resolveChartWindow(hours, day);
-  const bucket = new Map<string, number[]>();
+  const step = resampleMinutesForHours(day ? 24 : hours) * 60_000;
+  const bucket = new Map<number, number[]>();
   let stationCount = 0;
   for (const row of series) {
     const usable = row.points.filter((p) => {
@@ -379,25 +381,34 @@ function buildNetworkMeanSeries(
     });
     if (!usable.length) continue;
     stationCount += 1;
+    const stationBins = new Map<number, { sum: number; count: number }>();
     for (const p of usable) {
-      const list = bucket.get(p.time) ?? [];
-      list.push(p.vtec_tecu);
-      bucket.set(p.time, list);
+      const time = Math.floor(Date.parse(p.time) / step) * step;
+      const bin = stationBins.get(time) ?? { sum: 0, count: 0 };
+      bin.sum += p.vtec_tecu;
+      bin.count += 1;
+      stationBins.set(time, bin);
+    }
+    for (const [time, bin] of stationBins) {
+      const list = bucket.get(time) ?? [];
+      list.push(bin.sum / bin.count);
+      bucket.set(time, list);
     }
   }
-  const times = Array.from(bucket.keys()).sort(
-    (a, b) => new Date(a).getTime() - new Date(b).getTime(),
-  );
+  const observedTimes = [...bucket.keys()].sort((a, b) => a - b);
+  const first = observedTimes[0];
+  const last = observedTimes.at(-1);
+  const times = last == null ? [] : Array.from({ length: (last - first) / step + 1 }, (_, i) => first + i * step);
   const useFullWindow = Boolean(day) || hours >= 12;
   return {
-    labels: times.map(formatTick),
+    labels: times.map(time => formatTick(new Date(time).toISOString())),
     values: times.map((t) => {
       const vals = bucket.get(t) ?? [];
       if (!vals.length) return null;
       return vals.reduce((a, b) => a + b, 0) / vals.length;
     }),
     xValues: useFullWindow
-      ? times.map((t) => (new Date(t).getTime() - windowStartMs) / 3_600_000)
+      ? times.map((t) => Math.max(0, (t - windowStartMs) / 3_600_000))
       : undefined,
     xMin: useFullWindow ? 0 : undefined,
     xMax: useFullWindow ? spanHours : undefined,
@@ -407,6 +418,7 @@ function buildNetworkMeanSeries(
       : undefined,
     xLabel: useFullWindow ? "Time (UTC)" : undefined,
     stationCount,
+    latestStationCount: last == null ? 0 : bucket.get(last)?.length ?? 0,
   };
 }
 
@@ -996,7 +1008,7 @@ export default function StationVtecTimePlots({
                 {selectedDay ? ` on ${selectedDay} UTC, plotted across 00:00–24:00` : ` for the last ${hours} h`}.
                 Elevation below 30° and TEC outside 0–50 TECU are excluded.
                 The dashed line is the Extended Kalman Filter forecast; a one-bin jump stays on the solid line.
-                {latestNetworkMeanTime ? ` Latest recorded sample: ${latestNetworkMeanTime} UTC; later bins have no reading to plot yet.` : ""}
+                {latestNetworkMeanTime ? ` Latest populated bin: ${latestNetworkMeanTime} UTC. Gaps indicate bins with no usable observations.` : ""}
               </span>
             </div>
             <div className="station-vtec-plot-stats">
@@ -1007,7 +1019,7 @@ export default function StationVtecTimePlots({
                 TECU
               </em>
               <small>
-                {networkMean.stationCount}{stationCodes ? ` of ${stationCodes.length} mapped` : ""} stations with samples
+                {networkMean.latestStationCount} stations in latest bin · {networkMean.stationCount}{stationCodes ? ` of ${stationCodes.length} mapped` : ""} across the window
                 {latestNetworkMeanTime ? ` · latest ${latestNetworkMeanTime} UTC` : ""}
               </small>
             </div>
@@ -1021,7 +1033,7 @@ export default function StationVtecTimePlots({
                 data: networkMean.values,
                 color: "#00ff88",
                 fill: true,
-                spanGaps: true,
+                spanGaps: false,
                 tension: 0,
               },
               ...(networkEkfReady
@@ -1040,6 +1052,8 @@ export default function StationVtecTimePlots({
                 : []),
             ]}
             yLabel="VTEC (TECU)"
+            yMin={0}
+            yMax={50}
             height={220}
             preserveSamples
             xValues={networkMean.xValues}

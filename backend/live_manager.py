@@ -372,6 +372,7 @@ def start(*, priority_codes: list[str] | None = None) -> None:
     )
 
     from zgiis.live.pytecgg_service import register_zimbabwe, calibration_session_seconds
+    from zgiis.live.connected_rotation import station_rotation_seconds
     gg_engine = register_zimbabwe(mountpoints)
 
     def _on_observation(obs: dict) -> None:
@@ -397,7 +398,9 @@ def start(*, priority_codes: list[str] | None = None) -> None:
         on_observation=_on_observation,
         max_concurrent=max_concurrent,
         nav_cache=nav_cache,
-        max_session_s=calibration_session_seconds(os.getenv("NTRIP_LIVE_SESSION_S")),
+        max_session_s=(station_rotation_seconds if max_concurrent else calibration_session_seconds)(
+            os.getenv("NTRIP_LIVE_SESSION_S")
+        ),
     )
     manager.start(mountpoints)
 

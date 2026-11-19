@@ -14,9 +14,10 @@ import { runMeanVtecEkf } from "@/lib/meanVtecEkf";
 import { readFlarePeak } from "@/lib/flareEruption";
 import { SOLAR_WIND_SPEED_SCALE } from "@/lib/spaceWeatherMetrics";
 import AnalysisSolarDisk from "./AnalysisSolarDisk";
+import SolarActivityLevels from "./SolarActivityLevels";
 import flareTable from "./FlareActivityTable.module.css";
 import styles from "./StormAnalysis.module.css";
-import { buildNetworkMeanVtecSeries, nearestReading, referenceTec, type AnalysisPoint } from "@/lib/stormAnalysis";
+import { buildNetworkMeanVtecSeries, nearestReading, OBSERVATION_READOUT_TOLERANCE_MS, referenceTec, type AnalysisPoint } from "@/lib/stormAnalysis";
 import type { HeliosphericMonitorResponse, LiveStationVtecSeries } from "@/lib/types";
 
 const LineChart = dynamic(() => loadLineChart().then(module => module.default), { ssr: false });
@@ -394,16 +395,16 @@ export default function StormAnalysis({
       reading: nearestReading(
         protonChart.epochs.map((time, index) => ({ time, value: values[index] ?? null })),
         selectedTime,
-        5 * 60_000,
+        OBSERVATION_READOUT_TOLERANCE_MS,
       ),
     }));
   }, [helio, protonChart, selectedTime]);
   const panels = [
     { plot: "dst" as const, title: "Dst", unit: "Dst (nT)", color: "#f8fafc", tolerance: 35 * 60000, cadence: 65 * 60000, data: points(helio?.dst?.times ?? [], helio?.dst?.dst ?? []) },
-    { plot: "speed" as const, title: "Solar wind speed", unit: "Vsw (km/s)", color: "#3b82f6", tolerance: 10 * 60000, cadence: 20 * 60000, data: points(helio?.solar_wind.times ?? [], helio?.solar_wind.speed ?? []) },
-    { plot: "bz" as const, title: "IMF Bz (GSM)", unit: "Bz (nT)", color: "#f8fafc", tolerance: 10 * 60000, cadence: 20 * 60000, data: points(helio?.imf.times ?? [], helio?.imf.bz ?? []) },
-    { plot: "meanTec" as const, title: "Network mean VTEC", unit: "VTEC (TECU)", color: "#00ff88", tolerance: 8 * 60000, cadence: 20 * 60000, data: networkMean },
-    { plot: "delta" as const, title: "Relative VTEC difference", unit: "ΔVTEC (%)", color: "#f8fafc", tolerance: 8 * 60000, cadence: 20 * 60000, data: measurements.map(point => ({ time: point.time, value: point.delta })) },
+    { plot: "speed" as const, title: "Solar wind speed", unit: "Vsw (km/s)", color: "#3b82f6", tolerance: OBSERVATION_READOUT_TOLERANCE_MS, cadence: 20 * 60000, data: points(helio?.solar_wind.times ?? [], helio?.solar_wind.speed ?? []) },
+    { plot: "bz" as const, title: "IMF Bz (GSM)", unit: "Bz (nT)", color: "#f8fafc", tolerance: OBSERVATION_READOUT_TOLERANCE_MS, cadence: 20 * 60000, data: points(helio?.imf.times ?? [], helio?.imf.bz ?? []) },
+    { plot: "meanTec" as const, title: "Network mean VTEC", unit: "VTEC (TECU)", color: "#00ff88", tolerance: OBSERVATION_READOUT_TOLERANCE_MS, cadence: 20 * 60000, data: networkMean },
+    { plot: "delta" as const, title: "Relative VTEC difference", unit: "ΔVTEC (%)", color: "#f8fafc", tolerance: OBSERVATION_READOUT_TOLERANCE_MS, cadence: 20 * 60000, data: measurements.map(point => ({ time: point.time, value: point.delta })) },
   ];
 
   return <section className="card" aria-label="Storm analysis">
@@ -434,6 +435,7 @@ export default function StormAnalysis({
       </strong>}
     </p>
     <AnalysisSolarDisk time={selectedTime} peaks={flarePeaks} selectedFlare={selectedFlare} onPick={pick} onArchive={setFlareArchive} />
+    <div style={{ marginBottom: "1rem" }}><SolarActivityLevels /></div>
     <div ref={stackRef} style={{ position: "relative", paddingBottom: "3rem" }}>
     <GoesSolarXrayCard
       title="1 · GOES X-ray flux (NOAA SWPC)"
@@ -469,7 +471,7 @@ export default function StormAnalysis({
       {protonChart ? <>
         <p aria-live="polite" style={{ fontSize: ".8rem", margin: "0 0 .45rem" }}>
           Selected {new Date(selectedTime).toISOString().replace("T", " ").slice(0, 16)} UTC
-          {" · "}{protonReadings.map(({ energy, reading }) => `${energy}: ${reading ? `${reading.value!.toPrecision(3)} pfu` : "N/A"}`).join(" · ")}
+          {" · "}{protonReadings.map(({ energy, reading }) => `${energy}: ${reading ? `${reading.value!.toPrecision(3)} pfu at ${new Date(reading.time).toISOString().slice(11, 16)} UTC` : "N/A"}`).join(" · ")}
         </p>
         <LineChart
           labels={helio.protons.labels}
@@ -488,7 +490,7 @@ export default function StormAnalysis({
         : "Proton flux timestamps could not be aligned to UTC; the chart is omitted."}</p>}
     </section>}
     {helio && <DstPressureComparison
-      data={helio} analysisDomain={domain} onPlotAreaChange={plotLayout.reporters.pressure} onPickTime={pick}
+      data={helio} analysisDomain={domain} selectedTime={selectedTime} onPlotAreaChange={plotLayout.reporters.pressure} onPickTime={pick}
     />}
     <section aria-label="Dst and Kp overview" style={{ margin: "1rem 0" }}>
       <DstKpOverview analysisDomain={domain} onPlotAreaChange={plotLayout.reporters.overview} onPickTime={pick} />
@@ -511,6 +513,7 @@ export default function StormAnalysis({
           dstTimes={helio.dst?.times}
           dstEpochMs={helio.dst?.epoch_ms}
           analysisDomain={domain}
+          selectedTime={selectedTime}
           onPickTime={pick}
           onPlotAreaChange={plotLayout.reporters.kp}
         />

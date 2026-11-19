@@ -3,8 +3,18 @@
 from __future__ import annotations
 
 import threading
+import math
 
 from zgiis.cors.stations import is_surveyor_general
+
+
+def station_rotation_seconds(value: str | None) -> float:
+    """Use a finite session when a caster slot must be shared across stations."""
+    try:
+        seconds = float(value or 60)
+    except ValueError:
+        return 60.0
+    return seconds if math.isfinite(seconds) and seconds > 0 else 60.0
 
 
 class ConnectedStationGate:

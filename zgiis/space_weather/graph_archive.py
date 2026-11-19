@@ -374,8 +374,17 @@ def prepare_monitor_payload(payload: dict[str, Any]) -> dict[str, Any]:
     except Exception as exc:
         log.warning("graph archive read failed: %s", exc)
         stored = {}
-    if not stored:
-        return extend_monitor_payload(payload, {})
+    from zgiis.space_weather.solar_plasma_archive import fill_plasma_history
+
+    now = datetime.now(tz=timezone.utc)
+    wind_times = (payload.get("solar_wind") or {}).get("times") or []
+    live_start = min((stamp for value in wind_times if (stamp := _parse_time(value)) is not None), default=now)
+    fill_plasma_history(stored, start=now - timedelta(hours=ARCHIVE_HOURS), stop=live_start, now=now)
+    from zgiis.space_weather.solar_magnetic_archive import fill_imf_history
+
+    imf_times = (payload.get("imf") or {}).get("times") or []
+    imf_live_start = min((stamp for value in imf_times if (stamp := _parse_time(value)) is not None), default=now)
+    fill_imf_history(stored, start=now - timedelta(hours=ARCHIVE_HOURS), stop=imf_live_start, now=now)
     return extend_monitor_payload(payload, stored)
 
 

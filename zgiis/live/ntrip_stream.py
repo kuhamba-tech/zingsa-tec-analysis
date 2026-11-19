@@ -359,6 +359,10 @@ class StationStream(threading.Thread):
             acquired = self._slots is None or self._slots.acquire(self._stop)
             if not acquired:
                 break
+            if self._hold_back is not None and self._hold_back():
+                if self._slots is not None:
+                    self._slots.release()
+                continue
             try:
                 sock = self._connect()
                 with self._lock:

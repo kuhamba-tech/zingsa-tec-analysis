@@ -16,6 +16,7 @@ import { Chart } from "react-chartjs-2";
 import { formatUtcDayLabel, seriesEpochsFromApi } from "@/lib/chartTimeAxis";
 import { reportPlotAreaPlugin, type PlotAreaReporter } from "@/lib/chartPlotArea";
 import { alignKpSeriesToDomain, KP_BIN_MS } from "@/lib/kpTimeline";
+import { nearestReading, type AnalysisPoint } from "@/lib/stormAnalysis";
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, Tooltip, Legend);
 ChartJS.defaults.color = "#ffffff";
@@ -66,6 +67,7 @@ export default function HeliosphericKpBars({
   dstTimes,
   dstEpochMs,
   analysisDomain,
+  selectedTime,
   onPickTime,
   onPlotAreaChange,
 }: {
@@ -80,6 +82,7 @@ export default function HeliosphericKpBars({
   dstTimes?: string[];
   dstEpochMs?: (number | null)[];
   analysisDomain?: { min: number; max: number };
+  selectedTime?: number;
   onPickTime?: (ms: number) => void;
   onPlotAreaChange?: PlotAreaReporter;
 }) {
@@ -127,6 +130,25 @@ export default function HeliosphericKpBars({
     const max = Math.ceil((high + pad) / 10) * 10;
     return min === max ? { min: min - 20, max: max + 20 } : { min, max };
   }, [dstAligned]);
+
+  const selectedReadings = useMemo(() => {
+    if (selectedTime == null) return null;
+    const kpEpochs = seriesEpochsFromApi(labels, epochMs, times);
+    const dstEpochs = seriesEpochsFromApi(dstLabels ?? [], dstEpochMs, dstTimes);
+    const read = (epochs: number[] | null, values: (number | null)[] | undefined, tolerance: number) => (
+      epochs ? nearestReading(
+        epochs.map((time, index): AnalysisPoint => ({ time, value: values?.[index] ?? null })),
+        selectedTime,
+        tolerance,
+      ) : null
+    );
+    return {
+      observed: read(kpEpochs, observed, KP_BIN_MS / 2),
+      estimated: read(kpEpochs, estimated, KP_BIN_MS / 2),
+      predicted: read(kpEpochs, predicted, KP_BIN_MS / 2),
+      dst: read(dstEpochs, dst, 35 * 60_000),
+    };
+  }, [labels, epochMs, times, observed, estimated, predicted, dstLabels, dstEpochMs, dstTimes, dst, selectedTime]);
 
   const data = useMemo(
     () => ({
@@ -189,6 +211,13 @@ export default function HeliosphericKpBars({
   return (
     <div>{!analysisDomain && <ChartDateRange />}
     {calendar?.day && !labels.length && <p role="status">No loaded Kp observations for {calendar.day} UTC.</p>}
+    {selectedReadings && selectedTime != null && <p aria-live="polite" style={{ fontSize: ".8rem", margin: "0 0 .45rem" }}>
+      Selected {new Date(selectedTime).toISOString().slice(0, 16).replace("T", " ")} UTC
+      {" · "}Observed Kp: {selectedReadings.observed ? `${selectedReadings.observed.value!.toFixed(2)} at ${new Date(selectedReadings.observed.time).toISOString().slice(11, 16)} UTC` : "N/A"}
+      {" · "}Estimated Kp: {selectedReadings.estimated ? `${selectedReadings.estimated.value!.toFixed(2)} at ${new Date(selectedReadings.estimated.time).toISOString().slice(11, 16)} UTC` : "N/A"}
+      {" · "}Predicted Kp: {selectedReadings.predicted ? `${selectedReadings.predicted.value!.toFixed(2)} at ${new Date(selectedReadings.predicted.time).toISOString().slice(11, 16)} UTC` : "N/A"}
+      {" · "}Dst: {selectedReadings.dst ? `${selectedReadings.dst.value!.toFixed(1)} nT at ${new Date(selectedReadings.dst.time).toISOString().slice(11, 16)} UTC` : "N/A"}
+    </p>}
     <div style={{ height: 250, position: "relative" }}>
       <Chart
         type="bar"

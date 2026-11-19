@@ -1,6 +1,13 @@
 import unittest
 
-from zgiis.live.connected_rotation import ConnectedStationGate
+from zgiis.live.connected_rotation import ConnectedStationGate, station_rotation_seconds
+
+
+def test_single_slot_respects_configured_visit_without_allowing_unlimited_sessions():
+    assert station_rotation_seconds("60") == 60
+    assert station_rotation_seconds("120") == 120
+    for value in (None, "0", "-30", "bad", "NaN", "inf"):
+        assert station_rotation_seconds(value) == 60
 
 
 class ConnectedStationGateTests(unittest.TestCase):

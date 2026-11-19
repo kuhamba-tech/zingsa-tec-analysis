@@ -171,6 +171,115 @@ export async function downloadSpaceWeatherReportPdf(report: SpaceWeatherReport) 
   triggerDownload(doc.output("blob"), `space_weather_${report.period}_report.pdf`);
 }
 
+const catDate = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Africa/Harare", day: "numeric", month: "short", year: "numeric",
+});
+const catTime = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Africa/Harare", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+});
+
+function durationText(minutes: number) {
+  const total = Math.round(minutes);
+  const hours = Math.floor(total / 60);
+  const remainder = total % 60;
+  return [hours ? `${hours} hour${hours === 1 ? "" : "s"}` : "",
+    remainder || !hours ? `${remainder} minute${remainder === 1 ? "" : "s"}` : ""].filter(Boolean).join(" ");
+}
+
+export async function downloadStationDowntimePdf(analysis: StationUptimeAnalysis, endTime: number) {
+  if (!analysis.station_code || !analysis.samples) return;
+  const [{ jsPDF }, { default: autoTable }, image] = await Promise.all([
+    import("jspdf"), import("jspdf-autotable"),
+    fetch("/station-report-letterhead.png").then(async response => {
+      if (!response.ok) throw new Error("The station report letterhead could not be loaded.");
+      return new Uint8Array(await response.arrayBuffer());
+    }),
+  ]);
+  const doc = new jsPDF({ unit: "pt", format: "a4" });
+  const width = doc.internal.pageSize.getWidth();
+  const height = doc.internal.pageSize.getHeight();
+  const margin = 72;
+  const tableWidth = width - margin * 2;
+  const code = analysis.station_code.toUpperCase();
+  const name = analysis.station_name ?? code;
+  const startTime = endTime - analysis.hours * 3_600_000;
+  const header = () => {
+    doc.addImage(image, "PNG", 0, 0, width, width * 160 / 595.32, "station-letterhead");
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.setTextColor(30);
+    doc.text("ZIMBABWE NATIONAL GEOSPATIAL AND SPACE AGENCY", width / 2, height - 13, { align: "center" });
+  };
+  const text = (value: string, y: number, bold = false) => {
+    doc.setFont("helvetica", bold ? "bold" : "normal");
+    doc.setFontSize(12);
+    doc.setTextColor(0);
+    doc.text(value, margin, y);
+  };
+  const table = (startY: number, head: string[][], body: string[][]) => {
+    autoTable(doc, {
+      startY, head, body, theme: "grid", tableWidth,
+      margin: { left: margin, right: margin, top: 174, bottom: 46 },
+      styles: { font: "helvetica", fontSize: 10, textColor: [0, 0, 0], lineColor: [110, 110, 110], cellPadding: 4 },
+      headStyles: { fillColor: [233, 233, 233], textColor: [0, 0, 0] },
+      rowPageBreak: "avoid",
+    });
+    return (doc as typeof doc & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
+  };
+  text(`${name.toUpperCase()} STATION`, 181, true);
+  text("Station Downtime and Data Availability Assessment", 197, true);
+  let y = table(203, [], [
+    ["Station", `${name} (${code})`],
+    ["Monitoring period", `${catDate.format(startTime)} ${catTime.format(startTime)} - ${catDate.format(endTime)} ${catTime.format(endTime)} CAT`],
+    ["References", "ZINGSA Space Weather Platform"],
+  ]);
+  text(`Average data availability: ${fmtNum(analysis.online_pct, 1)}%`, y + 22, true);
+  text("1.1 Downtime Records", y + 46, true);
+  const outages = [...(analysis.outage_intervals ?? [])].sort((a, b) => Date.parse(a.started_at) - Date.parse(b.started_at));
+  y = table(y + 54, [["Date", "Downtime period (CAT)", "Duration"]], outages.length ? outages.map(outage => {
+    const start = new Date(outage.started_at);
+    const end = outage.ended_at ? new Date(outage.ended_at) : null;
+    const date = catDate.format(start);
+    const crossDay = end != null && date !== catDate.format(end);
+    const first = `${outage.start_exact === false ? "By " : ""}${catTime.format(start)}`;
+    return [
+      crossDay ? `${date} - ${catDate.format(end)}` : date,
+      end ? `${first} - ${crossDay ? `${catDate.format(end)} ` : ""}${catTime.format(end)}` : `${first} - ongoing`,
+      `${outage.ongoing || outage.start_exact === false ? "At least " : ""}${durationText(outage.duration_min)}`,
+    ];
+  }) : [["-", "No confirmed downtime recorded in this period.", "-"]]);
+
+  const block = (title: string, paragraphs: string[]) => {
+    doc.setFontSize(11);
+    const lines = paragraphs.flatMap(p => [...doc.splitTextToSize(p, tableWidth), ""]);
+    if (y + 35 + lines.length * 13 > height - 45) {
+      doc.addPage();
+      y = 166;
+    }
+    text(title, y + 24, true);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(11);
+    doc.text(lines, margin, y + 42, { lineHeightFactor: 1.18 });
+    y += 42 + lines.length * 13;
+  };
+  const longest = outages.reduce<(typeof outages)[number] | null>((best, row) =>
+    best == null || row.duration_min > best.duration_min ? row : best, null);
+  block("1.2 Observations", [
+    `${analysis.outage_events} confirmed downtime interval(s). The archive uses a minimum of ${analysis.outage_min_minutes ?? 10} minutes.`,
+    ...(longest ? [`Longest listed interval: ${durationText(longest.duration_min)} from ${catDate.format(new Date(longest.started_at))} at ${catTime.format(new Date(longest.started_at))} CAT.`] : []),
+    ...(analysis.outage_events > outages.length ? [`The archive response contains ${outages.length} of those intervals.`] : []),
+    `Availability uses ${analysis.samples} archived status samples. ${fmtNum(analysis.unknown_pct, 1)}% of recorded status was unknown.`,
+  ]);
+  block("1.5 Conclusion", [outages.length
+    ? "Review station power, communications and equipment logs for the recorded periods to establish the cause of the interruptions."
+    : "The archive recorded no confirmed interruption during the monitoring period. Availability reflects the recorded status samples."]);
+  for (let page = 1; page <= doc.getNumberOfPages(); page++) {
+    doc.setPage(page);
+    header();
+  }
+  triggerDownload(doc.output("blob"), `station_downtime_${code}_${new Date(endTime).toISOString().slice(0, 10)}.pdf`);
+}
+
 export async function downloadUptimeReportPdf(analysis: StationUptimeAnalysis, scopeLabel: string) {
   const doc = await createDoc("CORS Station Uptime Report", scopeLabel);
   let y = 40;

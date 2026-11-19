@@ -6,7 +6,7 @@ import dynamic from "next/dynamic";
 import { ChartDateRangeContext, utcDayBounds } from "@/components/charts/ChartDateRange";
 import { loadLineChart } from "@/lib/loadLineChart";
 import { utcTimeAxisProps } from "@/lib/chartTimeAxis";
-import { nearestReading, type AnalysisPoint } from "@/lib/stormAnalysis";
+import { nearestReading, OBSERVATION_READOUT_TOLERANCE_MS, type AnalysisPoint } from "@/lib/stormAnalysis";
 import { windBzComparison } from "@/lib/windBzComparison";
 import type { HeliosphericMonitorResponse } from "@/lib/types";
 import type { SolarBriefResponse } from "@/lib/api";
@@ -49,7 +49,7 @@ export default function SolarWindBzComparison({
       const read = (values: (number | null)[]) => nearestReading(
         samples.times.map((time, index): AnalysisPoint => ({ time, value: values[index] ?? null })),
         selectedTime,
-        5 * 60_000,
+        OBSERVATION_READOUT_TOLERANCE_MS,
       );
       return {
         speed: read(samples.speed),
@@ -83,10 +83,10 @@ export default function SolarWindBzComparison({
     <p style={{ fontSize: ".78rem" }}>NOAA SWPC RTSW · speed on the left axis · GSM Bz on the right axis · UTC observation times</p>
     {selectedReadings && selectedTime != null && <p aria-live="polite" style={{ fontSize: ".8rem", margin: "0 0 .45rem" }}>
       Selected {new Date(selectedTime).toISOString().replace("T", " ").slice(0, 16)} UTC
-      {" · "}Speed: {selectedReadings.speed ? `${selectedReadings.speed.value!.toFixed(1)} km/s` : "N/A"}
-      {" · "}Bz: {selectedReadings.bz ? `${selectedReadings.bz.value!.toFixed(2)} nT` : "N/A"}
-      {" · "}Density: {selectedReadings.density ? `${selectedReadings.density.value!.toFixed(2)} cm⁻³` : "N/A"}
-      {" · "}Proton temperature: {selectedReadings.temperature ? `${selectedReadings.temperature.value!.toLocaleString("en-US", { maximumFractionDigits: 0 })} K` : "N/A"}
+      {" · "}Speed: {selectedReadings.speed ? `${selectedReadings.speed.value!.toFixed(1)} km/s at ${new Date(selectedReadings.speed.time).toISOString().slice(11, 16)} UTC` : "N/A"}
+      {" · "}Bz: {selectedReadings.bz ? `${selectedReadings.bz.value!.toFixed(2)} nT at ${new Date(selectedReadings.bz.time).toISOString().slice(11, 16)} UTC` : "N/A"}
+      {" · "}Density: {selectedReadings.density ? `${selectedReadings.density.value!.toFixed(2)} cm⁻³ at ${new Date(selectedReadings.density.time).toISOString().slice(11, 16)} UTC` : "N/A"}
+      {" · "}Proton temperature: {selectedReadings.temperature ? `${selectedReadings.temperature.value!.toLocaleString("en-US", { maximumFractionDigits: 0 })} K at ${new Date(selectedReadings.temperature.time).toISOString().slice(11, 16)} UTC` : "N/A"}
     </p>}
     <LineChart labels={samples.times.map(time => new Date(time).toISOString())} xValues={samples.times} epochMs={samples.times}
       datasets={[
@@ -98,8 +98,8 @@ export default function SolarWindBzComparison({
       preserveSamples toggleableLegend verticalMarkers={markers} onPlotAreaChange={onPlotAreaChange} onPickTime={onPickTime}
       markerReadout={selectedTime != null && selectedReadings ? { x: selectedTime, lines: [
         `${new Date(selectedTime).toISOString().slice(11, 16)} UTC`,
-        `Speed: ${selectedReadings.speed ? selectedReadings.speed.value!.toFixed(1) + " km/s" : "N/A"} · Bz: ${selectedReadings.bz ? selectedReadings.bz.value!.toFixed(2) + " nT" : "N/A"}`,
-        `Density: ${selectedReadings.density ? selectedReadings.density.value!.toFixed(2) + " cm⁻³" : "N/A"} · Temp: ${selectedReadings.temperature ? selectedReadings.temperature.value!.toLocaleString("en-US", { maximumFractionDigits: 0 }) + " K" : "N/A"}`,
+        `Speed: ${selectedReadings.speed ? `${selectedReadings.speed.value!.toFixed(1)} km/s at ${new Date(selectedReadings.speed.time).toISOString().slice(11, 16)} UTC` : "N/A"} · Bz: ${selectedReadings.bz ? `${selectedReadings.bz.value!.toFixed(2)} nT at ${new Date(selectedReadings.bz.time).toISOString().slice(11, 16)} UTC` : "N/A"}`,
+        `Density: ${selectedReadings.density ? `${selectedReadings.density.value!.toFixed(2)} cm⁻³ at ${new Date(selectedReadings.density.time).toISOString().slice(11, 16)} UTC` : "N/A"} · Temp: ${selectedReadings.temperature ? `${selectedReadings.temperature.value!.toLocaleString("en-US", { maximumFractionDigits: 0 })} K at ${new Date(selectedReadings.temperature.time).toISOString().slice(11, 16)} UTC` : "N/A"}`,
       ] } : undefined}
       {...utcTimeAxisProps(domain, { majorHours: 3 })} />
     {unavailable.length > 0 && <p role="status">{unavailable.join(", ")} observations unavailable in this window. Missing data remains empty.</p>}
@@ -107,7 +107,7 @@ export default function SolarWindBzComparison({
     <div style={{ borderTop: "1px solid rgba(148,163,184,.25)", marginTop: "1rem", paddingTop: "1rem" }}>
       <strong>Solar wind density and proton temperature</strong>
       <p style={{ fontSize: ".78rem", margin: ".35rem 0" }}>
-        NOAA SWPC RTSW plasma parameters · density on the left axis · proton temperature on the right axis · UTC observation times
+        NOAA SWPC RTSW and NOAA NCEI SOLAR-1 archive · density on the left axis · proton temperature on the right axis · UTC observation times
       </p>
       {plasmaUnavailable.length > 0 && <p role="status">{plasmaUnavailable.join(", ")} observations unavailable in this window. Missing data remains empty.</p>}
       <LineChart labels={samples.times.map(time => new Date(time).toISOString())} xValues={samples.times} epochMs={samples.times}

@@ -538,7 +538,7 @@ export default function CorsMapWithLayers({
             )}
             {tecLayerActive && (
               <p className="home-map-tec-note">
-                The Zimbabwe CORS Network&apos;s local TEC maps provide information about vertical TEC (VTEC) derived from ground-based GNSS measurements with a latency of not more than 5 minutes and an update rate of 15 minutes.
+                The map shows recent vertical TEC (VTEC) measured by the Zimbabwe CORS network. The collector rotates through Spider-online stations, so each station&apos;s measurement time can differ.
               </p>
             )}
           </div>
