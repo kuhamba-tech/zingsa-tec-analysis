@@ -1048,6 +1048,7 @@ export interface ReceiverBiasResponse {
 }
 
 export interface GfzKpDailyPoint {
+  kp_peak?: number | null;
   date: string;
   kp: number | null;
   kp_mean: number | null;

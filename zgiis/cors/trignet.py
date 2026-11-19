@@ -539,8 +539,6 @@ def start_trignet_tec() -> None:
     threading.Thread(target=_worker, daemon=True, name="trignet-tec").start()
     threading.Thread(target=_start_live_streams, daemon=True, name="trignet-live").start()
     threading.Thread(target=_publish_live_status, daemon=True, name="trignet-publish").start()
-    from zgiis.cors.botswana import start as start_botswana
-    start_botswana()
     from zgiis.cors.west_africa import start as start_west_africa
     start_west_africa()
     from zgiis.cors.earthscope import start as start_earthscope
@@ -706,12 +704,10 @@ def status() -> dict[str, Any]:
             "samples": saved.get("samples") if fresh else 0,
             "gg_samples": gg_result.get("gg_samples", 0) if gg_value is not None else 0,
         })
-    from zgiis.cors.botswana import status as botswana_status
-    botswana = botswana_status(gg_networks)
     from zgiis.cors.west_africa import status as west_africa_status
     from zgiis.cors.earthscope import status as earthscope_status
     from zgiis.cors.magnetic_equator import status as magnetic_equator_status
-    regional = botswana + west_africa_status(gg_networks) + earthscope_status(gg_networks) + magnetic_equator_status(gg_networks)
+    regional = west_africa_status(gg_networks) + earthscope_status(gg_networks) + magnetic_equator_status(gg_networks)
     stations.extend(row for row in regional if row["location_known"])
     ready += sum(row["vtec"] is not None for row in regional)
     gg_ready += sum(row["gg_vtec"] is not None for row in regional)
@@ -743,5 +739,5 @@ def status() -> dict[str, Any]:
         "pytecgg_networks": gg_networks,
         "note": note,
         "stations": stations,
-        "unlocated_stations": [row for row in botswana if not row["location_known"]],
+        "unlocated_stations": [row for row in regional if not row["location_known"]],
     }

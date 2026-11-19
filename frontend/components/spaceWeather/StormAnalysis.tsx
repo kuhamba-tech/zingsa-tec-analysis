@@ -17,7 +17,7 @@ import AnalysisSolarDisk from "./AnalysisSolarDisk";
 import SolarActivityLevels from "./SolarActivityLevels";
 import flareTable from "./FlareActivityTable.module.css";
 import styles from "./StormAnalysis.module.css";
-import { buildNetworkMeanVtecSeries, nearestReading, OBSERVATION_READOUT_TOLERANCE_MS, referenceTec, type AnalysisPoint } from "@/lib/stormAnalysis";
+import { buildNetworkMeanVtecSeries, mergeStationVtecHistory, nearestReading, OBSERVATION_READOUT_TOLERANCE_MS, referenceTec, type AnalysisPoint } from "@/lib/stormAnalysis";
 import type { HeliosphericMonitorResponse, LiveStationVtecSeries } from "@/lib/types";
 
 const LineChart = dynamic(() => loadLineChart().then(module => module.default), { ssr: false });
@@ -278,24 +278,26 @@ export default function StormAnalysis({
   useEffect(() => {
     let cancelled = false;
     setRows([]); setTecError(null); setLoading(true);
+    const dayList = Array.from({ length: days }, (_, index) => new Date(domain.min + index * 86400000).toISOString().slice(0, 10)).reverse();
+    const history = new Map<string, LiveStationVtecSeries[]>();
     const load = async () => {
-      try {
-        const dayList = Array.from({ length: days }, (_, index) => new Date(domain.min + index * 86400000).toISOString().slice(0, 10));
-        // Sequential daily requests avoid saturating the archive connection pool.
-        const result: LiveStationVtecSeries[] = [];
-        for (const day of dayList) {
-          const daily = await getLiveVtecByStation(24, 15, 90000, day);
-          if (cancelled) return;
-          result.push(...daily);
+      const pending: string[] = [];
+      // Load the latest day first and publish each day as it arrives.
+      for (const day of dayList) {
+        const daily = await getLiveVtecByStation(24, 15, 90000, day).catch(() => []);
+        if (cancelled) return;
+        if (daily.some(row => row.points.length)) {
+          history.set(day, mergeStationVtecHistory(history.get(day) ?? [], daily, 15));
+          setRows([...history.values()].flat());
+          setLoading(false);
+        } else {
+          pending.push(day);
         }
-        if (!cancelled) {
-          setRows(result);
-          setTecError(result.length ? null : "No station TEC history is available for this window.");
-        }
-      } catch { if (!cancelled) setTecError("Station TEC history could not be loaded; retry by changing the window or station."); }
-      finally { if (!cancelled) setLoading(false); }
+      }
+      setLoading(false);
+      setTecError(pending.length ? `Station TEC archive is missing or temporarily unavailable for ${pending.join(", ")} UTC. Retrying automatically.` : null);
     };
-    const stop = startVisiblePolling(load, 5 * 60_000);
+    const stop = startVisiblePolling(load, 60_000);
     return () => { cancelled = true; stop(); };
   }, [domain.min, days]);
 
@@ -426,7 +428,7 @@ export default function StormAnalysis({
     </label></details>
     <p>Drag the continuous pink line or its arrow to move the marker through the shared UTC timeline. Focus the line and use the arrow keys for fine adjustment. The regional daily TEC chart plots all measured days in the window by default.</p>
     <div style={{ marginBottom: "1rem" }}>
-      <SolarFlareMonthChart />
+      <SolarFlareMonthChart showDailyStorms />
     </div>
     <p style={{ fontSize: ".8rem" }}>
       {flarePeaks.length ? "Red lines mark cataloged M/X flare peaks across the Analysis graphs." : "No cataloged M/X flare peaks in this window."}
@@ -529,7 +531,7 @@ export default function StormAnalysis({
       const networkIndexes = sorted.map(point => networkMeanIndex.get(point.time));
       const datasets = isNetworkMean
         ? [
-            { label: "Observed", data: sorted.map(point => point.value), color: "#00ff88", fill: true, borderWidth: 2.5, spanGaps: true, tension: 0 },
+            { label: "Observed", data: sorted.map(point => point.value), color: "#00ff88", fill: true, borderWidth: 2.5, spanGaps: 15 * 60_000, tension: 0 },
             ...(networkEkfReady
               ? [{
                   label: "EKF Predicted",
@@ -538,7 +540,7 @@ export default function StormAnalysis({
                   dashed: true,
                   fill: false,
                   borderWidth: 2,
-                  spanGaps: false,
+                  spanGaps: 15 * 60_000,
                   tension: 0,
                   meta: networkIndexes.map(index => index == null ? null : networkEkf.meta[index]),
                 }]
@@ -559,6 +561,9 @@ export default function StormAnalysis({
           <ZimbabweMeanDiurnalTec embedded analysisDomain={domain} analysisDay={endDay} onPlotAreaChange={plotLayout.reporters.regionalTec} />
         </div>}
         <strong>{panel.title}</strong> · {reading ? `${reading.value!.toFixed(1)} ${panel.unit.match(/\((.*)\)/)?.[1] ?? ""} at ${new Date(reading.time).toISOString()}` : "No observation near the marker"}
+        {isNetworkMean && sorted.length > 0 && <p style={{ fontSize: ".8rem" }}>
+          Latest observed UTC bin {new Date(sorted[sorted.length - 1].time).toISOString().slice(0, 16).replace("T", " ")}. Incoming readings are added automatically.
+        </p>}
         {panel.plot === "delta" && <p style={{ fontSize: ".8rem" }}>
           {referenceDay ? `Single-day override · ${referenceDay} UTC`
             : quietDays.length ? `Quiet reference dates (UTC) · ${quietDays.join(", ")}`

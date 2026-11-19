@@ -727,7 +727,8 @@ async def live_vtec_by_station(
     if selected_stations is not None:
         cache_key = (*cache_key, selected_stations)
     now = time.time()
-    cache_ttl = 300.0 if (selected_day or hours >= 48) else _VTEC_BY_STATION_CACHE_TTL_S
+    today_utc = datetime.now(tz=timezone.utc).date().isoformat()
+    cache_ttl = 300.0 if (selected_day and selected_day < today_utc) or (not selected_day and hours >= 48) else _VTEC_BY_STATION_CACHE_TTL_S
     cached = _VTEC_BY_STATION_CACHE.get(cache_key)
     if cached and (now - cached[0]) < cache_ttl:
         return cached[1]
@@ -865,13 +866,12 @@ def _build_live_vtec_by_station(
         import json
         from pathlib import Path
         from types import SimpleNamespace
-        from zgiis.cors.botswana import SITES as botswana_sites
         from zgiis.cors.west_africa import SITES as west_africa_sites
         from zgiis.cors.earthscope import SITES as earthscope_sites
         from zgiis.cors.magnetic_equator import SITES as magnetic_equator_sites
 
         source = Path(__file__).resolve().parents[2] / "frontend/lib/southAfricaCorsCatalog.json"
-        regional = json.loads(source.read_text()) + botswana_sites + west_africa_sites + earthscope_sites + magnetic_equator_sites
+        regional = json.loads(source.read_text()) + west_africa_sites + earthscope_sites + magnetic_equator_sites
         for site in regional:
             code = str(site["code"]).lower().rstrip("_")
             catalog.setdefault(code, SimpleNamespace(name=site["name"]))

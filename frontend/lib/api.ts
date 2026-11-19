@@ -1405,8 +1405,8 @@ export function getIonoVtecPair(force = false): Promise<IonoVtecPairResponse> {
     }));
 }
 
-export const getGfzKpAnalysis = (start: string, end: string, station?: string) =>
-  get<GfzKpAnalysisResponse>("/tec/gfz-kp-analysis", { start, end, station, _ts: Date.now() }, ANALYSIS_TIMEOUT_MS);
+export const getGfzKpAnalysis = (start: string, end: string, station?: string, includeVtec = true) =>
+  get<GfzKpAnalysisResponse>("/tec/gfz-kp-analysis", { start, end, station, include_vtec: includeVtec ? undefined : "false", _ts: Date.now() }, ANALYSIS_TIMEOUT_MS);
 export const getWdcKyotoAnalysis = (start: string, end: string, station?: string) =>
   get<WdcKyotoAnalysisResponse>("/tec/wdc-kyoto-analysis", { start, end, station, _ts: Date.now() }, ANALYSIS_TIMEOUT_MS);
 export const getTrigNet = () =>

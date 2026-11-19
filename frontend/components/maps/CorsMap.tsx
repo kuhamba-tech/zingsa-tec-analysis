@@ -59,7 +59,6 @@ const GEOMAGNETIC_CENTER: [number, number] = [0, 0];
 const GEOMAGNETIC_ZOOM = 2;
 const GEOMAGNETIC_LABEL_OFFSETS: Record<string, { x: number; y: number; align: "left" | "center" | "right" }> = {
   gutu: { x: 0, y: -16, align: "center" },
-  ghanzibw1: { x: -12, y: -16, align: "right" },
   kstd: { x: 0, y: 20, align: "center" },
   simo: { x: -18, y: -16, align: "right" },
   herg: { x: 18, y: -32, align: "left" },
@@ -262,8 +261,7 @@ function formatDualTecLabel(code: string, gopi: number | null, gg: number | null
 
 function formatGeomagneticLabel(code: string, gopi: number | null, gg: number | null = null): string {
   const key = code.toLowerCase().replace(/_+$/, "");
-  // Keep station identity distinct from the highlighted Gutu station.
-  const id = key === "ghanzibw1" ? "GHANZI · BOTSWANA" : key === "zinh" ? "HARARE" : code.toUpperCase();
+  const id = key === "zinh" ? "HARARE" : code.toUpperCase();
   if (key === "kstd" && gg != null) return `${id} Gg ${gg.toFixed(1)}`;
   if (["simo", "herg", "hnus"].includes(key)) {
     return [id, gopi != null ? `G ${gopi.toFixed(1)}` : null, gg != null ? `Gg ${gg.toFixed(1)}` : null].filter(Boolean).join("\n");

@@ -275,7 +275,7 @@ export default function CorsMapWithLayers({
         constellations: row.constellations,
         current_tec: reading?.value ?? null,
         tec_provisional: reading?.provisional ?? false,
-        site_server: row.network?.startsWith("earthscope_") ? "EarthScope" : row.network?.startsWith("igs_") ? "IGS" : row.country === "BWA" ? "RTK2go" : row.country === "SEN" ? "Centipede" : row.country === "GHA" ? "IGS" : row.stream_configured ? "SANSA" : "TrigNet",
+        site_server: row.network?.startsWith("earthscope_") ? "EarthScope" : row.network?.startsWith("igs_") ? "IGS" : row.country === "SEN" ? "Centipede" : row.country === "GHA" ? "IGS" : row.stream_configured ? "SANSA" : "TrigNet",
         last_update: reading?.observedAt,
         height_m: null,
         mountpoint: row.mountpoint,
@@ -298,7 +298,7 @@ export default function CorsMapWithLayers({
 
   const geomagneticStations = useMemo(() => {
     const partnerCodes = new Set(trignetRows
-      .filter(row => row.network?.startsWith("earthscope_") || row.network?.startsWith("igs_") || row.country === "SEN" || row.country === "BWA" || ["kstd", "simo", "herg", "hnus"].includes(stationCodeKey(row.code)))
+      .filter(row => row.network?.startsWith("earthscope_") || row.network?.startsWith("igs_") || row.country === "SEN" || ["kstd", "simo", "herg", "hnus"].includes(stationCodeKey(row.code)))
       .map(row => stationCodeKey(row.code)));
     const combined = new Map(stations
       .filter(station => stationCodeKey(station.code) === "gutu")
@@ -405,7 +405,6 @@ export default function CorsMapWithLayers({
     return [
       { title: "Zimbabwe CORS", country: "ZWE" },
       { title: "South Africa · TrigNet / SANSA CORS", country: "ZAF" },
-      { title: "Botswana · RTK2go CORS", country: "BWA" },
       { title: "Senegal · Centipede CORS", country: "SEN" },
       { title: "Ghana · IGS CORS", country: "GHA" },
       { title: "Rwanda · EarthScope low-latitude CORS", country: "RWA" },
@@ -744,7 +743,7 @@ export default function CorsMapWithLayers({
               </>
             )}
             <div className="map-status-note" style={{ fontSize: "0.62rem", fontWeight: 400, color: "var(--text-muted)", marginTop: "0.15rem", maxWidth: "210px" }}>
-              {trignetActive ? "Partner network green markers have recent RTCM data or fresh TEC. Grey-blue markers have no recent measurements. Connections rotate across the configured sites. Zimbabwe status comes from Spider. " : geomagneticLayerActive ? "Zimbabwe: Spider Site Status. Senegal and Botswana: live NTRIP." : "Live from Spider Site Status"}
+              {trignetActive ? "Partner network green markers have recent RTCM data or fresh TEC. Grey-blue markers have no recent measurements. Connections rotate across the configured sites. Zimbabwe status comes from Spider. " : geomagneticLayerActive ? "Zimbabwe: Spider Site Status. Partner networks: live NTRIP." : "Live from Spider Site Status"}
               {displayedCounts.online + displayedCounts.offline > 0
                 ? ` (Status=${displayedCounts.online} online)`
                 : ""}
@@ -828,21 +827,6 @@ export default function CorsMapWithLayers({
           <p>Senegal uses the public Centipede login. Ghana requires an IGS account; the RTK2go email alone does not grant access.</p>
         </section>
       )}
-      {trignetActive && (
-        <section className="card" aria-label="Botswana RTK2go stations" style={{ marginTop: "1rem", padding: "1rem" }}>
-          <h3>Botswana · RTK2go</h3>
-          <p>rtk2go.com:2101 · NTRIP V1 · Username: your valid email · Password: none</p>
-          <ul>
-            {[{ mount: "GHANZIBW1", location: "Ghanzi · −21.74000, 21.70000" },
-              { mount: "SurveyWorldBotswana", location: "Coordinates unknown · not plotted on the map; TEC needs receiver coordinates" }].map(site => {
-              const row = [...(trignet?.stations ?? []), ...(trignet?.unlocated_stations ?? [])].find(row => row.mountpoint === site.mount);
-              const state = row?.streaming ? "Streaming" : row?.connected ? "Connected; waiting for observations" : row?.stream_configured ? "Connecting" : "Waiting for RTK2go email configuration";
-              return <li key={site.mount}><strong>{site.mount}</strong> — {site.location} · {state}</li>;
-            })}
-          </ul>
-        </section>
-      )}
-
       {trignetActive && (
         <div className="home-live-tec-below" aria-live="polite">
           <div className="home-live-tec-below-label">

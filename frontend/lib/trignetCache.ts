@@ -1,6 +1,6 @@
 import type { TrigNetResponse } from "./types";
 
-const KEY = "zgiis-trignet-v1";
+const KEY = "zgiis-trignet-v2";
 
 export function createTrigNetCache(persist = false) {
   let cached: { payload: TrigNetResponse; at: number } | null = null;

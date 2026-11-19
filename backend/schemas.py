@@ -950,6 +950,7 @@ class CelestrakAnalysisResponse(BaseModel):
 
 
 class GfzKpDailyPoint(BaseModel):
+    kp_peak: float | None = None
     date: str
     kp: float | None = None
     kp_mean: float | None = None

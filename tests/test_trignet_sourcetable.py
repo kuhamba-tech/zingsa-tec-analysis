@@ -126,8 +126,8 @@ def test_station_response_does_not_wait_for_rinex_ftp(monkeypatch):
     monkeypatch.setattr(trignet, "_DAY", {"at": 0.0, "day": None})
     monkeypatch.setattr(trignet, "latest_rinex_day", lambda: (_ for _ in ()).throw(AssertionError("FTP must stay in background")))
     payload = trignet.status()
-    assert payload["station_count"] == 31  # Includes five equatorial IGS and twenty EarthScope sites.
-    assert payload["unlocated_stations"][0]["mountpoint"] == "SurveyWorldBotswana"
+    assert payload["station_count"] == 30  # Includes five equatorial IGS and twenty EarthScope sites.
+    assert not any(row["country"] == "BWA" for row in payload["stations"] + payload["unlocated_stations"])
     assert payload["rinex_day"] is None
     assert "password" not in payload and "username" not in payload
 
@@ -233,6 +233,24 @@ def test_stopped_collector_expires_online_status_and_tec():
     assert expire_snapshot(original, 100, now=300)["stations"][0]["raw_code_vtec"] is None
     assert expire_snapshot(original, 100, now=300)["stations"][0]["raw_code_vtec_time"] is None
     assert original["stations"][0]["streaming"]
+
+
+def test_old_collector_snapshot_excludes_botswana():
+    from zgiis.cors.trignet_store import expire_snapshot
+
+    snapshot = {
+        "station_count": 2,
+        "stations": [{"code": "TDOU", "vtec": 20}, {"code": "GHANZIBW1", "country": "BWA", "vtec": 25}],
+        "unlocated_stations": [{"code": "SurveyWorldBotswana", "network": "botswana", "gg_vtec": 24}],
+        "pytecgg_networks": {"botswana": {}, "trignet": {}},
+    }
+    fresh = expire_snapshot(snapshot, 100, now=150)
+    assert fresh["station_count"] == fresh["tec_ready"] == 1
+    assert fresh["gg_ready"] == 0
+    assert fresh["unlocated_stations"] == []
+    assert fresh["pytecgg_networks"] == {"trignet": {}}
+    for now in (150, 200, 300):
+        assert [row["code"] for row in expire_snapshot(snapshot, 100, now=now)["stations"]] == ["TDOU"]
 
 
 def test_vercel_warmup_does_not_start_collector(monkeypatch):

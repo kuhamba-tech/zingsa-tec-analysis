@@ -5,6 +5,20 @@ export type StationVtecHistory = {
   points: { time: string; vtec_tecu: number }[];
 };
 
+/** Keep observed bins through partial refreshes, replacing bins returned again. */
+export function mergeStationVtecHistory<T extends StationVtecHistory>(previous: T[], incoming: T[], binMinutes: number): T[] {
+  const stations = new Map(previous.map(row => [row.station, row]));
+  const step = binMinutes * 60_000;
+  for (const row of incoming) {
+    if (!row.points.length) continue;
+    const oldPoints = stations.get(row.station)?.points ?? [];
+    const points = new Map(oldPoints.map(point => [Math.floor(Date.parse(point.time) / step), point]));
+    for (const point of row.points) points.set(Math.floor(Date.parse(point.time) / step), point);
+    stations.set(row.station, { ...row, points: [...points.entries()].sort(([a], [b]) => a - b).map(([, point]) => point) });
+  }
+  return [...stations.values()];
+}
+
 /** Build equal-weight 15-minute means from observed station-bin values only. */
 export function buildNetworkMeanVtecSeries(
   series: StationVtecHistory[],

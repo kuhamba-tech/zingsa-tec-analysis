@@ -62,8 +62,26 @@ def expire_snapshot(payload: dict, saved_at: float, now: float | None = None) ->
     """Keep site locations when a collector stops, but never stale online flags."""
     age = max(0.0, (time.time() if now is None else now) - saved_at)
     result = {**payload, "collector_age_s": round(age), "from_collector": True}
+    # Older collectors can still publish Botswana entries during rollout.
+    removed_stations = False
+    for key in ("stations", "unlocated_stations"):
+        rows = payload.get(key, [])
+        kept = [row for row in rows if row.get("country") != "BWA" and row.get("network") != "botswana"]
+        if len(kept) != len(rows):
+            removed_stations = True
+            result[key] = kept
+            if key == "stations":
+                result["station_count"] = len(kept)
+    if "botswana" in payload.get("pytecgg_networks", {}):
+        result["pytecgg_networks"] = {
+            name: data for name, data in payload["pytecgg_networks"].items() if name != "botswana"
+        }
+    if removed_stations:
+        rows = result.get("stations", []) + result.get("unlocated_stations", [])
+        result["tec_ready"] = sum(row.get("vtec") is not None for row in rows)
+        result["gg_ready"] = sum(row.get("gg_vtec") is not None for row in rows)
     if age > 90:
-        result["stations"] = [{**r, "connected": False, "streaming": False} for r in payload.get("stations", [])]
+        result["stations"] = [{**r, "connected": False, "streaming": False} for r in result.get("stations", [])]
     if age > 180:
         result["stations"] = [{**r, "vtec": None, "gg_vtec": None, "vtec_time": None,
                                "gg_time": None, "gg_veq": None, "gg_status": "collector_snapshot_expired",

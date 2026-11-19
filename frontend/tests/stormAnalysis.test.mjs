@@ -1,8 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildNetworkMeanVtecSeries, referenceTec, nearestReading } from "../lib/stormAnalysis.ts";
+import { buildNetworkMeanVtecSeries, mergeStationVtecHistory, referenceTec, nearestReading } from "../lib/stormAnalysis.ts";
 
 const day = Date.parse("2026-11-18T00:00:00Z");
+test("daily station refresh retains missing bins and replaces updated observations without double counting", () => {
+  const point = (minutes, value) => ({ time: new Date(day + minutes * 60_000).toISOString(), vtec_tecu: value });
+  const previous = [{ station: "a", points: [point(2, 10), point(16, 20)] }, { station: "b", points: [point(3, 30)] }];
+  const updated = mergeStationVtecHistory(previous, [{ station: "a", points: [point(4, 15), point(30, 40)] }, { station: "b", points: [] }], 15);
+  assert.deepEqual(updated, [{ station: "a", points: [point(4, 15), point(16, 20), point(30, 40)] }, previous[1]]);
+  assert.deepEqual(mergeStationVtecHistory(updated, [], 15), updated);
+});
 test("network mean equally weights station bins and leaves missing bins empty", () => {
   const point = (minutes, value) => ({
     time: new Date(day + minutes * 60_000).toISOString(),

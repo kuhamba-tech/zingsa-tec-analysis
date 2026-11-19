@@ -267,6 +267,7 @@ def gfz_kp_analysis(
     start: str = Query(..., description="Start date YYYY-MM-DD"),
     end: str = Query(..., description="End date YYYY-MM-DD"),
     station: str | None = Query(None),
+    include_vtec: bool = True,
     _=Depends(require_api_key),
 ):
     """Fetch GFZ Potsdam Kp/ap/Ap/SN/F10.7 (TXT since-1932 + nowcast) and correlate with archived VTEC."""
@@ -285,7 +286,7 @@ def gfz_kp_analysis(
         from fastapi import HTTPException
         raise HTTPException(status_code=502, detail=f"GFZ Kp fetch failed: {exc}") from exc
 
-    vtec_by_date = _vtec_by_date(start, end, station)
+    vtec_by_date = _vtec_by_date(start, end, station) if include_vtec else None
     payload = build_gfz_analysis(rows, vtec_by_date)
     return GfzKpAnalysisResponse(**payload)
 

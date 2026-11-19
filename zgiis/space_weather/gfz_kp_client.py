@@ -220,6 +220,7 @@ def parse_gfz_kp_txt(text: str) -> dict[str, dict[str, Any]]:
         out[day] = {
             "date": day,
             "kp": kp_max,
+            "kp_peak": max(kp_ok) if kp_ok else None,
             "kp_mean": kp_mean,
             "kp_3h": [round(k, 3) if _valid_kp(k) else None for k in kps],
             "ap": ap_mean,
@@ -278,7 +279,9 @@ def _series_by_day(payload: dict[str, Any], index: str) -> dict[str, list[float]
         if v is None:
             continue
         try:
-            by_day[str(t)[:10]].append(float(v))
+            value = float(v)
+            if index != "Kp" or 0 <= value <= 9:
+                by_day[str(t)[:10]].append(value)
         except (TypeError, ValueError):
             continue
     return by_day
@@ -324,6 +327,7 @@ def _fetch_gfz_daily_json(start: date, end: date, *, timeout: int = 60) -> list[
             {
                 "date": day,
                 "kp": kp_max,
+                "kp_peak": max(kp_vals) if kp_vals else None,
                 "kp_mean": kp_mean,
                 "ap": ap_mean,
                 "ap_daily": ap_day,
