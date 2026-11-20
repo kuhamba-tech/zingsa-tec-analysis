@@ -265,16 +265,20 @@ export default function ZimbabweMeanDiurnalTec({
   embedded = false,
   analysisDomain,
   analysisDay,
+  analysisRows,
   onPlotAreaChange,
 }: {
   /** Hide the outer title when the parent panel already names the chart. */
   embedded?: boolean;
   analysisDomain?: { min: number; max: number };
   analysisDay?: string;
+  analysisRows?: LiveStationVtecSeries[] | null;
   onPlotAreaChange?: PlotAreaReporter;
 } = {}) {
   const calendar=useContext(ChartDateRangeContext);
-  const [rows, setRows] = useState<LiveStationVtecSeries[] | null>(null);
+  const [localRows, setRows] = useState<LiveStationVtecSeries[] | null>(null);
+  const usesAnalysisRows = analysisRows !== undefined;
+  const rows = usesAnalysisRows ? analysisRows : localRows;
   const [globalRows, setGlobalRows] = useState<LiveStationVtecSeries[] | null>(null);
   const [failed, setFailed] = useState(false);
   const [refresh, setRefresh] = useState(0);
@@ -289,31 +293,35 @@ export default function ZimbabweMeanDiurnalTec({
 
   useEffect(() => {
     let cancelled = false;
-    setRefreshing(true);
-    loadRegionalDailyRows(() => cancelled, refresh > 0)
-      .then((payload) => {
-        if (cancelled || payload == null) return;
-        if (!seriesHasSamples(payload)) { setFailed(true); return; }
-        setRows(current => {
-          if (!current || refresh === 0) return payload;
-          const merged = new Map(current.map(row => [row.station, row]));
-          const cutoff = Date.now() - 8 * 86400000;
-          for (const row of payload) {
-            const previous = merged.get(row.station);
-            const points = new Map((previous?.points ?? []).map(point => [point.time, point]));
-            for (const point of row.points) points.set(point.time, point);
-            merged.set(row.station, { ...row, points: [...points.values()]
-              .filter(point => Date.parse(point.time) >= cutoff)
-              .sort((a, b) => a.time.localeCompare(b.time)) });
-          }
-          return [...merged.values()];
-        });
-        setFailed(false);
-      })
-      .catch(() => {
-        if (!cancelled) setFailed(true);
-      })
-      .finally(() => { if (!cancelled) setRefreshing(false); });
+    if (!usesAnalysisRows) {
+      setRefreshing(true);
+      loadRegionalDailyRows(() => cancelled, refresh > 0)
+        .then((payload) => {
+          if (cancelled || payload == null) return;
+          if (!seriesHasSamples(payload)) { setFailed(true); return; }
+          setRows(current => {
+            if (!current || refresh === 0) return payload;
+            const merged = new Map(current.map(row => [row.station, row]));
+            const cutoff = Date.now() - 8 * 86400000;
+            for (const row of payload) {
+              const previous = merged.get(row.station);
+              const points = new Map((previous?.points ?? []).map(point => [point.time, point]));
+              for (const point of row.points) points.set(point.time, point);
+              merged.set(row.station, { ...row, points: [...points.values()]
+                .filter(point => Date.parse(point.time) >= cutoff)
+                .sort((a, b) => a.time.localeCompare(b.time)) });
+            }
+            return [...merged.values()];
+          });
+          setFailed(false);
+        })
+        .catch(() => {
+          if (!cancelled) setFailed(true);
+        })
+        .finally(() => { if (!cancelled) setRefreshing(false); });
+    } else {
+      setRefreshing(false);
+    }
     const applyGlobal = (payload: Parameters<typeof globalRowsFromPayload>[0]) => {
       const incoming = globalRowsFromPayload(payload);
       if (!incoming.length) return;
@@ -357,7 +365,7 @@ export default function ZimbabweMeanDiurnalTec({
     return () => {
       cancelled = true;
     };
-  }, [refresh]);
+  }, [refresh, usesAnalysisRows]);
 
   useEffect(() => {
     if (refreshing) return;
@@ -592,11 +600,11 @@ export default function ZimbabweMeanDiurnalTec({
         </p>
       )}
       <div className="sw-supporting-text" role="status" style={{ marginBottom: "0.75rem" }}>
-        Latest measured sample: {latestObservation ?? "not yet available"}. Auto-refresh every 90 seconds; curves show hourly means.
-        <button type="button" className="btn btn-secondary" disabled={refreshing} onClick={() => setRefresh(value => value + 1)} style={{ marginLeft: "0.5rem" }}>
+        Latest measured sample: {latestObservation ?? "not yet available"}. {usesAnalysisRows ? "Updates as Analysis loads archive days." : "Auto-refresh every 90 seconds."} Curves show hourly means.
+        {!usesAnalysisRows && <button type="button" className="btn btn-secondary" disabled={refreshing} onClick={() => setRefresh(value => value + 1)} style={{ marginLeft: "0.5rem" }}>
           {refreshing ? "Refreshing..." : "Refresh TEC"}
-        </button>
-        {failed && " Refresh could not retrieve new measurements; retained observations are shown."}
+        </button>}
+        {!usesAnalysisRows && failed && " Refresh could not retrieve new measurements; retained observations are shown."}
       </div>
       {(days.length > 0 || analysisDomain != null) && (
         <div className="station-vtec-plots-controls">
@@ -670,13 +678,13 @@ export default function ZimbabweMeanDiurnalTec({
           </div>
         </div>
       )}
-      {failed && (
+      {!usesAnalysisRows && failed && (
         <p className="station-vtec-plots-sub">The regional daily TEC graph could not be loaded.</p>
       )}
-      {!failed && rows == null && (
+      {(usesAnalysisRows || !failed) && rows == null && (
         <p className="station-vtec-plots-sub">Loading measured TEC for the regional daily mean.</p>
       )}
-      {!failed && stats && !hasSamples && (
+      {(usesAnalysisRows || !failed) && stats && !hasSamples && (
         <p className="station-vtec-plots-sub">
           {region == null
             ? "Select All regions or one region to display the TEC graph."

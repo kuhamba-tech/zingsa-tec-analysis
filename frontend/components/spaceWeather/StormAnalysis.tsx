@@ -308,14 +308,15 @@ export default function StormAnalysis({
   useEffect(() => {
     let active = true;
     setStationRows([]);
+    const byDay = new Map<string, LiveStationVtecSeries[]>();
     const stop = startVisiblePolling(async () => {
-      const history: LiveStationVtecSeries[] = [];
-      for (let index = 0; index < days && active; index++) {
+      for (let index = days - 1; index >= 0 && active; index--) {
         const day = new Date(domain.min + index * 86400000).toISOString().slice(0, 10);
         const daily = await getLiveVtecByStation(24, 15, 90000, day, [station]).catch(() => []);
-        history.push(...daily);
+        if (!active || !daily.some(row => row.points.length)) continue;
+        byDay.set(day, mergeStationVtecHistory(byDay.get(day) ?? [], daily, 15));
+        setStationRows([...byDay.values()].flat());
       }
-      if (active) setStationRows(history);
     }, 5 * 60_000);
     return () => { active = false; stop(); };
   }, [domain.min, days, station]);
@@ -417,7 +418,7 @@ export default function StormAnalysis({
     <h2>Analysis · Sun–Earth–ionosphere</h2>
     <div className={styles.controls}>
       <label>End UTC day <input type="date" value={endDay} max={today} onChange={event => changeEndDay(event.target.value)} /></label>
-      <label>Window <select value={days} onChange={event => setDays(Number(event.target.value))}>{[1, 3, 7].map(value => <option key={value} value={value}>{value} day(s)</option>)}</select></label>
+      <label>Window <select value={days} onChange={event => setDays(Number(event.target.value))}>{[1, 3, 7].map(value => <option key={value} value={value}>{value} day(s)</option>)}<option value={30}>1 month</option></select></label>
       <label>Station code <input value={station} maxLength={12} onChange={event => setStation(event.target.value.replace(/[^a-zA-Z0-9_]/g, "").toLowerCase())} /></label>
       <label>Reference UTC day override <input type="date" value={referenceDay} max={today} onChange={event => setReferenceDay(event.target.value)} /></label>
       <button type="button" className="btn" onClick={() => setReferenceDay("")}>Use five quiet days</button>
@@ -566,7 +567,7 @@ export default function StormAnalysis({
       return <div key={panel.title} style={{ marginTop: "1rem" }}>
         {panel.title === "Relative VTEC difference" && <div style={{ marginBottom: "1.25rem" }}>
           <strong>Mean daily TEC — northern, central and southern Zimbabwe</strong>
-          <ZimbabweMeanDiurnalTec embedded analysisDomain={domain} analysisDay={endDay} onPlotAreaChange={plotLayout.reporters.regionalTec} />
+          <ZimbabweMeanDiurnalTec embedded analysisDomain={domain} analysisDay={endDay} analysisRows={days === 30 ? (loading ? null : rows) : undefined} onPlotAreaChange={plotLayout.reporters.regionalTec} />
         </div>}
         <strong>{panel.title}</strong> · {reading ? `${reading.value!.toFixed(1)} ${panel.unit.match(/\((.*)\)/)?.[1] ?? ""} at ${new Date(reading.time).toISOString()}` : "No observation near the marker"}
         {isNetworkMean && sorted.length > 0 && <p style={{ fontSize: ".8rem" }}>

@@ -12,9 +12,6 @@ import { trigNetTecReading } from "@/lib/trignetTec";
 import { startVisiblePolling } from "@/lib/visiblePolling";
 import { trignetCache } from "@/lib/trignetCache";
 import { TRIGNET_CATALOG } from "@/lib/trignetCatalog";
-import westAfricaCatalog from "@/lib/westAfricaCorsCatalog.json";
-import earthscopeCatalog from "@/lib/earthscopeCorsCatalog.json";
-import magneticEquatorCatalog from "@/lib/magneticEquatorCorsCatalog.json";
 import { freshPytecggReading } from "@/lib/pytecggReading";
 import { heatmapQualityBanner, icaoTecLabel, icaoTecLevel, inferHeatmapQuality } from "@/lib/icaoTecAdvisory";
 import type { ProposedCorsSite } from "@/lib/corsGeneticOptimizer";
@@ -791,48 +788,6 @@ export default function CorsMapWithLayers({
       )}
       {geomagneticLayerActive && (
         <GeomagneticCorsTable stations={geomagneticStations} heatmap={heatmap} />
-      )}
-      {trignetActive && (
-        <section className="card" aria-label="Magnetic-equator IGS stations" style={{ marginTop: "1rem", padding: "1rem" }}>
-          <h3>IGS · Near the magnetic equator</h3>
-          <ul>
-            {magneticEquatorCatalog.map(site => {
-              const row = trignet?.stations.find(row => row.mountpoint === site.mountpoint);
-              const state = row?.streaming ? "Streaming" : row?.connected ? "Connected; waiting for observations" : row?.stream_configured ? "Connecting" : "IGS NTRIP credentials required";
-              return <li key={site.code}><strong>{site.name} · {site.mountpoint}</strong> — {state}</li>;
-            })}
-          </ul>
-          <p>These sites lie within approximately 2° of the magnetic equator in the app’s IGRF model. IGS access is separate from EarthScope.</p>
-        </section>
-      )}
-      {trignetActive && (
-        <section className="card" aria-label="EarthScope stations" style={{ marginTop: "1rem", padding: "1rem" }}>
-          <h3>EarthScope · Equatorial and mid-latitude sites</h3>
-          <p>BYAH and RUBO: low magnetic latitude, near the southern anomaly crest. ACSB and AGMT: magnetic mid-latitudes.</p>
-          <p>PCCL, FBAQ, IQQE and GTA1 in Chile share Zimbabwe’s geographic-latitude range; their magnetic latitudes differ.</p>
-          <p>ISCO, CN46, CN64 and CN47 sample the northern EIA crest region, around +15° to +17° magnetic latitude.</p>
-          <ul>
-            {earthscopeCatalog.map(site => {
-              const row = trignet?.stations.find(row => row.mountpoint === site.mountpoint);
-              const state = row?.streaming ? "Streaming" : row?.connected ? "Connected; waiting for observations" : row?.stream_configured ? "Connecting" : "EarthScope NTRIP credentials required";
-              return <li key={site.code}><strong>{site.name} · {site.mountpoint}</strong> — {state}</li>;
-            })}
-          </ul>
-          <p>Listed locations do not indicate a live connection. TEC appears only after suitable observations arrive.</p>
-        </section>
-      )}
-      {trignetActive && (
-        <section className="card" aria-label="Senegal and Ghana stations" style={{ marginTop: "1rem", padding: "1rem" }}>
-          <h3>Senegal and Ghana</h3>
-          <ul>
-            {westAfricaCatalog.map(site => {
-              const row = trignet?.stations.find(row => row.mountpoint === site.mountpoint);
-              const state = row?.streaming ? "Streaming" : row?.connected ? "Connected; waiting for observations" : row?.stream_configured ? "Connecting" : site.country === "SEN" ? "Connecting to public Centipede stream" : "IGS account credentials required";
-              return <li key={site.code}><strong>{site.name} · {site.mountpoint}</strong> — {site.caster_host}:{site.caster_port} · {state}</li>;
-            })}
-          </ul>
-          <p>Senegal uses the public Centipede login. Ghana requires an IGS account; the RTK2go email alone does not grant access.</p>
-        </section>
       )}
       {trignetActive && (
         <div className="home-live-tec-below" aria-live="polite">

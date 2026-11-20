@@ -137,6 +137,15 @@ export function utcTimeAxisProps(
 } {
   if (!domain) return {};
   const rangeHours = opts.rangeHours ?? (domain.max - domain.min) / ONE_H_MS;
+  if (rangeHours > 14 * 24) {
+    const step = 24 * ONE_H_MS;
+    const labelEvery = Math.ceil(rangeHours / (24 * 12)) * step;
+    return {
+      xMin: domain.min, xMax: domain.max, xStepSize: step, xMajorStepMs: labelEvery,
+      formatXTick: ms => ms === domain.min || ms === domain.max || ms % labelEvery === 0 ? formatUtcDayShort(ms) : "",
+      xLabel: "UTC",
+    };
+  }
   const majorHours =
     opts.majorHours ?? (rangeHours <= 8 ? 1 : rangeHours <= 36 ? 6 : 6);
   const majorMs = majorHours * ONE_H_MS;
