@@ -1265,6 +1265,7 @@ export default function SpaceWeatherClient({
       {tab === 3 && (
         <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
           <StormAnalysis
+            solar={sa}
             xrayTimeline={xrayTimeline}
             flareEvents={sa?.donki_flares}
             fallbackXraySeries={sa?.xray_series}

@@ -46,7 +46,7 @@ function flareTone(label: string): "A" | "B" | "C" | "M" | "X" {
   return "A";
 }
 
-export default function FlareActivityTable({ solar }: { solar: SolarActivityFull | null }) {
+export default function FlareActivityTable({ solar, summaryOnly = false }: { solar: SolarActivityFull | null; summaryOnly?: boolean }) {
   const [brief, setBrief] = useState<SolarBriefResponse | null>(null);
   const [failed, setFailed] = useState(false);
   const [refresh, setRefresh] = useState(0);
@@ -77,7 +77,7 @@ export default function FlareActivityTable({ solar }: { solar: SolarActivityFull
 
   const loading = !brief && !failed;
   const flare = brief?.latest_flare_class?.trim() || null;
-  const events = brief?.sun_events?.filter(event => event.date.replaceAll("/", "-") === utcDay)
+  const events = summaryOnly ? undefined : brief?.sun_events?.filter(event => event.date.replaceAll("/", "-") === utcDay)
     .slice().sort((a, b) => a.maximum.localeCompare(b.maximum));
   const counts = { C: 0, M: 0, X: 0 };
   let strongest = "";
@@ -98,7 +98,11 @@ export default function FlareActivityTable({ solar }: { solar: SolarActivityFull
 
   return (
     <section className={styles.panel} aria-label="Are there solar flares today?">
-      <h2 className={styles.title}>Solar flares on {utcDay} UTC</h2>
+      {summaryOnly && <>
+        <h2 className={styles.section}>Solar Flare (GOES X-Ray)</h2>
+        <p className={styles.eventsNote}>Current GOES class · {solar?.flare_class?.trim() || "Unavailable"}</p>
+      </>}
+      {summaryOnly ? <h3 className={styles.title}>Solar flares on {utcDay} UTC</h3> : <h2 className={styles.title}>Solar flares on {utcDay} UTC</h2>}
       <p className={styles.eventsNote}>Updates automatically every minute · NOAA data may be cached for up to five minutes.
         {" "}<button type="button" className="btn" disabled={refreshing} onClick={() => setRefresh(value => value + 1)}>{refreshing ? "Updating…" : "Refresh now"}</button>
       </p>
@@ -111,7 +115,7 @@ export default function FlareActivityTable({ solar }: { solar: SolarActivityFull
         <Cell label="Current X-ray flux" value={fluxText(solar?.flux)} />
       </div>
 
-      <div className={styles.events}>
+      {!summaryOnly && <div className={styles.events}>
         <div className={styles.eventsHead}>
           <h3 className={styles.eventsTitle}>Today’s GOES flare analysis</h3>
           <span className={styles.eventsUtc}>All times in UTC</span>
@@ -161,7 +165,7 @@ export default function FlareActivityTable({ solar }: { solar: SolarActivityFull
         <p className={styles.eventsSource}>
           Source: <a href="https://services.swpc.noaa.gov/json/goes/primary/xray-flares-7-day.json" target="_blank" rel="noreferrer">NOAA SWPC GOES X-ray flare list</a>, with region numbers from the NOAA edited event file. Times are UTC. Duration is end minus start, including events crossing midnight; missing source fields remain blank (–). The instantaneous GOES class above is separate from an event’s peak class.
         </p>
-      </div>
+      </div>}
     </section>
   );
 }

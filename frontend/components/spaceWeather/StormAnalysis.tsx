@@ -18,10 +18,12 @@ import SolarActivityLevels from "./SolarActivityLevels";
 import flareTable from "./FlareActivityTable.module.css";
 import styles from "./StormAnalysis.module.css";
 import { buildNetworkMeanVtecSeries, mergeStationVtecHistory, nearestReading, OBSERVATION_READOUT_TOLERANCE_MS, referenceTec, type AnalysisPoint } from "@/lib/stormAnalysis";
-import type { HeliosphericMonitorResponse, LiveStationVtecSeries } from "@/lib/types";
+import type { HeliosphericMonitorResponse, LiveStationVtecSeries, SolarActivityFull } from "@/lib/types";
 
 const LineChart = dynamic(() => loadLineChart().then(module => module.default), { ssr: false });
 const SolarFlareMonthChart = memo(dynamic(() => import("./SolarFlareMonthChart"), { ssr: false }));
+const ActiveRegionInspector = memo(dynamic(() => import("./ActiveRegionInspector"), { ssr: false }));
+const FlareActivityTable = memo(dynamic(() => import("./FlareActivityTable"), { ssr: false }));
 const FLARE_COLUMNS = ["Solar flare", "Region of origin", "Start time (UT)", "End time (UT)", "Peak time (UT)", "Duration (min)"];
 
 function flareTime(value: unknown): number {
@@ -196,6 +198,7 @@ function createPlotLayout(getRect: () => DOMRect | undefined) {
 }
 
 export default function StormAnalysis({
+  solar,
   xrayTimeline,
   flareEvents,
   fallbackXraySeries,
@@ -203,6 +206,7 @@ export default function StormAnalysis({
   xrayRange,
   onXrayRangeChange,
 }: {
+  solar: SolarActivityFull | null;
   xrayTimeline: GoesXrayTimelinePoint[];
   flareEvents?: Record<string, unknown>[];
   fallbackXraySeries?: number[] | null;
@@ -437,6 +441,10 @@ export default function StormAnalysis({
       </strong>}
     </p>
     <AnalysisSolarDisk time={selectedTime} peaks={flarePeaks} selectedFlare={selectedFlare} onPick={pick} onArchive={setFlareArchive} />
+    <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: "1rem", margin: "1rem 0" }}>
+      <ActiveRegionInspector />
+      <FlareActivityTable solar={solar} summaryOnly />
+    </div>
     <div style={{ marginBottom: "1rem" }}><SolarActivityLevels /></div>
     <div ref={stackRef} style={{ position: "relative", paddingBottom: "3rem" }}>
     <GoesSolarXrayCard
