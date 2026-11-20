@@ -56,20 +56,9 @@ API: `GET /live/north-south-tec-research?hours=24&resample_minutes=15`
 
 On Windows, `run.ps1`/`dev.ps1` starts both services.
 
-### Botswana stations in the TrigNet tab
+### Partner stations in the TrigNet tab
 
-The TrigNet tab also includes RTK2go mountpoints `GHANZIBW1` and
-`SurveyWorldBotswana`. Set `RTK2GO_NTRIP_EMAIL` in `backend/.env` to your valid
-email address and restart the backend to enable their separate NTRIP V1
-connections to `rtk2go.com:2101` (password `none`). This setting does not change
-the Zimbabwe or SANSA accounts. The email is kept on the backend.
-
-Ghanzi is plotted at -21.74000, 21.70000. SurveyWorld is listed with unknown
-coordinates and is not plotted at its directory's (0, 0) placeholder; its TEC
-calculation requires a verified receiver location. Ghanzi uses the shared
-code-TEC and PyTECGg processing rules once suitable observations arrive.
-
-The same tab includes Senegal's `NKHR` at `crtk.net:2101` using the public
+The TrigNet tab includes Senegal's `NKHR` at `crtk.net:2101` using the public
 `centipede`/`centipede` login, and Ghana's `ACRG00GHA0` (Accra) at
 `igs-ip.net:2101`. Ghana requires an IGS account: set `IGS_NTRIP_USERNAME` and
 `IGS_NTRIP_PASSWORD` in `backend/.env`, then restart. An RTK2go email alone does

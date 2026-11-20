@@ -350,6 +350,9 @@ class StationStream(threading.Thread):
     # ── Thread body ──────────────────────────────────────────────────────────
 
     def run(self):
+        if self._retired_rtk2go_mount():
+            log.info("[%s] Skipping retired RTK2go mountpoint %s", self.station, self._mp)
+            return
         if self._start_delay > 0:
             self._stop.wait(self._start_delay)
         while not self._stop.is_set():
@@ -401,7 +404,14 @@ class StationStream(threading.Thread):
         delay = min(base * (2 ** min(self._consecutive_failures, 5)), self._max_reconnect_delay)
         return delay * (0.75 + random.random() * 0.5)
 
+    def _retired_rtk2go_mount(self) -> bool:
+        return self._host.strip().rstrip(".").lower() in {"rtk2go.com", "3.14.70.106"} and self._mp.strip().lower() in {
+            "ghanzibw", "ghanzibw1", "surveyworldbotswana",
+        }
+
     def _connect(self) -> socket.socket:
+        if self._retired_rtk2go_mount():
+            raise ConnectionError("Retired RTK2go mountpoint")
         self._rtcm_encoding = 0
         raw = socket.create_connection((self._host, self._port), timeout=10)
         sock = ssl.create_default_context().wrap_socket(raw, server_hostname=self._host) if self._tls else raw
