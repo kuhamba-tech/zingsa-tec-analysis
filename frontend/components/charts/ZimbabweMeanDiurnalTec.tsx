@@ -190,6 +190,7 @@ function bandDatasets(
     backgroundColor: string;
     borderWidth: number;
     borderDash?: number[];
+    hidden?: boolean;
     pointRadius: number;
     pointHoverRadius: number;
     tension: number;
@@ -213,6 +214,7 @@ function bandDatasets(
     if (!globalValues?.some((value) => value != null)) continue;
     datasets.push({
       label: region === "all" ? `${band.label.replace(" Zimbabwe", "")} global` : "Global TEC",
+      hidden: true,
       data: stats.hours.map((hour, index) => pointAt(hour, globalValues[index] ?? null, null, "global")),
       borderColor: band.color,
       backgroundColor: "transparent",
@@ -472,6 +474,7 @@ export default function ZimbabweMeanDiurnalTec({
       };
       const globalDataset = global.some(point => point.values[band.id] != null) ? [{
         label: region === "all" ? `${band.label.replace(" Zimbabwe", "")} global` : "Global TEC",
+        hidden: true,
         data: global.map(point => ({
           x: point.time,
           y: point.values[band.id],

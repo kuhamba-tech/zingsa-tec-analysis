@@ -83,6 +83,11 @@ export const NETWORK_DISTANCES_LAYERS: MapLayer[] = ["Network Distances"];
 export const BASE_MAP_LAYERS: MapLayer[] = ["Hybrid", "Satellite", "Street"];
 
 const LAYERS: MapLayer[] = HOME_MAP_LAYERS;
+function isGhanziStation(code: string | null | undefined): boolean {
+  const key = stationCodeKey(code);
+  return key === "ghanzibw" || key === "ghanzibw1";
+}
+
 function zimbabweLiveGopi(station: Station, heatmap: TecHeatmapResponse | null): number | null {
   const key = stationCodeKey(station.code);
   const heat = heatmap?.stations?.find((row) => stationCodeKey(row.code) === key);
@@ -258,7 +263,8 @@ export default function CorsMapWithLayers({
   const trignetRows = useMemo(() => {
     const rows = new Map(TRIGNET_CATALOG.stations.map(row => [stationCodeKey(row.code), row]));
     for (const row of trignet?.stations ?? []) rows.set(stationCodeKey(row.code), row);
-    return [...rows.values()];
+    // Older collector responses can identify Ghanzi by its shortened code.
+    return [...rows.values()].filter(row => !isGhanziStation(row.code) && !isGhanziStation(row.mountpoint));
   }, [trignet]);
 
   const trignetStations = useMemo<Station[]>(() => {
@@ -284,7 +290,8 @@ export default function CorsMapWithLayers({
     const zimbabwe = stations
       .filter((station) => {
         const code = stationCodeKey(station.code);
-        return Boolean(code) && !trigCodes.has(code) && Number.isFinite(station.lat) && Number.isFinite(station.lon);
+        return Boolean(code) && !isGhanziStation(code) && !isGhanziStation(station.mountpoint)
+          && !trigCodes.has(code) && Number.isFinite(station.lat) && Number.isFinite(station.lon);
       })
       .map((station) => {
         const tec = zimbabweLiveGopi(station, heatmap);
