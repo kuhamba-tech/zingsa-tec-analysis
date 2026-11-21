@@ -144,8 +144,11 @@ export default function FlareActivityTable({ solar, summaryOnly = false }: { sol
                   <tr className={/^[MX]/i.test(event.flare_class) ? styles.significant : undefined} key={`${event.date}-${event.maximum}-${event.flare_class}`}>
                     <td><span className={`${styles.flare} ${flareClass[flareTone(event.flare_class)]}`}>{event.flare_class}</span></td>
                     <td>
-                      <span className={event.region ? styles.region : styles.regionEmpty}>
-                        {event.region ?? "–"}
+                      <span
+                        className={event.region ? styles.region : styles.regionEmpty}
+                        title={event.region ? undefined : "NOAA has not assigned this flare to an active region."}
+                      >
+                        {event.region ?? "Not assigned"}
                       </span>
                     </td>
                     <td className={styles.clock}>{event.start ?? "–"}</td>
@@ -163,7 +166,7 @@ export default function FlareActivityTable({ solar, summaryOnly = false }: { sol
           {" "}M- and X-class events are highlighted. A flare’s X-rays can affect the sunlit ionosphere; this table alone does not establish a TEC disturbance in Zimbabwe.
         </p>}
         <p className={styles.eventsSource}>
-          Source: <a href="https://services.swpc.noaa.gov/json/goes/primary/xray-flares-7-day.json" target="_blank" rel="noreferrer">NOAA SWPC GOES X-ray flare list</a>, with region numbers from the NOAA edited event file. Times are UTC. Duration is end minus start, including events crossing midnight; missing source fields remain blank (–). The instantaneous GOES class above is separate from an event’s peak class.
+          Source: <a href="https://services.swpc.noaa.gov/json/goes/primary/xray-flares-7-day.json" target="_blank" rel="noreferrer">NOAA SWPC GOES X-ray flare list</a>, with region numbers from the NOAA edited event file. “Not assigned” means NOAA has no region match for that flare; the app does not guess from timing alone. Times are UTC. Duration is end minus start, including events crossing midnight; other missing source fields display (–). The instantaneous GOES class above is separate from an event’s peak class.
         </p>
       </div>}
     </section>

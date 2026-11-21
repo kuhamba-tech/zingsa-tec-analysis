@@ -11,6 +11,7 @@ import ComparisonDriverCharts from "@/components/timeSeries/ComparisonDriverChar
 import IntermagnetAnalysisPanel from "@/components/timeSeries/IntermagnetAnalysisPanel";
 import GuviOn2AnalysisPanel from "@/components/timeSeries/GuviOn2AnalysisPanel";
 import type { ArchiveMeta, TecObservation, OmniAnalysisResponse, CelestrakAnalysisResponse, GfzKpAnalysisResponse, WdcKyotoAnalysisResponse, IntermagnetAnalysisResponse, GuviOn2Response, DidbaseIonosondeResponse } from "@/lib/types";
+import { publishSourceAnalysisRequest } from "@/lib/sourceAnalysisBridge";
 
 const STATION_COLORS = ["#168bd2","#ff4444","#00ff88","#ff8c00","#a78bfa","#ffcc00","#34d399","#f472b6"];
 const MONTHS = [
@@ -343,6 +344,7 @@ export default function TimeSeriesPage() {
   const [coverageOpen, setCoverageOpen] = useState(false);
   const [omni, setOmni] = useState<OmniAnalysisResponse | null>(null);
   const [sourcesLoading, setSourcesLoading] = useState(false);
+  const [sourceShareError, setSourceShareError] = useState<string | null>(null);
   const [omniError, setOmniError] = useState<string | null>(null);
   const [celestrak, setCelestrak] = useState<CelestrakAnalysisResponse | null>(null);
   const [celestrakError, setCelestrakError] = useState<string | null>(null);
@@ -499,9 +501,13 @@ export default function TimeSeriesPage() {
       return;
     }
     setDateRangeError(null);
+    setSourceShareError(null);
     setStart(r.start);
     setEnd(r.end);
     setTab("compare");
+    if (!publishSourceAnalysisRequest({ start: r.start, end: r.end, station, requestedAt: Date.now() })) {
+      setSourceShareError("Could not share this source range with the Analysis tab. Check browser storage settings and retry.");
+    }
     const generation = ++sourcesGeneration.current;
     setOmni(null);
     setCelestrak(null);
@@ -688,6 +694,12 @@ export default function TimeSeriesPage() {
             {sourcesLoading ? "Loading all sources…" : "Load all sources"}
           </button>
         </div>
+        {sourceShareError && <p className="banner banner-warn" role="alert">{sourceShareError}</p>}
+        {!sourceShareError && driverRequest && (
+          <p style={{ margin: "0.5rem 0", fontSize: "0.82rem", color: "var(--text-muted)" }}>
+            This date range is also available in <a href="/space-weather?tab=analysis">Space Weather → Analysis</a>.
+          </p>
+        )}
         <p style={{ margin: 0, fontSize: "0.8rem", color: "#fff" }}>
           Choose the start and end days with the calendars. Select the same date in both calendars for one day. Click Load all sources to apply.
           {" "}Chosen dates: {sourceStartDate} to {sourceEndDate} UTC.

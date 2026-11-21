@@ -18,6 +18,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import defaultdict
+from statistics import median
 from typing import Any
 from .source_cache import read_source, write_source
 
@@ -52,6 +53,7 @@ _FETCH_TIMEOUT_SECONDS = 8
 _FETCH_WORKERS = 6
 _FEED_CACHE = "heliospheric-live"
 _FEED_CACHE_MAX_AGE_SECONDS = 6 * 60 * 60
+_PROTON_DYNAMIC_PRESSURE_FACTOR = 1.6726e-6
 log = logging.getLogger(__name__)
 
 
@@ -200,11 +202,11 @@ def parse_imf_series(rows: list[Any], *, max_points: int | None = 288) -> dict[s
 
 def parse_solar_wind_speed_series(rows: list[Any], *, max_points: int | None = 288) -> dict[str, Any]:
     points: list[dict[str, Any]] = []
+    pressure_observations: list[dict[str, Any]] = []
     for row in rows:
         if not isinstance(row, dict):
             continue
-        if row.get("active") is False:
-            continue
+        active = row.get("active") is not False
         stamp = _parse_utc(row.get("time_tag"))
         speed = _float_or_none(row.get("proton_speed") or row.get("speed"))
         density = _float_or_none(row.get("proton_density") or row.get("density"))
@@ -221,6 +223,24 @@ def parse_solar_wind_speed_series(rows: list[Any], *, max_points: int | None = 2
             temperature = None
         if speed is None and density is None and temperature is None:
             continue
+        pressure = (
+            _PROTON_DYNAMIC_PRESSURE_FACTOR * density * speed**2
+            if speed is not None and speed > 0 and density is not None and density >= 0
+            else None
+        )
+        source = str(row.get("source") or "")
+        minute = stamp.replace(second=0, microsecond=0)
+        if pressure is not None:
+            pressure_observations.append(
+                {
+                    "minute": minute,
+                    "source": source,
+                    "active": active,
+                    "pressure": pressure,
+                }
+            )
+        if not active:
+            continue
         points.append(
             {
                 "t": stamp.isoformat().replace("+00:00", "Z"),
@@ -228,9 +248,57 @@ def parse_solar_wind_speed_series(rows: list[Any], *, max_points: int | None = 2
                 "speed": speed,
                 "density": density,
                 "temperature": temperature,
+                "pressure": pressure,
                 "epoch_ms": int(stamp.timestamp() * 1000),
+                "_stamp": stamp,
+                "_source": source,
             }
         )
+    active_by_time = {
+        (sample["minute"], sample["source"]): sample["pressure"]
+        for sample in pressure_observations
+        if sample["active"] and sample["source"]
+    }
+    all_by_minute: dict[datetime.datetime, list[dict[str, Any]]] = defaultdict(list)
+    for sample in pressure_observations:
+        all_by_minute[sample["minute"]].append(sample)
+    pressure_invalid_times: list[str] = []
+    for point in points:
+        stamp = point["_stamp"]
+        source = point["_source"]
+        if point["pressure"] is not None and source:
+            minute = stamp.replace(second=0, microsecond=0)
+            neighbors = [
+                active_by_time.get((minute + datetime.timedelta(minutes=offset), source))
+                for offset in (-1, 1)
+            ]
+            alternatives = [
+                sample["pressure"]
+                for sample in all_by_minute.get(minute, [])
+                if not sample["active"] and sample["source"] and sample["source"] != source
+            ]
+            if all(value is not None for value in neighbors) and alternatives:
+                references = [*neighbors, *alternatives]
+            else:
+                references = []
+            if references and min(references) > 0:
+                baseline = median(references)
+                if (
+                    max(references) <= min(references) * 1.5
+                    and point["pressure"] > baseline * 3
+                ):
+                    pressure_invalid_times.append(point["t"])
+                    log.warning(
+                        "Omitting isolated NOAA RTSW pressure outlier at %s from %s "
+                        "(%.3f nPa; neighboring/corroborating readings %.3f nPa)",
+                        point["t"],
+                        source,
+                        point["pressure"],
+                        baseline,
+                    )
+                    point["pressure"] = None
+        del point["_stamp"]
+        del point["_source"]
     if max_points:
         points = downsample(points, max_points=max_points)
     return {
@@ -240,7 +308,9 @@ def parse_solar_wind_speed_series(rows: list[Any], *, max_points: int | None = 2
         "speed": [p["speed"] for p in points],
         "density": [p["density"] for p in points],
         "temperature": [p["temperature"] for p in points],
-        "unit": "km/s · cm⁻³ · K",
+        "pressure": [p["pressure"] for p in points],
+        "_pressure_invalid_times": pressure_invalid_times,
+        "unit": "km/s · cm⁻³ · K · nPa",
     }
 
 

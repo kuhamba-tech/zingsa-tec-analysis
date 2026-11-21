@@ -6,10 +6,31 @@ from datetime import date, datetime, timedelta, timezone
 from unittest.mock import patch
 
 from zgiis.space_weather.solar_magnetic_archive import fill_imf_history
-from zgiis.space_weather.solar_plasma_archive import fill_plasma_history
+from zgiis.space_weather.solar_plasma_archive import _aggregate_daily_bins, fill_plasma_history
 
 
 class SolarArchiveBackfillTests(unittest.TestCase):
+    def test_archived_pressure_uses_simultaneous_samples_before_binning(self) -> None:
+        day = date(2026, 11, 17)
+        epoch = datetime(1958, 1, 1, tzinfo=timezone.utc)
+        stamps = [datetime(2026, 11, 17, 9, minute, tzinfo=timezone.utc) for minute in (15, 16, 17)]
+        times = [(stamp - epoch).total_seconds() * 1_000_000 for stamp in stamps]
+        bins = _aggregate_daily_bins(
+            day,
+            times,
+            {
+                "solar_wind_speed": [300.0, 17328.0, 310.0],
+                "solar_wind_density": [2.0, -9999.0, 2.0],
+                "solar_wind_temperature": [80000.0, 80000.0, 80000.0],
+            },
+        )
+
+        self.assertAlmostEqual(bins["solar_wind_speed"][0][1], 305.0)
+        self.assertAlmostEqual(bins["solar_wind_density"][0][1], 2.0)
+        pressure = bins["solar_wind_pressure"][0][1]
+        expected = 1.6726e-6 * 2.0 * (300.0**2 + 310.0**2) / 2
+        self.assertAlmostEqual(pressure, expected)
+
     def test_plasma_backfill_preserves_existing_samples(self) -> None:
         start = datetime(2026, 11, 17, tzinfo=timezone.utc)
         stop = start + timedelta(minutes=30)

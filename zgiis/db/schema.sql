@@ -37,11 +37,9 @@ ALTER TABLE vtec_obs ADD COLUMN IF NOT EXISTS quality_flag TEXT;
 ALTER TABLE vtec_obs ADD COLUMN IF NOT EXISTS processing_version TEXT;
 ALTER TABLE vtec_obs ADD COLUMN IF NOT EXISTS data_source TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS vtec_obs_identity ON vtec_obs (time, observation_id);
-CREATE INDEX IF NOT EXISTS vtec_obs_code_live_time_station
-    ON vtec_obs (time, station)
-    WHERE tec_method LIKE 'code_live%'
-      AND vtec_tecu > 0
-      AND vtec_tecu < 200;
+CREATE INDEX IF NOT EXISTS vtec_obs_code_live_time_station_cover
+    ON vtec_obs (time, station, prn) INCLUDE (vtec_tecu, elevation_deg)
+    WHERE tec_method LIKE '%code_live%';
 
 -- Standard Postgres materialized view for 15-minute VTEC summaries.
 -- Refresh manually or from a scheduled job if you need this aggregate.

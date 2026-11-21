@@ -12,11 +12,9 @@ from typing import Any
 log = logging.getLogger(__name__)
 
 DEFAULT_TTL_SEC = 90.0
-# Persistent hosts can afford a wider sample; Vercel must finish inside maxDuration.
-DEFAULT_LISTEN_SEC = 10.0
-DEFAULT_MAX_STATIONS = 8
+# Keep the full-network sample within the CORS API's 60-second request budget.
+DEFAULT_LISTEN_SEC = 6.0
 SERVERLESS_LISTEN_SEC = 6.0
-SERVERLESS_MAX_STATIONS = 8
 SERVERLESS_MAX_WORKERS = 4
 # Spread across Zimbabwe so the Matamba surface is not a single-point copy.
 DEFAULT_PRIORITY = (
@@ -117,7 +115,7 @@ def sample_live_ntrip_vtec(
     max_stations: int | None = None,
     allow_blocking_refresh: bool = True,
 ) -> dict[str, Any]:
-    """Probe a geographic subset of CORS mountpoints and return live VTEC samples.
+    """Probe all configured CORS mountpoints unless a caller limits the sample.
 
     When ``allow_blocking_refresh`` is False (dashboard /cors/stations page load),
     return any cached sample immediately and refresh in a background thread.
@@ -194,18 +192,14 @@ def sample_live_ntrip_vtec(
 
     serverless = _is_serverless_runtime()
     default_listen = SERVERLESS_LISTEN_SEC if serverless else DEFAULT_LISTEN_SEC
-    default_limit = SERVERLESS_MAX_STATIONS if serverless else DEFAULT_MAX_STATIONS
+    default_limit = len(mountpoints)
     default_workers = SERVERLESS_MAX_WORKERS if serverless else 4
     listen = float(
         listen_sec
         if listen_sec is not None
         else os.getenv("TEC_HEATMAP_LIVE_LISTEN_SEC", default_listen)
     )
-    limit = int(
-        max_stations
-        if max_stations is not None
-        else os.getenv("TEC_HEATMAP_LIVE_MAX_STATIONS", default_limit)
-    )
+    limit = max_stations if max_stations is not None else default_limit
     codes = _priority_codes(mountpoints, max_stations=max(1, limit))
     nav_cache = _warm_nav_cache()
     workers = max(

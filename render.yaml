@@ -77,6 +77,25 @@ services:
           property: host
       - fromGroup: zingsa-spaceweather-secrets
 
+  # ── Confirmed CORS station uptime monitor ──────────────────────────────────
+  - type: worker
+    name: zingsa-spaceweather-uptime-monitor
+    runtime: python
+    plan: starter
+    region: oregon
+    branch: master
+    autoDeployTrigger: commit
+    buildCommand: pip install -r requirements-render.txt
+    startCommand: python scripts/uptime_monitor.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.8"
+      - key: ZGIIS_ENV
+        value: production
+      - key: ZGIIS_SKIP_DB_SCHEMA_INIT
+        value: "1"
+      - fromGroup: zingsa-spaceweather-secrets
+
   # ── Next.js static frontend ─────────────────────────────────────────────────
   - type: web
     name: zingsa-spaceweather

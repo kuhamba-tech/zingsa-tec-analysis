@@ -2,7 +2,7 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import dynamic from "next/dynamic";
-import { getGfzKpAnalysis, getHeliosphericMonitor, getLiveVtecByStation, type SolarArchiveDay } from "@/lib/api";
+import { getEquatorialElectricField, getGfzKpAnalysis, getHeliosphericMonitor, getLiveVtecByStation, type SolarArchiveDay } from "@/lib/api";
 import { peekHeliosphericMonitor } from "@/lib/heliosphericStore";
 import type { GoesXrayRange } from "@/components/spaceWeather/GoesSolarXrayCard";
 import { loadLineChart } from "@/lib/loadLineChart";
@@ -18,7 +18,7 @@ import SolarActivityLevels from "./SolarActivityLevels";
 import flareTable from "./FlareActivityTable.module.css";
 import styles from "./StormAnalysis.module.css";
 import { buildNetworkMeanVtecSeries, mergeStationVtecHistory, nearestReading, OBSERVATION_READOUT_TOLERANCE_MS, referenceTec, type AnalysisPoint } from "@/lib/stormAnalysis";
-import type { HeliosphericMonitorResponse, LiveStationVtecSeries, SolarActivityFull } from "@/lib/types";
+import type { EquatorialElectricFieldPoint, HeliosphericMonitorResponse, LiveStationVtecSeries, SolarActivityFull } from "@/lib/types";
 
 const LineChart = dynamic(() => loadLineChart().then(module => module.default), { ssr: false });
 const SolarFlareMonthChart = memo(dynamic(() => import("./SolarFlareMonthChart"), { ssr: false }));
@@ -98,7 +98,7 @@ const PROTON_COLORS: Record<string, string> = {
   ">=100 MeV": "#f97316",
   ">=500 MeV": "#ef4444",
 };
-const PLOTS = ["xray", "wind", "windPlasma", "imf", "proton", "pressure", "overview", "kp", "dst", "speed", "bz", "meanTec", "regionalTec", "delta"] as const;
+const PLOTS = ["xray", "wind", "windPlasma", "imf", "proton", "pressure", "overview", "kp", "dst", "speed", "bz", "electricField", "meanTec", "regionalTec", "delta"] as const;
 type Plot = (typeof PLOTS)[number];
 const SOLAR_WIND_SPEED_GUIDES = SOLAR_WIND_SPEED_SCALE
   .filter(band => band.boundary > 0)
@@ -565,6 +565,7 @@ export default function StormAnalysis({
         : index === 4 ? Math.max(50, Math.ceil(maximum / 25) * 25)
         : Math.max(10, Math.ceil(maximum / 10) * 10 + 5);
       return <div key={panel.title} style={{ marginTop: "1rem" }}>
+        {isNetworkMean && <EquatorialElectricFieldChart domain={domain} selectedTime={selectedTime} pick={pick} reportArea={plotLayout.reporters.electricField} />}
         {panel.title === "Relative VTEC difference" && <div style={{ marginBottom: "1.25rem" }}>
           <strong>Mean daily TEC — northern, central and southern Zimbabwe</strong>
           <ZimbabweMeanDiurnalTec embedded analysisDomain={domain} analysisDay={endDay} analysisRows={days === 30 ? (loading ? null : rows) : undefined} onPlotAreaChange={plotLayout.reporters.regionalTec} />
@@ -594,6 +595,79 @@ export default function StormAnalysis({
       flarePeaks={flarePeaks} selectedFlare={selectedFlare} pick={pick} />
     </div>
     <p>ΔVTEC = 100 × (observed − quiet reference) / quiet reference. The default uses the analysis end month and ranks completed days with station data by GFZ daily Ap. Each UTC quarter-hour requires measurements from all five reference days, weighted equally. The ±25% guides follow <a href="https://doi.org/10.5140/JASS.2026.43.2.93" target="_blank" rel="noreferrer">Guibula et al. (2026)</a>.</p>
+  </section>;
+}
+
+const FIELD_COMPONENTS = [
+  { label: "Quiet", key: "quiet", color: "#60a5fa" },
+  { label: "Prompt penetration", key: "penetration", color: "#f87171" },
+  { label: "Quiet + penetration", key: "total", color: "#22c55e" },
+] as const;
+const FIELD_SOURCE = "https://geomag.colorado.edu/online-calculators/real-time-model-ionospheric-electric-fields";
+
+function EquatorialElectricFieldChart({ domain, selectedTime, pick, reportArea }: {
+  domain: { min: number; max: number };
+  selectedTime: number;
+  pick: (time: number) => void;
+  reportArea: PlotAreaReporter;
+}) {
+  const { min, max } = domain;
+  const [points, setPoints] = useState<EquatorialElectricFieldPoint[]>([]);
+  const [status, setStatus] = useState<"loading" | "complete" | "partial">("loading");
+  const [retry, setRetry] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    setPoints([]);
+    setStatus("loading");
+    const dayMs = 86_400_000;
+    const load = async () => {
+      const merged = new Map<string, EquatorialElectricFieldPoint>();
+      let incomplete = false;
+      for (let end = max; active && end > min;) {
+        const start = Math.max(min, end - 5 * dayMs);
+        const date = new Date(start).toISOString().slice(0, 10);
+        const result = await getEquatorialElectricField(date, (end - start) / dayMs).catch(() => null);
+        if (!active) return;
+        const rows = (result?.points ?? []).filter(point => {
+          const time = Date.parse(point.time);
+          return time >= start && time < end && (point.climatological_mvm != null || point.prompt_penetration_mvm != null);
+        });
+        incomplete ||= !rows.length || result?.note != null;
+        for (const row of rows) merged.set(row.time, row);
+        if (rows.length) setPoints([...merged.values()].sort((a, b) => a.time.localeCompare(b.time)));
+        end = start;
+      }
+      if (active) setStatus(incomplete ? "partial" : "complete");
+    };
+    void load();
+    return () => { active = false; };
+  }, [min, max, retry]);
+
+  const rows = useMemo(() => points.map(point => {
+    const quiet = point.climatological_mvm;
+    const penetration = point.prompt_penetration_mvm;
+    return { time: Date.parse(point.time), quiet, penetration, total: quiet != null && penetration != null ? quiet + penetration : null };
+  }).filter(row => row.time >= min && row.time < max), [points, min, max]);
+  const times = useMemo(() => rows.map(row => row.time), [rows]);
+  const labels = useMemo(() => rows.map(row => new Date(row.time).toISOString()), [rows]);
+  const datasets = useMemo(() => FIELD_COMPONENTS.map(component => ({
+    label: component.label, color: component.color, data: rows.map(row => row[component.key]), spanGaps: 5 * 60_000, tension: 0,
+  })), [rows]);
+  const selected = FIELD_COMPONENTS.flatMap(component => {
+    const reading = nearestReading(rows.map(row => ({ time: row.time, value: row[component.key] })), selectedTime, 5 * 60_000);
+    return reading?.value != null ? [`${component.label} ${reading.value.toFixed(3)} mV/m`] : [];
+  });
+
+  return <section aria-label="Equatorial eastward electric field" style={{ marginBottom: "1.25rem" }}>
+    <h3>Equatorial eastward electric field</h3>
+    <p style={{ fontSize: ".8rem" }}>PPEFM model estimates at 28°E on the magnetic equator. {selected.length ? `Near the marker · ${selected.join(" · ")}` : "No model value near the marker."}</p>
+    {status === "loading" && <p role="status">Loading Colorado electric-field model output…</p>}
+    {status === "partial" && <p role="status">{rows.length ? "Some model output is unavailable for this window." : "The provider returned no usable model output for this window."} <button type="button" className="btn" onClick={() => setRetry(value => value + 1)}>Retry</button></p>}
+    {rows.length > 0 && <LineChart labels={labels} xValues={times} epochMs={times} datasets={datasets}
+      yLabel="Electric field (mV/m)" yAxisWidth={80} height={320} ySuggestedMin={-1.5} ySuggestedMax={1.5}
+      preserveSamples pointRadius={0} onPickTime={pick} onPlotAreaChange={reportArea} {...utcTimeAxisProps(domain)} />}
+    <p style={{ fontSize: ".8rem" }}><a href={FIELD_SOURCE} target="_blank" rel="noreferrer">University of Colorado equatorial electric-field model</a></p>
   </section>;
 }
 

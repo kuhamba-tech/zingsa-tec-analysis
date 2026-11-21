@@ -104,7 +104,37 @@ class HeliosphericMonitorParseTests(unittest.TestCase):
         parsed = parse_solar_wind_speed_series(rows)
         self.assertEqual(parsed["speed"], [450.0, None])
         self.assertEqual(parsed["density"], [8.5, 3.0])
+        self.assertAlmostEqual(parsed["pressure"][0], 1.6726e-6 * 8.5 * 450.0**2)
+        self.assertIsNone(parsed["pressure"][1])
         self.assertEqual(len(parsed["epoch_ms"]), 2)
+
+    def test_isolated_pressure_spike_disagreed_with_other_noaa_readings(self):
+        rows = [
+            {"time_tag": "2026-11-19T07:16:00", "active": True, "source": "ACE", "proton_speed": 449.93, "proton_density": 4.54},
+            {"time_tag": "2026-11-19T07:17:00", "active": True, "source": "ACE", "proton_speed": 373.14, "proton_density": 26.88},
+            {"time_tag": "2026-11-19T07:18:00", "active": True, "source": "ACE", "proton_speed": 410.06, "proton_density": 5.67},
+            {"time_tag": "2026-11-19T07:17:01", "active": False, "source": "IMAP", "proton_speed": 430.62, "proton_density": 5.05},
+        ]
+
+        parsed = parse_solar_wind_speed_series(rows)
+        pressure_by_time = dict(zip(parsed["times"], parsed["pressure"]))
+        spike_time = "2026-11-19T07:17:00Z"
+
+        self.assertIsNone(pressure_by_time[spike_time])
+        self.assertAlmostEqual(pressure_by_time["2026-11-19T07:16:00Z"], 1.6726e-6 * 4.54 * 449.93**2)
+        self.assertEqual(parsed["_pressure_invalid_times"], [spike_time])
+
+    def test_pressure_spike_is_kept_when_another_source_confirms_it(self):
+        rows = [
+            {"time_tag": "2026-11-19T07:16:00", "active": True, "source": "ACE", "proton_speed": 400.0, "proton_density": 20.0},
+            {"time_tag": "2026-11-19T07:17:00", "active": True, "source": "ACE", "proton_speed": 400.0, "proton_density": 20.0},
+            {"time_tag": "2026-11-19T07:18:00", "active": True, "source": "ACE", "proton_speed": 400.0, "proton_density": 20.0},
+            {"time_tag": "2026-11-19T07:17:01", "active": False, "source": "IMAP", "proton_speed": 400.0, "proton_density": 20.0},
+        ]
+
+        parsed = parse_solar_wind_speed_series(rows)
+        self.assertTrue(all(value is not None for value in parsed["pressure"]))
+        self.assertEqual(parsed["_pressure_invalid_times"], [])
 
     def test_rtsw_rows_newest_first_are_sorted_oldest_to_newest(self):
         """NOAA RTSW often returns newest samples first — charts must read left→right in time."""

@@ -3,8 +3,14 @@ from __future__ import annotations
 
 import unittest
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
-from zgiis.space_weather.graph_archive import extend_monitor_payload, iter_monitor_rows
+from zgiis.space_weather.graph_archive import (
+    _remove_invalid_pressure_bins,
+    extend_monitor_payload,
+    iter_monitor_rows,
+    prepare_monitor_payload,
+)
 
 
 class GraphArchiveTests(unittest.TestCase):
@@ -42,6 +48,7 @@ class GraphArchiveTests(unittest.TestCase):
                 "speed": [420.0],
                 "density": [4.0],
                 "temperature": [80000.0],
+                "pressure": [0.112],
             },
             "dst": {"times": ["2026-10-26T00:00:00Z"], "dst": [-12.0]},
             "kp": {
@@ -60,8 +67,68 @@ class GraphArchiveTests(unittest.TestCase):
         self.assertIn("xray_short_flux", metrics)
         self.assertIn("imf_bz", metrics)
         self.assertIn("solar_wind_speed", metrics)
+        self.assertIn("solar_wind_pressure", metrics)
         self.assertIn("proton_ge10mev", metrics)
         self.assertIn("kp_observed", metrics)
+
+    def test_invalid_live_pressure_removes_its_stored_archive_bin(self) -> None:
+        invalid_time = datetime(2026, 11, 19, 7, 17, tzinfo=timezone.utc)
+        stored = {
+            "solar_wind_pressure": [
+                (datetime(2026, 11, 19, 7, 15, tzinfo=timezone.utc), 2.4),
+                (datetime(2026, 11, 19, 7, 30, tzinfo=timezone.utc), 1.6),
+            ],
+            "solar_wind_speed": [
+                (datetime(2026, 11, 19, 7, 15, tzinfo=timezone.utc), 430.0),
+            ],
+        }
+
+        cleaned = _remove_invalid_pressure_bins(stored, [invalid_time])
+
+        self.assertEqual(
+            cleaned["solar_wind_pressure"],
+            [(datetime(2026, 11, 19, 7, 30, tzinfo=timezone.utc), 1.6)],
+        )
+        self.assertEqual(cleaned["solar_wind_speed"], stored["solar_wind_speed"])
+
+    def test_prepare_payload_omits_flagged_pressure_and_clears_archive_bin(self) -> None:
+        times = [
+            "2026-11-19T07:16:00Z",
+            "2026-11-19T07:17:00Z",
+            "2026-11-19T07:18:00Z",
+        ]
+        payload = {
+            "solar_wind": {
+                "times": times,
+                "speed": [449.93, 373.14, 410.06],
+                "density": [4.54, 26.88, 5.67],
+                "temperature": [None, None, None],
+                "pressure": [1.537, None, 1.595],
+                "_pressure_invalid_times": ["2026-11-19T07:17:00Z"],
+            },
+            "imf": {},
+        }
+        stored = {
+            "solar_wind_pressure": [
+                (datetime(2026, 11, 19, 7, 15, tzinfo=timezone.utc), 2.4),
+            ],
+        }
+
+        with (
+            patch("zgiis.space_weather.graph_archive._store_later") as store_later,
+            patch("zgiis.space_weather.graph_archive._read_archive", return_value=stored),
+            patch("zgiis.space_weather.solar_plasma_archive.fill_plasma_history"),
+            patch("zgiis.space_weather.solar_magnetic_archive.fill_imf_history"),
+        ):
+            result = prepare_monitor_payload(payload)
+
+        pressure_by_time = dict(zip(result["solar_wind"]["times"], result["solar_wind"]["pressure"]))
+        self.assertIsNone(pressure_by_time["2026-11-19T07:17:00Z"])
+        self.assertNotIn("_pressure_invalid_times", result["solar_wind"])
+        self.assertEqual(
+            store_later.call_args.kwargs["invalid_pressure_times"],
+            [datetime(2026, 11, 19, 7, 17, tzinfo=timezone.utc)],
+        )
 
     def test_older_days_are_prepended_and_live_resolution_stays(self) -> None:
         live_time = datetime(2026, 10, 27, 12, 0, tzinfo=timezone.utc)

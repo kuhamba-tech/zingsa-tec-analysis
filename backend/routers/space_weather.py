@@ -21,6 +21,7 @@ from backend.schemas import (
     EkfPointOut,
     EkfSeriesOut,
     EkfStatusOut,
+    EquatorialElectricFieldResponse,
     HeliosphericMonitorResponse,
     StormAlertStatus,
     FlareFrequenciesResponse,
@@ -1085,6 +1086,24 @@ def heliospheric_monitor(
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Heliospheric monitor fetch failed: {exc}") from exc
     return HeliosphericMonitorResponse(**payload)
+
+
+@router.get("/equatorial-electric-field", response_model=EquatorialElectricFieldResponse)
+def equatorial_electric_field(start: date | None = None, days: int = Query(1, ge=1, le=5), _=Depends(require_api_key)):
+    """Colorado's real-time equatorial eastward electric-field model."""
+    from zgiis.space_weather.equatorial_electric_field import build_equatorial_electric_field
+
+    if start is not None and start < date(1995, 1, 1):
+        raise HTTPException(status_code=422, detail="The model archive starts on 1995-01-01 UTC.")
+    try:
+        payload = build_equatorial_electric_field(start=start, days=days if start is not None else None)
+    except Exception as exc:
+        log.warning("Colorado equatorial electric-field model unavailable: %s", exc)
+        raise HTTPException(
+            status_code=502,
+            detail="The University of Colorado electric-field model is temporarily unavailable.",
+        ) from exc
+    return EquatorialElectricFieldResponse(**payload)
 
 
 @router.post("/ekf/alerts/{alert_id}/ack", status_code=204)

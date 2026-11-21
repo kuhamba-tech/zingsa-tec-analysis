@@ -25,6 +25,11 @@ import ClickableMetricGrid from "@/components/spaceWeather/ClickableMetricGrid";
 import DeferredMount from "@/components/spaceWeather/DeferredMount";
 import SwSectionBanner from "@/components/spaceWeather/SwSectionBanner";
 const StormAnalysis = dynamic(() => import("@/components/spaceWeather/StormAnalysis"), { ssr: false });
+const SourceAnalysisGraphs = dynamic(() => import("@/components/spaceWeather/SourceAnalysisGraphs"), { ssr: false });
+const EquatorialElectricFieldChart = dynamic(
+  () => import("@/components/spaceWeather/EquatorialElectricFieldChart"),
+  { ssr: false, loading: () => sectionFallback },
+);
 import { monitoringFreshness, observationTime } from "@/lib/monitoringStatus";
 import HomeStormAlertBanner from "@/components/layout/HomeStormAlertBanner";
 import {
@@ -487,6 +492,10 @@ export default function SpaceWeatherClient({
     try {
       const params = new URLSearchParams(window.location.search);
       const raw = (params.get("tab") || "").toLowerCase();
+      if (raw === "analysis" || raw === "4") {
+        setTab(3);
+        return;
+      }
       // Zimbabwe is tab index 2, after Solar Activity.
       // Accept legacy ?tab=3 bookmarks that previously pointed here.
       if (raw === "2" || raw === "3" || raw === "zimbabwe" || raw === "ionosphere" || raw === "iono" || raw === "local") {
@@ -1273,6 +1282,8 @@ export default function SpaceWeatherClient({
             xrayRange={xrayRange}
             onXrayRangeChange={setXrayRange}
           />
+          <SourceAnalysisGraphs />
+          <EquatorialElectricFieldChart />
           {/* F10.7 & Sunspot Number — full multi-cycle record */}
           <DeferredMount
             className="sw-deferred-block"

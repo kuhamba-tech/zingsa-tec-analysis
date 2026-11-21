@@ -65,6 +65,7 @@ import type {
   FlareMonthResponse,
   StormDaysResponse,
   SolarCycleIndicesResponse,
+  EquatorialElectricFieldResponse,
   HeliosphericMonitorResponse,
   SolarCycleRow,
   SpaceWeatherCurrent,
@@ -616,6 +617,15 @@ export const getHeliosphericMonitor = (forceRefresh = false, requireNetwork = fa
       }),
   );
 };
+
+export const getEquatorialElectricField = (start?: string, days?: number) =>
+  dedupeGet(`space-weather/equatorial-electric-field:${start ?? "live"}:${days ?? ""}`, () =>
+    get<EquatorialElectricFieldResponse>(
+      "/space-weather/equatorial-electric-field",
+      { start, days, _ts: Date.now() },
+      40_000,
+    ),
+  );
 export type UptimeMonitorReport = {
   status: string; checked_at: string | null; successful_at: string | null;
   error: string | null; tracked: number;

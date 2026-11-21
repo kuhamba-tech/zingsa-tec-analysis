@@ -100,7 +100,8 @@ interface Props {
   gfz: GfzKpAnalysisResponse | null;
   kyoto: WdcKyotoAnalysisResponse | null;
   vtecLabels: string[];
-  vtecDatasets: { label: string; data: number[]; color?: string }[];
+  vtecDatasets: { label: string; data: (number | null)[]; color?: string }[];
+  markerTime?: number;
   loading?: boolean;
   errors?: {
     omni?: string | null;
@@ -126,6 +127,7 @@ export default function MultiSourceComparisonPanel({
   kyoto,
   vtecLabels,
   vtecDatasets,
+  markerTime,
   loading,
   errors,
 }: Props) {
@@ -147,15 +149,18 @@ export default function MultiSourceComparisonPanel({
       {drivers?.(stormDatesUnion(bundle))}
       {Object.entries(errors ?? {}).filter(([, message]) => message).map(([name, message]) => <ErrorBanner key={name} label={name} message={message!} />)}
       <div className="banner banner-info">
-        Select a date range above and click <strong>Load all sources</strong> to pull geomagnetic indices from
-        NASA OMNIWeb, CelesTrak, GFZ Potsdam (Germany), and WDC Kyoto (Japan) on one timeline and compare how
-        each provider recorded the same metrics.
+        No geomagnetic index series are available for this date range. Retry the source load or choose a range with released observations.
       </div>
       </div>
     );
   }
 
   const dates = unionDates(bundle);
+  const markerDate = markerTime == null ? null : new Date(markerTime).toISOString().slice(0, 10);
+  const markerIndex = markerDate == null ? -1 : dates.indexOf(markerDate);
+  const dailyMarker = markerIndex >= 0
+    ? [{ x: markerIndex, label: "Analysis marker", color: "#ff00d4", highlighted: true }]
+    : undefined;
   const kpLines = kpComparison(bundle, dates);
   const f107Lines = f107Comparison(bundle, dates);
   const ssnLines = ssnComparison(bundle, dates);
@@ -253,7 +258,7 @@ export default function MultiSourceComparisonPanel({
             F10.7 solar flux — OMNI vs CelesTrak
             <MetricRoleBadge role="solar" />
           </div>
-          <LineChart labels={dates} datasets={f107Lines} highlightDates={stormDates} yLabel="F10.7 (sfu)" height={220} />
+          <LineChart labels={dates} datasets={f107Lines} highlightDates={stormDates} verticalMarkers={dailyMarker} yLabel="F10.7 (sfu)" height={220} />
           <ChartAnalysis block={analyzeF107Chart(dates, f107Lines, kpPeak, bundle)} />
         </div>
       )}
@@ -264,7 +269,7 @@ export default function MultiSourceComparisonPanel({
             Sunspot number — OMNI vs CelesTrak
             <MetricRoleBadge role="solar" />
           </div>
-          <LineChart labels={dates} datasets={ssnLines} highlightDates={stormDates} yLabel="SSN" height={220} />
+          <LineChart labels={dates} datasets={ssnLines} highlightDates={stormDates} verticalMarkers={dailyMarker} yLabel="SSN" height={220} />
           <ChartAnalysis block={analyzeSsnChart(dates, ssnLines, kpPeak, bundle)} />
         </div>
       )}
@@ -285,7 +290,7 @@ export default function MultiSourceComparisonPanel({
             Red shading marks UTC days with daily maximum Kp at least 5 in an available source.
             Days below Kp 5 or without measured Kp are not shaded.
           </p>
-          <LineChart labels={dates} datasets={kpLines} yLabel="Kp" height={260} highlightDates={stormDates} />
+          <LineChart labels={dates} datasets={kpLines} yLabel="Kp" height={260} highlightDates={stormDates} verticalMarkers={dailyMarker} />
           <ChartAnalysis block={analyzeKpChart(dates, kpLines, kpDiff, stormDates, bundle, kpPeak)} />
         </div>
       )}
@@ -299,7 +304,7 @@ export default function MultiSourceComparisonPanel({
           <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginBottom: "0.65rem" }}>
             CelesTrak publishes daily mean Ap; GFZ and WDC Kyoto provide daily planetary Ap (distinct from 3-hourly ap).
           </p>
-          <LineChart labels={dates} datasets={apLines} highlightDates={stormDates} yLabel="Ap" height={220} />
+          <LineChart labels={dates} datasets={apLines} highlightDates={stormDates} verticalMarkers={dailyMarker} yLabel="Ap" height={220} />
           <ChartAnalysis block={analyzeApChart(dates, apLines, kpPeak, bundle)} />
         </div>
       )}
@@ -318,7 +323,7 @@ export default function MultiSourceComparisonPanel({
           <p style={{ fontSize: "0.8rem", margin: "0.65rem 0" }}>
             The scale above uses Kp for geomagnetic context. The Dst graph below measures ring-current disturbance in nT.
           </p>
-          <LineChart labels={dates} datasets={dstLines} yLabel="Dst (nT)" height={240} highlightDates={stormDates} />
+          <LineChart labels={dates} datasets={dstLines} yLabel="Dst (nT)" height={240} highlightDates={stormDates} verticalMarkers={dailyMarker} />
           <ChartAnalysis block={analyzeDstChart(dates, dstLines, kpPeak, bundle)} />
         </div>
       )}
@@ -333,6 +338,7 @@ export default function MultiSourceComparisonPanel({
             labels={dates}
             datasets={[{ label: cpLine.label, data: cpLine.data, color: cpLine.color }]}
             highlightDates={stormDates}
+            verticalMarkers={dailyMarker}
             yLabel="Cp"
             height={200}
           />
@@ -400,6 +406,9 @@ export default function MultiSourceComparisonPanel({
           <LineChart
             labels={vtecLabels}
             datasets={vtecOverlay}
+            verticalMarkers={markerTime != null && vtecLabels.includes(markerDate ?? "")
+              ? [{ x: vtecLabels.indexOf(markerDate!), label: "Analysis marker", color: "#ff00d4", highlighted: true }]
+              : undefined}
             yLabel="VTEC (TECU)"
             height={280}
             highlightDates={stormDates.filter((d) => vtecLabels.includes(d))}

@@ -513,7 +513,7 @@ export function analyzeVtecStormOverlay(
   stormDates: string[],
   vtecLabels: string[],
   kpPeak: { date: string; value: number } | null,
-  vtecDatasets: { label: string; data: number[] }[] = [],
+  vtecDatasets: { label: string; data: (number | null)[] }[] = [],
 ): ChartAnalysisBlock {
   if (!vtecLabels.length) {
     return { lead: "", bullets: [] };

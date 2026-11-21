@@ -83,7 +83,11 @@ function flareTick(value: number): string {
   return "";
 }
 
-export default function ComparisonDriverCharts({ request, stormDates = [] }: { request: Request | null; stormDates?: string[] }) {
+export default function ComparisonDriverCharts({ request, stormDates = [], selectedTime }: {
+  request: Request | null;
+  stormDates?: string[];
+  selectedTime?: number;
+}) {
   const [openExplanation, setOpenExplanation] = useState<string | null>(null);
   const [data, setData] = useState<ComparisonDriversResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -158,6 +162,9 @@ export default function ComparisonDriverCharts({ request, stormDates = [] }: { r
         {datasets.length > 0 ? <LineChart
           highlightDates={stormDates}
           labels={stamps} xValues={epochs} epochMs={epochs} datasets={datasets}
+          verticalMarkers={selectedTime != null && selectedTime >= min && selectedTime < max
+            ? [{ x: selectedTime, label: "Analysis marker", color: "#ff00d4", highlighted: true }]
+            : undefined}
           xMin={min} xMax={max} xLabel="UTC" height={240} toggleableLegend preserveSamples
           formatXTick={ms => new Date(ms).toISOString().slice(0, 16).replace("T", " ")}
           yLabel={panel.yLabel}

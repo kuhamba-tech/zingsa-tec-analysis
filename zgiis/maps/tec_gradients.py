@@ -445,12 +445,12 @@ def _query_windows(
               AND vtec_tecu >= 0
               AND vtec_tecu <= 50
               AND elevation_deg >= {ELEVATION_MIN_DEG:g}
-              AND tec_method LIKE %s
+              AND tec_method LIKE '%%code_live%%'
               AND tec_method NOT LIKE 'dlr_%%'
             GROUP BY 2, 3, 4
             """
         )
-        params.extend((key, start.isoformat(), end.isoformat(), "%code_live%"))
+        params.extend((key, start.isoformat(), end.isoformat()))
     conn = None
     try:
         conn = checkout(dsn)
@@ -735,13 +735,13 @@ def _dense_window_counts(after: datetime, until: datetime) -> list[tuple[datetim
                   AND vtec_tecu >= 0
                   AND vtec_tecu <= 50
                   AND elevation_deg >= {ELEVATION_MIN_DEG:g}
-                  AND tec_method LIKE %s
+                  AND tec_method LIKE '%%code_live%%'
                   AND tec_method NOT LIKE 'dlr_%%'
                 GROUP BY 1
                 HAVING COUNT(*) >= %s
                 ORDER BY 1
                 """,
-                (after.isoformat(), until.isoformat(), "%code_live%", _FALLBACK_MIN_ROWS),
+                (after.isoformat(), until.isoformat(), _FALLBACK_MIN_ROWS),
             )
             found: list[tuple[datetime, int]] = []
             for win, count in cur.fetchall():

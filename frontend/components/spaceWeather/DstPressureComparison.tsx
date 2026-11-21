@@ -7,7 +7,7 @@ import { loadLineChart } from "@/lib/loadLineChart";
 import { utcTimeAxisProps } from "@/lib/chartTimeAxis";
 import type { PlotAreaReporter } from "@/lib/chartPlotArea";
 import { nearestReading, OBSERVATION_READOUT_TOLERANCE_MS, type AnalysisPoint } from "@/lib/stormAnalysis";
-import { windBzComparison, solarWindPressure } from "@/lib/windBzComparison";
+import { windBzComparison } from "@/lib/windBzComparison";
 import { DST_RING_SCALE } from "@/lib/spaceWeatherMetrics";
 import type { HeliosphericMonitorResponse } from "@/lib/types";
 import type { SolarBriefResponse } from "@/lib/api";
@@ -39,7 +39,7 @@ export default function DstPressureComparison({
   const end = Date.now();
   const domain = analysisDomain ?? (calendar?.day ? utcDayBounds(calendar.day) : { min: end - hours * 3600_000, max: end });
   const samples = useMemo(() => windBzComparison(
-    { times: data.solar_wind.times, values: solarWindPressure(data.solar_wind.speed, data.solar_wind.density ?? []) },
+    { times: data.solar_wind.times, values: data.solar_wind.pressure ?? [] },
     { times: data.dst?.times ?? [], values: data.dst?.dst ?? [] }, domain.min, domain.max, true),
   [data, domain.min, domain.max]);
   const selectedReadings = useMemo(() => {
@@ -87,6 +87,6 @@ export default function DstPressureComparison({
       onPlotAreaChange={onPlotAreaChange} onPickTime={onPickTime}
       {...utcTimeAxisProps(domain, { majorHours: 3 })} />
     {(!hasWind || !hasBz) && <p role="status">{!hasWind ? "Solar wind pressure" : ""}{!hasWind && !hasBz ? " and " : ""}{!hasBz ? "Dst" : ""} observations unavailable in this window. Missing data remains empty.</p>}
-    <p style={{ fontSize: ".78rem" }}>Source fetched: {data.updated_utc ?? "unavailable"}. {!analysisDomain && markers.length > 0 && "Red lines mark M/X flare peaks from the latest NOAA flare list. "}Pressure (nPa) is calculated as 1.6726e-6 × proton density (cm⁻³) × speed² (km/s) from simultaneous NOAA samples; helium is not included. Dst stays at its measured hourly cadence; gaps longer than 65 minutes are not joined.</p>
+    <p style={{ fontSize: ".78rem" }}>Source fetched: {data.updated_utc ?? "unavailable"}. {!analysisDomain && markers.length > 0 && "Red lines mark M/X flare peaks from the latest NOAA flare list. "}Proton dynamic pressure (nPa) is calculated from simultaneous valid density and speed samples before archive binning; missing pairs are omitted. An isolated pressure spike is omitted only when an alternate NOAA source and adjacent primary readings disagree. Helium is not included. Dst stays at its measured hourly cadence; gaps longer than 65 minutes are not joined.</p>
   </section>;
 }

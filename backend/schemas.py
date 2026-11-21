@@ -272,6 +272,23 @@ class HeliosphericMonitorResponse(BaseModel):
     errors: dict[str, str | None] = {}
 
 
+class EquatorialElectricFieldPoint(BaseModel):
+    time: str
+    prompt_penetration_mvm: float | None = None
+    climatological_mvm: float | None = None
+
+
+class EquatorialElectricFieldResponse(BaseModel):
+    mode: str = "unavailable"
+    source: str = ""
+    source_url: str = ""
+    longitude_deg: float
+    updated_utc: str | None = None
+    average_solar_wind_velocity_km_s: float | None = None
+    points: list[EquatorialElectricFieldPoint] = []
+    note: str | None = None
+
+
 class SolarActivity(BaseModel):
     flare_count: int | None = None
     cme_count: int | None = None

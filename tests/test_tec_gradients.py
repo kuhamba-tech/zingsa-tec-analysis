@@ -120,6 +120,49 @@ def test_database_failure_is_not_reported_as_no_observations(monkeypatch):
         _query_rows(datetime.now(timezone.utc))
 
 
+def test_gradient_reads_use_literal_code_live_filter_for_partial_index(monkeypatch):
+    import zgiis.db.config as config
+    from zgiis.maps.tec_gradients import _dense_window_counts, _query_windows
+
+    calls = []
+
+    class Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, query, params=None):
+            calls.append((query, params))
+
+        def fetchall(self):
+            return []
+
+    class Connection:
+        closed = 0
+
+        def cursor(self):
+            return Cursor()
+
+    monkeypatch.setattr(config, "pooled_database_dsn", lambda: "test-database")
+    monkeypatch.setattr(config, "checkout", lambda _dsn: Connection())
+    monkeypatch.setattr(config, "release", lambda *_args, **_kwargs: None)
+
+    start = datetime(2026, 10, 28, 7, 15, tzinfo=timezone.utc)
+    end = start + timedelta(minutes=15)
+    _query_windows([("window", start, end)])
+    _dense_window_counts(start, end)
+
+    reads = [(query, params) for query, params in calls if "FROM vtec_obs" in query]
+    assert len(reads) == 2
+    assert all("tec_method LIKE '%%code_live%%'" in query for query, _ in reads)
+    assert all(
+        params is not None and "%code_live%" not in params
+        for _, params in reads
+    )
+
+
 def test_gradient_requests_share_one_nonblocking_build(monkeypatch):
     from concurrent.futures import Future
     import zgiis.maps.tec_gradients as gradients

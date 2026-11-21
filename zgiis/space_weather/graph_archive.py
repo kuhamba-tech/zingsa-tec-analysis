@@ -94,6 +94,7 @@ def iter_monitor_rows(payload: dict[str, Any]):
                 "solar_wind_speed": "speed",
                 "solar_wind_density": "density",
                 "solar_wind_temperature": "temperature",
+                "solar_wind_pressure": "pressure",
             },
         ),
         ("dst", {"dst": "dst"}),
@@ -156,11 +157,30 @@ def store_rows(rows) -> int:
         return 0
 
 
-def _store_later(rows: list[tuple[Any, Any, Any]]) -> None:
+def _store_later(
+    rows: list[tuple[Any, Any, Any]],
+    *,
+    invalid_pressure_times: list[datetime] | None = None,
+) -> None:
+    pressure_times = invalid_pressure_times or []
+    if not rows and not pressure_times:
+        return
+
     def run() -> None:
-        written = store_rows(rows)
-        if written:
-            log.info("Archived %d graph sample(s)", written)
+        try:
+            with _db_lock:
+                database = _database()
+                written = database.upsert_timeline(rows) if rows else 0
+                removed = (
+                    database.delete_timeline_samples("solar_wind_pressure", pressure_times)
+                    if pressure_times else 0
+                )
+            if written:
+                log.info("Archived %d graph sample(s)", written)
+            if removed:
+                log.info("Removed %d invalid solar-wind pressure sample(s)", removed)
+        except Exception as exc:
+            log.warning("graph archive write failed: %s", exc)
         _prune_if_due()
 
     threading.Thread(target=run, name="graph-archive-write", daemon=True).start()
@@ -287,6 +307,7 @@ def extend_monitor_payload(
             "solar_wind_speed": "speed",
             "solar_wind_density": "density",
             "solar_wind_temperature": "temperature",
+            "solar_wind_pressure": "pressure",
         },
         stored,
         live_points=_LIVE_POINTS,
@@ -354,6 +375,7 @@ def _read_archive() -> dict[str, list[tuple[datetime, float]]]:
         "solar_wind_speed",
         "solar_wind_density",
         "solar_wind_temperature",
+        "solar_wind_pressure",
         "dst",
         "kp_observed",
         "kp_estimated",
@@ -364,11 +386,35 @@ def _read_archive() -> dict[str, list[tuple[datetime, float]]]:
         return _database().read_timeline_bins(metrics, since=since, before=None, bin_minutes=15)
 
 
+def _remove_invalid_pressure_bins(
+    stored: dict[str, list[tuple[datetime, float]]],
+    invalid_times: list[datetime],
+) -> dict[str, list[tuple[datetime, float]]]:
+    if not invalid_times:
+        return stored
+    invalid_bins = {
+        stamp.replace(minute=stamp.minute // 15 * 15, second=0, microsecond=0)
+        for stamp in invalid_times
+    }
+    result = dict(stored)
+    result["solar_wind_pressure"] = [
+        (stamp, value)
+        for stamp, value in stored.get("solar_wind_pressure", [])
+        if stamp not in invalid_bins
+    ]
+    return result
+
+
 def prepare_monitor_payload(payload: dict[str, Any]) -> dict[str, Any]:
     """Save the samples just fetched and overlay up to seven stored days."""
+    wind = payload.get("solar_wind") or {}
+    invalid_pressure_times = [
+        stamp
+        for value in wind.pop("_pressure_invalid_times", [])
+        if (stamp := _parse_time(value)) is not None
+    ]
     rows = list(iter_monitor_rows(payload))
-    if rows:
-        _store_later(rows)
+    _store_later(rows, invalid_pressure_times=invalid_pressure_times)
     try:
         stored = _read_archive()
     except Exception as exc:
@@ -385,6 +431,7 @@ def prepare_monitor_payload(payload: dict[str, Any]) -> dict[str, Any]:
     imf_times = (payload.get("imf") or {}).get("times") or []
     imf_live_start = min((stamp for value in imf_times if (stamp := _parse_time(value)) is not None), default=now)
     fill_imf_history(stored, start=now - timedelta(hours=ARCHIVE_HOURS), stop=imf_live_start, now=now)
+    stored = _remove_invalid_pressure_bins(stored, invalid_pressure_times)
     return extend_monitor_payload(payload, stored)
 
 

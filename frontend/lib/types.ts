@@ -131,6 +131,8 @@ export interface SolarWindSpeedSeries {
   density?: (number | null)[];
   /** Proton temperature (K) from RTSW plasma when available. */
   temperature?: (number | null)[];
+  /** Proton dynamic pressure (nPa), computed before archive time-binning. */
+  pressure?: (number | null)[];
 }
 
 export interface KpForecastSeries {
@@ -163,6 +165,23 @@ export interface HeliosphericMonitorResponse {
   kp: KpForecastSeries;
   dst?: DstSeries;
   errors: Record<string, string | null>;
+}
+
+export interface EquatorialElectricFieldPoint {
+  time: string;
+  prompt_penetration_mvm: number | null;
+  climatological_mvm: number | null;
+}
+
+export interface EquatorialElectricFieldResponse {
+  mode: string;
+  source: string;
+  source_url: string;
+  longitude_deg: number;
+  updated_utc: string | null;
+  average_solar_wind_velocity_km_s: number | null;
+  points: EquatorialElectricFieldPoint[];
+  note: string | null;
 }
 
 export interface TimelinePoint { t: string; v: number | null; }

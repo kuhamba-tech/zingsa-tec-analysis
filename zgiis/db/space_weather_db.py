@@ -276,6 +276,25 @@ class SpaceWeatherDB:
 
         return int(self._retry(write))
 
+    def delete_timeline_samples(self, metric: str, times: list[datetime]) -> int:
+        """Remove graph samples invalidated by an authoritative source correction."""
+        stamps = list(dict.fromkeys(times))
+        if not metric or not stamps:
+            return 0
+        self.ensure_timeline_table()
+
+        def delete() -> int:
+            with self._conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM space_weather_timeline WHERE metric = %s AND time = ANY(%s)",
+                    (metric, stamps),
+                )
+                removed = int(cur.rowcount)
+            self._conn.commit()
+            return removed
+
+        return int(self._retry(delete))
+
     def read_timeline_bins(
         self,
         metrics: list[str],

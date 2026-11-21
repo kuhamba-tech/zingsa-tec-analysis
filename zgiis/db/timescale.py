@@ -51,6 +51,9 @@ CREATE TABLE IF NOT EXISTS vtec_obs (
 _PG_IDX = """
 CREATE INDEX IF NOT EXISTS vtec_obs_station_time ON vtec_obs (station, time DESC);
 CREATE INDEX IF NOT EXISTS vtec_obs_time_idx ON vtec_obs (time DESC);
+CREATE INDEX IF NOT EXISTS vtec_obs_code_live_time_station_cover
+    ON vtec_obs (time, station, prn) INCLUDE (vtec_tecu, elevation_deg)
+    WHERE tec_method LIKE '%code_live%';
 """
 
 
@@ -109,15 +112,6 @@ class TecDB:
             self._ensure_vtec_obs_audit_columns()
             with self._conn.cursor() as cur:
                 cur.execute(_PG_IDX)
-                cur.execute(
-                    """
-                    CREATE INDEX IF NOT EXISTS vtec_obs_code_live_time_station
-                    ON vtec_obs (time, station)
-                    WHERE tec_method LIKE 'code_live%'
-                      AND vtec_tecu > 0
-                      AND vtec_tecu < 200
-                    """
-                )
             self._conn.commit()
             _PG_SCHEMA_READY = True
         except ImportError:

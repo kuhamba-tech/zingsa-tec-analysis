@@ -20,7 +20,50 @@ _FIELDS = {
     "solar_wind_density": "n_proton",
     "solar_wind_temperature": "T_proton",
 }
+_PRESSURE_METRIC = "solar_wind_pressure"
+_PROTON_DYNAMIC_PRESSURE_FACTOR = 1.6726e-6
 log = logging.getLogger(__name__)
+
+
+def _aggregate_daily_bins(day: date, times, values) -> dict[str, list[tuple[datetime, float]]]:
+    grouped = {metric: defaultdict(list) for metric in _FIELDS}
+    grouped[_PRESSURE_METRIC] = defaultdict(list)
+    speed_values = values["solar_wind_speed"]
+    density_values = values["solar_wind_density"]
+
+    for index, clock in enumerate(times):
+        if clock is None or not math.isfinite(clock) or clock < 0:
+            continue
+        try:
+            stamp = _EPOCH + timedelta(microseconds=clock)
+        except OverflowError:
+            continue
+        if stamp.date() != day:
+            continue
+        bucket = stamp.replace(minute=stamp.minute // 15 * 15, second=0, microsecond=0)
+
+        speed = speed_values[index]
+        density = density_values[index]
+        if (speed is not None and density is not None
+            and math.isfinite(speed) and speed > 0
+            and math.isfinite(density) and density >= 0):
+            grouped["solar_wind_speed"][bucket].append(speed)
+            grouped["solar_wind_density"][bucket].append(density)
+            grouped[_PRESSURE_METRIC][bucket].append(
+                _PROTON_DYNAMIC_PRESSURE_FACTOR * density * speed**2
+            )
+
+        for metric, series in values.items():
+            if metric in {"solar_wind_speed", "solar_wind_density"}:
+                continue
+            value = series[index]
+            if value is not None and math.isfinite(value) and value > 0:
+                grouped[metric][bucket].append(value)
+
+    return {
+        metric: [(bucket, mean(samples)) for bucket, samples in bins.items()]
+        for metric, bins in grouped.items()
+    }
 
 
 @lru_cache(maxsize=32)
@@ -43,30 +86,15 @@ def _daily_bins(day: date, cache_hour: int) -> dict[str, list[tuple[datetime, fl
         times = dataset["time_utc"][:].tolist()
         values = {metric: dataset[field][:].tolist() for metric, field in _FIELDS.items()}
 
-    grouped = {metric: defaultdict(list) for metric in _FIELDS}
-    for index, clock in enumerate(times):
-        if clock is None or not math.isfinite(clock) or clock < 0:
-            continue
-        try:
-            stamp = _EPOCH + timedelta(microseconds=clock)
-        except OverflowError:
-            continue
-        if stamp.date() != day:
-            continue
-        bucket = stamp.replace(minute=stamp.minute // 15 * 15, second=0, microsecond=0)
-        for metric, series in values.items():
-            value = series[index]
-            if value is not None and math.isfinite(value) and value > 0:
-                grouped[metric][bucket].append(value)
-    return {metric: [(bucket, mean(samples)) for bucket, samples in bins.items()]
-            for metric, bins in grouped.items()}
+    return _aggregate_daily_bins(day, times, values)
 
 
 def fill_plasma_history(stored, *, start: datetime, stop: datetime, now: datetime) -> None:
     """Fill older quarter-hours only. Existing archive and live samples take precedence."""
     if stop <= start:
         return
-    existing = {metric: dict(stored.get(metric, [])) for metric in _FIELDS}
+    metrics = (*_FIELDS, _PRESSURE_METRIC)
+    existing = {metric: dict(stored.get(metric, [])) for metric in metrics}
     days = [start.date() + timedelta(days=i) for i in range((stop.date() - start.date()).days + 1)]
     hour = int(now.timestamp() // 3600)
 
