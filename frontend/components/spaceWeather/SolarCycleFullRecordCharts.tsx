@@ -145,7 +145,7 @@ const SolarCyclePlot = memo(function SolarCyclePlot({ plot, model, coverage }: {
   return (
     <section className={styles.plot} aria-label={plot.title}>
       <h3 className={styles.title}>{plot.title}</h3>
-      <p className={styles.coverage}>Monthly mean ? {coverage} ? {plot.unit}</p>
+      <p className={styles.coverage}>Monthly mean &middot; {coverage} &middot; {plot.unit}</p>
       <LineChart
         labels={model.labels}
         xValues={model.xValues}

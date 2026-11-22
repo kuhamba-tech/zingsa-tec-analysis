@@ -620,7 +620,7 @@ export const getHeliosphericMonitor = (forceRefresh = false, requireNetwork = fa
 
 export const getEquatorialElectricField = (start?: string, days?: number) =>
   dedupeGet(`space-weather/equatorial-electric-field:${start ?? "live"}:${days ?? ""}`, () =>
-    get<EquatorialElectricFieldResponse>(
+    (start ? get : getWithRetry)<EquatorialElectricFieldResponse>(
       "/space-weather/equatorial-electric-field",
       { start, days, _ts: Date.now() },
       40_000,

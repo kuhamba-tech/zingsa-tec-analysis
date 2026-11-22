@@ -1,6 +1,8 @@
 from datetime import date
 from unittest.mock import Mock
 
+import pytest
+
 from zgiis.space_weather import equatorial_electric_field as model
 from zgiis.space_weather.equatorial_electric_field import parse_equatorial_electric_field
 
@@ -67,3 +69,23 @@ def test_archive_request_uses_selected_utc_dates_and_model_longitude(monkeypatch
         "year": 2026, "month": 11, "day": 21, "utc": 0, "nDays": 5,
         "comp": "all", "startlong": 28.0, "deltalong": 18, "sat": "auto",
     }
+
+
+def test_live_model_preserves_timestamp_on_temporary_outage(monkeypatch):
+    clock = Mock(return_value=0)
+    fetch = Mock(side_effect=[Mock(text=MODEL_RESPONSE), model.requests.Timeout(), model.requests.Timeout()])
+    monkeypatch.setattr(model, "time", Mock(monotonic=clock))
+    monkeypatch.setattr(model.requests, "get", fetch)
+    monkeypatch.setattr(model, "_CACHE", {})
+
+    live = model.build_equatorial_electric_field()
+    clock.return_value = 61
+    fallback = model.build_equatorial_electric_field()
+    assert fallback["points"] == live["points"]
+    assert fallback["updated_utc"] == live["updated_utc"]
+    assert "could not be refreshed" in fallback["note"]
+    assert "no valid solar-wind velocity" in fallback["note"]
+
+    clock.return_value = 3600
+    with pytest.raises(model.requests.Timeout):
+        model.build_equatorial_electric_field()

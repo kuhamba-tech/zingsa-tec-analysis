@@ -29,7 +29,7 @@ function mergePoints(
 export default function EquatorialElectricFieldChart() {
   const [data, setData] = useState<EquatorialElectricFieldResponse | null>(null);
   const [points, setPoints] = useState<EquatorialElectricFieldPoint[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -40,11 +40,9 @@ export default function EquatorialElectricFieldChart() {
         if (!active) return;
         setData(response);
         setPoints(current => mergePoints(current, response.points));
-        setError(null);
-      } catch (reason) {
-        if (active) {
-          setError(reason instanceof Error ? reason.message : String(reason));
-        }
+        setError(false);
+      } catch {
+        if (active) setError(true);
       } finally {
         if (active) setLoading(false);
       }
@@ -110,7 +108,12 @@ export default function EquatorialElectricFieldChart() {
         Colorado real-time model output at five-minute cadence. This is an equatorial model estimate, not a local Zimbabwe measurement.
       </p>
       {loading && !data && <p role="status">Fetching real model output…</p>}
-      {error && <p className="banner banner-warn" role="status">{error}{data ? " Showing the last received model values." : ""}</p>}
+      {error && (
+        <p className="banner banner-warn" role="status">
+          The University of Colorado model is temporarily unavailable. This chart retries automatically.
+          {chart ? " Showing the last received model values." : ""}
+        </p>
+      )}
       {data?.note && <p className="banner banner-info" role="status">{data.note}</p>}
       {chart && (
         <LineChart

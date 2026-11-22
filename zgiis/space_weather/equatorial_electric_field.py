@@ -18,6 +18,7 @@ MODEL_PAGE_URL = (
 )
 _TARGET_LONGITUDE = 28.0
 _CACHE_TTL_SECONDS = 60
+_LIVE_FALLBACK_TTL_SECONDS = 3600
 _CACHE_LOCK = threading.Lock()
 _CACHE: dict[tuple[date | None, int | None], tuple[float, dict[str, Any]]] = {}
 
@@ -199,16 +200,32 @@ def build_equatorial_electric_field(*, start: date | None = None, days: int | No
     params = {"comp": "all", "startlong": _TARGET_LONGITUDE, "deltalong": 18, "sat": "auto"}
     if start is not None:
         params.update(year=start.year, month=start.month, day=start.day, utc=0, nDays=days)
-    response = requests.get(
-        MODEL_API_URL,
-        params=params,
-        timeout=(6, 25),
-        headers={"Accept": "text/html", "User-Agent": "ZGIIS/1.0 (space-weather dashboard)"},
-    )
-    response.raise_for_status()
-    payload = parse_equatorial_electric_field(response.text)
-    if not payload["points"]:
-        raise ValueError("The Colorado model returned no parseable electric-field rows.")
+    try:
+        response = requests.get(
+            MODEL_API_URL,
+            params=params,
+            timeout=(6, 25),
+            headers={"Accept": "text/html", "User-Agent": "ZGIIS/1.0 (space-weather dashboard)"},
+        )
+        response.raise_for_status()
+        payload = parse_equatorial_electric_field(response.text)
+        if not payload["points"]:
+            raise ValueError("The Colorado model returned no parseable electric-field rows.")
+    except (requests.RequestException, ValueError):
+        if start is not None or force_refresh:
+            raise
+        with _CACHE_LOCK:
+            cached = _CACHE.get(cache_key)
+        if (
+            cached
+            and time.monotonic() - cached[0] < _LIVE_FALLBACK_TTL_SECONDS
+            and cached[1]["mode"] == "live"
+        ):
+            note = "The Colorado model could not be refreshed. Showing the last available model output."
+            if cached[1]["note"]:
+                note += " " + cached[1]["note"]
+            return {**cached[1], "note": note}
+        raise
     with _CACHE_LOCK:
         if cache_key not in _CACHE and len(_CACHE) >= 32:
             _CACHE.pop(next(iter(_CACHE)))
