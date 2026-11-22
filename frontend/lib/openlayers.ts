@@ -18,6 +18,7 @@ import ImageLayer from "ol/layer/Image";
 import VectorSource from "ol/source/Vector";
 import XYZ from "ol/source/XYZ";
 import ImageCanvas from "ol/source/ImageCanvas";
+import ImageStatic from "ol/source/ImageStatic";
 import Point from "ol/geom/Point";
 import LineString from "ol/geom/LineString";
 import { Style, Circle, Fill, Stroke, Text, RegularShape } from "ol/style";
@@ -34,6 +35,7 @@ export {
   VectorSource,
   XYZ,
   ImageCanvas,
+  ImageStatic,
   Point,
   LineString,
   Style,

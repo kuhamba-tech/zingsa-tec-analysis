@@ -46,6 +46,26 @@ from backend.schemas import (
 
 router = APIRouter(prefix="/tec", tags=["tec"])
 
+
+@router.get("/gim-global")
+def gim_global(
+    day: date | None = None,
+    utc_time: str | None = Query(None, pattern=r"^(?:[01]\d|2[0-3]):(?:00|15|30|45)$"),
+    _=Depends(require_api_key),
+):
+    """A global JPLD vertical TEC grid at one archived UTC epoch."""
+    from zgiis.maps.jpl_gim import global_grid
+
+    if day is not None and not date(2003, 1, 1) <= day <= datetime.now(timezone.utc).date():
+        raise HTTPException(422, "Choose a UTC date from 2003 through today.")
+    try:
+        return global_grid(day, utc_time)
+    except FileNotFoundError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except Exception as exc:
+        log.warning("JPLD Global Ionospheric Map failed: %s", exc)
+        raise HTTPException(502, "The NASA JPL archive is temporarily unavailable.") from exc
+
 # Live map polls share one build. A fresh sample is a short SQL read; repeating
 # it for every card on the page was queueing the rest of the API.
 _HEATMAP_CACHE_TTL_S = 20.0

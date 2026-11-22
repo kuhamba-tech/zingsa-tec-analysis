@@ -29,6 +29,7 @@ const LiveTecMethodComparePanel = dynamic(
   () => import("./LiveTecMethodComparePanel"),
   { ssr: false },
 );
+const GlobalGimMap = dynamic(() => import("./GlobalGimMap"), { ssr: false });
 export type MapLayer =
   | "Hybrid"
   | "Satellite"
@@ -37,6 +38,7 @@ export type MapLayer =
   | "Geomagnetic"
   | "Zimbabwe ROTI Map"
   | "Global TEC"
+  | "GIM Global"
   | "TrigNet"
   | "Network Distances";
 
@@ -69,6 +71,7 @@ export const HOME_MAP_LAYERS: MapLayer[] = [
   "Geomagnetic",
   "Zimbabwe ROTI Map",
   "Global TEC",
+  "GIM Global",
   "TrigNet",
   "Network Distances",
 ];
@@ -228,6 +231,7 @@ export default function CorsMapWithLayers({
   const geomagneticLayerActive = layer === "Geomagnetic";
   const scienceMapLayerActive = layer === "Zimbabwe ROTI Map";
   const globalTecLayerActive = layer === "Global TEC";
+  const globalGimActive = layer === "GIM Global";
   const networkDistancesActive = layer === "Network Distances";
   const trignetActive = layer === "TrigNet";
   const showLayerSwitcher = availableLayers.length > 1;
@@ -553,7 +557,7 @@ export default function CorsMapWithLayers({
               <span className="home-map-layer-label">Map Layer</span>
               {availableLayers.map((l) => {
                 const isBasemap = l === "Hybrid" || l === "Satellite" || l === "Street";
-                const active = isBasemap ? basemap === l : layer === l;
+                const active = isBasemap ? !globalGimActive && basemap === l : layer === l;
                 return (
                   <button
                     key={l}
@@ -561,7 +565,7 @@ export default function CorsMapWithLayers({
                     onClick={() => {
                       if (l === "Hybrid" || l === "Satellite" || l === "Street") {
                         setBasemap(l);
-                        if (layer === "Hybrid" || layer === "Satellite" || layer === "Street") {
+                        if (globalGimActive || layer === "Hybrid" || layer === "Satellite" || layer === "Street") {
                           setLayer(l);
                         }
                         return;
@@ -595,7 +599,7 @@ export default function CorsMapWithLayers({
         style={networkDistancesActive ? undefined : { position: "relative" }}
       >
         <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
-        <CorsMap
+        {globalGimActive ? <GlobalGimMap height={height} /> : <CorsMap
           stations={trignetActive ? trignetStations : geomagneticLayerActive ? geomagneticStations : stations}
           height={height}
           layer={layer}
@@ -607,7 +611,7 @@ export default function CorsMapWithLayers({
           showDemographics={networkDistancesActive && showDemographics}
           highlightCode={highlightCode}
           onStationSelect={onStationSelect}
-        />
+        />}
 
         {networkDistancesActive && (
           <div className="network-distances-side-panel">
@@ -680,7 +684,7 @@ export default function CorsMapWithLayers({
 
         {(tecLayerActive || trignetActive) && <TecMapColorbar />}
 
-        {!globalTecLayerActive && !scienceMapLayerActive && !networkDistancesActive && (
+        {!globalTecLayerActive && !globalGimActive && !scienceMapLayerActive && !networkDistancesActive && (
           <div
             className="map-float-panels"
             style={{

@@ -626,6 +626,20 @@ export const getEquatorialElectricField = (start?: string, days?: number) =>
       40_000,
     ),
   );
+
+export interface GlobalGimGrid {
+  observed_utc: string;
+  times: string[];
+  width: number;
+  height: number;
+  values: (number | null)[];
+}
+
+export function getGlobalGim(day?: string, utcTime?: string) {
+  return dedupeGet(`gim-global:${day ?? ""}:${utcTime ?? ""}`, () =>
+    get<GlobalGimGrid>("/tec/gim-global", { day, utc_time: utcTime }, 55_000),
+  );
+}
 export type UptimeMonitorReport = {
   status: string; checked_at: string | null; successful_at: string | null;
   error: string | null; tracked: number;
