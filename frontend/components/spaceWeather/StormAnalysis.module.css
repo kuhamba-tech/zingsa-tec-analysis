@@ -106,3 +106,28 @@
     grid-column: 1 / -1;
   }
 }
+.guviFigure {
+  position: relative;
+  z-index: 6;
+  margin: 0 0 1.25rem;
+  padding: 0.5rem 0;
+  background: var(--surface);
+}
+
+.guviFigure figcaption {
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+}
+
+.guviImage {
+  width: min(100%, 576px);
+  aspect-ratio: 576 / 336;
+  overflow: hidden;
+  border-radius: 0.5rem;
+}
+
+.guviImage img {
+  display: block;
+  width: 100%;
+  height: auto;
+}

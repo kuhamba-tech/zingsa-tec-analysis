@@ -2,6 +2,7 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import dynamic from "next/dynamic";
+import Image from "next/image";
 import { getEquatorialElectricField, getGfzKpAnalysis, getHeliosphericMonitor, getLiveVtecByStation, type SolarArchiveDay } from "@/lib/api";
 import { peekHeliosphericMonitor } from "@/lib/heliosphericStore";
 import type { GoesXrayRange } from "@/components/spaceWeather/GoesSolarXrayCard";
@@ -565,7 +566,23 @@ export default function StormAnalysis({
         : index === 4 ? Math.max(50, Math.ceil(maximum / 25) * 25)
         : Math.max(10, Math.ceil(maximum / 10) * 10 + 5);
       return <div key={panel.title} style={{ marginTop: "1rem" }}>
-        {isNetworkMean && <EquatorialElectricFieldChart domain={domain} selectedTime={selectedTime} pick={pick} reportArea={plotLayout.reporters.electricField} />}
+        {isNetworkMean && <>
+          <figure className={styles.guviFigure}>
+            <div className={styles.guviImage}>
+              <Image
+                src="/guvi-on2-2026-03-20.png"
+                alt="Global TIMED/GUVI thermospheric oxygen-to-molecular-nitrogen ratio map for 20 March 2026, with O/N₂ color scale."
+                width={576}
+                height={576}
+              />
+            </div>
+            <figcaption>
+              TIMED/GUVI Level 3 O/N₂ · 20 March 2026 ·{" "}
+              <a href="https://guvitimed.jhuapl.edu/guvi-galleryl3on2" target="_blank" rel="noreferrer">GUVI data portal</a>
+            </figcaption>
+          </figure>
+          <EquatorialElectricFieldChart domain={domain} selectedTime={selectedTime} pick={pick} reportArea={plotLayout.reporters.electricField} />
+        </>}
         {panel.title === "Relative VTEC difference" && <div style={{ marginBottom: "1.25rem" }}>
           <strong>Mean daily TEC — northern, central and southern Zimbabwe</strong>
           <ZimbabweMeanDiurnalTec embedded analysisDomain={domain} analysisDay={endDay} analysisRows={days === 30 ? (loading ? null : rows) : undefined} onPlotAreaChange={plotLayout.reporters.regionalTec} />
