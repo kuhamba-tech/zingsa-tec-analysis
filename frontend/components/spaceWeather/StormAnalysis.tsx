@@ -339,7 +339,7 @@ export default function StormAnalysis({
 }) {
   const today = new Date().toISOString().slice(0, 10);
   const [endDay, setEndDay] = useState(today);
-  const [days, setDays] = useState(3);
+  const [days, setDays] = useState(30);
   const [station, setStation] = useState("gutu");
   const [referenceDay, setReferenceDay] = useState("");
   const [helio, setHelio] = useState<HeliosphericMonitorResponse | null>(peekHeliosphericMonitor);
@@ -718,7 +718,7 @@ export default function StormAnalysis({
       return <div className={styles.analysisChartPanel} key={panel.title} style={{ marginTop: "1rem" }}>
         {isNetworkMean && <>
           <GuviDailyMap selectedTime={selectedTime} />
-          <SwarmZimbabwePasses />
+          <SwarmZimbabwePasses day={new Date(selectedTime).toISOString().slice(0, 10)} />
           <EquatorialElectricFieldChart domain={domain} selectedTime={selectedTime} pick={pick} reportArea={plotLayout.reporters.electricField} />
         </>}
         {isNetworkMean && <div style={{ marginBottom: "1.25rem" }}>
