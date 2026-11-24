@@ -122,11 +122,12 @@ export default function GoesSolarXrayCard({
   const setRange = onRangeChange ?? setLocalRange;
 
   const todayEnd = startOfUtcDay(Date.now()) + UTC_DAY_MS;
-  const monthly = analysisDomain
-    ? analysisDomain.max - analysisDomain.min === 30 * UTC_DAY_MS
-    : range === "30D";
+  const windowDays = analysisDomain
+    ? Math.ceil((analysisDomain.max - analysisDomain.min) / UTC_DAY_MS)
+    : range === "30D" ? 30 : 0;
+  const monthly = windowDays > 7;
   const archiveEnd = monthly ? (analysisDomain?.max ?? todayEnd) : null;
-  const archiveStart = archiveEnd == null ? null : archiveEnd - 30 * UTC_DAY_MS;
+  const archiveStart = archiveEnd == null ? null : archiveEnd - windowDays * UTC_DAY_MS;
   const [archive, setArchive] = useState<{ end: number; points: GoesXrayTimelinePoint[] } | null>(null);
 
   useEffect(() => {
@@ -143,7 +144,11 @@ export default function GoesSolarXrayCard({
   }, [archiveStart, archiveEnd]);
 
   const chart = useMemo(() => {
-    const hours = monthly ? 720 : analysisDomain ? (analysisDomain.max - analysisDomain.min) / ONE_H_MS : calendar?.day ? 168 : RANGE_HOURS[range];
+    const hours = windowDays > 7
+      ? windowDays * 24
+      : analysisDomain
+        ? (analysisDomain.max - analysisDomain.min) / ONE_H_MS
+        : calendar?.day ? 168 : RANGE_HOURS[range];
     const byMinute = new Map<number, GoesXrayTimelinePoint>();
     const archived = monthly && archive?.end === archiveEnd ? archive.points : [];
     const points = [...archived, ...(timeline ?? [])].filter(point => point?.t);
@@ -315,7 +320,7 @@ export default function GoesSolarXrayCard({
 
       {monthly && <p role="status">{archive?.end !== archiveEnd
         ? "Loading archived GOES X-ray measurements..."
-        : `GOES X-ray observations from NOAA SWPC and NCEI on ${chart?.observedDays ?? 0} of 30 UTC days.`}</p>}
+        : `GOES X-ray observations from NOAA SWPC and NCEI on ${chart?.observedDays ?? 0} of ${windowDays} UTC days.`}</p>}
       {chart ? (
         <>
           {selectedReadings && selectedTime != null && <p aria-live="polite" style={{ fontSize: ".8rem", margin: "0 0 .45rem" }}>

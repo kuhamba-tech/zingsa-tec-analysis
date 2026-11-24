@@ -560,7 +560,9 @@ export default function TimeSeriesPage() {
   const applyRangePreset = (months: number) => {
     const now = new Date();
     const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (months - 1), 1));
+    const start = months === 1096
+      ? new Date(Date.UTC(2024, 0, 1))
+      : new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (months - 1), 1));
     const startIso = start.toISOString().slice(0, 10);
     const endIso = end.toISOString().slice(0, 10);
     setStartYear(start.getUTCFullYear());
@@ -576,7 +578,9 @@ export default function TimeSeriesPage() {
   const applyGroundPreset = (months: number) => {
     const now = new Date();
     const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (months - 1), 1));
+    const start = months === 1096
+      ? new Date(Date.UTC(2024, 0, 1))
+      : new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (months - 1), 1));
     const startIso = start.toISOString().slice(0, 10);
     const endIso = end.toISOString().slice(0, 10);
     setImagStartYear(start.getUTCFullYear());
@@ -592,7 +596,9 @@ export default function TimeSeriesPage() {
   const applyArchivePreset = (months: number) => {
     const now = new Date();
     const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (months - 1), 1));
+    const start = months === 1096
+      ? new Date(Date.UTC(2024, 0, 1))
+      : new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (months - 1), 1));
     const startIso = start.toISOString().slice(0, 10);
     const endIso = end.toISOString().slice(0, 10);
     setStart(startIso);
@@ -742,6 +748,8 @@ export default function TimeSeriesPage() {
             { label: "3 Months", months: 3 },
             { label: "6 Months", months: 6 },
             { label: "1 Year", months: 12 },
+            { label: "Since Jan 2024", months: 1096 },
+            { label: "Since Jan 2024", months: 1096 },
           ].map((preset) => (
             <button
               key={preset.label}
@@ -850,6 +858,7 @@ export default function TimeSeriesPage() {
             { label: "3 Months", months: 3 },
             { label: "6 Months", months: 6 },
             { label: "1 Year", months: 12 },
+            { label: "Since Jan 2024", months: 1096 },
           ].map((preset) => (
             <button key={preset.label} type="button" className="btn" onClick={() => applyGroundPreset(preset.months)} disabled={intermagnetLoading}>
               {preset.label}

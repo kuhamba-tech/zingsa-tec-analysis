@@ -3,7 +3,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import dynamic from "next/dynamic";
 import Image from "next/image";
-import { getEquatorialElectricField, getGfzKpAnalysis, getHeliosphericMonitor, getLiveVtecByStation, type SolarArchiveDay } from "@/lib/api";
+import { getEquatorialElectricField, getGfzKpAnalysis, getGuviOn2Map, getHeliosphericMonitor, getLiveVtecByStation, getTimeSeries, type SolarArchiveDay } from "@/lib/api";
 import { peekHeliosphericMonitor } from "@/lib/heliosphericStore";
 import type { GoesXrayRange } from "@/components/spaceWeather/GoesSolarXrayCard";
 import { loadLineChart } from "@/lib/loadLineChart";
@@ -22,6 +22,7 @@ import { buildNetworkMeanVtecSeries, mergeStationVtecHistory, nearestReading, OB
 import type { EquatorialElectricFieldPoint, HeliosphericMonitorResponse, LiveStationVtecSeries, SolarActivityFull } from "@/lib/types";
 
 const LineChart = dynamic(() => loadLineChart().then(module => module.default), { ssr: false });
+const SwarmZimbabwePasses = dynamic(() => import("./SwarmZimbabwePasses"), { ssr: false });
 const SolarFlareMonthChart = memo(dynamic(() => import("./SolarFlareMonthChart"), { ssr: false }));
 const ActiveRegionInspector = memo(dynamic(() => import("./ActiveRegionInspector"), { ssr: false }));
 const FlareActivityTable = memo(dynamic(() => import("./FlareActivityTable"), { ssr: false }));
@@ -198,6 +199,127 @@ function createPlotLayout(getRect: () => DOMRect | undefined) {
   };
 }
 
+function GuviDailyMap({ selectedTime }: { selectedTime: number }) {
+  const stamp = new Date(selectedTime).toISOString();
+  const day = stamp.slice(0, 10);
+  const [result, setResult] = useState<{ day: string; map: Awaited<ReturnType<typeof getGuviOn2Map>> | null } | null>(null);
+  const [failedImage, setFailedImage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    const stop = startVisiblePolling(async () => {
+      const map = await getGuviOn2Map(day).catch(() => null);
+      if (!active) return;
+      setResult(previous => map || previous?.day !== day ? { day, map } : previous);
+      setFailedImage(null);
+    }, 5 * 60_000, 200);
+    return () => { active = false; stop(); };
+  }, [day]);
+
+  const current = result?.day === day ? result : null;
+  const map = current?.map;
+  const imageUrl = map?.image_url;
+
+  return <figure className={styles.guviFigure}>
+    {imageUrl && failedImage !== imageUrl && <div className={styles.guviImage}>
+      <Image key={imageUrl} src={imageUrl} unoptimized width={1000} height={600}
+        alt={`Global TIMED/GUVI oxygen-to-molecular-nitrogen ratio map for ${map.date} UTC.`}
+        onError={() => setFailedImage(imageUrl)} />
+    </div>}
+    <figcaption>
+      TIMED/GUVI Level 3 O/N? daily map. Selected {day} {stamp.slice(11, 16)} UTC.{" "}
+      <a href="https://guvitimed.jhuapl.edu/guvi-galleryl3on2_new" target="_blank" rel="noreferrer">GUVI data portal</a>
+      <div role="status">{!current ? "Loading GUVI map?"
+        : !map || (imageUrl && failedImage === imageUrl) ? "The GUVI map is temporarily unavailable."
+        : !imageUrl ? "No published GUVI map on or before the selected date."
+        : map.date === day ? `Map date ${map.date} UTC.`
+        : `Latest available map on or before the selection: ${map.date} UTC.`}</div>
+    </figcaption>
+  </figure>;
+}
+
+function pollTecArchive(
+  days: string[],
+  today: string,
+  publish: (rows: LiveStationVtecSeries[]) => void,
+  interval: number,
+  stations?: string[],
+  progress?: (checked: number, missing: string[]) => void,
+) {
+  let active = true;
+  const history = new Map<string, LiveStationVtecSeries[]>();
+  const checked = new Set<string>();
+  let bulkStarted = false;
+  const stop = startVisiblePolling(async () => {
+    if (days.length > 90 && !bulkStarted) {
+      bulkStarted = true;
+      const start = [...days].sort()[0];
+      const end = [...days].sort().at(-1);
+      if (start && end) {
+        const observations = await getTimeSeries({
+          station: stations?.[0],
+          start,
+          end,
+          limit: 200000,
+        }).catch(() => []);
+        if (!active) return;
+        const grouped = new Map<string, LiveStationVtecSeries>();
+        for (const observation of observations) {
+          if (observation.vtec == null) continue;
+          const stationCode = observation.station || stations?.[0] || "network";
+          const series = grouped.get(stationCode) ?? {
+            station: stationCode,
+            name: stationCode,
+            points: [],
+            latest_vtec: null,
+            mean_vtec: null,
+          };
+          series.points.push({
+            time: observation.timestamp,
+            vtec_tecu: observation.vtec,
+            obs_count: 1,
+          });
+          grouped.set(stationCode, series);
+        }
+        const series = [...grouped.values()].map((row) => {
+          row.points.sort((a, b) => Date.parse(a.time) - Date.parse(b.time));
+          const values = row.points.map((point) => point.vtec_tecu).filter(Number.isFinite);
+          row.latest_vtec = row.points.at(-1)?.vtec_tecu ?? null;
+          row.mean_vtec = values.length
+            ? values.reduce((sum, value) => sum + value, 0) / values.length
+            : null;
+          return row;
+        });
+        publish(series);
+        days.forEach((day) => checked.add(day));
+        progress?.(checked.size, []);
+        return;
+      }
+    }
+    // Keep completed UTC days while retrying missing days and refreshing today's data.
+    const pending = days.filter(day => day === today || !history.has(day));
+    let next = 0;
+    const worker = async () => {
+      while (active && next < pending.length) {
+        const day = pending[next++];
+        const daily = await getLiveVtecByStation(24, 15, 90_000, day, stations).catch(() => []);
+        if (!active) return;
+        if (daily.some(row => row.points.length)) {
+          history.set(day, mergeStationVtecHistory(history.get(day) ?? [], daily, 15));
+          publish([...history.values()].flat());
+        }
+        checked.add(day);
+        if (checked.size < days.length) progress?.(checked.size, []);
+      }
+    };
+    // A slow day should not hold up the rest of the month.
+    const workers = days.length > 7 ? 3 : 1;
+    await Promise.all(Array.from({ length: workers }, worker));
+    if (active) progress?.(checked.size, days.filter(day => !history.has(day)));
+  }, interval);
+  return () => { active = false; stop(); };
+}
+
 export default function StormAnalysis({
   solar,
   xrayTimeline,
@@ -230,6 +352,7 @@ export default function StormAnalysis({
   const [referenceError, setReferenceError] = useState<string | null>(null);
   const [picked, setPicked] = useState<number | null>(null);
   const [flareArchive, setFlareArchive] = useState<{ day: string; data: SolarArchiveDay } | null>(null);
+  const [checkedTecDays, setCheckedTecDays] = useState(0);
   const [loading, setLoading] = useState(true);
   const stackRef = useRef<HTMLDivElement>(null);
   const [plotLayout] = useState(() => createPlotLayout(() => stackRef.current?.getBoundingClientRect()));
@@ -245,6 +368,9 @@ export default function StormAnalysis({
   }, [plotLayout]);
   const domain = useMemo(() => {
     const max = Date.parse(`${endDay}T00:00:00Z`) + 86400000;
+    if (days === 1096) {
+      return { min: Date.parse("2024-01-01T00:00:00Z"), max };
+    }
     return { min: max - days * 86400000, max };
   }, [endDay, days]);
   const selectedTime = Math.max(domain.min, Math.min(domain.max - 60_000, picked ?? Date.now()));
@@ -280,47 +406,28 @@ export default function StormAnalysis({
     return () => { cancelled = true; stop(); };
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    setRows([]); setTecError(null); setLoading(true);
-    const dayList = Array.from({ length: days }, (_, index) => new Date(domain.min + index * 86400000).toISOString().slice(0, 10)).reverse();
-    const history = new Map<string, LiveStationVtecSeries[]>();
-    const load = async () => {
-      const pending: string[] = [];
-      // Load the latest day first and publish each day as it arrives.
-      for (const day of dayList) {
-        const daily = await getLiveVtecByStation(24, 15, 90000, day).catch(() => []);
-        if (cancelled) return;
-        if (daily.some(row => row.points.length)) {
-          history.set(day, mergeStationVtecHistory(history.get(day) ?? [], daily, 15));
-          setRows([...history.values()].flat());
-          setLoading(false);
-        } else {
-          pending.push(day);
-        }
-      }
-      setLoading(false);
-      setTecError(pending.length ? `Station TEC archive is missing or temporarily unavailable for ${pending.join(", ")} UTC. Retrying automatically.` : null);
-    };
-    const stop = startVisiblePolling(load, 60_000);
-    return () => { cancelled = true; stop(); };
-  }, [domain.min, days]);
+  const archiveDays = useMemo(() => Array.from({ length: days }, (_, index) =>
+    new Date(domain.max - (index + 1) * 86_400_000).toISOString().slice(0, 10),
+  ), [domain.max, days]);
 
   useEffect(() => {
-    let active = true;
+    setRows([]);
+    setTecError(null);
+    setCheckedTecDays(0);
+    setLoading(true);
+    return pollTecArchive(archiveDays, today, setRows, 60_000, undefined, (checked, missing) => {
+      setCheckedTecDays(checked);
+      if (checked !== archiveDays.length) return;
+      setLoading(false);
+      setTecError(missing.length ? `Station TEC archive is missing or temporarily unavailable for ${missing.join(", ")} UTC. Retrying automatically.` : null);
+    });
+  }, [archiveDays, today]);
+
+  useEffect(() => {
     setStationRows([]);
-    const byDay = new Map<string, LiveStationVtecSeries[]>();
-    const stop = startVisiblePolling(async () => {
-      for (let index = days - 1; index >= 0 && active; index--) {
-        const day = new Date(domain.min + index * 86400000).toISOString().slice(0, 10);
-        const daily = await getLiveVtecByStation(24, 15, 90000, day, [station]).catch(() => []);
-        if (!active || !daily.some(row => row.points.length)) continue;
-        byDay.set(day, mergeStationVtecHistory(byDay.get(day) ?? [], daily, 15));
-        setStationRows([...byDay.values()].flat());
-      }
-    }, 5 * 60_000);
-    return () => { active = false; stop(); };
-  }, [domain.min, days, station]);
+    if (!station) return;
+    return pollTecArchive(archiveDays, today, setStationRows, 5 * 60_000, [station]);
+  }, [archiveDays, today, station]);
 
   useEffect(() => {
     let cancelled = false;
@@ -419,14 +526,21 @@ export default function StormAnalysis({
     <h2>Analysis · Sun–Earth–ionosphere</h2>
     <div className={styles.controls}>
       <label>End UTC day <input type="date" value={endDay} max={today} onChange={event => changeEndDay(event.target.value)} /></label>
-      <label>Window <select value={days} onChange={event => setDays(Number(event.target.value))}>{[1, 3, 7].map(value => <option key={value} value={value}>{value} day(s)</option>)}<option value={30}>1 month</option></select></label>
+      <label>Window <select value={days} onChange={event => setDays(Number(event.target.value))}>
+        {[1, 3, 7].map(value => <option key={value} value={value}>{value} day(s)</option>)}
+        <option value={30}>1 month</option>
+        <option value={180}>6 months</option>
+        <option value={365}>1 year</option>
+        <option value={1096}>Since Jan 2024</option>
+      </select></label>
       <label>Station code <input value={station} maxLength={12} onChange={event => setStation(event.target.value.replace(/[^a-zA-Z0-9_]/g, "").toLowerCase())} /></label>
       <label>Reference UTC day override <input type="date" value={referenceDay} max={today} onChange={event => setReferenceDay(event.target.value)} /></label>
       <button type="button" className="btn" onClick={() => setReferenceDay("")}>Use five quiet days</button>
     </div>
     <p>The station code and reference apply to ΔVTEC. Network mean VTEC uses measured samples from all reporting stations. Dst is a global index.</p>
     {(error || tecError || referenceError) && <p role="status">{[error, tecError, referenceError].filter(Boolean).join(" ")}</p>}
-    {loading && <p role="status">Loading station archive…</p>}
+    {loading && <p role="status">Loading station archive... {checkedTecDays} of {days} UTC days checked.</p>}
+    {days === 30 && <p>Live solar wind, IMF and proton feeds can cover fewer than 30 days.</p>}
     <p>Pink analysis marker: <strong>{new Date(selectedTime).toISOString().replace("T", " ").replace("Z", " UTC")}</strong></p>
     <details className={styles.fineTime}><summary>Fine time adjustment</summary>
     <label style={{ display: "block" }}>Move the analysis time
@@ -567,25 +681,13 @@ export default function StormAnalysis({
         : Math.max(10, Math.ceil(maximum / 10) * 10 + 5);
       return <div key={panel.title} style={{ marginTop: "1rem" }}>
         {isNetworkMean && <>
-          <figure className={styles.guviFigure}>
-            <div className={styles.guviImage}>
-              <Image
-                src="/guvi-on2-2026-03-20.png"
-                alt="Global TIMED/GUVI thermospheric oxygen-to-molecular-nitrogen ratio map for 20 March 2026, with O/N₂ color scale."
-                width={576}
-                height={576}
-              />
-            </div>
-            <figcaption>
-              TIMED/GUVI Level 3 O/N₂ · 20 March 2026 ·{" "}
-              <a href="https://guvitimed.jhuapl.edu/guvi-galleryl3on2" target="_blank" rel="noreferrer">GUVI data portal</a>
-            </figcaption>
-          </figure>
+          <GuviDailyMap selectedTime={selectedTime} />
+          <SwarmZimbabwePasses />
           <EquatorialElectricFieldChart domain={domain} selectedTime={selectedTime} pick={pick} reportArea={plotLayout.reporters.electricField} />
         </>}
         {panel.title === "Relative VTEC difference" && <div style={{ marginBottom: "1.25rem" }}>
           <strong>Mean daily TEC — northern, central and southern Zimbabwe</strong>
-          <ZimbabweMeanDiurnalTec embedded analysisDomain={domain} analysisDay={endDay} analysisRows={days === 30 ? (loading ? null : rows) : undefined} onPlotAreaChange={plotLayout.reporters.regionalTec} />
+          <ZimbabweMeanDiurnalTec embedded analysisDomain={domain} analysisDay={endDay} analysisRows={days === 30 ? (loading && !rows.length ? null : rows) : undefined} onPlotAreaChange={plotLayout.reporters.regionalTec} />
         </div>}
         <strong>{panel.title}</strong> · {reading ? `${reading.value!.toFixed(1)} ${panel.unit.match(/\((.*)\)/)?.[1] ?? ""} at ${new Date(reading.time).toISOString()}` : "No observation near the marker"}
         {isNetworkMean && sorted.length > 0 && <p style={{ fontSize: ".8rem" }}>

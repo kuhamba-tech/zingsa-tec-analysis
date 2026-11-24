@@ -1007,8 +1007,8 @@ def goes_xray_archive(start: date, end: date, _=Depends(require_api_key)):
     """Return up to 30 UTC days of archived one-minute X-ray flux."""
     from zgiis.space_weather.goes_xray_archive import get_xray_archive
 
-    if not 0 <= (end - start).days < 30:
-        raise HTTPException(status_code=400, detail="Select up to 30 UTC days.")
+    if not 0 <= (end - start).days <= 1096:
+        raise HTTPException(status_code=400, detail="Select up to three years of UTC observations.")
     return get_xray_archive(start, end)
 
 

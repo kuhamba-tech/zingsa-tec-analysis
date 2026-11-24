@@ -184,7 +184,7 @@ def time_series(
     station: str | None = Query(None),
     start: str | None = Query(None),
     end: str | None = Query(None),
-    limit: int = Query(2000, le=10000),
+    limit: int = Query(2000, le=200000),
     _=Depends(require_api_key),
 ):
     df = _archive().copy()

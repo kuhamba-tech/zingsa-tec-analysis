@@ -15,7 +15,7 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
-ARCHIVE_HOURS = 24 * 30
+ARCHIVE_HOURS = 24 * 1096
 _OLDER_POINTS = 240
 _LIVE_POINTS = 360
 _ARCHIVE_GAP_SEC = 300.0
@@ -194,7 +194,7 @@ def _prune_if_due() -> None:
     _last_prune = now
     try:
         with _db_lock:
-            removed = _database().prune_timeline(days=90)
+            removed = _database().prune_timeline(days=1096)
         if removed:
             log.info("Pruned %d graph sample(s) older than 90 days", removed)
     except Exception as exc:
