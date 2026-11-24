@@ -47,6 +47,17 @@ from backend.schemas import (
 router = APIRouter(prefix="/tec", tags=["tec"])
 
 
+@router.get("/planetary-ap")
+def planetary_ap(start: date, end: date, response: Response, _=Depends(require_api_key)):
+    """Daily Ap sources and the latest completed GFZ intervals for today."""
+    from zgiis.space_weather.planetary_ap import planetary_ap as load_planetary_ap
+
+    if not date(1932, 1, 1) <= start <= end <= datetime.now(timezone.utc).date():
+        raise HTTPException(422, "Choose a UTC window between 1932 and today.")
+    response.headers["Cache-Control"] = "no-store"
+    return load_planetary_ap(start, end)
+
+
 @router.get("/swarm-zimbabwe")
 def swarm_zimbabwe(day: date, _=Depends(require_api_key)):
     """Swarm A and C Langmuir probe observations around Zimbabwe crossings."""

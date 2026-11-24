@@ -1478,6 +1478,13 @@ export const getGoesProtonArchive = (start: string, end: string) =>
 
 export const getGfzKpAnalysis = (start: string, end: string, station?: string, includeVtec = true) =>
   get<GfzKpAnalysisResponse>("/tec/gfz-kp-analysis", { start, end, station, include_vtec: includeVtec ? undefined : "false", _ts: Date.now() }, ANALYSIS_TIMEOUT_MS);
+
+export const getPlanetaryAp = (start: string, end: string) =>
+  dedupeGet(`planetary-ap:${start}:${end}`, () => get<{
+    series: Partial<Record<"celestrak" | "gfz" | "kyoto", Record<string, number>>>;
+    live: { date: string; value: number; intervals: number } | null;
+    unavailable: string[];
+  }>("/tec/planetary-ap", { start, end }, 45_000));
 export const getWdcKyotoAnalysis = (start: string, end: string, station?: string) =>
   get<WdcKyotoAnalysisResponse>("/tec/wdc-kyoto-analysis", { start, end, station, _ts: Date.now() }, ANALYSIS_TIMEOUT_MS);
 export const getTrigNet = () =>

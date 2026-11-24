@@ -3,7 +3,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import dynamic from "next/dynamic";
 import Image from "next/image";
-import { getEquatorialElectricField, getGfzKpAnalysis, getGoesProtonArchive, getGuviOn2Map, getHeliosphericMonitor, getLiveVtecByStation, getStations, getTimeSeries, type SolarArchiveDay } from "@/lib/api";
+import { getEquatorialElectricField, getGfzKpAnalysis, getGoesProtonArchive, getGuviOn2Map, getHeliosphericMonitor, getLiveVtecByStation, getPlanetaryAp, getStations, getTimeSeries, type SolarArchiveDay } from "@/lib/api";
 import { peekHeliosphericMonitor } from "@/lib/heliosphericStore";
 import type { GoesXrayRange } from "@/components/spaceWeather/GoesSolarXrayCard";
 import { loadLineChart } from "@/lib/loadLineChart";
@@ -102,7 +102,7 @@ const PROTON_COLORS: Record<string, string> = {
   ">=100 MeV": "#f97316",
   ">=500 MeV": "#ef4444",
 };
-const PLOTS = ["xray", "wind", "windPlasma", "imf", "proton", "pressure", "overview", "kp", "dst", "speed", "bz", "electricField", "meanTec", "regionalTec"] as const;
+const PLOTS = ["xray", "wind", "windPlasma", "imf", "proton", "pressure", "overview", "kp", "dst", "ap", "speed", "bz", "electricField", "meanTec", "regionalTec"] as const;
 type Plot = (typeof PLOTS)[number];
 const SOLAR_WIND_SPEED_GUIDES = SOLAR_WIND_SPEED_SCALE
   .filter(band => band.boundary > 0)
@@ -794,6 +794,8 @@ export default function StormAnalysis({
         : index === 4 ? Math.max(50, Math.ceil(maximum / 25) * 25)
         : Math.max(10, Math.ceil(maximum / 10) * 10 + 5);
       return <div className={styles.analysisChartPanel} key={panel.title} style={{ marginTop: "1rem" }}>
+        {panel.plot === "speed" && <PlanetaryApChart key={`${domain.min}/${domain.max}`}
+          domain={domain} selectedTime={selectedTime} pick={pick} reportArea={plotLayout.reporters.ap} />}
         {isNetworkMean && <>
           <GuviDailyMap selectedTime={selectedTime} />
           <SwarmZimbabwePasses day={new Date(selectedTime).toISOString().slice(0, 10)} />
@@ -822,6 +824,78 @@ export default function StormAnalysis({
       flarePeaks={chartFlarePeaks} selectedFlare={selectedFlare} pick={pick} />
     </div>
     <p>ΔVTEC = 100 × (observed − quiet reference) / quiet reference. The default uses the analysis end month and ranks completed days with station data by GFZ daily Ap. Each UTC quarter-hour requires measurements from all five reference days, weighted equally. The ±25% guides follow <a href="https://doi.org/10.5140/JASS.2026.43.2.93" target="_blank" rel="noreferrer">Guibula et al. (2026)</a>.</p>
+  </section>;
+}
+
+const AP_SOURCES = [
+  { key: "celestrak", label: "CelesTrak daily Ap", color: "#f59e0b" },
+  { key: "gfz", label: "GFZ daily Ap", color: "#34d399" },
+  { key: "kyoto", label: "Kyoto definitive Ap (via GFZ)", color: "#f472b6" },
+] as const;
+
+function PlanetaryApChart({ domain, selectedTime, pick, reportArea }: {
+  domain: { min: number; max: number };
+  selectedTime: number;
+  pick: (time: number) => void;
+  reportArea: PlotAreaReporter;
+}) {
+  const { min, max } = domain;
+  const [data, setData] = useState<Awaited<ReturnType<typeof getPlanetaryAp>> | null>(null);
+  const [failed, setFailed] = useState(false);
+  const start = new Date(min).toISOString().slice(0, 10);
+  const end = new Date(max - 1).toISOString().slice(0, 10);
+
+  useEffect(() => {
+    let active = true;
+    const stop = startVisiblePolling(async () => {
+      try {
+        const payload = await getPlanetaryAp(start, end);
+        if (active) {
+          setData(payload);
+          setFailed(false);
+        }
+      } catch {
+        if (active) setFailed(true);
+      }
+    }, 120_000);
+    return () => { active = false; stop(); };
+  }, [start, end]);
+
+  const dates = useMemo(() => Array.from({ length: Math.ceil((max - min) / 86_400_000) },
+    (_, index) => new Date(min + index * 86_400_000).toISOString().slice(0, 10)), [min, max]);
+  const epochs = useMemo(() => dates.map(day => Date.parse(day)), [dates]);
+  const datasets = useMemo(() => [
+    ...AP_SOURCES.map(source => ({
+      label: source.label, color: source.color,
+      data: dates.map(day => data?.series[source.key]?.[day] ?? null),
+      spanGaps: false, tension: 0, fill: false,
+    })),
+    ...(data?.live && data.series.gfz?.[data.live.date] == null ? [{
+      label: "GFZ Ap so far", color: "#22d3ee",
+      data: dates.map(day => data.live?.date === day ? data.live.value : null),
+      spanGaps: false, fill: false,
+    }] : []),
+  ].filter(series => series.data.some(value => value != null)), [data, dates]);
+  const markerDay = new Date(selectedTime).toISOString().slice(0, 10);
+  const selected = AP_SOURCES.flatMap(source => {
+    const value = data?.series[source.key]?.[markerDay];
+    return value == null ? [] : [`${source.label} ${value}`];
+  });
+  const live = data?.live;
+
+  return <section aria-label="Daily planetary Ap index" style={{ marginBottom: "1rem" }}>
+    <h3>Ap index — CelesTrak vs GFZ vs Kyoto</h3>
+    <p style={{ fontSize: ".8rem" }}>{markerDay} UTC · {selected.join(" · ") ||
+      (live?.date === markerDay ? "GFZ day in progress" : "No daily Ap published for the selected day")}</p>
+    {live && <p style={{ fontSize: ".8rem" }}>
+      GFZ Ap so far for {live.date} UTC · {live.value} from {live.intervals} of 8 completed three-hour ap intervals.
+    </p>}
+    {!data && !failed && <p role="status">Loading daily Ap…</p>}
+    {(failed || !!data?.unavailable.length) && <p role="status">Some Ap feeds are temporarily unavailable. The panel refreshes automatically.</p>}
+    {data && !datasets.length && <p role="status">No Ap values available in this window yet.</p>}
+    {!!datasets.length && <LineChart labels={dates} xValues={epochs} epochMs={epochs} datasets={datasets}
+      yLabel="Ap" yAxisWidth={80} yMin={0} height={240} pointRadius={dates.length <= 60 || live ? 2 : 0}
+      preserveSamples onPickTime={pick} onPlotAreaChange={reportArea} {...utcTimeAxisProps(domain)} />}
   </section>;
 }
 
