@@ -187,7 +187,7 @@ export default function ComparisonDriverCharts({ request, stormDates = [], selec
         {datasets.length > 0 ? <LineChart
           highlightDates={stormDates}
           labels={stamps} xValues={epochs} epochMs={epochs} datasets={datasets}
-          verticalMarkers={selectedTime != null && selectedTime >= min && selectedTime < max
+          verticalMarkers={max - min >= 30 * 86400000 ? undefined : selectedTime != null && selectedTime >= min && selectedTime < max
             ? [{ x: selectedTime, label: "Analysis marker", color: "#ff00d4", highlighted: true }]
             : flareMarkers}
           xMin={min} xMax={max} xLabel="UTC" height={240} toggleableLegend preserveSamples

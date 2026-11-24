@@ -120,8 +120,8 @@
 }
 
 .guviImage {
-  width: min(100%, 576px);
-  aspect-ratio: 576 / 336;
+  width: 100%;
+  aspect-ratio: 5 / 3;
   overflow: hidden;
   border-radius: 0.5rem;
 }
@@ -130,4 +130,30 @@
   display: block;
   width: 100%;
   height: auto;
+}
+.swarmSection {
+  position: relative;
+  z-index: 6;
+  padding: .75rem 0;
+  margin-bottom: 1.25rem;
+  background: var(--surface);
+}
+
+.swarmMap {
+  height: clamp(320px, 55vh, 580px);
+  background: #dce9ef;
+  border-radius: .5rem;
+  overflow: hidden;
+}
+
+.swarmTable {
+  margin-bottom: 1rem;
+  overflow-x: auto;
+}
+
+.swarmTable th,
+.swarmTable td {
+  padding: .35rem .6rem;
+  text-align: left;
+  white-space: nowrap;
 }

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
+from concurrent.futures import ThreadPoolExecutor
 from html.parser import HTMLParser
 import math
 import re
@@ -197,20 +198,55 @@ def build_equatorial_electric_field(*, start: date | None = None, days: int | No
         cached = _CACHE.get(cache_key)
         if cached and not force_refresh and now - cached[0] < _CACHE_TTL_SECONDS:
             return cached[1]
-    params = {"comp": "all", "startlong": _TARGET_LONGITUDE, "deltalong": 18, "sat": "auto"}
+    params = {}
     if start is not None:
         params.update(year=start.year, month=start.month, day=start.day, utc=0, nDays=days)
-    try:
+    def fetch(component: str) -> dict[str, Any]:
         response = requests.get(
             MODEL_API_URL,
-            params=params,
+            params={**params, "startlong": int(_TARGET_LONGITUDE), "deltalong": 18, "comp": component, "sat": "auto"},
             timeout=(6, 25),
             headers={"Accept": "text/html", "User-Agent": "ZGIIS/1.0 (space-weather dashboard)"},
         )
         response.raise_for_status()
         payload = parse_equatorial_electric_field(response.text)
-        if not payload["points"]:
-            raise ValueError("The Colorado model returned no parseable electric-field rows.")
+        if payload["mode"] == "unavailable":
+            raise ValueError("The Colorado model returned no usable electric-field rows.")
+        return payload
+
+    try:
+        try:
+            payload = fetch("all")
+        except (requests.RequestException, ValueError):
+            if start is None:
+                raise
+
+            def fetch_component(component: str) -> dict[str, Any] | None:
+                try:
+                    return fetch(component)
+                except (requests.RequestException, ValueError):
+                    return None
+
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                penetration, quiet = pool.map(fetch_component, ("pp", "cl"))
+            if penetration is None and quiet is None:
+                raise
+
+            parts = [part for part in (penetration, quiet) if part is not None]
+            merged = {}
+            for part in parts:
+                for row in part["points"]:
+                    point = merged.setdefault(row["time"], dict(row))
+                    for key in ("prompt_penetration_mvm", "climatological_mvm"):
+                        if row[key] is not None:
+                            point[key] = row[key]
+            payload = {
+                **parts[0],
+                "updated_utc": max((part["updated_utc"] for part in parts if part["updated_utc"]), default=None),
+                "points": [merged[stamp] for stamp in sorted(merged)],
+                "note": ("Quiet component unavailable from the Colorado model." if quiet is None else
+                         "Prompt-penetration component unavailable from the Colorado model." if penetration is None else None),
+            }
     except (requests.RequestException, ValueError):
         if start is not None or force_refresh:
             raise

@@ -186,19 +186,21 @@ export default function SourceAnalysisGraphs() {
             {request.station ? ` · Station ${request.station.toUpperCase()}` : " · All stations / network mean"}
           </div>
           {domain && (
-            <label style={{ display: "grid", gap: ".35rem", fontSize: ".85rem" }}>
-              Pink analysis marker: <strong>{new Date(markerTime ?? domain.max).toISOString().replace("T", " ").replace("Z", " UTC")}</strong>
-              <input
-                aria-label="Move pink source analysis marker"
-                type="range"
-                min={domain.min}
-                max={domain.max}
-                step={60_000}
-                value={markerTime ?? domain.max}
-                onChange={event => setSelectedTime(Number(event.target.value))}
-                style={{ width: "100%", margin: 0, accentColor: "#ff00d4", minHeight: 44 }}
-              />
-            </label>
+            domain.max - domain.min < 30 * 86400000 && (
+              <label style={{ display: "grid", gap: ".35rem", fontSize: ".85rem" }}>
+                Pink analysis marker: <strong>{new Date(markerTime ?? domain.max).toISOString().replace("T", " ").replace("Z", " UTC")}</strong>
+                <input
+                  aria-label="Move pink source analysis marker"
+                  type="range"
+                  min={domain.min}
+                  max={domain.max}
+                  step={60_000}
+                  value={markerTime ?? domain.max}
+                  onChange={event => setSelectedTime(Number(event.target.value))}
+                  style={{ width: "100%", margin: 0, accentColor: "#ff00d4", minHeight: 44 }}
+                />
+              </label>
+            )
           )}
           {errors.vtec && <div className="banner banner-warn" role="status">{errors.vtec}</div>}
           <MultiSourceComparisonPanel

@@ -626,7 +626,7 @@ export const getEquatorialElectricField = (start?: string, days?: number) =>
     (start ? get : getWithRetry)<EquatorialElectricFieldResponse>(
       "/space-weather/equatorial-electric-field",
       { start, days, _ts: Date.now() },
-      40_000,
+      start ? 75_000 : 40_000,
     ),
   );
 

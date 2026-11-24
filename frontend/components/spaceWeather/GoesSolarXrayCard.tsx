@@ -98,6 +98,7 @@ export default function GoesSolarXrayCard({
   analysis,
   analysisDomain,
   selectedTime,
+  hideHighlights = false,
   onPlotAreaChange,
   onPickTime,
 }: {
@@ -113,6 +114,7 @@ export default function GoesSolarXrayCard({
   analysis?: ChartAnalysisBlock;
   analysisDomain?: { min: number; max: number };
   selectedTime?: number;
+  hideHighlights?: boolean;
   onPlotAreaChange?: PlotAreaReporter;
   onPickTime?: (time: number) => void;
 }) {
@@ -323,7 +325,7 @@ export default function GoesSolarXrayCard({
         : `GOES X-ray observations from NOAA SWPC and NCEI on ${chart?.observedDays ?? 0} of ${windowDays} UTC days.`}</p>}
       {chart ? (
         <>
-          {selectedReadings && selectedTime != null && <p aria-live="polite" style={{ fontSize: ".8rem", margin: "0 0 .45rem" }}>
+          {selectedReadings && selectedTime != null && !hideHighlights && <p aria-live="polite" style={{ fontSize: ".8rem", margin: "0 0 .45rem" }}>
             Selected marker · Long: {selectedReadings.long ? `${formatFlux(selectedReadings.long.value)} at ${new Date(selectedReadings.long.time).toISOString().slice(11, 16)} UTC` : "N/A"}
             {" · "}Short: {selectedReadings.short ? `${formatFlux(selectedReadings.short.value)} at ${new Date(selectedReadings.short.time).toISOString().slice(11, 16)} UTC` : "N/A"}
           </p>}
@@ -332,12 +334,12 @@ export default function GoesSolarXrayCard({
             yAxisWidth={analysisDomain ? 80 : undefined}
             onPlotAreaChange={onPlotAreaChange}
             onPickTime={onPickTime}
-            markerReadout={selectedTime != null && selectedReadings ? { x: selectedTime, lines: [
+            markerReadout={!hideHighlights && selectedTime != null && selectedReadings ? { x: selectedTime, lines: [
               `${new Date(selectedTime).toISOString().slice(11, 16)} UTC`,
               `Long: ${selectedReadings.long ? `${formatFlux(selectedReadings.long.value)} at ${new Date(selectedReadings.long.time).toISOString().slice(11, 16)} UTC` : "N/A"}`,
               `Short: ${selectedReadings.short ? `${formatFlux(selectedReadings.short.value)} at ${new Date(selectedReadings.short.time).toISOString().slice(11, 16)} UTC` : "N/A"}`,
             ] } : undefined}
-            verticalMarkers={flareMarkers}
+            verticalMarkers={hideHighlights ? undefined : flareMarkers}
             labels={chart.labels}
             toggleableLegend
             datasets={[

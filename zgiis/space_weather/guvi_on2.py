@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from functools import lru_cache
 from threading import Lock
 import gzip
 import io
+from time import time
 
 import requests
 from .source_cache import read_source, write_source
@@ -15,6 +16,39 @@ _netcdf_lock = Lock()
 
 SOURCE_URL = "http://guvitimed.jhuapl.edu/guvi-galleryl3on2"
 MISSION_URL = "http://guvitimed.jhuapl.edu/"
+GUVI_GALLERY = "https://guvitimed.jhuapl.edu/guvi-galleryl3on2_new"
+_GUVI_ORIGIN = "https://guvitimed.jhuapl.edu"
+
+
+@lru_cache(maxsize=64)
+def _gallery_index(year: int | None, hour: int) -> tuple[int, ...]:
+    params = {"p": "l3on2_new"}
+    if year is not None:
+        params["y"] = str(year)
+    response = requests.get(f"{_GUVI_ORIGIN}/tools/php/indexer.php", params=params, timeout=(4, 8))
+    response.raise_for_status()
+    entries = [entry.strip() for entry in response.text.split(",") if entry.strip()]
+    if any(not entry.isascii() or not entry.isdecimal() for entry in entries):
+        raise ValueError("Unexpected GUVI gallery index")
+    return tuple(sorted(set(map(int, entries)), reverse=True))
+
+
+def latest_guvi_map(day: date) -> dict:
+    """Find the newest published spectrograph summary on or before a UTC day."""
+    hour = int(time()) // 3600
+    for year in _gallery_index(None, hour):
+        if not 1 <= year <= day.year:
+            continue
+        first_day = date(year, 1, 1)
+        last_doy = ((day if year == day.year else date(year, 12, 31)) - first_day).days + 1
+        doy = next((value for value in _gallery_index(year, hour) if 1 <= value <= last_doy), None)
+        if doy is not None:
+            stamp = first_day + timedelta(days=doy - 1)
+            return {
+                "date": stamp.isoformat(),
+                "image_url": f"{_GUVI_ORIGIN}/data/level3/level3_on2_spect/images/{year}/{doy:03d}/ON2_{year}_{doy:03d}.png",
+            }
+    return {"date": None, "image_url": None}
 
 REFERENCE_OVERPASSES = [
     {

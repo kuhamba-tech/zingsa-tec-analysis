@@ -89,3 +89,27 @@ def test_live_model_preserves_timestamp_on_temporary_outage(monkeypatch):
     clock.return_value = 3600
     with pytest.raises(model.requests.Timeout):
         model.build_equatorial_electric_field()
+
+
+@pytest.mark.parametrize("quiet_available", [True, False])
+def test_archive_recovers_components_when_combined_request_fails(monkeypatch, quiet_available):
+    prompt, quiet = MODEL_RESPONSE.split(":Data type: Climatological", 1)
+
+    def fetch(_url, *, params, **_kwargs):
+        component = params["comp"]
+        if component == "pp":
+            return Mock(text=prompt.replace("NaN km/s", "420 km/s"))
+        if component == "cl" and quiet_available:
+            return Mock(text=":Data type: Climatological" + quiet)
+        raise model.requests.HTTPError("Colorado model unavailable")
+
+    monkeypatch.setattr(model.requests, "get", fetch)
+    monkeypatch.setattr(model, "_CACHE", {})
+    result = model.build_equatorial_electric_field(start=date(2026, 11, 21), days=1)
+
+    assert result["points"] == [{
+        "time": "2026-11-21T07:30:00Z",
+        "prompt_penetration_mvm": 0.0,
+        "climatological_mvm": 0.363 if quiet_available else None,
+    }]
+    assert result["note"] == (None if quiet_available else "Quiet component unavailable from the Colorado model.")

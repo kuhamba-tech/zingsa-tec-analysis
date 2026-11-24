@@ -22,6 +22,7 @@ import { buildNetworkMeanVtecSeries, mergeStationVtecHistory, nearestReading, OB
 import type { EquatorialElectricFieldPoint, HeliosphericMonitorResponse, LiveStationVtecSeries, SolarActivityFull } from "@/lib/types";
 
 const LineChart = dynamic(() => loadLineChart().then(module => module.default), { ssr: false });
+const SwarmZimbabwePasses = dynamic(() => import("./SwarmZimbabwePasses"), { ssr: false });
 const SolarFlareMonthChart = memo(dynamic(() => import("./SolarFlareMonthChart"), { ssr: false }));
 const ActiveRegionInspector = memo(dynamic(() => import("./ActiveRegionInspector"), { ssr: false }));
 const FlareActivityTable = memo(dynamic(() => import("./FlareActivityTable"), { ssr: false }));
@@ -99,7 +100,7 @@ const PROTON_COLORS: Record<string, string> = {
   ">=100 MeV": "#f97316",
   ">=500 MeV": "#ef4444",
 };
-const PLOTS = ["xray", "wind", "windPlasma", "imf", "proton", "pressure", "overview", "kp", "dst", "speed", "bz", "electricField", "meanTec", "regionalTec", "delta"] as const;
+const PLOTS = ["xray", "wind", "windPlasma", "imf", "proton", "pressure", "overview", "kp", "dst", "speed", "bz", "electricField", "meanTec", "regionalTec"] as const;
 type Plot = (typeof PLOTS)[number];
 const SOLAR_WIND_SPEED_GUIDES = SOLAR_WIND_SPEED_SCALE
   .filter(band => band.boundary > 0)
@@ -388,6 +389,8 @@ export default function StormAnalysis({
     if (distance > 5 * 60_000) return closest;
     return !closest || distance < Math.abs(closest.x - selectedTime) ? peak : closest;
   }, null);
+  const hideBroadRangeHighlights = days >= 30;
+  const chartFlarePeaks = hideBroadRangeHighlights ? [] : flarePeaks;
   const pick = useCallback((time: number) => setPicked(Math.round(time / 60000) * 60000), []);
   const changeEndDay = (day: string) => {
     const midnight = Date.parse(`${day}T00:00:00Z`);
@@ -550,7 +553,6 @@ export default function StormAnalysis({
     { plot: "speed" as const, title: "Solar wind speed", unit: "Vsw (km/s)", color: "#3b82f6", tolerance: OBSERVATION_READOUT_TOLERANCE_MS, cadence: 20 * 60000, data: points(helio?.solar_wind.times ?? [], helio?.solar_wind.speed ?? []) },
     { plot: "bz" as const, title: "IMF Bz (GSM)", unit: "Bz (nT)", color: "#f8fafc", tolerance: OBSERVATION_READOUT_TOLERANCE_MS, cadence: 20 * 60000, data: points(helio?.imf.times ?? [], helio?.imf.bz ?? []) },
     { plot: "meanTec" as const, title: "Network mean VTEC", unit: "VTEC (TECU)", color: "#00ff88", tolerance: OBSERVATION_READOUT_TOLERANCE_MS, cadence: 20 * 60000, data: networkMean },
-    { plot: "delta" as const, title: "Relative VTEC difference", unit: "ΔVTEC (%)", color: "#f8fafc", tolerance: OBSERVATION_READOUT_TOLERANCE_MS, cadence: 20 * 60000, data: measurements.map(point => ({ time: point.time, value: point.delta })) },
   ];
 
   return <section className="card" aria-label="Storm analysis">
@@ -564,30 +566,31 @@ export default function StormAnalysis({
         <option value={365}>1 year</option>
         <option value={1096}>Since Jan 2024</option>
       </select></label>
-      <label>Station code <input value={station} maxLength={12} onChange={event => setStation(event.target.value.replace(/[^a-zA-Z0-9_]/g, "").toLowerCase())} /></label>
-      <label>Reference UTC day override <input type="date" value={referenceDay} max={today} onChange={event => setReferenceDay(event.target.value)} /></label>
-      <button type="button" className="btn" onClick={() => setReferenceDay("")}>Use five quiet days</button>
     </div>
     <p>The station code and reference apply to ΔVTEC. Network mean VTEC uses measured samples from all reporting stations. Dst is a global index.</p>
     {(error || tecError || referenceError) && <p role="status">{[error, tecError, referenceError].filter(Boolean).join(" ")}</p>}
-    {loading && <p role="status">Loading station archive... {checkedTecDays} of {days} UTC days checked.</p>}
-    {days === 30 && <p>Live solar wind, IMF and proton feeds can cover fewer than 30 days.</p>}
-    <p>Pink analysis marker: <strong>{new Date(selectedTime).toISOString().replace("T", " ").replace("Z", " UTC")}</strong></p>
-    <details className={styles.fineTime}><summary>Fine time adjustment</summary>
-    <label style={{ display: "block" }}>Move the analysis time
-      <input aria-label="Move pink analysis marker" type="range" min={domain.min} max={domain.max - 60000} step={60000} value={Math.min(selectedTime, domain.max - 60000)} onChange={event => pick(Number(event.target.value))} />
-    </label></details>
-    <p>Drag the continuous pink line or its arrow to move the marker through the shared UTC timeline. Focus the line and use the arrow keys for fine adjustment. The regional daily TEC chart plots all measured days in the window by default.</p>
+    {loading && <p role="status">Loading station archive... {checkedTecDays} of {archiveDays.length} UTC days checked.</p>}
+    {days >= 30 && <p>Solar wind, IMF and proton charts can have gaps where archived observations are unavailable.</p>}
+    {!hideBroadRangeHighlights && <>
+      <p>Pink analysis marker: <strong>{new Date(selectedTime).toISOString().replace("T", " ").replace("Z", " UTC")}</strong></p>
+      <details className={styles.fineTime}><summary>Fine time adjustment</summary>
+      <label style={{ display: "block" }}>Move the analysis time
+        <input aria-label="Move pink analysis marker" type="range" min={domain.min} max={domain.max - 60000} step={60000} value={Math.min(selectedTime, domain.max - 60000)} onChange={event => pick(Number(event.target.value))} />
+      </label></details>
+      <p>Drag the continuous pink line or its arrow to move the marker through the shared UTC timeline. Focus the line and use the arrow keys for fine adjustment. The regional daily TEC chart plots all measured days in the window by default.</p>
+    </>}
     <div style={{ marginBottom: "1rem" }}>
       <SolarFlareMonthChart key={`${domain.min}/${endDay}`} showDailyStorms start={new Date(domain.min).toISOString().slice(0, 10)} end={endDay} />
     </div>
-    <p style={{ fontSize: ".8rem" }}>
-      {flarePeaks.length ? "Red lines mark cataloged M/X flare peaks across the Analysis graphs." : "No cataloged M/X flare peaks in this window."}
-      {selectedFlare && <strong style={{ color: "#fda4af" }}>
-        {" "}{selectedFlare.label} flare peaked at {new Date(selectedFlare.x).toISOString().slice(11, 16)} UTC.
-      </strong>}
-    </p>
-    <AnalysisSolarDisk time={selectedTime} peaks={flarePeaks} selectedFlare={selectedFlare} onPick={pick} onArchive={setFlareArchive} />
+    {!hideBroadRangeHighlights && <>
+      <p style={{ fontSize: ".8rem" }}>
+        {flarePeaks.length ? "Red lines mark cataloged M/X flare peaks across the Analysis graphs." : "No cataloged M/X flare peaks in this window."}
+        {selectedFlare && <strong style={{ color: "#fda4af" }}>
+          {" "}{selectedFlare.label} flare peaked at {new Date(selectedFlare.x).toISOString().slice(11, 16)} UTC.
+        </strong>}
+      </p>
+      <AnalysisSolarDisk time={selectedTime} peaks={flarePeaks} selectedFlare={selectedFlare} onPick={pick} onArchive={setFlareArchive} />
+    </>}
     <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: "1rem", margin: "1rem 0" }}>
       <ActiveRegionInspector />
       <FlareActivityTable solar={solar} summaryOnly />
@@ -603,6 +606,7 @@ export default function StormAnalysis({
       onRangeChange={onXrayRangeChange}
       analysisDomain={domain}
       selectedTime={selectedTime}
+      hideHighlights={hideBroadRangeHighlights}
       onPlotAreaChange={plotLayout.reporters.xray}
       onPickTime={pick}
     />
@@ -616,7 +620,7 @@ export default function StormAnalysis({
         data={helio.imf}
         analysisDomain={domain}
         selectedTime={selectedTime}
-        verticalMarkers={flarePeaks}
+        verticalMarkers={chartFlarePeaks}
         onPlotAreaChange={plotLayout.reporters.imf}
         onPickTime={pick}
         height={300}
@@ -717,20 +721,16 @@ export default function StormAnalysis({
       return <div key={panel.title} style={{ marginTop: "1rem" }}>
         {isNetworkMean && <>
           <GuviDailyMap selectedTime={selectedTime} />
+          <SwarmZimbabwePasses />
           <EquatorialElectricFieldChart domain={domain} selectedTime={selectedTime} pick={pick} reportArea={plotLayout.reporters.electricField} />
         </>}
-        {panel.title === "Relative VTEC difference" && <div style={{ marginBottom: "1.25rem" }}>
+        {isNetworkMean && <div style={{ marginBottom: "1.25rem" }}>
           <strong>Mean daily TEC — northern, central and southern Zimbabwe</strong>
-          <ZimbabweMeanDiurnalTec embedded analysisDomain={domain} analysisDay={endDay} analysisRows={days === 30 ? (loading && !rows.length ? null : rows) : undefined} onPlotAreaChange={plotLayout.reporters.regionalTec} />
+          <ZimbabweMeanDiurnalTec embedded analysisDomain={domain} analysisDay={endDay} analysisRows={days >= 30 ? (loading && !rows.length ? null : rows) : undefined} onPlotAreaChange={plotLayout.reporters.regionalTec} />
         </div>}
         <strong>{panel.title}</strong> · {reading ? `${reading.value!.toFixed(1)} ${panel.unit.match(/\((.*)\)/)?.[1] ?? ""} at ${new Date(reading.time).toISOString()}` : "No observation near the marker"}
         {isNetworkMean && sorted.length > 0 && <p style={{ fontSize: ".8rem" }}>
           Latest observed UTC bin {new Date(sorted[sorted.length - 1].time).toISOString().slice(0, 16).replace("T", " ")}. Incoming readings are added automatically.
-        </p>}
-        {panel.plot === "delta" && <p style={{ fontSize: ".8rem" }}>
-          {referenceDay ? `Single-day override · ${referenceDay} UTC`
-            : quietDays.length ? `Quiet reference dates (UTC) · ${quietDays.join(", ")}`
-              : "Five-day quiet reference pending."}
         </p>}
         <LineChart labels={sorted.map(point => new Date(point.time).toISOString())} xValues={sorted.map(point => point.time)} epochMs={sorted.map(point => point.time)}
           datasets={datasets}
@@ -738,14 +738,13 @@ export default function StormAnalysis({
           ySuggestedMin={suggestedMin} ySuggestedMax={suggestedMax} yMin={index === 3 ? 0 : undefined}
           preserveSamples pointRadius={index === 0 ? 2 : 0}
           thresholds={panel.plot === "speed" ? SOLAR_WIND_SPEED_GUIDES
-            : index === 4 ? [{ value: 25, label: "+25% guide", color: "#f87171" }, { value: -25, label: "−25% guide", color: "#f87171" }]
             : index === 0 || index === 2 ? [{ value: 0, label: "Zero", color: "#64748b" }] : undefined}
           onPlotAreaChange={plotLayout.reporters[panel.plot]}
           onPickTime={pick} {...utcTimeAxisProps(domain)} />
       </div>;
     })}
-    <AnalysisMarker layout={plotLayout} domain={domain} selectedTime={selectedTime}
-      flarePeaks={flarePeaks} selectedFlare={selectedFlare} pick={pick} />
+    {!hideBroadRangeHighlights && <AnalysisMarker layout={plotLayout} domain={domain} selectedTime={selectedTime}
+      flarePeaks={chartFlarePeaks} selectedFlare={selectedFlare} pick={pick} />}
     </div>
     <p>ΔVTEC = 100 × (observed − quiet reference) / quiet reference. The default uses the analysis end month and ranks completed days with station data by GFZ daily Ap. Each UTC quarter-hour requires measurements from all five reference days, weighted equally. The ±25% guides follow <a href="https://doi.org/10.5140/JASS.2026.43.2.93" target="_blank" rel="noreferrer">Guibula et al. (2026)</a>.</p>
   </section>;
@@ -768,17 +767,28 @@ function EquatorialElectricFieldChart({ domain, selectedTime, pick, reportArea }
   const [points, setPoints] = useState<EquatorialElectricFieldPoint[]>([]);
   const [status, setStatus] = useState<"loading" | "complete" | "partial">("loading");
   const [retry, setRetry] = useState(0);
+  const retained = useRef<{ min: number; max: number; points: Map<string, EquatorialElectricFieldPoint> } | null>(null);
 
   useEffect(() => {
     let active = true;
-    setPoints([]);
+    if (retained.current?.min !== min || retained.current.max !== max) {
+      retained.current = { min, max, points: new Map() };
+      setPoints([]);
+    }
+    const merged = retained.current.points;
     setStatus("loading");
     const dayMs = 86_400_000;
+    const chunks: { start: number; end: number }[] = [];
+    for (let end = max; end > min;) {
+      const start = Math.max(min, end - 5 * dayMs);
+      chunks.push({ start, end });
+      end = start;
+    }
+    let next = 0;
+    let incomplete = false;
     const load = async () => {
-      const merged = new Map<string, EquatorialElectricFieldPoint>();
-      let incomplete = false;
-      for (let end = max; active && end > min;) {
-        const start = Math.max(min, end - 5 * dayMs);
+      while (active && next < chunks.length) {
+        const { start, end } = chunks[next++];
         const date = new Date(start).toISOString().slice(0, 10);
         const result = await getEquatorialElectricField(date, (end - start) / dayMs).catch(() => null);
         if (!active) return;
@@ -786,14 +796,22 @@ function EquatorialElectricFieldChart({ domain, selectedTime, pick, reportArea }
           const time = Date.parse(point.time);
           return time >= start && time < end && (point.climatological_mvm != null || point.prompt_penetration_mvm != null);
         });
-        incomplete ||= !rows.length || result?.note != null;
-        for (const row of rows) merged.set(row.time, row);
+        const coveredDays = new Set(rows.map(row => row.time.slice(0, 10))).size;
+        incomplete ||= coveredDays !== (end - start) / dayMs || result?.note != null;
+        for (const row of rows) {
+          const previous = merged.get(row.time);
+          merged.set(row.time, {
+            time: row.time,
+            climatological_mvm: row.climatological_mvm ?? previous?.climatological_mvm ?? null,
+            prompt_penetration_mvm: row.prompt_penetration_mvm ?? previous?.prompt_penetration_mvm ?? null,
+          });
+        }
         if (rows.length) setPoints([...merged.values()].sort((a, b) => a.time.localeCompare(b.time)));
-        end = start;
       }
-      if (active) setStatus(incomplete ? "partial" : "complete");
     };
-    void load();
+    void Promise.all([load(), load()]).then(() => {
+      if (active) setStatus(incomplete ? "partial" : "complete");
+    });
     return () => { active = false; };
   }, [min, max, retry]);
 
@@ -804,6 +822,8 @@ function EquatorialElectricFieldChart({ domain, selectedTime, pick, reportArea }
   }).filter(row => row.time >= min && row.time < max), [points, min, max]);
   const times = useMemo(() => rows.map(row => row.time), [rows]);
   const labels = useMemo(() => rows.map(row => new Date(row.time).toISOString()), [rows]);
+  const quietDays = new Set(rows.filter(row => row.quiet != null).map(row => Math.floor(row.time / 86_400_000))).size;
+  const penetrationDays = new Set(rows.filter(row => row.penetration != null).map(row => Math.floor(row.time / 86_400_000))).size;
   const datasets = useMemo(() => FIELD_COMPONENTS.map(component => ({
     label: component.label, color: component.color, data: rows.map(row => row[component.key]), spanGaps: 5 * 60_000, tension: 0,
   })), [rows]);
@@ -816,7 +836,9 @@ function EquatorialElectricFieldChart({ domain, selectedTime, pick, reportArea }
     <h3>Equatorial eastward electric field</h3>
     <p style={{ fontSize: ".8rem" }}>PPEFM model estimates at 28°E on the magnetic equator. {selected.length ? `Near the marker · ${selected.join(" · ")}` : "No model value near the marker."}</p>
     {status === "loading" && <p role="status">Loading Colorado electric-field model output…</p>}
-    {status === "partial" && <p role="status">{rows.length ? "Some model output is unavailable for this window." : "The provider returned no usable model output for this window."} <button type="button" className="btn" onClick={() => setRetry(value => value + 1)}>Retry</button></p>}
+    {status === "partial" && <p role="status">{rows.length
+      ? `Days with model output: quiet ${quietDays}, prompt penetration ${penetrationDays}. Gaps indicate unavailable output.`
+      : "The provider returned no usable model output for this window."} <button type="button" className="btn" onClick={() => setRetry(value => value + 1)}>Retry</button></p>}
     {rows.length > 0 && <LineChart labels={labels} xValues={times} epochMs={times} datasets={datasets}
       yLabel="Electric field (mV/m)" yAxisWidth={80} height={320} ySuggestedMin={-1.5} ySuggestedMax={1.5}
       preserveSamples pointRadius={0} onPickTime={pick} onPlotAreaChange={reportArea} {...utcTimeAxisProps(domain)} />}
@@ -839,7 +861,8 @@ function AnalysisMarker({ layout, domain, selectedTime, flarePeaks, selectedFlar
   const plotX = ({ left, right }: PlotBounds, time: number) => left + (right - left) * timeFraction(time);
   const { areas: plotAreas, bounds } = useSyncExternalStore(layout.subscribe, layout.getSnapshot, layout.getSnapshot);
   const markerTop = plotAreas.xray?.top ?? plotAreas.wind?.top ?? plotAreas.proton?.top ?? plotAreas.overview?.top ?? plotAreas.dst?.top;
-  const markerEnd = bounds && plotAreas.delta ? { x: plotX(bounds, selectedTime), y: plotAreas.delta.bottom } : null;
+  const markerEndArea = plotAreas.meanTec ?? plotAreas.regionalTec ?? plotAreas.dst;
+  const markerEnd = bounds && markerEndArea ? { x: plotX(bounds, selectedTime), y: markerEndArea.bottom } : null;
   const moveMarker = (clientX: number) => {
     const rect = layout.getRect();
     if (!rect || !bounds || bounds.right <= bounds.left) return;
