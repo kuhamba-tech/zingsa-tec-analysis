@@ -3,7 +3,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import dynamic from "next/dynamic";
 import Image from "next/image";
-import { getEquatorialElectricField, getGfzKpAnalysis, getGoesProtonArchive, getGuviOn2Map, getHeliosphericMonitor, getLiveVtecByStation, getTimeSeries, type SolarArchiveDay } from "@/lib/api";
+import { getEquatorialElectricField, getGfzKpAnalysis, getGoesProtonArchive, getGuviOn2Map, getHeliosphericMonitor, getLiveVtecByStation, getStations, getTimeSeries, type SolarArchiveDay } from "@/lib/api";
 import { peekHeliosphericMonitor } from "@/lib/heliosphericStore";
 import type { GoesXrayRange } from "@/components/spaceWeather/GoesSolarXrayCard";
 import { loadLineChart } from "@/lib/loadLineChart";
@@ -19,7 +19,9 @@ import SolarActivityLevels from "./SolarActivityLevels";
 import flareTable from "./FlareActivityTable.module.css";
 import styles from "./StormAnalysis.module.css";
 import { buildNetworkMeanVtecSeries, mergeStationVtecHistory, nearestReading, OBSERVATION_READOUT_TOLERANCE_MS, referenceTec, type AnalysisPoint } from "@/lib/stormAnalysis";
-import type { EquatorialElectricFieldPoint, HeliosphericMonitorResponse, LiveStationVtecSeries, SolarActivityFull } from "@/lib/types";
+import type { EquatorialElectricFieldPoint, HeliosphericMonitorResponse, LiveStationVtecSeries, SolarActivityFull, Station } from "@/lib/types";
+import { dipLatitudeDeg } from "@/lib/igrf14Dip";
+import { igrf14Epoch } from "@/lib/geomagneticEquator";
 
 const LineChart = dynamic(() => loadLineChart().then(module => module.default), { ssr: false });
 const SwarmZimbabwePasses = dynamic(() => import("./SwarmZimbabwePasses"), { ssr: false });
@@ -345,6 +347,7 @@ export default function StormAnalysis({
   const [helio, setHelio] = useState<HeliosphericMonitorResponse | null>(peekHeliosphericMonitor);
   const [rows, setRows] = useState<LiveStationVtecSeries[]>([]);
   const [stationRows, setStationRows] = useState<LiveStationVtecSeries[]>([]);
+  const [catalogStations, setCatalogStations] = useState<Station[]>([]);
   const [referenceRows, setReferenceRows] = useState<LiveStationVtecSeries[]>([]);
   const [quietDays, setQuietDays] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -432,6 +435,14 @@ export default function StormAnalysis({
   }, [archiveDays, today, station]);
 
   useEffect(() => {
+    let active = true;
+    getStations(false)
+      .then(rows => { if (active) setCatalogStations(Array.isArray(rows) ? rows : []); })
+      .catch(() => { if (active) setCatalogStations([]); });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
     setReferenceRows([]); setQuietDays([]); setReferenceError(null);
     async function loadReference() {
@@ -493,6 +504,31 @@ export default function StormAnalysis({
     () => new Map(networkMean.map((point, index) => [point.time, index])),
     [networkMean],
   );
+  const magneticProfile = useMemo(() => {
+    const epoch = igrf14Epoch(new Date(selectedTime));
+    const stationByCode = new Map(catalogStations.map(station => [
+      station.code.toLowerCase().replace(/_+$/, ""),
+      station,
+    ]));
+    const points = rows.flatMap(row => {
+      const station = stationByCode.get(row.station.toLowerCase().replace(/_+$/, ""));
+      if (!station) return [];
+      const dip = dipLatitudeDeg(station.lat, station.lon, epoch);
+      if (dip == null) return [];
+      const reading = nearestReading(
+        row.points.map(point => ({
+          time: Date.parse(point.time),
+          value: point.vtec_tecu,
+        })),
+        selectedTime,
+        20 * 60_000,
+      );
+      return reading?.value != null
+        ? [{ station: row.station.toUpperCase(), dip, value: reading.value, time: reading.time }]
+        : [];
+    }).sort((a, b) => a.dip - b.dip);
+    return points;
+  }, [rows, catalogStations, selectedTime]);
   const [protonArchive, setProtonArchive] = useState<{ min: number; max: number; rows: Awaited<ReturnType<typeof getGoesProtonArchive>>; loading: boolean } | null>(null);
   const loadProtonArchive = archiveDays.length > 7;
   useEffect(() => {
@@ -576,6 +612,37 @@ export default function StormAnalysis({
       <input aria-label="Move pink analysis marker" type="range" min={domain.min} max={domain.max - 60000} step={60000} value={Math.min(selectedTime, domain.max - 60000)} onChange={event => pick(Number(event.target.value))} />
     </label></details>
     <p>Drag the continuous pink line or its arrow to move the marker through the shared UTC timeline. Focus the line and use the arrow keys for fine adjustment. The regional daily TEC chart plots all measured days in the window by default.</p>
+    {magneticProfile.length > 0 && (
+      <section className="card" aria-label="Measured VTEC versus magnetic latitude">
+        <strong>Measured VTEC versus magnetic latitude</strong>
+        <p style={{ fontSize: ".8rem" }}>
+          GOPI station values nearest to the pink marker, within 20 minutes · IGRF dip latitude · {new Date(selectedTime).toISOString().replace("T", " ").replace("Z", " UTC")}
+        </p>
+        <LineChart
+          labels={magneticProfile.map(point => `${point.dip.toFixed(1)}° · ${point.station}`)}
+          xValues={magneticProfile.map(point => point.dip)}
+          epochMs={undefined}
+          datasets={[{
+            label: "Measured GOPI VTEC",
+            data: magneticProfile.map(point => point.value),
+            color: "#38bdf8",
+            pointRadius: 4,
+            spanGaps: false,
+            tension: 0.25,
+          }]}
+          yLabel="VTEC (TECU)"
+          xLabel="Magnetic latitude (°)"
+          xMin={-60}
+          xMax={60}
+          height={300}
+          preserveSamples
+          toggleableLegend
+        />
+        <p style={{ fontSize: ".78rem", marginBottom: 0 }}>
+          {magneticProfile.map(point => `${point.station}: ${point.value.toFixed(1)} TECU at μ=${point.dip.toFixed(1)}°`).join(" · ")}
+        </p>
+      </section>
+    )}
     <div style={{ marginBottom: "1rem" }}>
       <SolarFlareMonthChart key={`${domain.min}/${endDay}`} showDailyStorms start={new Date(domain.min).toISOString().slice(0, 10)} end={endDay} />
     </div>
