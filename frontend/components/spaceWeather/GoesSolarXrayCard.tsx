@@ -1,11 +1,12 @@
 "use client";
 import type { PlotAreaReporter } from "@/lib/chartPlotArea";
-import { useContext } from "react";
 import { ChartDateRangeContext } from "@/components/charts/ChartDateRange";
 
 import type { CSSProperties, KeyboardEvent } from "react";
-import { useMemo, useState } from "react";
+import { useContext, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
+import { getGoesXrayArchive } from "@/lib/api";
+import { startVisiblePolling } from "@/lib/visiblePolling";
 import { FLARE_SCALE, xrayFluxColor } from "@/lib/solarEventColors";
 import type { ChartAnalysisBlock } from "@/lib/multiSourceChartAnalysis";
 import type { GoesXrayTimelinePoint } from "@/lib/types";
@@ -14,6 +15,7 @@ import { loadLineChart } from "@/lib/loadLineChart";
 import {
   ONE_H_MS,
   parseTimelineEpoch,
+  startOfUtcDay,
   utcTimeAxisProps,
 } from "@/lib/chartTimeAxis";
 
@@ -30,14 +32,17 @@ const ChartAnalysisBox = dynamic(() => import("@/components/dashboard/ChartAnaly
   ssr: false,
 });
 
-export type GoesXrayRange = "6H" | "1D" | "3D" | "7D";
+export type GoesXrayRange = "6H" | "1D" | "3D" | "7D" | "30D";
 
 const RANGE_HOURS: Record<GoesXrayRange, number> = {
   "6H": 6,
   "1D": 24,
   "3D": 72,
   "7D": 168,
+  "30D": 720,
 };
+
+const UTC_DAY_MS = 24 * ONE_H_MS;
 
 const FLARE_THRESHOLDS = [
   { value: 1e-8, label: "A", color: "#94a3b8" },
@@ -116,16 +121,53 @@ export default function GoesSolarXrayCard({
   const range = onRangeChange != null ? (xrayRange ?? localRange) : localRange;
   const setRange = onRangeChange ?? setLocalRange;
 
+  const todayEnd = startOfUtcDay(Date.now()) + UTC_DAY_MS;
+  const monthly = analysisDomain
+    ? analysisDomain.max - analysisDomain.min === 30 * UTC_DAY_MS
+    : range === "30D";
+  const archiveEnd = monthly ? (analysisDomain?.max ?? todayEnd) : null;
+  const archiveStart = archiveEnd == null ? null : archiveEnd - 30 * UTC_DAY_MS;
+  const [archive, setArchive] = useState<{ end: number; points: GoesXrayTimelinePoint[] } | null>(null);
+
+  useEffect(() => {
+    if (archiveStart == null || archiveEnd == null) return;
+    const start = new Date(archiveStart).toISOString().slice(0, 10);
+    const end = new Date(archiveEnd - 1).toISOString().slice(0, 10);
+    let active = true;
+    const stop = startVisiblePolling(async () => {
+      const points = await getGoesXrayArchive(start, end).catch(() => []);
+      if (!active) return;
+      setArchive(previous => points.length || previous?.end !== archiveEnd ? { end: archiveEnd, points } : previous);
+    }, 5 * 60_000);
+    return () => { active = false; stop(); };
+  }, [archiveStart, archiveEnd]);
+
   const chart = useMemo(() => {
-    const hours = analysisDomain ? (analysisDomain.max - analysisDomain.min) / ONE_H_MS : calendar?.day ? 168 : RANGE_HOURS[range];
-    const points = (timeline ?? []).filter((p) => p?.t);
+    const hours = monthly ? 720 : analysisDomain ? (analysisDomain.max - analysisDomain.min) / ONE_H_MS : calendar?.day ? 168 : RANGE_HOURS[range];
+    const byMinute = new Map<number, GoesXrayTimelinePoint>();
+    const archived = monthly && archive?.end === archiveEnd ? archive.points : [];
+    const points = [...archived, ...(timeline ?? [])].filter(point => point?.t);
+    if (monthly) {
+      for (const point of points) {
+        const ms = parseTimelineEpoch(point.t);
+        if (ms == null) continue;
+        const minute = Math.floor(ms / 60_000);
+        const previous = byMinute.get(minute);
+        const long = point.long ?? previous?.long ?? null;
+        const short = point.short ?? previous?.short ?? null;
+        if (long != null || short != null) byMinute.set(minute, { t: point.t, long, short });
+      }
+    }
+    const observations = monthly
+      ? [...byMinute.entries()].sort(([a], [b]) => a - b).map(([, point]) => point)
+      : points;
     let epochs: number[] = [];
     let longBand: (number | null)[] = [];
     let shortBand: (number | null)[] = [];
     let labels: string[] = [];
 
-    if (points.length) {
-      const parsed = points
+    if (observations.length) {
+      const parsed = observations
         .map((p) => {
           const ms = parseTimelineEpoch(p.t);
           return ms == null
@@ -138,14 +180,14 @@ export default function GoesSolarXrayCard({
               };
         })
         .filter((p): p is NonNullable<typeof p> => p != null);
-      const endMs = analysisDomain?.max ?? parsed[parsed.length - 1]?.ms ?? Date.now();
-      const startMs = analysisDomain?.min ?? endMs - hours * ONE_H_MS;
-      const sliced = parsed.filter((p) => p.ms >= startMs && p.ms <= endMs);
+      const endMs = archiveEnd ?? analysisDomain?.max ?? parsed[parsed.length - 1]?.ms ?? Date.now();
+      const startMs = archiveStart ?? analysisDomain?.min ?? endMs - hours * ONE_H_MS;
+      const sliced = parsed.filter((p) => p.ms >= startMs && (monthly ? p.ms < endMs : p.ms <= endMs));
       epochs = sliced.map((p) => p.ms);
       longBand = sliced.map((p) => p.long);
       shortBand = sliced.map((p) => p.short);
       labels = sliced.map((p) => p.t);
-    } else if (fallbackSeries?.length) {
+    } else if (!monthly && fallbackSeries?.length) {
       const endMs = parseTimelineEpoch(fallbackUpdated ?? "") ?? Date.now();
       const step = Math.max(60_000, Math.floor((hours * ONE_H_MS) / Math.max(fallbackSeries.length - 1, 1)));
       const all = fallbackSeries.map((v, i) => ({
@@ -160,17 +202,50 @@ export default function GoesSolarXrayCard({
       labels = epochs.map((ms) => new Date(ms).toISOString());
     }
 
-    if (!epochs.length && !analysisDomain) return null;
-    const endMs = analysisDomain?.max ?? epochs[epochs.length - 1];
-    const startMs = analysisDomain?.min ?? endMs - hours * ONE_H_MS;
+    if (!epochs.length && !analysisDomain && !monthly) return null;
+    const endMs = archiveEnd ?? analysisDomain?.max ?? epochs[epochs.length - 1];
+    const startMs = archiveStart ?? analysisDomain?.min ?? endMs - hours * ONE_H_MS;
     const domain = { min: startMs, max: endMs };
     const axis = utcTimeAxisProps(domain, {
       rangeHours: hours,
       majorHours: analysisDomain ? undefined : hours <= 6 ? 1 : hours <= 24 ? 4 : hours <= 72 ? 12 : 24,
     });
     const classDetails = longBand.map((v) => (v != null ? fluxClass(v) : null));
-    return { labels, epochs, longBand, shortBand, axis, classDetails, startMs, endMs };
-  }, [timeline, fallbackSeries, fallbackUpdated, range, calendar?.day, analysisDomain]);
+    return { labels, epochs, longBand, shortBand, axis, classDetails, startMs, endMs, observedDays: monthly ? new Set(epochs.map(startOfUtcDay)).size : 0 };
+  }, [timeline, fallbackSeries, fallbackUpdated, range, calendar?.day, analysisDomain, monthly, archive, archiveStart, archiveEnd]);
+  const flareMarkers = useMemo(() => {
+    if (!chart) return [];
+    const peaks: { time: number; flux: number }[] = [];
+    let lastMarked = Number.NEGATIVE_INFINITY;
+    chart.epochs.forEach((time, index) => {
+      const flux = chart.longBand[index];
+      if (flux == null || !Number.isFinite(flux) || flux < 1e-5) return;
+      if (time - lastMarked < 6 * 60 * 60 * 1000) return;
+      const local = chart.epochs
+        .map((candidateTime, candidateIndex) => ({
+          time: candidateTime,
+          flux: chart.longBand[candidateIndex],
+        }))
+        .filter((candidate): candidate is { time: number; flux: number } => (
+          candidate.flux != null
+          && candidate.time >= time - 90 * 60 * 1000
+          && candidate.time <= time + 90 * 60 * 1000
+        ));
+      const peak = local.reduce<{ time: number; flux: number } | null>(
+        (best, candidate) => !best || candidate.flux > best.flux ? candidate : best,
+        null,
+      );
+      if (!peak || peak.flux < 1e-5) return;
+      peaks.push(peak);
+      lastMarked = peak.time;
+    });
+    return peaks.map((peak) => ({
+      x: peak.time,
+      label: fluxClass(peak.flux),
+      color: "#ef4444",
+      highlighted: true,
+    }));
+  }, [chart]);
   const selectedReadings = useMemo(() => {
     if (!chart || selectedTime == null) return null;
     const read = (values: (number | null)[]) => nearestReading(
@@ -213,7 +288,7 @@ export default function GoesSolarXrayCard({
       >
         <div className="metric-label">{title}</div>
         {!analysisDomain && <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap" }} role="group" aria-label="GOES X-ray zoom">
-          {(["6H", "1D", "3D", "7D"] as const).map((r) => (
+          {(["6H", "1D", "3D", "7D", "30D"] as const).map((r) => (
             <button
               key={r}
               type="button"
@@ -232,12 +307,15 @@ export default function GoesSolarXrayCard({
                 cursor: "pointer",
               }}
             >
-              {r === "6H" ? "6 Hour" : r === "1D" ? "1 Day" : r === "3D" ? "3 Day" : "7 Day"}
+              {r === "6H" ? "6 Hour" : r === "1D" ? "1 Day" : r === "3D" ? "3 Day" : r === "7D" ? "7 Day" : "30 Day"}
             </button>
           ))}
         </div>}
       </div>
 
+      {monthly && <p role="status">{archive?.end !== archiveEnd
+        ? "Loading archived GOES X-ray measurements..."
+        : `GOES X-ray observations from NOAA SWPC and NCEI on ${chart?.observedDays ?? 0} of 30 UTC days.`}</p>}
       {chart ? (
         <>
           {selectedReadings && selectedTime != null && <p aria-live="polite" style={{ fontSize: ".8rem", margin: "0 0 .45rem" }}>
@@ -254,12 +332,15 @@ export default function GoesSolarXrayCard({
               `Long: ${selectedReadings.long ? `${formatFlux(selectedReadings.long.value)} at ${new Date(selectedReadings.long.time).toISOString().slice(11, 16)} UTC` : "N/A"}`,
               `Short: ${selectedReadings.short ? `${formatFlux(selectedReadings.short.value)} at ${new Date(selectedReadings.short.time).toISOString().slice(11, 16)} UTC` : "N/A"}`,
             ] } : undefined}
+            verticalMarkers={flareMarkers}
             labels={chart.labels}
             toggleableLegend
             datasets={[
               {
                 label: "0.1–0.8 nm (long)",
                 data: chart.longBand,
+                omitMissingPoints: monthly,
+                spanGaps: monthly ? 5 * 60_000 : undefined,
                 color: "#f59e0b",
                 valueColor: xrayFluxColor,
                 borderWidth: 2,
@@ -267,6 +348,8 @@ export default function GoesSolarXrayCard({
               {
                 label: "0.05–0.4 nm (short)",
                 data: chart.shortBand,
+                omitMissingPoints: monthly,
+                spanGaps: monthly ? 5 * 60_000 : undefined,
                 color: "#a78bfa",
                 borderWidth: 1.5,
               },

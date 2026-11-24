@@ -154,6 +154,31 @@ export default function ComparisonDriverCharts({ request, stormDates = [], selec
           return flareClass(flux);
         })
         : undefined;
+      const flareMarkers = panel.title === "GOES X-ray flux"
+        ? stamps
+            .map((stamp, index) => {
+              const flux = [...grouped.values()]
+                .map(samples => samples.get(stamp)?.goes_xray_long)
+                .find((value): value is number => typeof value === "number" && Number.isFinite(value));
+              return { time: epochs[index], flux };
+            })
+            .filter((point): point is { time: number; flux: number } => point.flux != null && point.flux >= 1e-5)
+            .reduce<{ time: number; flux: number }[]>((markers, point) => {
+              const previous = markers[markers.length - 1];
+              if (previous && point.time - previous.time < 6 * 60 * 60 * 1000) {
+                if (point.flux > previous.flux) markers[markers.length - 1] = point;
+              } else {
+                markers.push(point);
+              }
+              return markers;
+            }, [])
+            .map((peak) => ({
+              x: peak.time,
+              label: flareClass(peak.flux) ?? "",
+              color: "#ef4444",
+              highlighted: true,
+            }))
+        : undefined;
       return <div className="card" key={panel.title} style={{ minWidth: 0 }}>
         {panel.title === "GOES X-ray flux" && <p><strong>2. Solar radiation and energetic particles</strong> - measured by GOES near Earth, indicating solar emissions.</p>}
         {panel.title === "Solar wind" && <p><strong>3. Interplanetary drivers: solar wind and IMF</strong> - NOAA RTSW describes upstream conditions near L1; OMNI hourly data are shifted towards Earth arrival.</p>}
@@ -164,7 +189,7 @@ export default function ComparisonDriverCharts({ request, stormDates = [], selec
           labels={stamps} xValues={epochs} epochMs={epochs} datasets={datasets}
           verticalMarkers={selectedTime != null && selectedTime >= min && selectedTime < max
             ? [{ x: selectedTime, label: "Analysis marker", color: "#ff00d4", highlighted: true }]
-            : undefined}
+            : flareMarkers}
           xMin={min} xMax={max} xLabel="UTC" height={240} toggleableLegend preserveSamples
           formatXTick={ms => new Date(ms).toISOString().slice(0, 16).replace("T", " ")}
           yLabel={panel.yLabel}

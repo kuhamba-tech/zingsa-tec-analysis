@@ -15,7 +15,7 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
-ARCHIVE_HOURS = 24 * 7
+ARCHIVE_HOURS = 24 * 30
 _OLDER_POINTS = 240
 _LIVE_POINTS = 360
 _ARCHIVE_GAP_SEC = 300.0

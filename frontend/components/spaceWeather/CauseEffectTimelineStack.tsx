@@ -292,7 +292,7 @@ export default function CauseEffectTimelineStack({
   const [syncHoverMs, setSyncHoverMs] = useState<number | null>(null);
   const [geoTab, setGeoTab] = useState<GeoTab>("kp");
   const loadProfile = useMemo(() => getLoadProfile(), []);
-  const [rangeHours, setRangeHours] = useState<6 | 24 | 72 | 168>(
+  const [rangeHours, setRangeHours] = useState<6 | 24 | 72 | 168 | 720>(
     variant === "local" ? 24 : loadProfile.defaultRangeHours,
   );
   const [now, setNow] = useState(0);
@@ -589,7 +589,7 @@ export default function CauseEffectTimelineStack({
         tone={error ? "warn" : loading ? "warn" : "ok"}
         meta={
           <div className="sw-range-controls" role="group" aria-label="Shared chart time range">
-            {([6, 24, 72, 168] as const).map((hours) => (
+            {([6, 24, 72, 168, 720] as const).map((hours) => (
               <button
                 type="button"
                 key={hours}
@@ -599,7 +599,7 @@ export default function CauseEffectTimelineStack({
                   setSyncHoverMs(null);
                 }}
               >
-                {hours === 168 ? "7 days" : hours === 72 ? "3 days" : `${hours} hours`}
+                {hours === 720 ? "30 days" : hours === 168 ? "7 days" : hours === 72 ? "3 days" : `${hours} hours`}
               </button>
             ))}
           </div>

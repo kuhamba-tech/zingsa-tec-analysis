@@ -62,7 +62,7 @@ export default function DstPressureComparison({
     <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", gap: ".75rem" }}>
       <strong>Dst index and solar wind dynamic pressure</strong>
       {!analysisDomain && <div role="group" aria-label="Dst and pressure live window">
-        {[24, 48, 72].map(value => <button key={value} type="button" className="btn" aria-pressed={hours === value} disabled={Boolean(calendar?.day)} onClick={() => setHours(value)}>{value} h</button>)}
+        {[24, 48, 72, 168, 720].map(value => <button key={value} type="button" className="btn" aria-pressed={hours === value} disabled={Boolean(calendar?.day)} onClick={() => setHours(value)}>{value === 720 ? "30D" : value === 168 ? "7D" : `${value} h`}</button>)}
       </div>}
     </div>
     <p style={{ fontSize: ".78rem" }}>NOAA SWPC Dst on the left axis · proton dynamic pressure on the right axis · UTC observation times</p>

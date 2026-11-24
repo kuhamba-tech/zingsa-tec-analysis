@@ -991,6 +991,27 @@ def solar_archive(day: date, _=Depends(require_api_key)):
     return solar_archive_day(day)
 
 
+@router.get("/guvi-on2-map")
+def guvi_on2_map(day: date, _=Depends(require_api_key)):
+    import requests
+    from zgiis.space_weather.guvi_on2 import latest_guvi_map
+
+    try:
+        return latest_guvi_map(day)
+    except (requests.RequestException, ValueError) as exc:
+        raise HTTPException(502, detail="The GUVI map archive is temporarily unavailable.") from exc
+
+
+@router.get("/goes-xray-archive")
+def goes_xray_archive(start: date, end: date, _=Depends(require_api_key)):
+    """Return up to 30 UTC days of archived one-minute X-ray flux."""
+    from zgiis.space_weather.goes_xray_archive import get_xray_archive
+
+    if not 0 <= (end - start).days < 30:
+        raise HTTPException(status_code=400, detail="Select up to 30 UTC days.")
+    return get_xray_archive(start, end)
+
+
 @router.get("/solar-brief", response_model=SolarBriefResponse)
 async def solar_brief(force_refresh: bool = Query(False), _=Depends(require_api_key)):
     """Earth-facing sunspot count, NOAA C/M/X chances, and SolarHam's daily pictures."""

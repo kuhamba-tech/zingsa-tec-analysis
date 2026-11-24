@@ -24,6 +24,7 @@ import type {
   GicStatusResponse,
   GicUploadResult,
   GfzKpAnalysisResponse,
+  GoesXrayTimelinePoint,
   GuviOn2Response,
   WdcKyotoAnalysisResponse,
   IntermagnetAnalysisResponse,
@@ -1429,6 +1430,11 @@ export function getIonoVtecPair(force = false): Promise<IonoVtecPairResponse> {
     }));
 }
 
+export const getGoesXrayArchive = (start: string, end: string) =>
+  dedupeGet(`goes-xray-archive:${start}:${end}`, () =>
+    get<GoesXrayTimelinePoint[]>("/space-weather/goes-xray-archive", { start, end }, 90_000),
+  );
+
 export const getGfzKpAnalysis = (start: string, end: string, station?: string, includeVtec = true) =>
   get<GfzKpAnalysisResponse>("/tec/gfz-kp-analysis", { start, end, station, include_vtec: includeVtec ? undefined : "false", _ts: Date.now() }, ANALYSIS_TIMEOUT_MS);
 export const getWdcKyotoAnalysis = (start: string, end: string, station?: string) =>
@@ -1514,6 +1520,11 @@ export const getDidbaseIonosonde = (station: string, year?: number) =>
   get<DidbaseIonosondeResponse>("/tec/ionosonde-didbase", { station, year, _ts: Date.now() }, 30_000);
 export const getGuviOn2 = (start?: string, end?: string) =>
   get<GuviOn2Response>("/tec/guvi-on2", { start, end, _ts: Date.now() }, ANALYSIS_TIMEOUT_MS);
+
+export const getGuviOn2Map = (day: string) =>
+  dedupeGet(`guvi-on2-map:${day}`, () =>
+    get<{ date: string | null; image_url: string | null }>("/space-weather/guvi-on2-map", { day }, 45_000),
+  );
 export const getCosmic2Analysis = (start: string, end: string) =>
   get<Cosmic2AnalysisResponse>("/tec/cosmic2-analysis", { start, end, _ts: Date.now() }, ANALYSIS_TIMEOUT_MS);
 export const getPrn = (params?: {

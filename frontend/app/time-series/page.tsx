@@ -223,16 +223,25 @@ function IonosondeDidbasePanel({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const applyRecentDate = (months: number) => {
+    const now = new Date();
+    const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - months, now.getUTCDate()));
+    onEndYear(date.getUTCFullYear());
+    onStartMonth(date.getUTCMonth() + 1);
+    onDay(date.getUTCDate());
+    void handleLoad(date.getUTCFullYear());
+  };
+
   useEffect(() => {
     setResult(null);
     setError(null);
   }, [station, endYear, startMonth, day]);
 
-  const handleLoad = useCallback(async () => {
+  const handleLoad = useCallback(async (yearOverride?: number) => {
     setLoading(true);
     setError(null);
     try {
-      const r = await getDidbaseIonosonde(station, endYear);
+      const r = await getDidbaseIonosonde(station, yearOverride ?? endYear);
       setResult(r);
     } catch (err) {
       setResult(null);
@@ -249,6 +258,18 @@ function IonosondeDidbasePanel({
         Pull South African Digisonde context from DIDBase station codes nearest the Zimbabwe region. Only Hermanus and
         Madimbo are included here; Madimbo is the nearest South African ionosonde to Zimbabwe.
       </p>
+      <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap", margin: "0.35rem 0" }} aria-label="Ionosonde quick date ranges">
+        {[
+          { label: "1 Month ago", months: 1 },
+          { label: "3 Months ago", months: 3 },
+          { label: "6 Months ago", months: 6 },
+          { label: "1 Year ago", months: 12 },
+        ].map((preset) => (
+          <button key={preset.label} type="button" className="btn" onClick={() => applyRecentDate(preset.months)} disabled={loading}>
+            {preset.label}
+          </button>
+        ))}
+      </div>
       <div className="omni-range-grid">
         <div>
           <div className="metric-label">Date (UTC)</div>
@@ -275,7 +296,7 @@ function IonosondeDidbasePanel({
             ))}
           </select>
         </label>
-        <button className="btn btn-primary" type="button" onClick={handleLoad} disabled={loading}>
+        <button className="btn btn-primary" type="button" onClick={() => void handleLoad()} disabled={loading}>
           {loading ? "Loading…" : "Load ionosonde"}
         </button>
       </div>
@@ -431,7 +452,7 @@ export default function TimeSeriesPage() {
       };
       await Promise.all([
         accept("archive information", getArchiveMeta(), setMeta),
-        accept("daily observations", getTimeSeries({ station: st || undefined, start: s || undefined, end: e || undefined, limit: 10000 }), setObs),
+        accept("daily observations", getTimeSeries({ station: st || undefined, start: s || undefined, end: e || undefined, limit: 100000 }), setObs),
       ]);
       if (gen !== loadGen.current) return;
       if (errors.length) setLoadError(errors.join(", "));
@@ -494,8 +515,8 @@ export default function TimeSeriesPage() {
     }
   }, [loadAll]);
 
-  const loadAllSources = useCallback(async () => {
-    const r = { start: sourceStartDate, end: sourceEndDate };
+  const loadAllSources = useCallback(async (rangeOverride?: { start: string; end: string }) => {
+    const r = rangeOverride ?? { start: sourceStartDate, end: sourceEndDate };
     if (r.start > r.end) {
       setDateRangeError("Choose a start date on or before the end date.");
       return;
@@ -536,8 +557,52 @@ export default function TimeSeriesPage() {
     }
   }, [station, sourceStartDate, sourceEndDate]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const loadIntermagnet = useCallback(async () => {
-    const r = { start: imagFromDate, end: imagToDate };
+  const applyRangePreset = (months: number) => {
+    const now = new Date();
+    const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (months - 1), 1));
+    const startIso = start.toISOString().slice(0, 10);
+    const endIso = end.toISOString().slice(0, 10);
+    setStartYear(start.getUTCFullYear());
+    setStartMonth(start.getUTCMonth() + 1);
+    setSourceStartDay(start.getUTCDate());
+    setEndYear(end.getUTCFullYear());
+    setEndMonth(end.getUTCMonth() + 1);
+    setSourceEndDay(end.getUTCDate());
+    setDateRangeError(null);
+    void loadAllSources({ start: startIso, end: endIso });
+  };
+
+  const applyGroundPreset = (months: number) => {
+    const now = new Date();
+    const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (months - 1), 1));
+    const startIso = start.toISOString().slice(0, 10);
+    const endIso = end.toISOString().slice(0, 10);
+    setImagStartYear(start.getUTCFullYear());
+    setImagStartMonth(start.getUTCMonth() + 1);
+    setImagStartDay(1);
+    setImagEndYear(end.getUTCFullYear());
+    setImagEndMonth(end.getUTCMonth() + 1);
+    setImagEndDay(end.getUTCDate());
+    setDateRangeError(null);
+    void loadIntermagnet({ start: startIso, end: endIso });
+  };
+
+  const applyArchivePreset = (months: number) => {
+    const now = new Date();
+    const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (months - 1), 1));
+    const startIso = start.toISOString().slice(0, 10);
+    const endIso = end.toISOString().slice(0, 10);
+    setStart(startIso);
+    setEnd(endIso);
+    setDateRangeError(null);
+    void loadAll(station, startIso, endIso, { initial: false });
+  };
+
+  const loadIntermagnet = useCallback(async (rangeOverride?: { start: string; end: string }) => {
+    const r = rangeOverride ?? { start: imagFromDate, end: imagToDate };
     if (r.start > r.end) {
       setDateRangeError("Choose a start date on or before the end date.");
       return;
@@ -671,6 +736,24 @@ export default function TimeSeriesPage() {
           .
           {" "}Source Comparison also shows date-matched GOES X-ray, proton-flux, IMF and solar-wind graphs, with source coverage and units.
         </p>
+        <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap", margin: "0.35rem 0" }} aria-label="Quick date ranges">
+          {[
+            { label: "1 Month", months: 1 },
+            { label: "3 Months", months: 3 },
+            { label: "6 Months", months: 6 },
+            { label: "1 Year", months: 12 },
+          ].map((preset) => (
+            <button
+              key={preset.label}
+              type="button"
+              className="btn"
+              onClick={() => applyRangePreset(preset.months)}
+              disabled={sourcesLoading}
+            >
+              {preset.label}
+            </button>
+          ))}
+        </div>
         <div className="omni-range-grid">
           <div>
             <div className="metric-label">From date (UTC)</div>
@@ -690,7 +773,7 @@ export default function TimeSeriesPage() {
               ))}
             </select>
           </label>
-          <button className="btn btn-primary" onClick={loadAllSources} disabled={sourcesLoading || (loading && !meta?.available)}>
+          <button className="btn btn-primary" onClick={() => void loadAllSources()} disabled={sourcesLoading || (loading && !meta?.available)}>
             {sourcesLoading ? "Loading all sources…" : "Load all sources"}
           </button>
         </div>
@@ -761,6 +844,18 @@ export default function TimeSeriesPage() {
           locally-measured geomagnetic storm days on VTEC. Storms
           are detected from dH/dt and daily H range — the same physics that drives GICs.
         </p>
+        <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap", margin: "0.35rem 0" }} aria-label="Ground observatory quick ranges">
+          {[
+            { label: "1 Month", months: 1 },
+            { label: "3 Months", months: 3 },
+            { label: "6 Months", months: 6 },
+            { label: "1 Year", months: 12 },
+          ].map((preset) => (
+            <button key={preset.label} type="button" className="btn" onClick={() => applyGroundPreset(preset.months)} disabled={intermagnetLoading}>
+              {preset.label}
+            </button>
+          ))}
+        </div>
         <div className="omni-range-grid">
           <div>
             <div className="metric-label">From date (UTC)</div>
@@ -789,7 +884,7 @@ export default function TimeSeriesPage() {
               ))}
             </select>
           </label>
-          <button className="btn btn-primary" onClick={loadIntermagnet} disabled={intermagnetLoading || (loading && !meta?.available)}>
+          <button className="btn btn-primary" onClick={() => void loadIntermagnet()} disabled={intermagnetLoading || (loading && !meta?.available)}>
             {intermagnetLoading ? "Loading…" : "Load analysis"}
           </button>
         </div>
@@ -826,6 +921,27 @@ export default function TimeSeriesPage() {
           </div>
           {coverageOpen && (
             <div style={{ marginTop: "0.8rem", display: "flex", flexDirection: "column", gap: "0.8rem" }}>
+              <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap" }} aria-label="Archive quick ranges">
+                {[
+                  { label: "1 Month", months: 1 },
+                  { label: "3 Months", months: 3 },
+                  { label: "6 Months", months: 6 },
+                  { label: "1 Year", months: 12 },
+                ].map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    className="btn"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      applyArchivePreset(preset.months);
+                    }}
+                    disabled={loading}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
               {/* Filters */}
               <div style={{ display: "flex", flexWrap: "wrap", gap: "0.8rem", alignItems: "flex-end" }}>
                 <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>

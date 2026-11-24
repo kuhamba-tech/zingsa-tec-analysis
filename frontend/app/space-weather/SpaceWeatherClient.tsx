@@ -486,7 +486,7 @@ export default function SpaceWeatherClient({
   const [imfPoints, setImfPoints] = useState<TimelinePoint[] | null>(null);
   // Always start at 0 so SSR HTML matches the first client paint; URL ?tab= is applied in useEffect.
   const [tab, setTab] = useState(0);
-  const [xrayRange, setXrayRange] = useState<"6H" | "1D" | "3D" | "7D">("1D");
+  const [xrayRange, setXrayRange] = useState<"6H" | "1D" | "3D" | "7D" | "30D">("1D");
 
   useEffect(() => {
     try {

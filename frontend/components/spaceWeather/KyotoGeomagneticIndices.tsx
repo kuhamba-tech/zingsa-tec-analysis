@@ -62,7 +62,7 @@ export default function KyotoGeomagneticIndices({comparison=false}:{comparison?:
  <p>World Data Center for Geomagnetism, Kyoto</p>
  <div style={{display:"flex",gap:8,flexWrap:"wrap",margin:"12px 0"}}>
  <label>Mode <select value={mode} onChange={e=>{setMode(e.target.value);setData(null);setError("");}}><option value="live">Live (latest available)</option><option value="historical">Historical</option></select></label>
- {[6,24,168].map(h=><button className="btn" aria-pressed={hours===h&&mode==="live"} key={h} onClick={()=>{setMode("live");setHours(h);}}>{h===168?"7D":`${h}H`}</button>)}
+ {[6,24,168,720].map(h=><button className="btn" aria-pressed={hours===h&&mode==="live"} key={h} onClick={()=>{setMode("live");setHours(h);}}>{h===720?"30D":h===168?"7D":`${h}H`}</button>)}
  <button className="btn" onClick={()=>setRefresh(n=>n+1)} disabled={loading}>Refresh</button>
  <button className="btn" onClick={()=>{setStart("2024-05-10T00:00");setEnd("2024-05-14T00:00");setHistorical({start:"2024-05-10T00:00:00Z",end:"2024-05-14T00:00:00Z"});setMode("historical");}}>10–13 May 2024 (historical)</button>
  </div>

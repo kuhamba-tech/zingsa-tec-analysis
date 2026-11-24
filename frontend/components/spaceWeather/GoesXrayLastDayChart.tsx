@@ -25,7 +25,7 @@ const GoesSolarXrayCard = dynamic(
  */
 export default function GoesXrayLastDayChart() {
   const [sa, setSa] = useState<SolarActivityFull | null>(() => peekSolarActivity());
-  const [range, setRange] = useState<"6H" | "1D" | "3D" | "7D">("1D");
+  const [range, setRange] = useState<"6H" | "1D" | "3D" | "7D" | "30D">("1D");
 
   useEffect(() => {
     const unsub = subscribeSolarActivity((next) => setSa(next));

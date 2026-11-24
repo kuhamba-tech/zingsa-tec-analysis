@@ -77,7 +77,7 @@ export default function SolarWindBzComparison({
     <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", gap: ".75rem" }}>
       <strong>Solar wind velocity and IMF Bz</strong>
       {!analysisDomain && <div role="group" aria-label="Solar wind and Bz live window">
-        {[24, 48, 72].map(value => <button key={value} type="button" className="btn" aria-pressed={hours === value} disabled={Boolean(calendar?.day)} onClick={() => setHours(value)}>{value} h</button>)}
+        {[24, 48, 72, 168, 720].map(value => <button key={value} type="button" className="btn" aria-pressed={hours === value} disabled={Boolean(calendar?.day)} onClick={() => setHours(value)}>{value === 720 ? "30D" : value === 168 ? "7D" : `${value} h`}</button>)}
       </div>}
     </div>
     <p style={{ fontSize: ".78rem" }}>NOAA SWPC RTSW · speed on the left axis · GSM Bz on the right axis · UTC observation times</p>
