@@ -47,6 +47,20 @@ from backend.schemas import (
 router = APIRouter(prefix="/tec", tags=["tec"])
 
 
+@router.get("/gim-global/live")
+def gim_global_live(response: Response, _=Depends(require_api_key)):
+    """The latest published NASA JPL near-real-time GIM frame."""
+    from zgiis.maps.jpl_gim import latest_live_frame
+
+    try:
+        frame = latest_live_frame()
+    except Exception as exc:
+        log.warning("NASA JPL near-real-time GIM failed: %s", exc)
+        raise HTTPException(502, "The NASA JPL near-real-time feed is temporarily unavailable.") from exc
+    response.headers["Cache-Control"] = "no-store"
+    return frame
+
+
 @router.get("/gim-global")
 def gim_global(
     day: date | None = None,

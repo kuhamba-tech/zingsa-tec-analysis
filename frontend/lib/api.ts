@@ -638,6 +638,15 @@ export interface GlobalGimGrid {
   values: (number | null)[];
 }
 
+export interface GlobalGimFrame {
+  observed_utc: string;
+  image_url: string;
+}
+
+export function getLiveGlobalGim() {
+  return dedupeGet("gim-global-live", () => get<GlobalGimFrame>("/tec/gim-global/live"));
+}
+
 export function getGlobalGim(day?: string, utcTime?: string) {
   return dedupeGet(`gim-global:${day ?? ""}:${utcTime ?? ""}`, () =>
     get<GlobalGimGrid>("/tec/gim-global", { day, utc_time: utcTime }, 55_000),

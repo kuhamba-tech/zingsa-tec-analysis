@@ -1,4 +1,4 @@
-"""Read archived vertical TEC from NASA JPL's daily JPLD products."""
+"""Read NASA JPL near-real-time GIM frames and archived JPLD grids."""
 
 import gzip
 import re
@@ -10,7 +10,22 @@ import numpy as np
 import requests
 
 ARCHIVE = "https://sideshow.jpl.nasa.gov/pub/iono_daily/gim_for_research/jpld/"
+LIVE_FRAMES = "https://sideshow.jpl.nasa.gov/pub/usrs/rfm/nrtgim/frames/"
 _NETCDF_LOCK = Lock()
+
+
+def latest_live_frame() -> dict[str, str]:
+    response = requests.get(LIVE_FRAMES, timeout=(5, 15))
+    response.raise_for_status()
+    frames = re.findall(r'href="(nrtgim_([0-9]{8}_[0-9]{4})\.png)"', response.text)
+    if not frames:
+        raise FileNotFoundError("NASA JPL has not published a recent GIM frame.")
+    filename, timestamp = max(frames)
+    observed = datetime.strptime(timestamp, "%Y%m%d_%H%M").replace(tzinfo=timezone.utc)
+    return {
+        "observed_utc": observed.isoformat().replace("+00:00", "Z"),
+        "image_url": LIVE_FRAMES + filename,
+    }
 
 
 @lru_cache(maxsize=4)

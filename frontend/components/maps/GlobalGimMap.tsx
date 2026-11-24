@@ -1,10 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { getGlobalGim, type GlobalGimGrid } from "@/lib/api";
+import { getGlobalGim, getLiveGlobalGim, type GlobalGimFrame, type GlobalGimGrid } from "@/lib/api";
 import { loadOpenLayers } from "@/lib/loadOpenLayers";
 
 const ARCHIVE = "https://sideshow.jpl.nasa.gov/pub/iono_daily/gim_for_research/jpld/";
+const LIVE = "https://sideshow.jpl.nasa.gov/pub/usrs/rfm/nrtgim/frames/";
+const LIVE_REFRESH_MS = 60_000;
+const LIVE_DELAY_MS = 60 * 60_000;
 const COLORS = [[19, 18, 100], [24, 87, 211], [0, 190, 226], [252, 230, 60], [190, 26, 20]];
 const MAX_TEC = 100;
 
@@ -33,9 +36,12 @@ function rasterUrl(grid: GlobalGimGrid) {
 
 export default function GlobalGimMap({ height }: { height: number }) {
   const target = useRef<HTMLDivElement>(null);
-  const [request, setRequest] = useState<{ day?: string; time?: string }>({});
+  const [request, setRequest] = useState<{ day?: string; time?: string } | null>(null);
   const [day, setDay] = useState("");
   const [grid, setGrid] = useState<GlobalGimGrid | null>(null);
+  const [frame, setFrame] = useState<GlobalGimFrame | null>(null);
+  const [delayed, setDelayed] = useState(false);
+  const [imageError, setImageError] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -43,6 +49,27 @@ export default function GlobalGimMap({ height }: { height: number }) {
     let active = true;
     setLoading(true);
     setError("");
+    if (!request) {
+      let timer: ReturnType<typeof setTimeout>;
+      const refresh = async () => {
+        try {
+          const data = await getLiveGlobalGim();
+          if (!active) return;
+          setFrame(data);
+          setDelayed(Date.now() - Date.parse(data.observed_utc) > LIVE_DELAY_MS);
+          setError("");
+        } catch {
+          if (active) setError("The NASA JPL near-real-time feed is temporarily unavailable.");
+        } finally {
+          if (active) {
+            setLoading(false);
+            timer = setTimeout(refresh, LIVE_REFRESH_MS);
+          }
+        }
+      };
+      void refresh();
+      return () => { active = false; clearTimeout(timer); };
+    }
     getGlobalGim(request.day, request.time)
       .then((data) => {
         if (!active) return;
@@ -59,8 +86,10 @@ export default function GlobalGimMap({ height }: { height: number }) {
     return () => { active = false; };
   }, [request]);
 
+  const live = request === null;
+
   useEffect(() => {
-    if (!grid) return;
+    if (live || !grid) return;
     let active = true;
     let dispose: (() => void) | undefined;
     void loadOpenLayers().then((ol) => {
@@ -84,7 +113,7 @@ export default function GlobalGimMap({ height }: { height: number }) {
       dispose = () => map.dispose();
     }).catch(() => { if (active) setError("The map display could not initialize."); });
     return () => { active = false; dispose?.(); };
-  }, [grid]);
+  }, [grid, live]);
 
   const observationDay = grid?.observed_utc.slice(0, 10);
   return (
@@ -95,8 +124,9 @@ export default function GlobalGimMap({ height }: { height: number }) {
         <label>UTC date <input type="date" required min="2003-01-01"
           max={new Date().toISOString().slice(0, 10)} value={day} onChange={(event) => setDay(event.target.value)} /></label>
         <button className="btn" type="submit" disabled={loading}>Load date</button>
-        <button className="btn" type="button" disabled={loading} onClick={() => setRequest({})}>Latest available</button>
-        {grid && <label>UTC time <select disabled={loading || day !== observationDay}
+        <button className="btn" type="button" aria-pressed={live} disabled={live} onClick={() => setRequest(null)}>Live</button>
+        <button className="btn" type="button" disabled={loading} onClick={() => setRequest({})}>Latest archive</button>
+        {!live && grid && <label>UTC time <select disabled={loading || day !== observationDay}
           value={grid.observed_utc.slice(11, 16)}
           onChange={(event) => setRequest({ day: observationDay, time: event.target.value })}>
           {grid.times.map((time) => <option key={time}>{time}</option>)}
@@ -104,7 +134,17 @@ export default function GlobalGimMap({ height }: { height: number }) {
       </form>
       {loading && <p role="status">Loading NASA JPL map…</p>}
       {error && <p className="banner banner-warn" role="status">{error}</p>}
-      {grid && <>
+      {live && frame && <>
+        <p>Observation: {frame.observed_utc.replace("T", " ").replace("Z", " UTC")}</p>
+        {delayed && <p className="banner banner-warn" role="status">The latest published map is more than an hour old.</p>}
+        {imageError === frame.image_url && <p className="banner banner-warn" role="status">The NASA JPL map image could not be loaded.</p>}
+        {/* The upstream frame includes the map legend and its own projection. */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={frame.image_url} alt="NASA JPL near-real-time global vertical TEC map"
+          onLoad={() => setImageError("")} onError={() => setImageError(frame.image_url)}
+          style={{ display: "block", width: "100%", height, objectFit: "contain", borderRadius: 8 }} />
+      </>}
+      {!live && grid && <>
         <p>Observation: {grid.observed_utc.replace("T", " ").replace("Z", " UTC")}</p>
         <div ref={target} tabIndex={0} aria-label="Global vertical TEC map"
           style={{ height, width: "100%", background: "#0b1828", borderRadius: 8, overflow: "hidden" }} />
@@ -116,7 +156,9 @@ export default function GlobalGimMap({ height }: { height: number }) {
           </div>
         </div>
       </>}
-      <p style={{ marginBottom: 0 }}>Archive updated monthly · <a href={ARCHIVE} target="_blank" rel="noreferrer">NASA JPL JPLD archive</a></p>
+      <p style={{ marginBottom: 0 }}>{live
+        ? <a href={LIVE} target="_blank" rel="noreferrer">NASA JPL near-real-time GIM</a>
+        : <a href={ARCHIVE} target="_blank" rel="noreferrer">NASA JPL JPLD archive</a>}</p>
     </section>
   );
 }
