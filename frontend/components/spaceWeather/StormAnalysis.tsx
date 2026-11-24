@@ -626,7 +626,6 @@ export default function StormAnalysis({
             label: "Measured GOPI VTEC",
             data: magneticProfile.map(point => point.value),
             color: "#38bdf8",
-            pointRadius: 4,
             spanGaps: false,
             tension: 0.25,
           }]}
@@ -635,6 +634,7 @@ export default function StormAnalysis({
           xMin={-60}
           xMax={60}
           height={300}
+          pointRadius={4}
           preserveSamples
           toggleableLegend
         />
@@ -830,54 +830,25 @@ function EquatorialElectricFieldChart({ domain, selectedTime, pick, reportArea }
   const { min, max } = domain;
   const [points, setPoints] = useState<EquatorialElectricFieldPoint[]>([]);
   const [status, setStatus] = useState<"loading" | "complete" | "partial">("loading");
-  const [retry, setRetry] = useState(0);
-  const retained = useRef<{ min: number; max: number; points: Map<string, EquatorialElectricFieldPoint> } | null>(null);
 
   useEffect(() => {
     let active = true;
-    if (retained.current?.min !== min || retained.current.max !== max) {
-      retained.current = { min, max, points: new Map() };
-      setPoints([]);
-    }
-    const merged = retained.current.points;
     setStatus("loading");
-    const dayMs = 86_400_000;
-    const chunks: { start: number; end: number }[] = [];
-    for (let end = max; end > min;) {
-      const start = Math.max(min, end - 5 * dayMs);
-      chunks.push({ start, end });
-      end = start;
-    }
-    let next = 0;
-    let incomplete = false;
     const load = async () => {
-      while (active && next < chunks.length) {
-        const { start, end } = chunks[next++];
-        const date = new Date(start).toISOString().slice(0, 10);
-        const result = await getEquatorialElectricField(date, (end - start) / dayMs).catch(() => null);
-        if (!active) return;
-        const rows = (result?.points ?? []).filter(point => {
-          const time = Date.parse(point.time);
-          return time >= start && time < end && (point.climatological_mvm != null || point.prompt_penetration_mvm != null);
-        });
-        const coveredDays = new Set(rows.map(row => row.time.slice(0, 10))).size;
-        incomplete ||= coveredDays !== (end - start) / dayMs || result?.note != null;
-        for (const row of rows) {
-          const previous = merged.get(row.time);
-          merged.set(row.time, {
-            time: row.time,
-            climatological_mvm: row.climatological_mvm ?? previous?.climatological_mvm ?? null,
-            prompt_penetration_mvm: row.prompt_penetration_mvm ?? previous?.prompt_penetration_mvm ?? null,
-          });
-        }
-        if (rows.length) setPoints([...merged.values()].sort((a, b) => a.time.localeCompare(b.time)));
-      }
+      const result = await getEquatorialElectricField().catch(() => null);
+      if (!active) return;
+      const rows = (result?.points ?? []).filter(point => {
+        const time = Date.parse(point.time);
+        return time >= min && time < max
+          && (point.climatological_mvm != null || point.prompt_penetration_mvm != null);
+      });
+      setPoints(rows);
+      setStatus(result?.points?.length && rows.length ? "complete" : "partial");
     };
-    void Promise.all([load(), load()]).then(() => {
-      if (active) setStatus(incomplete ? "partial" : "complete");
-    });
-    return () => { active = false; };
-  }, [min, max, retry]);
+    void load();
+    const interval = window.setInterval(load, 5 * 60_000);
+    return () => { active = false; window.clearInterval(interval); };
+  }, [min, max]);
 
   const rows = useMemo(() => points.map(point => {
     const quiet = point.climatological_mvm;
@@ -900,9 +871,10 @@ function EquatorialElectricFieldChart({ domain, selectedTime, pick, reportArea }
     <h3>Equatorial eastward electric field</h3>
     <p style={{ fontSize: ".8rem" }}>PPEFM model estimates at 28°E on the magnetic equator. {selected.length ? `Near the marker · ${selected.join(" · ")}` : "No model value near the marker."}</p>
     {status === "loading" && <p role="status">Loading Colorado electric-field model output…</p>}
+    {status === "complete" && !rows.length && <p role="status">The Colorado model returned no usable electric-field output for this window.</p>}
     {status === "partial" && <p role="status">{rows.length
       ? `Days with model output: quiet ${quietDays}, prompt penetration ${penetrationDays}. Gaps indicate unavailable output.`
-      : "The provider returned no usable model output for this window."} <button type="button" className="btn" onClick={() => setRetry(value => value + 1)}>Retry</button></p>}
+      : "The Colorado provider returned no usable model output for this window."}</p>}
     {rows.length > 0 && <LineChart labels={labels} xValues={times} epochMs={times} datasets={datasets}
       yLabel="Electric field (mV/m)" yAxisWidth={80} height={320} ySuggestedMin={-1.5} ySuggestedMax={1.5}
       preserveSamples pointRadius={0} onPickTime={pick} onPlotAreaChange={reportArea} {...utcTimeAxisProps(domain)} />}
