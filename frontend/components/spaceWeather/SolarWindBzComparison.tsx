@@ -58,12 +58,50 @@ export default function SolarWindBzComparison({
         temperature: read(samples.temperature),
       };
     }, [samples, selectedTime]);
-  const markers = (brief?.sun_events ?? []).filter(event => /^[MX]/i.test(event.flare_class))
-    .map(event => ({ x: Date.parse(`${event.date.replaceAll("/", "-")}T${event.maximum}:00Z`), label: event.flare_class, color: "#f87171" }));
+  const markers = useMemo(() => {
+    const times = data.xray?.times ?? [];
+    const fluxes = data.xray?.flux ?? [];
+    return times
+      .map((time, index) => ({ time: Date.parse(time), flux: fluxes[index] }))
+      .filter((point): point is { time: number; flux: number } => (
+        Number.isFinite(point.time)
+        && point.flux != null
+        && point.flux >= 1e-5
+        && point.time >= domain.min
+        && point.time < domain.max
+      ))
+      .reduce<{ time: number; flux: number }[]>((peaks, point) => {
+        const previous = peaks[peaks.length - 1];
+        if (previous && point.time - previous.time < 6 * 60 * 60 * 1000) {
+          if (point.flux > previous.flux) peaks[peaks.length - 1] = point;
+        } else {
+          peaks.push(point);
+        }
+        return peaks;
+      }, [])
+      .map((peak) => ({
+        x: peak.time,
+        label: peak.flux >= 1e-4
+          ? `X${(peak.flux / 1e-4).toFixed(1)}`
+          : `M${(peak.flux / 1e-5).toFixed(1)}`,
+        color: "#ef4444",
+      }));
+  }, [data.xray, domain.min, domain.max]);
   const hasSpeed = samples.speed.some(value => value != null);
   const hasDensity = samples.density.some(value => value != null);
   const hasTemperature = samples.temperature.some(value => value != null);
   const hasBz = samples.bz.some(value => value != null);
+  const speedScale = useMemo(() => {
+    const values = samples.speed.filter((value): value is number => value != null && Number.isFinite(value));
+    if (!values.length) return { min: 250, max: 700 };
+    const low = Math.min(...values);
+    const high = Math.max(...values);
+    const pad = Math.max(25, (high - low) * 0.12);
+    return {
+      min: Math.floor((low - pad) / 25) * 25,
+      max: Math.ceil((high + pad) / 25) * 25,
+    };
+  }, [samples.speed]);
   const unavailable = [
     !hasSpeed ? "Solar wind speed" : null,
     !hasBz ? "IMF Bz" : null,
@@ -94,7 +132,7 @@ export default function SolarWindBzComparison({
         { label: "IMF Bz (GSM)", data: samples.bz, color: "#ef4444", yAxisId: "y2", ...observationStyle },
         { label: "Bz = 0 nT", data: samples.times.map(() => 0), color: "#94a3b8", yAxisId: "y2", dashed: true, borderWidth: 1 },
       ]} yLabel="Speed (km/s)" secondaryYLabel="IMF Bz (nT)" height={340} pointRadius={1}
-      yMin={250} yMax={700}
+      yMin={speedScale.min} yMax={speedScale.max}
       preserveSamples toggleableLegend verticalMarkers={markers} onPlotAreaChange={onPlotAreaChange} onPickTime={onPickTime}
       markerReadout={selectedTime != null && selectedReadings ? { x: selectedTime, lines: [
         `${new Date(selectedTime).toISOString().slice(11, 16)} UTC`,

@@ -7,7 +7,7 @@ import { loadLineChart } from "@/lib/loadLineChart";
 import { utcTimeAxisProps } from "@/lib/chartTimeAxis";
 import type { PlotAreaReporter } from "@/lib/chartPlotArea";
 import { nearestReading, OBSERVATION_READOUT_TOLERANCE_MS, type AnalysisPoint } from "@/lib/stormAnalysis";
-import { windBzComparison } from "@/lib/windBzComparison";
+import { solarWindPressure, windBzComparison } from "@/lib/windBzComparison";
 import { DST_RING_SCALE } from "@/lib/spaceWeatherMetrics";
 import type { HeliosphericMonitorResponse } from "@/lib/types";
 import type { SolarBriefResponse } from "@/lib/api";
@@ -38,10 +38,19 @@ export default function DstPressureComparison({
   const [hours, setHours] = useState(48);
   const end = Date.now();
   const domain = analysisDomain ?? (calendar?.day ? utcDayBounds(calendar.day) : { min: end - hours * 3600_000, max: end });
-  const samples = useMemo(() => windBzComparison(
-    { times: data.solar_wind.times, values: data.solar_wind.pressure ?? [] },
-    { times: data.dst?.times ?? [], values: data.dst?.dst ?? [] }, domain.min, domain.max, true),
-  [data, domain.min, domain.max]);
+  const samples = useMemo(() => {
+    const storedPressure = data.solar_wind.pressure ?? [];
+    const pressure = storedPressure.some(value => value != null)
+      ? storedPressure
+      : solarWindPressure(data.solar_wind.speed ?? [], data.solar_wind.density ?? []);
+    return windBzComparison(
+      { times: data.solar_wind.times, values: pressure },
+      { times: data.dst?.times ?? [], values: data.dst?.dst ?? [] },
+      domain.min,
+      domain.max,
+      true,
+    );
+  }, [data, domain.min, domain.max]);
   const selectedReadings = useMemo(() => {
     if (selectedTime == null) return null;
     const read = (values: (number | null)[], tolerance: number) => nearestReading(
@@ -54,8 +63,34 @@ export default function DstPressureComparison({
       pressure: read(samples.speed, OBSERVATION_READOUT_TOLERANCE_MS),
     };
   }, [samples, selectedTime]);
-  const markers = (brief?.sun_events ?? []).filter(event => /^[MX]/i.test(event.flare_class))
-    .map(event => ({ x: Date.parse(`${event.date.replaceAll("/", "-")}T${event.maximum}:00Z`), label: event.flare_class, color: "#f87171" }));
+  const markers = useMemo(() => {
+    const times = data.xray?.times ?? [];
+    const fluxes = data.xray?.flux ?? [];
+    return times
+      .map((time, index) => ({ time: Date.parse(time), flux: fluxes[index] }))
+      .filter((point): point is { time: number; flux: number } => (
+        Number.isFinite(point.time)
+        && point.flux != null
+        && point.flux >= 1e-5
+        && point.time >= domain.min
+        && point.time < domain.max
+      ))
+      .reduce<{ time: number; flux: number }[]>((peaks, point) => {
+        const previous = peaks[peaks.length - 1];
+        if (previous && point.time - previous.time < 6 * 60 * 60 * 1000) {
+          if (point.flux > previous.flux) peaks[peaks.length - 1] = point;
+        } else {
+          peaks.push(point);
+        }
+        return peaks;
+      }, [])
+      .map((peak) => {
+        const classText = peak.flux >= 1e-4
+          ? `X${(peak.flux / 1e-4).toFixed(1)}`
+          : `M${(peak.flux / 1e-5).toFixed(1)}`;
+        return { x: peak.time, label: classText, color: "#ef4444" };
+      });
+  }, [data.xray, domain.min, domain.max]);
   const hasWind = samples.speed.some(value => value != null), hasBz = samples.bz.some(value => value != null);
 
   return <section className="card" aria-label="Dst and solar wind dynamic pressure comparison">
