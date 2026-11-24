@@ -47,6 +47,20 @@ from backend.schemas import (
 router = APIRouter(prefix="/tec", tags=["tec"])
 
 
+@router.get("/swarm-zimbabwe")
+def swarm_zimbabwe(day: date, _=Depends(require_api_key)):
+    """Swarm A and C Langmuir probe observations around Zimbabwe crossings."""
+    from zgiis.maps.swarm_zimbabwe import zimbabwe_passes
+
+    if not date(2013, 11, 22) <= day <= datetime.now(timezone.utc).date():
+        raise HTTPException(422, "Choose a UTC date within the Swarm mission.")
+    try:
+        return zimbabwe_passes(day)
+    except Exception as exc:
+        log.warning("Swarm Zimbabwe observations failed for %s: %s", day, exc)
+        raise HTTPException(502, "ESA VirES Swarm observations are temporarily unavailable.") from exc
+
+
 @router.get("/gim-global/live")
 def gim_global_live(response: Response, _=Depends(require_api_key)):
     """The latest published NASA JPL near-real-time GIM frame."""

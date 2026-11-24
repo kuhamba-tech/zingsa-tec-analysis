@@ -638,6 +638,25 @@ export interface GlobalGimGrid {
   values: (number | null)[];
 }
 
+export interface SwarmZimbabweData {
+  boundary: number[][];
+  passes: {
+    spacecraft: "A" | "C";
+    entry: string;
+    exit: string;
+    track: number[][];
+    crossing: number[][][];
+    density: Record<string, number>;
+  }[];
+  last_sample: Record<"A" | "C", string | null>;
+}
+
+export function getSwarmZimbabwe(day: string) {
+  return dedupeGet(`swarm-zimbabwe:${day}`, () =>
+    get<SwarmZimbabweData>("/tec/swarm-zimbabwe", { day }, 75_000),
+  );
+}
+
 export interface GlobalGimFrame {
   observed_utc: string;
   image_url: string;

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import { getSwarmZimbabwe, type SwarmZimbabweData } from "@/lib/api";
 import { loadLineChart } from "@/lib/loadLineChart";
 import { loadOpenLayers } from "@/lib/loadOpenLayers";
 import styles from "./StormAnalysis.module.css";
@@ -10,42 +11,35 @@ const LineChart = dynamic(() => loadLineChart().then(module => module.default), 
 const COLORS = ["#38bdf8", "#fbbf24", "#f472b6", "#4ade80", "#a78bfa", "#fb923c", "#67e8f9", "#f87171"];
 const LATITUDES = Array.from({ length: 121 }, (_, index) => index - 60);
 
-type Pass = {
-  spacecraft: "A" | "C";
-  entry: string;
-  exit: string;
-  track: number[][];
-  crossing: number[][][];
-  density: Record<string, number>;
-};
-
-type PassData = { boundary: number[][]; passes: Pass[] };
+const SPACECRAFT = ["A", "C"] as const;
 
 function timeLabel(utc: string) {
   return utc.slice(11, 19);
 }
 
-export default function SwarmZimbabwePasses() {
-  const [data, setData] = useState<PassData | null>(null);
+export default function SwarmZimbabwePasses({ day }: { day: string }) {
+  return <SwarmDay key={day} day={day} />;
+}
+
+function SwarmDay({ day }: { day: string }) {
+  const [data, setData] = useState<SwarmZimbabweData | null>(null);
   const [error, setError] = useState("");
   const [zoomToZimbabwe, setZoomToZimbabwe] = useState(true);
   const mapTarget = useRef<HTMLDivElement>(null);
   const fit = useRef<((local: boolean) => void) | null>(null);
 
   useEffect(() => {
-    const controller = new AbortController();
-    fetch("/swarm-zimbabwe-2026-03-20-23.json", { signal: controller.signal })
-      .then(response => {
-        if (!response.ok) throw new Error("Could not load the Swarm observations.");
-        return response.json() as Promise<PassData>;
-      })
-      .then(setData)
-      .catch(() => { if (!controller.signal.aborted) setError("Could not load the Swarm observations."); });
-    return () => controller.abort();
-  }, []);
+    let active = true;
+    const timer = setTimeout(() => {
+      void getSwarmZimbabwe(day)
+        .then(result => { if (active) setData(result); })
+        .catch(() => { if (active) setError(`Could not load ESA VirES observations for ${day} UTC.`); });
+    }, 250);
+    return () => { active = false; clearTimeout(timer); };
+  }, [day]);
 
   useEffect(() => {
-    if (!data) return;
+    if (!data?.passes.length) return;
     let active = true;
     let dispose: (() => void) | undefined;
     void loadOpenLayers().then(ol => {
@@ -90,10 +84,19 @@ export default function SwarmZimbabwePasses() {
   return (
     <section className={styles.swarmSection} aria-label="Swarm A and C over Zimbabwe">
       <h3>Swarm A and C over Zimbabwe</h3>
-      <p>20–23 March 2026 UTC · ESA Swarm Langmuir probe. The table gives the first and last recorded positions inside Zimbabwe for each crossing.</p>
+      <p>{day} UTC · ESA Swarm Langmuir probe. The table gives the first and last recorded positions inside Zimbabwe for each crossing.</p>
       {error && <p role="status" className="banner banner-warn">{error}</p>}
       {!data && !error && <p role="status">Loading Swarm observations…</p>}
-      {data && <>
+      {data && <p role="status">{SPACECRAFT.map(spacecraft => {
+        const latest = data.last_sample[spacecraft];
+        return latest
+          ? `Swarm ${spacecraft} latest sample ${timeLabel(latest)} UTC`
+          : `Swarm ${spacecraft} has no published samples for this date`;
+      }).join(" · ")}</p>}
+      {data && !data.passes.length && SPACECRAFT.some(spacecraft => data.last_sample[spacecraft]) && (
+        <p>No Zimbabwe crossings in the available observations for this date.</p>
+      )}
+      {!!data?.passes.length && <>
         <h4>Satellite ground tracks</h4>
         <div className={styles.controls}>
           <button type="button" className="btn" aria-pressed={!zoomToZimbabwe} onClick={() => { fit.current?.(false); setZoomToZimbabwe(false); }}>Full tracks</button>
@@ -113,7 +116,9 @@ export default function SwarmZimbabwePasses() {
             ))}</tbody>
           </table>
         </div>
-        {(["A", "C"] as const).map(spacecraft => (
+        {SPACECRAFT.filter(spacecraft => data.passes.some(pass =>
+          pass.spacecraft === spacecraft && Object.keys(pass.density).length > 0,
+        )).map(spacecraft => (
           <div key={spacecraft}>
             <h4>Swarm {spacecraft} electron density</h4>
             <LineChart
