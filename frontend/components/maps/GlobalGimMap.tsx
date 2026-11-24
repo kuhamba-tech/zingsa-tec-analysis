@@ -44,6 +44,7 @@ export default function GlobalGimMap({ height }: { height: number }) {
   const [imageError, setImageError] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [refreshCount, setRefreshCount] = useState(0);
 
   useEffect(() => {
     let active = true;
@@ -84,7 +85,7 @@ export default function GlobalGimMap({ height }: { height: number }) {
       })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [request]);
+  }, [request, refreshCount]);
 
   const live = request === null;
 
@@ -118,21 +119,27 @@ export default function GlobalGimMap({ height }: { height: number }) {
   const observationDay = grid?.observed_utc.slice(0, 10);
   return (
     <section className="card" aria-label="NASA JPL Global Ionospheric Map">
-      <form onSubmit={(event) => { event.preventDefault(); setRequest({ day }); }}
-        style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: ".6rem", marginBottom: ".75rem" }}>
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: ".6rem", marginBottom: ".75rem" }}>
         <strong>GIM Global · NASA JPL</strong>
+        <button className="btn" type="button" aria-pressed={live} onClick={() => setRequest(null)}>Live map</button>
+        <button className="btn" type="button" aria-pressed={!live}
+          onClick={() => { if (live) setRequest({}); }}>Archive</button>
+        {live && <button className="btn" type="button" disabled={loading}
+          onClick={() => setRefreshCount(count => count + 1)}>Refresh live map</button>}
+      </div>
+      {!live && <form onSubmit={(event) => { event.preventDefault(); setRequest({ day }); }}
+        style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: ".6rem", marginBottom: ".75rem" }}>
         <label>UTC date <input type="date" required min="2003-01-01"
           max={new Date().toISOString().slice(0, 10)} value={day} onChange={(event) => setDay(event.target.value)} /></label>
         <button className="btn" type="submit" disabled={loading}>Load date</button>
-        <button className="btn" type="button" aria-pressed={live} disabled={live} onClick={() => setRequest(null)}>Live</button>
         <button className="btn" type="button" disabled={loading} onClick={() => setRequest({})}>Latest archive</button>
-        {!live && grid && <label>UTC time <select disabled={loading || day !== observationDay}
+        {grid && <label>UTC time <select disabled={loading || day !== observationDay}
           value={grid.observed_utc.slice(11, 16)}
           onChange={(event) => setRequest({ day: observationDay, time: event.target.value })}>
           {grid.times.map((time) => <option key={time}>{time}</option>)}
         </select></label>}
-      </form>
-      {loading && <p role="status">Loading NASA JPL map…</p>}
+      </form>}
+      {loading && <p role="status">{live ? "Checking for the latest NASA JPL frame…" : "Loading NASA JPL archive map…"}</p>}
       {error && <p className="banner banner-warn" role="status">{error}</p>}
       {live && frame && <>
         <p>Observation: {frame.observed_utc.replace("T", " ").replace("Z", " UTC")}</p>
