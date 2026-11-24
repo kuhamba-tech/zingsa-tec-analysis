@@ -1485,6 +1485,12 @@ export const getPlanetaryAp = (start: string, end: string) =>
     live: { date: string; value: number; intervals: number } | null;
     unavailable: string[];
   }>("/tec/planetary-ap", { start, end }, 45_000));
+
+export const getDstComparison = (start: string, end: string) =>
+  dedupeGet(`dst-comparison:${start}:${end}`, () => get<{
+    series: Partial<Record<"omni" | "kyoto", Record<string, number>>>;
+    unavailable: string[];
+  }>("/tec/dst-comparison", { start, end }, 45_000));
 export const getWdcKyotoAnalysis = (start: string, end: string, station?: string) =>
   get<WdcKyotoAnalysisResponse>("/tec/wdc-kyoto-analysis", { start, end, station, _ts: Date.now() }, ANALYSIS_TIMEOUT_MS);
 export const getTrigNet = () =>

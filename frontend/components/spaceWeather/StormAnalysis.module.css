@@ -104,26 +104,6 @@
   accent-color: #ff00d4;
 }
 
-.profileReadings {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr));
-  list-style: none;
-  padding: 0;
-  margin: .65rem 0 0;
-  gap: .4rem;
-}
-
-.profileReadings li {
-  display: grid;
-  gap: .2rem;
-  min-width: 0;
-  padding: .4rem .55rem;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  font-size: .78rem;
-  font-variant-numeric: tabular-nums;
-}
-
 @media (max-width: 640px) {
   .analysisPage > .controls {
     grid-template-columns: repeat(2, minmax(0, 1fr));

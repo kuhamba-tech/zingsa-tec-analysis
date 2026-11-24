@@ -11,7 +11,7 @@ import { TELONE_CENTRES, teloneCentreHasCors } from "@/lib/teloneCentres";
 import { formatPopulation, PROVINCE_POPULATION_2022 } from "@/lib/zimbabweDemographics";
 import { icaoTecColor, icaoTecDistanceLabel, icaoTecLabel } from "@/lib/icaoTecAdvisory";
 import { liveVtecSourceFromHeatmap, liveVtecSourceLabel } from "@/lib/liveVtecLabels";
-import { measuredLiveTec } from "@/lib/measuredLiveTec";
+import { heatmapStationFor, stationTecValue } from "@/lib/mapStationTec";
 import { fetchGlobalTecForecastObjectUrl, getZimbabweRoti, type ZimbabweRotiStation } from "@/lib/api";
 import { startVisiblePolling } from "@/lib/visiblePolling";
 import { vtecToRgba } from "@/lib/tecHeatmapColors";
@@ -212,29 +212,6 @@ function drawPointHeatBlobs(
 
 function stationKey(code: string | null | undefined): string {
   return (code ?? "").toLowerCase().replace(/_+$/, "");
-}
-
-function heatmapStationFor(station: Station, heatmap: TecHeatmapResponse | null | undefined) {
-  const code = stationKey(station.code);
-  return heatmap?.stations.find((s) => stationKey(s.code) === code) ?? null;
-}
-
-function stationTecValue(station: Station, heatmap: TecHeatmapResponse | null | undefined): number | null {
-  if (getLiveStationStatus(station) === "surveyor_general") return null;
-  const heatStation = heatmapStationFor(station, heatmap);
-  if (heatStation && /processed_archive/i.test(heatStation.source ?? "")) {
-    return null;
-  }
-
-  const liveStatus = getLiveStationStatus(station);
-  if (liveStatus !== "online") return null;
-  const measured = measuredLiveTec(heatStation);
-  if (measured != null) return measured;
-  const cardTec =
-    typeof station.current_tec === "number" && Number.isFinite(station.current_tec) && station.current_tec > 0
-      ? station.current_tec
-      : null;
-  return cardTec;
 }
 
 function stationGgValue(

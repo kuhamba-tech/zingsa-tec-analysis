@@ -3,7 +3,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import dynamic from "next/dynamic";
 import Image from "next/image";
-import { getEquatorialElectricField, getGfzKpAnalysis, getGoesProtonArchive, getGuviOn2Map, getHeliosphericMonitor, getLiveVtecByStation, getPlanetaryAp, getStations, getTimeSeries, type SolarArchiveDay } from "@/lib/api";
+import { getDstComparison, getEquatorialElectricField, getGfzKpAnalysis, getGoesProtonArchive, getGuviOn2Map, getHeliosphericMonitor, getLiveVtecByStation, getPlanetaryAp, getTimeSeries, type SolarArchiveDay } from "@/lib/api";
 import { peekHeliosphericMonitor } from "@/lib/heliosphericStore";
 import type { GoesXrayRange } from "@/components/spaceWeather/GoesSolarXrayCard";
 import { loadLineChart } from "@/lib/loadLineChart";
@@ -19,9 +19,7 @@ import SolarActivityLevels from "./SolarActivityLevels";
 import flareTable from "./FlareActivityTable.module.css";
 import styles from "./StormAnalysis.module.css";
 import { buildNetworkMeanVtecSeries, mergeStationVtecHistory, nearestReading, OBSERVATION_READOUT_TOLERANCE_MS, referenceTec, type AnalysisPoint } from "@/lib/stormAnalysis";
-import type { EquatorialElectricFieldPoint, HeliosphericMonitorResponse, LiveStationVtecSeries, SolarActivityFull, Station } from "@/lib/types";
-import { dipLatitudeDeg } from "@/lib/igrf14Dip";
-import { igrf14Epoch } from "@/lib/geomagneticEquator";
+import type { EquatorialElectricFieldPoint, HeliosphericMonitorResponse, LiveStationVtecSeries, SolarActivityFull } from "@/lib/types";
 
 const LineChart = dynamic(() => loadLineChart().then(module => module.default), { ssr: false });
 const SwarmZimbabwePasses = dynamic(() => import("./SwarmZimbabwePasses"), { ssr: false });
@@ -104,6 +102,11 @@ const PROTON_COLORS: Record<string, string> = {
 };
 const PLOTS = ["xray", "wind", "windPlasma", "imf", "proton", "pressure", "overview", "kp", "dst", "ap", "speed", "bz", "electricField", "meanTec", "regionalTec"] as const;
 type Plot = (typeof PLOTS)[number];
+const DST_SOURCES = [
+  { key: "omni", label: "NASA OMNIWeb Dst (daily min, nT)", color: "#168bd2" },
+  { key: "kyoto", label: "WDC Kyoto Dst (daily min, nT)", color: "#f472b6" },
+] as const;
+const UTC_NOON_MS = 12 * 3_600_000;
 const SOLAR_WIND_SPEED_GUIDES = SOLAR_WIND_SPEED_SCALE
   .filter(band => band.boundary > 0)
   .map(band => ({ value: band.boundary, label: `${band.label} (${band.short} km/s)`, color: band.color }));
@@ -347,7 +350,6 @@ export default function StormAnalysis({
   const [helio, setHelio] = useState<HeliosphericMonitorResponse | null>(peekHeliosphericMonitor);
   const [rows, setRows] = useState<LiveStationVtecSeries[]>([]);
   const [stationRows, setStationRows] = useState<LiveStationVtecSeries[]>([]);
-  const [catalogStations, setCatalogStations] = useState<Station[]>([]);
   const [referenceRows, setReferenceRows] = useState<LiveStationVtecSeries[]>([]);
   const [quietDays, setQuietDays] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -377,6 +379,22 @@ export default function StormAnalysis({
     return { min: max - days * 86400000, max };
   }, [endDay, days]);
   const selectedTime = Math.max(domain.min, Math.min(domain.max - 60_000, picked ?? Date.now()));
+  const dstStart = new Date(domain.min).toISOString().slice(0, 10);
+  const [dstSources, setDstSources] = useState<{
+    start: string; end: string; data: Awaited<ReturnType<typeof getDstComparison>> | null;
+  } | null>(null);
+  useEffect(() => {
+    let active = true;
+    const stop = startVisiblePolling(async () => {
+      const data = await getDstComparison(dstStart, endDay).catch(() => null);
+      if (active) setDstSources({ start: dstStart, end: endDay, data });
+    }, 5 * 60_000);
+    return () => { active = false; stop(); };
+  }, [dstStart, endDay]);
+  const dstComparison = dstSources?.start === dstStart && dstSources.end === endDay ? dstSources : null;
+  const dailyDstTimes = useMemo(() => Object.values(dstComparison?.data?.series ?? {})
+    .flatMap(series => Object.keys(series).map(day => Date.parse(day) + UTC_NOON_MS)), [dstComparison]);
+  const selectedDstDay = new Date(selectedTime).toISOString().slice(0, 10);
   const flarePeaks = useMemo(() => {
     const peaks = new Map<string, { x: number; label: string }>();
     for (const event of flareEvents ?? []) {
@@ -433,14 +451,6 @@ export default function StormAnalysis({
     if (!station) return;
     return pollTecArchive(archiveDays, today, setStationRows, 5 * 60_000, [station]);
   }, [archiveDays, today, station]);
-
-  useEffect(() => {
-    let active = true;
-    getStations(false)
-      .then(rows => { if (active) setCatalogStations(Array.isArray(rows) ? rows : []); })
-      .catch(() => { if (active) setCatalogStations([]); });
-    return () => { active = false; };
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -504,32 +514,6 @@ export default function StormAnalysis({
     () => new Map(networkMean.map((point, index) => [point.time, index])),
     [networkMean],
   );
-  const magneticProfileStations = useMemo(() => {
-    const stationByCode = new Map(catalogStations.map(station => [
-      station.code.toLowerCase().replace(/_+$/, ""),
-      station,
-    ]));
-    return rows.flatMap(row => {
-      const station = stationByCode.get(row.station.toLowerCase().replace(/_+$/, ""));
-      if (!station) return [];
-      return [{
-        station,
-        code: row.station.toUpperCase(),
-        readings: row.points.map(point => ({ time: Date.parse(point.time), value: point.vtec_tecu })),
-      }];
-    });
-  }, [rows, catalogStations]);
-  const magneticProfile = useMemo(() => {
-    const epoch = igrf14Epoch(new Date(selectedTime));
-    return magneticProfileStations.flatMap(({ station, code, readings }) => {
-      const dip = dipLatitudeDeg(station.lat, station.lon, epoch);
-      if (dip == null) return [];
-      const reading = nearestReading(readings, selectedTime, 20 * 60_000);
-      return reading?.value != null
-        ? [{ station: code, dip, value: reading.value }]
-        : [];
-    }).sort((a, b) => a.dip - b.dip);
-  }, [magneticProfileStations, selectedTime]);
   const [protonArchive, setProtonArchive] = useState<{ min: number; max: number; rows: Awaited<ReturnType<typeof getGoesProtonArchive>>; loading: boolean } | null>(null);
   const loadProtonArchive = archiveDays.length > 7;
   useEffect(() => {
@@ -620,40 +604,6 @@ export default function StormAnalysis({
     {(error || referenceError) && <p role="status">{[error, referenceError].filter(Boolean).join(" ")}</p>}
     {loading && <p role="status">Loading station archive... {checkedTecDays} of {archiveDays.length} UTC days checked.</p>}
     {days >= 30 && <p>Solar wind, IMF and proton charts can have gaps where archived observations are unavailable.</p>}
-    {magneticProfile.length > 0 && (
-      <section className="card" aria-label="Measured VTEC versus magnetic latitude">
-        <strong>Measured VTEC versus magnetic latitude</strong>
-        <p style={{ fontSize: ".8rem" }}>
-          GOPI readings within 20 minutes of {markerLabel} · IGRF dip latitude
-        </p>
-        <LineChart
-          labels={magneticProfile.map(point => `${point.dip.toFixed(1)}° · ${point.station}`)}
-          xValues={magneticProfile.map(point => point.dip)}
-          epochMs={undefined}
-          datasets={[{
-            label: "Measured GOPI VTEC",
-            data: magneticProfile.map(point => point.value),
-            color: "#38bdf8",
-            spanGaps: false,
-            tension: 0.25,
-          }]}
-          yLabel="VTEC (TECU)"
-          xLabel="Magnetic latitude (°)"
-          xMin={-60}
-          xMax={60}
-          height={300}
-          pointRadius={4}
-          preserveSamples
-          toggleableLegend
-        />
-        <ul className={styles.profileReadings} role="list">
-          {magneticProfile.map(point => <li key={point.station}>
-            <strong>{point.station}</strong>
-            <span>{point.value.toFixed(1)} TECU · {point.dip.toFixed(1)}°</span>
-          </li>)}
-        </ul>
-      </section>
-    )}
     <div style={{ marginBottom: "1rem" }}>
       <SolarFlareMonthChart key={`${domain.min}/${endDay}`} showDailyStorms start={new Date(domain.min).toISOString().slice(0, 10)} end={endDay} />
     </div>
@@ -762,6 +712,9 @@ export default function StormAnalysis({
     {panels.map((panel, index) => {
       const sorted = panel.data.filter(point => point.time >= domain.min && point.time < domain.max).sort((a, b) => a.time - b.time);
       const isNetworkMean = panel.title === "Network mean VTEC";
+      const isDst = panel.plot === "dst";
+      const observedTimes = sorted.map(point => point.time);
+      const chartTimes = isDst ? [...new Set([...observedTimes, ...dailyDstTimes])].sort((a, b) => a - b) : observedTimes;
       const reading = nearestReading(sorted, selectedTime, panel.tolerance);
       const values = sorted.flatMap(point => point.value != null && Number.isFinite(point.value) ? [point.value] : []);
       const minimum = values.length ? Math.min(...values) : 0;
@@ -784,7 +737,24 @@ export default function StormAnalysis({
                 }]
               : []),
           ]
-        : [{ label: panel.title, data: sorted.map(point => point.value), color: panel.color, spanGaps: panel.cadence, tension: 0 }];
+        : [{
+            label: isDst ? "Dst (NOAA SWPC)" : panel.title,
+            data: isDst
+              ? (() => {
+                  const observed = new Map(sorted.map(point => [point.time, point.value]));
+                  return chartTimes.map(time => observed.get(time) ?? null);
+                })()
+              : sorted.map(point => point.value),
+            color: panel.color, spanGaps: panel.cadence, tension: 0, omitMissingPoints: isDst,
+          }, ...(isDst ? DST_SOURCES.map(source => {
+            const values = dstComparison?.data?.series[source.key] ?? {};
+            const byTime = new Map(Object.entries(values).map(([day, value]) => [Date.parse(day) + UTC_NOON_MS, value]));
+            return {
+              label: source.label, color: source.color,
+              data: chartTimes.map(time => byTime.get(time) ?? null),
+              omitMissingPoints: true, spanGaps: 86_400_000, tension: 0,
+            };
+          }) : [])];
       const suggestedMin = index === 1 ? Math.max(200, Math.floor(Math.min(minimum || 400, 400) / 20) * 20 - 20)
         : index === 2 ? -Math.max(10, Math.ceil(Math.max(Math.abs(minimum), Math.abs(maximum)) / 5) * 5)
         : index === 4 ? Math.min(-50, Math.floor(minimum / 25) * 25)
@@ -799,17 +769,33 @@ export default function StormAnalysis({
         {isNetworkMean && <>
           <GuviDailyMap selectedTime={selectedTime} />
           <SwarmZimbabwePasses day={new Date(selectedTime).toISOString().slice(0, 10)} />
-          <EquatorialElectricFieldChart domain={domain} selectedTime={selectedTime} pick={pick} reportArea={plotLayout.reporters.electricField} />
+          <EquatorialElectricFieldChart key={`${domain.min}/${domain.max}`}
+            domain={domain} selectedTime={selectedTime} pick={pick} reportArea={plotLayout.reporters.electricField} />
         </>}
         {isNetworkMean && <div style={{ marginBottom: "1.25rem" }}>
           <strong>Mean daily TEC — northern, central and southern Zimbabwe</strong>
           <ZimbabweMeanDiurnalTec embedded analysisDomain={domain} analysisDay={endDay} analysisRows={days >= 30 ? (loading && !rows.length ? null : rows) : undefined} onPlotAreaChange={plotLayout.reporters.regionalTec} />
         </div>}
         <strong>{panel.title}</strong> · {reading ? `${reading.value!.toFixed(1)} ${panel.unit.match(/\((.*)\)/)?.[1] ?? ""} at ${new Date(reading.time).toISOString()}` : "No observation near the marker"}
+        {isDst && <p style={{ fontSize: ".8rem" }}>
+          Daily minima for {selectedDstDay} UTC · {DST_SOURCES.map(source => {
+            const value = dstComparison?.data?.series[source.key]?.[selectedDstDay];
+            return `${source.key === "omni" ? "NASA OMNIWeb" : "WDC Kyoto"} ${value == null ? "—" : `${value} nT`}`;
+          }).join(" · ")}. {dstComparison ? "Daily points are plotted at 12:00 UTC." : "Loading daily Dst comparisons…"}
+        </p>}
+        {isDst && dstComparison?.data && <p style={{ fontSize: ".8rem" }}>
+          {DST_SOURCES.map(source => {
+            const through = Object.keys(dstComparison.data?.series[source.key] ?? {}).sort().at(-1);
+            const name = source.key === "omni" ? "NASA OMNIWeb" : "WDC Kyoto";
+            return through ? `${name} through ${through} UTC` : `${name} has no daily values in this window`;
+          }).join(" · ")}
+        </p>}
+        {isDst && dstComparison && (!dstComparison.data || dstComparison.data.unavailable.length > 0) &&
+          <p role="status" style={{ fontSize: ".8rem" }}>Some daily Dst data could not be loaded. The graph will retry automatically.</p>}
         {isNetworkMean && sorted.length > 0 && <p style={{ fontSize: ".8rem" }}>
           Latest observed UTC bin {new Date(sorted[sorted.length - 1].time).toISOString().slice(0, 16).replace("T", " ")}. Incoming readings are added automatically.
         </p>}
-        <LineChart labels={sorted.map(point => new Date(point.time).toISOString())} xValues={sorted.map(point => point.time)} epochMs={sorted.map(point => point.time)}
+        <LineChart labels={chartTimes.map(time => new Date(time).toISOString())} xValues={chartTimes} epochMs={chartTimes}
           datasets={datasets}
           yLabel={panel.unit} yAxisWidth={80} height={isNetworkMean ? 320 : 360}
           ySuggestedMin={suggestedMin} ySuggestedMax={suggestedMax} yMin={index === 3 ? 0 : undefined}
@@ -905,6 +891,25 @@ const FIELD_COMPONENTS = [
   { label: "Quiet + penetration", key: "total", color: "#22c55e" },
 ] as const;
 const FIELD_SOURCE = "https://geomag.colorado.edu/online-calculators/real-time-model-ionospheric-electric-fields";
+const FIELD_DAY_MS = 86_400_000;
+const FIELD_HISTORY_CHUNK_MS = 5 * FIELD_DAY_MS;
+
+function mergeFieldPoints(
+  merged: Map<number, EquatorialElectricFieldPoint>,
+  points: Iterable<EquatorialElectricFieldPoint>,
+  start: number,
+  end: number,
+) {
+  for (const point of points) {
+    const time = Date.parse(point.time);
+    if (!Number.isFinite(time) || time < start || time >= end) continue;
+    const previous = merged.get(time);
+    const quiet = point.climatological_mvm ?? previous?.climatological_mvm ?? null;
+    const penetration = point.prompt_penetration_mvm ?? previous?.prompt_penetration_mvm ?? null;
+    if (quiet == null && penetration == null) continue;
+    merged.set(time, { time: point.time, climatological_mvm: quiet, prompt_penetration_mvm: penetration });
+  }
+}
 
 function EquatorialElectricFieldChart({ domain, selectedTime, pick, reportArea }: {
   domain: { min: number; max: number };
@@ -913,33 +918,77 @@ function EquatorialElectricFieldChart({ domain, selectedTime, pick, reportArea }
   reportArea: PlotAreaReporter;
 }) {
   const { min, max } = domain;
-  const [points, setPoints] = useState<EquatorialElectricFieldPoint[]>([]);
-  const [status, setStatus] = useState<"loading" | "complete" | "partial">("loading");
+  const [history, setHistory] = useState(() => new Map<number, EquatorialElectricFieldPoint>());
+  const [live, setLive] = useState(() => new Map<number, EquatorialElectricFieldPoint>());
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [missingChunks, setMissingChunks] = useState(0);
+  const [liveUnavailable, setLiveUnavailable] = useState(false);
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
     let active = true;
-    setStatus("loading");
-    const load = async () => {
+    setHistoryLoading(true);
+    const chunks: { start: number; end: number }[] = [];
+    for (let end = max; end > min;) {
+      const start = Math.max(min, end - FIELD_HISTORY_CHUNK_MS);
+      chunks.push({ start, end });
+      end = start;
+    }
+    let next = 0;
+    let missing = 0;
+    const loadHistory = async () => {
+      while (active && next < chunks.length) {
+        const { start, end } = chunks[next++];
+        const day = new Date(start).toISOString().slice(0, 10);
+        const result = await getEquatorialElectricField(day, (end - start) / FIELD_DAY_MS).catch(() => null);
+        if (!active) return;
+        const samples = new Map<number, EquatorialElectricFieldPoint>();
+        mergeFieldPoints(samples, result?.points ?? [], start, end);
+        const coveredDays = new Set([...samples.keys()].map(time => Math.floor(time / FIELD_DAY_MS))).size;
+        if (coveredDays < (end - start) / FIELD_DAY_MS || result?.note) missing++;
+        if (samples.size) setHistory(previous => {
+          const merged = new Map(previous);
+          mergeFieldPoints(merged, samples.values(), start, end);
+          return merged;
+        });
+      }
+    };
+    void Promise.all([loadHistory(), loadHistory()]).then(() => {
+      if (!active) return;
+      setMissingChunks(missing);
+      setHistoryLoading(false);
+    });
+    return () => { active = false; };
+  }, [min, max, retry]);
+
+  useEffect(() => {
+    if (max <= Date.now() || min > Date.now()) return;
+    let active = true;
+    const stop = startVisiblePolling(async () => {
       const result = await getEquatorialElectricField().catch(() => null);
       if (!active) return;
-      const rows = (result?.points ?? []).filter(point => {
-        const time = Date.parse(point.time);
-        return time >= min && time < max
-          && (point.climatological_mvm != null || point.prompt_penetration_mvm != null);
+      const samples = new Map<number, EquatorialElectricFieldPoint>();
+      mergeFieldPoints(samples, result?.points ?? [], min, max);
+      setLiveUnavailable(!samples.size);
+      if (!samples.size) return;
+      setLive(previous => {
+        const merged = new Map(previous);
+        mergeFieldPoints(merged, samples.values(), min, max);
+        return merged;
       });
-      setPoints(rows);
-      setStatus(result?.points?.length && rows.length ? "complete" : "partial");
-    };
-    void load();
-    const interval = window.setInterval(load, 5 * 60_000);
-    return () => { active = false; window.clearInterval(interval); };
+    }, 5 * 60_000);
+    return () => { active = false; stop(); };
   }, [min, max]);
 
-  const rows = useMemo(() => points.map(point => {
-    const quiet = point.climatological_mvm;
-    const penetration = point.prompt_penetration_mvm;
-    return { time: Date.parse(point.time), quiet, penetration, total: quiet != null && penetration != null ? quiet + penetration : null };
-  }).filter(row => row.time >= min && row.time < max), [points, min, max]);
+  const rows = useMemo(() => {
+    const merged = new Map(history);
+    mergeFieldPoints(merged, live.values(), min, max);
+    return [...merged.entries()].sort(([a], [b]) => a - b).map(([time, point]) => {
+      const quiet = point.climatological_mvm;
+      const penetration = point.prompt_penetration_mvm;
+      return { time, quiet, penetration, total: quiet != null && penetration != null ? quiet + penetration : null };
+    });
+  }, [history, live, min, max]);
   const times = useMemo(() => rows.map(row => row.time), [rows]);
   const labels = useMemo(() => rows.map(row => new Date(row.time).toISOString()), [rows]);
   const quietDays = new Set(rows.filter(row => row.quiet != null).map(row => Math.floor(row.time / 86_400_000))).size;
@@ -955,11 +1004,15 @@ function EquatorialElectricFieldChart({ domain, selectedTime, pick, reportArea }
   return <section aria-label="Equatorial eastward electric field" style={{ marginBottom: "1.25rem" }}>
     <h3>Equatorial eastward electric field</h3>
     <p style={{ fontSize: ".8rem" }}>PPEFM model estimates at 28°E on the magnetic equator. {selected.length ? `Near the marker · ${selected.join(" · ")}` : "No model value near the marker."}</p>
-    {status === "loading" && <p role="status">Loading Colorado electric-field model output…</p>}
-    {status === "complete" && !rows.length && <p role="status">The Colorado model returned no usable electric-field output for this window.</p>}
-    {status === "partial" && <p role="status">{rows.length
-      ? `Days with model output: quiet ${quietDays}, prompt penetration ${penetrationDays}. Gaps indicate unavailable output.`
-      : "The Colorado provider returned no usable model output for this window."}</p>}
+    {historyLoading && <p role="status">Loading Colorado model history for the selected UTC window…</p>}
+    {rows.length > 0 && <p style={{ fontSize: ".8rem" }}>
+      UTC days with model output · Quiet {quietDays} · Prompt penetration {penetrationDays}. Gaps show unavailable intervals.
+    </p>}
+    {!historyLoading && (missingChunks > 0 || !rows.length) && <p role="status">
+      {rows.length ? "Some historical model output is unavailable." : "No model output is available for this window."}{" "}
+      <button className="btn" type="button" onClick={() => setRetry(count => count + 1)}>Retry history</button>
+    </p>}
+    {liveUnavailable && <p role="status">The live model feed is temporarily unavailable. It retries automatically.</p>}
     {rows.length > 0 && <LineChart labels={labels} xValues={times} epochMs={times} datasets={datasets}
       yLabel="Electric field (mV/m)" yAxisWidth={80} height={320} ySuggestedMin={-1.5} ySuggestedMax={1.5}
       preserveSamples pointRadius={0} onPickTime={pick} onPlotAreaChange={reportArea} {...utcTimeAxisProps(domain)} />}

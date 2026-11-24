@@ -157,6 +157,16 @@ def _aggregate_daily(hourly: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def fetch_omni_daily(start: date, end: date, *, timeout: int = 90) -> list[dict[str, Any]]:
     """Return daily OMNI2 indices between start and end (inclusive)."""
+    return _aggregate_daily(_fetch_omni_rows(start, end, resolution="day", timeout=timeout))
+
+
+def fetch_omni_dst_daily_minimum(start: date, end: date, *, timeout: int = 15) -> dict[str, float]:
+    """Reduce hourly OMNI2 Dst values to UTC daily minima."""
+    rows = _aggregate_daily(_fetch_omni_rows(start, end, resolution="hour", timeout=timeout))
+    return {row["date"]: row["dst"] for row in rows if row["dst"] is not None}
+
+
+def _fetch_omni_rows(start: date, end: date, *, resolution: str, timeout: int) -> list[dict[str, Any]]:
     if not _REQUESTS_OK:
         return []
     if end < start:
@@ -167,7 +177,7 @@ def fetch_omni_daily(start: date, end: date, *, timeout: int = 90) -> list[dict[
 
     payload = {
         "activity": "retrieve",
-        "res": "day",
+        "res": resolution,
         "spacecraft": "omni2",
         "start_date": _yymmdd(start),
         "end_date": _yymmdd(end),
@@ -176,8 +186,13 @@ def fetch_omni_daily(start: date, end: date, *, timeout: int = 90) -> list[dict[
         "view": "0",
         "table": "0",
     }
-    resp = requests.post(OMNI_CGI, data=payload, timeout=timeout)
-    resp.raise_for_status()
+    def fetch():
+        response = (requests.get(OMNI_CGI, params=payload, timeout=timeout) if resolution == "hour"
+                    else requests.post(OMNI_CGI, data=payload, timeout=timeout))
+        response.raise_for_status()
+        return response
+
+    resp = fetch()
     if "Error" in resp.text[:400]:
         # NASA publishes the valid bounds in date-range errors. Retry only the
         # intersection, never invent values beyond the released archive.
@@ -192,12 +207,10 @@ def fetch_omni_daily(start: date, end: date, *, timeout: int = 90) -> list[dict[
         if (clipped_start, clipped_end) == (start, end):
             raise RuntimeError("OMNIWeb rejected a date range within its reported coverage")
         payload["start_date"], payload["end_date"] = _yymmdd(clipped_start), _yymmdd(clipped_end)
-        resp = requests.post(OMNI_CGI, data=payload, timeout=timeout)
-        resp.raise_for_status()
+        resp = fetch()
         if "Error" in resp.text[:400]:
             raise RuntimeError("OMNIWeb rejected the available archive interval")
-    hourly = _parse_omni_html(resp.text)
-    return _aggregate_daily(hourly)
+    return _parse_omni_html(resp.text)
 
 
 def build_analysis(

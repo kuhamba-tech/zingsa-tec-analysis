@@ -47,6 +47,17 @@ from backend.schemas import (
 router = APIRouter(prefix="/tec", tags=["tec"])
 
 
+@router.get("/dst-comparison")
+def daily_dst_comparison(start: date, end: date, response: Response, _=Depends(require_api_key)):
+    """NASA OMNIWeb and WDC Kyoto daily minimum Dst for completed UTC days."""
+    from zgiis.space_weather.dst_comparison import dst_comparison
+
+    if not date(1957, 1, 1) <= start <= end <= datetime.now(timezone.utc).date():
+        raise HTTPException(422, "Choose a UTC window between 1957 and today.")
+    response.headers["Cache-Control"] = "no-store"
+    return dst_comparison(start, end)
+
+
 @router.get("/planetary-ap")
 def planetary_ap(start: date, end: date, response: Response, _=Depends(require_api_key)):
     """Daily Ap sources and the latest completed GFZ intervals for today."""

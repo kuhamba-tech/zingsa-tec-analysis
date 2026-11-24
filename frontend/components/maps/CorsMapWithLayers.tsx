@@ -30,6 +30,7 @@ const LiveTecMethodComparePanel = dynamic(
   { ssr: false },
 );
 const GlobalGimMap = dynamic(() => import("./GlobalGimMap"), { ssr: false });
+const GeomagneticVtecProfile = dynamic(() => import("./GeomagneticVtecProfile"), { ssr: false });
 export type MapLayer =
   | "Hybrid"
   | "Satellite"
@@ -785,6 +786,7 @@ export default function CorsMapWithLayers({
         )}
       </div>
 
+      {geomagneticLayerActive && <GeomagneticVtecProfile stations={geomagneticStations} heatmap={heatmap} />}
       {geomagneticLayerActive && (
         <div style={{ marginTop: "0.75rem" }}>
           <StationVtecTimePlots networkMeanOnly stationCodes={geomagneticStations.map(station => station.code)} magneticRegionStations={geomagneticStations} />
