@@ -666,6 +666,12 @@ export function getLiveGlobalGim() {
   return dedupeGet("gim-global-live", () => get<GlobalGimFrame>("/tec/gim-global/live"));
 }
 
+export function getGlobalGimByStation() {
+  return dedupeGet("gim-global-by-station", () =>
+    get<{ epoch: string; stations: { station: string; vtec_tecu: number }[] }>("/tec/gim-global/by-station"),
+  );
+}
+
 export function getGlobalGim(day?: string, utcTime?: string) {
   return dedupeGet(`gim-global:${day ?? ""}:${utcTime ?? ""}`, () =>
     get<GlobalGimGrid>("/tec/gim-global", { day, utc_time: utcTime }, 55_000),

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { getGlobalVtecByStation, getTecMethodComparison, getTecMethodPeriods } from "@/lib/api";
+import { getGlobalGimByStation, getGlobalVtecByStation, getTecMethodComparison, getTecMethodPeriods } from "@/lib/api";
 import { idwFillByStation, stationCodeKey, type LatLonSite } from "@/lib/idwSurface";
 import type { TecMethodComparisonResponse, TecMethodStationCompare } from "@/lib/types";
 
@@ -12,11 +12,16 @@ const PENDING_NOTE = "Live comparison is still reading the database.";
 const GOPI_COLOR = "#38bdf8";
 const GG_COLOR = "#f59e0b";
 const GLOBAL_COLOR = "#c4b5fd";
+const GIM_COLOR = "#4ade80";
 
 type CompareRow = TecMethodStationCompare & {
   global_latest: number | null;
   delta_gopi_global: number | null;
   delta_gg_global: number | null;
+  gim_latest: number | null;
+  delta_gopi_gim: number | null;
+  delta_gg_gim: number | null;
+  delta_dlr_gim: number | null;
   gopi_interpolated: boolean;
   gg_interpolated: boolean;
 };
@@ -69,6 +74,7 @@ export default function LiveTecMethodComparePanel({
   const [periodDay, setPeriodDay] = useState<string | null>(null);
   const [globalByCode, setGlobalByCode] = useState<Record<string, number>>({});
   const [globalEpoch, setGlobalEpoch] = useState<string | null>(null);
+  const [gim, setGim] = useState<Awaited<ReturnType<typeof getGlobalGimByStation>> | null>();
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [showResults, setShowResults] = useState(false);
@@ -104,6 +110,9 @@ export default function LiveTecMethodComparePanel({
     };
     const load = () => {
       loadComparison();
+      getGlobalGimByStation()
+        .then((snapshot) => { if (!cancelled) setGim(snapshot); })
+        .catch(() => { if (!cancelled) setGim(null); });
       getGlobalVtecByStation(2, true)
         .then((globalTec) => {
           if (cancelled || !globalTec) return;
@@ -174,15 +183,18 @@ export default function LiveTecMethodComparePanel({
     }
     const gopiFill = idwFillByStation(stations, measuredGopi);
     const ggFill = idwFillByStation(stations, measuredGg);
+    const gimByCode = new Map(gim?.stations.map(row => [stationKey(row.station), row.vtec_tecu]));
     const codes = new Set<string>([
       ...byCode.keys(),
       ...Object.keys(globalByCode),
+      ...gimByCode.keys(),
       ...stations.map((site) => stationCodeKey(site.code)),
     ]);
     return [...codes]
       .map((code) => {
         const row = byCode.get(code);
         const globalLatest = globalByCode[code] ?? null;
+        const gimLatest = gimByCode.get(code) ?? null;
         const gopi = gopiFill.values[code] ?? row?.gopi_latest ?? null;
         const gg = ggFill.values[code] ?? row?.gg_latest ?? null;
         return {
@@ -200,13 +212,17 @@ export default function LiveTecMethodComparePanel({
           global_latest: globalLatest,
           delta_gopi_global: spread(gopi, globalLatest),
           delta_gg_global: spread(gg, globalLatest),
+          gim_latest: gimLatest,
+          delta_gopi_gim: spread(gopi, gimLatest),
+          delta_gg_gim: spread(gg, gimLatest),
+          delta_dlr_gim: spread(globalLatest, gimLatest),
           gopi_interpolated: Boolean(gopiFill.interpolated[code]),
           gg_interpolated: Boolean(ggFill.interpolated[code]),
         };
       })
-      .filter((row) => row.gopi_latest != null || row.gg_latest != null || row.global_latest != null)
+      .filter((row) => row.gopi_latest != null || row.gg_latest != null || row.global_latest != null || row.gim_latest != null)
       .sort((a, b) => a.station.localeCompare(b.station));
-  }, [data, globalByCode, stations]);
+  }, [data, gim, globalByCode, stations]);
 
   const gopiRange = useMemo(() => {
     const vals = rows.map((r) => r.gopi_latest).filter((v): v is number => v != null);
@@ -234,6 +250,7 @@ export default function LiveTecMethodComparePanel({
     }),
     [rows],
   );
+  const gimValues = rows.flatMap(row => row.gim_latest == null ? [] : [row.gim_latest]);
 
   return (
     <section className={`live-tec-method-compare ${className}`.trim()} aria-live="polite">
@@ -241,9 +258,9 @@ export default function LiveTecMethodComparePanel({
         <div>
           <div className="live-tec-method-compare-title">Live VTEC method comparison</div>
           <p className="live-tec-method-compare-lead" suppressHydrationWarning>
-            GOPI and Gg at each CORS station, set against the DLR global TEC map at the same site.
-            A station without its own sample is filled by inverse-distance interpolation from nearby
-            measured stations of that method. Δ is the local value minus the comparison value, in TECU.
+            Compare GOPI, Gg, DLR and GIM at each CORS coordinate. Missing GOPI and Gg samples
+            use inverse-distance estimates from nearby measured stations. Differences subtract the
+            second value from the first, in TECU. The global map epochs can differ.
           </p>
         </div>
         <Link href="/space-weather/?tab=zimbabwe" className="live-tec-method-compare-link">
@@ -292,6 +309,20 @@ export default function LiveTecMethodComparePanel({
             {globalRange ? `${globalRange.min.toFixed(1)}–${globalRange.max.toFixed(1)} TECU` : "—"}
           </span>
         </div>
+        <div className="live-tec-method-pill" style={{ borderColor: GIM_COLOR }}>
+          <span className="live-tec-method-pill-tag" style={{ color: GIM_COLOR }}>
+            GIM Global · NOAA GloTEC
+          </span>
+          <strong>Near-real-time global map</strong>
+          <span>
+            NOAA SWPC VTEC sampled from the numeric grid at each Zimbabwe CORS coordinate.
+            {gim && ` Epoch ${gim.epoch.replace("T", " ").replace("Z", " UTC")}.`}
+          </span>
+          <span className="live-tec-method-pill-range" style={{ color: GIM_COLOR }}>
+            {gimValues.length ? `${Math.min(...gimValues).toFixed(1)}–${Math.max(...gimValues).toFixed(1)} TECU`
+              : gim === undefined ? "Loading…" : "No recent grid available"}
+          </span>
+        </div>
       </div>
 
       {loading && !data && (
@@ -333,10 +364,14 @@ export default function LiveTecMethodComparePanel({
                 <th>Station</th>
                 <th style={{ color: GOPI_COLOR }}>GOPI</th>
                 <th style={{ color: GG_COLOR }}>Gg</th>
-                <th style={{ color: GLOBAL_COLOR }}>Global</th>
+                <th style={{ color: GLOBAL_COLOR }}>DLR</th>
+                <th style={{ color: GIM_COLOR }}>GIM</th>
                 <th>Gg − GOPI</th>
-                <th>GOPI − Global</th>
-                <th>Gg − Global</th>
+                <th>GOPI − DLR</th>
+                <th>Gg − DLR</th>
+                <th>GOPI − GIM</th>
+                <th>Gg − GIM</th>
+                <th>DLR − GIM</th>
               </tr>
             </thead>
             <tbody>
@@ -358,9 +393,13 @@ export default function LiveTecMethodComparePanel({
                     {fmt(r.gg_latest)}
                   </td>
                   <td style={{ color: GLOBAL_COLOR }}>{fmt(r.global_latest)}</td>
+                  <td style={{ color: GIM_COLOR }}>{fmt(r.gim_latest)}</td>
                   <td className={deltaClass(r.delta_latest)}>{fmt(r.delta_latest)}</td>
                   <td className={deltaClass(r.delta_gopi_global)}>{fmt(r.delta_gopi_global)}</td>
                   <td className={deltaClass(r.delta_gg_global)}>{fmt(r.delta_gg_global)}</td>
+                  <td className={deltaClass(r.delta_gopi_gim)}>{fmt(r.delta_gopi_gim)}</td>
+                  <td className={deltaClass(r.delta_gg_gim)}>{fmt(r.delta_gg_gim)}</td>
+                  <td className={deltaClass(r.delta_dlr_gim)}>{fmt(r.delta_dlr_gim)}</td>
                 </tr>
               ))}
             </tbody>

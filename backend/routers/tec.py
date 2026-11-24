@@ -711,6 +711,22 @@ def global_vtec_by_station(
     return refresh_and_query_global_tec(hours=hours, latest_only=latest_only)
 
 
+@router.get("/gim-global/by-station")
+def gim_global_by_station(response: Response, _=Depends(require_api_key)):
+    """Live NOAA GloTEC vertical TEC sampled at Zimbabwe CORS coordinates."""
+    import requests
+
+    from zgiis.maps.glotec import latest_glotec_by_station
+
+    try:
+        snapshot = latest_glotec_by_station()
+    except (ValueError, requests.RequestException) as exc:
+        log.warning("NOAA GloTEC station comparison failed: %s", exc)
+        raise HTTPException(502, "Recent NOAA GloTEC grid is unavailable.") from exc
+    response.headers["Cache-Control"] = "no-store"
+    return snapshot
+
+
 def _empty_heatmap_timeout_model() -> TecHeatmapResponse:
     from zgiis.maps.interpolation import ZW_LAT_MAX, ZW_LAT_MIN, ZW_LON_MAX, ZW_LON_MIN
 

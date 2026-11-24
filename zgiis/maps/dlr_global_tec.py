@@ -83,7 +83,7 @@ def _build_grid(payload: dict[str, Any]) -> tuple[dict[tuple[float, float], floa
     return values, sorted(lats), sorted(lons)
 
 
-def _bilinear(
+def sample_bilinear(
     lat: float,
     lon: float,
     values: dict[tuple[float, float], float],
@@ -161,7 +161,7 @@ def sample_global_tec_at_points(
     epoch = _parse_epoch(metadata if isinstance(metadata, dict) else {})
     stations: list[dict[str, Any]] = []
     for code, lat, lon in points:
-        vtec = _bilinear(float(lat), float(lon), values, lats, lons)
+        vtec = sample_bilinear(float(lat), float(lon), values, lats, lons)
         if vtec is None or not math.isfinite(vtec) or vtec <= 0:
             continue
         stations.append(
