@@ -567,7 +567,6 @@ export default function StormAnalysis({
         <option value={1096}>Since Jan 2024</option>
       </select></label>
     </div>
-    <p>The station code and reference apply to ΔVTEC. Network mean VTEC uses measured samples from all reporting stations. Dst is a global index.</p>
     {(error || tecError || referenceError) && <p role="status">{[error, tecError, referenceError].filter(Boolean).join(" ")}</p>}
     {loading && <p role="status">Loading station archive... {checkedTecDays} of {archiveDays.length} UTC days checked.</p>}
     {days >= 30 && <p>Solar wind, IMF and proton charts can have gaps where archived observations are unavailable.</p>}
