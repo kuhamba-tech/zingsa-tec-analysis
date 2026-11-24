@@ -22,7 +22,6 @@ import { buildNetworkMeanVtecSeries, mergeStationVtecHistory, nearestReading, OB
 import type { EquatorialElectricFieldPoint, HeliosphericMonitorResponse, LiveStationVtecSeries, SolarActivityFull } from "@/lib/types";
 
 const LineChart = dynamic(() => loadLineChart().then(module => module.default), { ssr: false });
-const SwarmZimbabwePasses = dynamic(() => import("./SwarmZimbabwePasses"), { ssr: false });
 const SolarFlareMonthChart = memo(dynamic(() => import("./SolarFlareMonthChart"), { ssr: false }));
 const ActiveRegionInspector = memo(dynamic(() => import("./ActiveRegionInspector"), { ssr: false }));
 const FlareActivityTable = memo(dynamic(() => import("./FlareActivityTable"), { ssr: false }));
@@ -682,7 +681,6 @@ export default function StormAnalysis({
       return <div key={panel.title} style={{ marginTop: "1rem" }}>
         {isNetworkMean && <>
           <GuviDailyMap selectedTime={selectedTime} />
-          <SwarmZimbabwePasses />
           <EquatorialElectricFieldChart domain={domain} selectedTime={selectedTime} pick={pick} reportArea={plotLayout.reporters.electricField} />
         </>}
         {panel.title === "Relative VTEC difference" && <div style={{ marginBottom: "1.25rem" }}>
