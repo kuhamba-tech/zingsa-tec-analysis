@@ -555,7 +555,7 @@ export default function StormAnalysis({
     { plot: "meanTec" as const, title: "Network mean VTEC", unit: "VTEC (TECU)", color: "#00ff88", tolerance: OBSERVATION_READOUT_TOLERANCE_MS, cadence: 20 * 60000, data: networkMean },
   ];
 
-  return <section className="card" aria-label="Storm analysis">
+  return <section className={`card ${styles.analysisPage}`} aria-label="Storm analysis">
     <h2>Analysis · Sun–Earth–ionosphere</h2>
     <div className={styles.controls}>
       <label>End UTC day <input type="date" value={endDay} max={today} onChange={event => changeEndDay(event.target.value)} /></label>
@@ -571,14 +571,12 @@ export default function StormAnalysis({
     {(error || tecError || referenceError) && <p role="status">{[error, tecError, referenceError].filter(Boolean).join(" ")}</p>}
     {loading && <p role="status">Loading station archive... {checkedTecDays} of {archiveDays.length} UTC days checked.</p>}
     {days >= 30 && <p>Solar wind, IMF and proton charts can have gaps where archived observations are unavailable.</p>}
-    {!hideBroadRangeHighlights && <>
-      <p>Pink analysis marker: <strong>{new Date(selectedTime).toISOString().replace("T", " ").replace("Z", " UTC")}</strong></p>
-      <details className={styles.fineTime}><summary>Fine time adjustment</summary>
-      <label style={{ display: "block" }}>Move the analysis time
-        <input aria-label="Move pink analysis marker" type="range" min={domain.min} max={domain.max - 60000} step={60000} value={Math.min(selectedTime, domain.max - 60000)} onChange={event => pick(Number(event.target.value))} />
-      </label></details>
-      <p>Drag the continuous pink line or its arrow to move the marker through the shared UTC timeline. Focus the line and use the arrow keys for fine adjustment. The regional daily TEC chart plots all measured days in the window by default.</p>
-    </>}
+    <p>Pink analysis marker: <strong>{new Date(selectedTime).toISOString().replace("T", " ").replace("Z", " UTC")}</strong></p>
+    <details className={styles.fineTime}><summary>Fine time adjustment</summary>
+    <label style={{ display: "block" }}>Move the analysis time
+      <input aria-label="Move pink analysis marker" type="range" min={domain.min} max={domain.max - 60000} step={60000} value={Math.min(selectedTime, domain.max - 60000)} onChange={event => pick(Number(event.target.value))} />
+    </label></details>
+    <p>Drag the continuous pink line or its arrow to move the marker through the shared UTC timeline. Focus the line and use the arrow keys for fine adjustment. The regional daily TEC chart plots all measured days in the window by default.</p>
     <div style={{ marginBottom: "1rem" }}>
       <SolarFlareMonthChart key={`${domain.min}/${endDay}`} showDailyStorms start={new Date(domain.min).toISOString().slice(0, 10)} end={endDay} />
     </div>
@@ -596,7 +594,7 @@ export default function StormAnalysis({
       <FlareActivityTable solar={solar} summaryOnly />
     </div>
     <div style={{ marginBottom: "1rem" }}><SolarActivityLevels /></div>
-    <div ref={stackRef} style={{ position: "relative", paddingBottom: "3rem" }}>
+    <div ref={stackRef} className={styles.analysisStack} style={{ position: "relative", paddingBottom: "3rem" }}>
     <GoesSolarXrayCard
       title="1 · GOES X-ray flux (NOAA SWPC)"
       timeline={xrayTimeline}
@@ -718,7 +716,7 @@ export default function StormAnalysis({
         : index === 2 ? -suggestedMin : index === 3 ? 50
         : index === 4 ? Math.max(50, Math.ceil(maximum / 25) * 25)
         : Math.max(10, Math.ceil(maximum / 10) * 10 + 5);
-      return <div key={panel.title} style={{ marginTop: "1rem" }}>
+      return <div className={styles.analysisChartPanel} key={panel.title} style={{ marginTop: "1rem" }}>
         {isNetworkMean && <>
           <GuviDailyMap selectedTime={selectedTime} />
           <SwarmZimbabwePasses />
@@ -743,8 +741,8 @@ export default function StormAnalysis({
           onPickTime={pick} {...utcTimeAxisProps(domain)} />
       </div>;
     })}
-    {!hideBroadRangeHighlights && <AnalysisMarker layout={plotLayout} domain={domain} selectedTime={selectedTime}
-      flarePeaks={chartFlarePeaks} selectedFlare={selectedFlare} pick={pick} />}
+    <AnalysisMarker layout={plotLayout} domain={domain} selectedTime={selectedTime}
+      flarePeaks={chartFlarePeaks} selectedFlare={selectedFlare} pick={pick} />
     </div>
     <p>ΔVTEC = 100 × (observed − quiet reference) / quiet reference. The default uses the analysis end month and ranks completed days with station data by GFZ daily Ap. Each UTC quarter-hour requires measurements from all five reference days, weighted equally. The ±25% guides follow <a href="https://doi.org/10.5140/JASS.2026.43.2.93" target="_blank" rel="noreferrer">Guibula et al. (2026)</a>.</p>
   </section>;

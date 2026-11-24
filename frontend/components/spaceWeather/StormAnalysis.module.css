@@ -6,6 +6,23 @@
   margin: .75rem 0;
 }
 
+.analysisPage {
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.analysisStack {
+  min-width: 0;
+  width: 100%;
+}
+
+.analysisChartPanel {
+  min-width: 0;
+  width: 100%;
+  overflow: hidden;
+}
+
 .controls label {
   display: grid;
   gap: .3rem;
@@ -50,10 +67,56 @@
   accent-color: #ff00d4;
 }
 
+@media (max-width: 768px) {
+  .analysisPage {
+    border-radius: 0.65rem;
+  }
+
+  .analysisPage :global([role="group"]),
+  .analysisPage :global(.card) {
+    min-width: 0;
+  }
+
+  .analysisPage :global(.line-chart-canvas) {
+    width: 100%;
+  }
+
+  .analysisPage :global(canvas) {
+    max-width: 100%;
+  }
+
+  .analysisPage :global(p),
+  .analysisPage :global(strong),
+  .analysisPage :global(label) {
+    overflow-wrap: anywhere;
+  }
+
+  .analysisStack {
+    padding-bottom: 1rem !important;
+  }
+}
+
 @media (max-width: 560px) {
+  .analysisPage {
+    padding: 0.75rem !important;
+  }
+
+  .analysisPage :global(.card) {
+    padding: 0.75rem !important;
+  }
+
+  .analysisPage :global(.line-chart-canvas) {
+    height: 220px !important;
+  }
+
+  .analysisPage :global(table) {
+    width: 100%;
+  }
+
   .controls {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
   }
 
   .controls input,

@@ -552,7 +552,7 @@ export default function LineChart({
           colors={COLORS}
         />
       )}
-      <div style={{ height, position: "relative" }}>
+      <div className="line-chart-canvas" style={{ height, position: "relative" }}>
       <Line
         ref={chartRef}
         style={onPickTime ? { touchAction: "none", cursor: "crosshair" } : undefined}
