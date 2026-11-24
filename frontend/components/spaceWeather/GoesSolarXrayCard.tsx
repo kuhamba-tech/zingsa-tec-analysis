@@ -134,11 +134,31 @@ export default function GoesSolarXrayCard({
 
   useEffect(() => {
     if (archiveStart == null || archiveEnd == null) return;
-    const start = new Date(archiveStart).toISOString().slice(0, 10);
-    const end = new Date(archiveEnd - 1).toISOString().slice(0, 10);
     let active = true;
     const stop = startVisiblePolling(async () => {
-      const points = await getGoesXrayArchive(start, end).catch(() => []);
+      const chunks: { start: Date; end: Date }[] = [];
+      let chunkStart = archiveStart;
+      while (chunkStart < archiveEnd) {
+        const chunkEnd = Math.min(chunkStart + 30 * UTC_DAY_MS, archiveEnd);
+        chunks.push({
+          start: new Date(chunkStart),
+          end: new Date(chunkEnd - 1),
+        });
+        chunkStart = chunkEnd;
+      }
+      const points: GoesXrayTimelinePoint[] = [];
+      for (let index = 0; index < chunks.length; index += 4) {
+        const batch = chunks.slice(index, index + 4);
+        const batchPoints = await Promise.all(batch.map(async chunk => (
+          getGoesXrayArchive(
+            chunk.start.toISOString().slice(0, 10),
+            chunk.end.toISOString().slice(0, 10),
+          ).catch(() => [])
+        )));
+        if (!active) return;
+        points.push(...batchPoints.flat());
+      }
+      points.sort((a, b) => parseTimelineEpoch(a.t)! - parseTimelineEpoch(b.t)!);
       if (!active) return;
       setArchive(previous => points.length || previous?.end !== archiveEnd ? { end: archiveEnd, points } : previous);
     }, 5 * 60_000);

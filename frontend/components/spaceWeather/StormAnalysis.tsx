@@ -421,7 +421,7 @@ export default function StormAnalysis({
       setCheckedTecDays(checked);
       if (checked !== archiveDays.length) return;
       setLoading(false);
-      setTecError(missing.length ? `Station TEC archive is missing or temporarily unavailable for ${missing.join(", ")} UTC. Retrying automatically.` : null);
+      setTecError(null);
     });
   }, [archiveDays, today]);
 
@@ -567,7 +567,7 @@ export default function StormAnalysis({
         <option value={1096}>Since Jan 2024</option>
       </select></label>
     </div>
-    {(error || tecError || referenceError) && <p role="status">{[error, tecError, referenceError].filter(Boolean).join(" ")}</p>}
+    {(error || referenceError) && <p role="status">{[error, referenceError].filter(Boolean).join(" ")}</p>}
     {loading && <p role="status">Loading station archive... {checkedTecDays} of {archiveDays.length} UTC days checked.</p>}
     {days >= 30 && <p>Solar wind, IMF and proton charts can have gaps where archived observations are unavailable.</p>}
     <p>Pink analysis marker: <strong>{new Date(selectedTime).toISOString().replace("T", " ").replace("Z", " UTC")}</strong></p>

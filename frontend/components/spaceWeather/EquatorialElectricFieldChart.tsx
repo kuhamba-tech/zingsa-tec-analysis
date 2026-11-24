@@ -26,7 +26,11 @@ function mergePoints(
     .sort((a, b) => a.time.localeCompare(b.time));
 }
 
-export default function EquatorialElectricFieldChart() {
+export default function EquatorialElectricFieldChart({
+  domain,
+}: {
+  domain?: { min: number; max: number };
+} = {}) {
   const [data, setData] = useState<EquatorialElectricFieldResponse | null>(null);
   const [points, setPoints] = useState<EquatorialElectricFieldPoint[]>([]);
   const [error, setError] = useState(false);

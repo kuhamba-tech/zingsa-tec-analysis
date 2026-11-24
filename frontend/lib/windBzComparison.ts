@@ -6,7 +6,12 @@ type WindSource = Source & {
 
 /** Common UTC minute grid; missing measurements stay null, never interpolated. */
 export function windBzComparison(wind: WindSource, imf: Source, start: number, end: number, allowZeroFirst = false) {
-  const step = 60_000;
+  const span = end - start;
+  const step =
+    span > 180 * 86_400_000 ? 60 * 60_000
+      : span > 30 * 86_400_000 ? 15 * 60_000
+        : span > 7 * 86_400_000 ? 5 * 60_000
+          : 60_000;
   const first = Math.ceil(start / step) * step;
   const count = Math.max(0, Math.floor((end - first) / step) + 1);
   const times = Array.from({ length: count }, (_, i) => first + i * step);
