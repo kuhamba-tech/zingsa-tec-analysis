@@ -504,31 +504,32 @@ export default function StormAnalysis({
     () => new Map(networkMean.map((point, index) => [point.time, index])),
     [networkMean],
   );
-  const magneticProfile = useMemo(() => {
-    const epoch = igrf14Epoch(new Date(selectedTime));
+  const magneticProfileStations = useMemo(() => {
     const stationByCode = new Map(catalogStations.map(station => [
       station.code.toLowerCase().replace(/_+$/, ""),
       station,
     ]));
-    const points = rows.flatMap(row => {
+    return rows.flatMap(row => {
       const station = stationByCode.get(row.station.toLowerCase().replace(/_+$/, ""));
       if (!station) return [];
+      return [{
+        station,
+        code: row.station.toUpperCase(),
+        readings: row.points.map(point => ({ time: Date.parse(point.time), value: point.vtec_tecu })),
+      }];
+    });
+  }, [rows, catalogStations]);
+  const magneticProfile = useMemo(() => {
+    const epoch = igrf14Epoch(new Date(selectedTime));
+    return magneticProfileStations.flatMap(({ station, code, readings }) => {
       const dip = dipLatitudeDeg(station.lat, station.lon, epoch);
       if (dip == null) return [];
-      const reading = nearestReading(
-        row.points.map(point => ({
-          time: Date.parse(point.time),
-          value: point.vtec_tecu,
-        })),
-        selectedTime,
-        20 * 60_000,
-      );
+      const reading = nearestReading(readings, selectedTime, 20 * 60_000);
       return reading?.value != null
-        ? [{ station: row.station.toUpperCase(), dip, value: reading.value, time: reading.time }]
+        ? [{ station: code, dip, value: reading.value }]
         : [];
     }).sort((a, b) => a.dip - b.dip);
-    return points;
-  }, [rows, catalogStations, selectedTime]);
+  }, [magneticProfileStations, selectedTime]);
   const [protonArchive, setProtonArchive] = useState<{ min: number; max: number; rows: Awaited<ReturnType<typeof getGoesProtonArchive>>; loading: boolean } | null>(null);
   const loadProtonArchive = archiveDays.length > 7;
   useEffect(() => {
@@ -591,32 +592,39 @@ export default function StormAnalysis({
     { plot: "meanTec" as const, title: "Network mean VTEC", unit: "VTEC (TECU)", color: "#00ff88", tolerance: OBSERVATION_READOUT_TOLERANCE_MS, cadence: 20 * 60000, data: networkMean },
   ];
 
+  const selectedUtc = new Date(selectedTime).toISOString();
+  const markerLabel = selectedUtc.slice(0, 16).replace("T", " ") + " UTC";
   return <section className={`card ${styles.analysisPage}`} aria-label="Storm analysis">
     <h2>Analysis · Sun–Earth–ionosphere</h2>
     <div className={styles.controls}>
       <label>End UTC day <input type="date" value={endDay} max={today} onChange={event => changeEndDay(event.target.value)} /></label>
       <label>Window <select value={days} onChange={event => setDays(Number(event.target.value))}>
-        {[1, 3, 7].map(value => <option key={value} value={value}>{value} day(s)</option>)}
+        <option value={1}>1 day</option>
+        <option value={3}>3 days</option>
+        <option value={7}>7 days</option>
         <option value={30}>1 month</option>
         <option value={180}>6 months</option>
         <option value={365}>1 year</option>
         <option value={1096}>Since Jan 2024</option>
       </select></label>
+      <div className={styles.markerTime}>
+        <span>Analysis marker</span>
+        <time dateTime={selectedUtc}>{markerLabel}</time>
+      </div>
     </div>
+    <details className={styles.fineTime}><summary>Adjust marker time</summary>
+      <label className={styles.markerSlider}>UTC timeline
+        <input aria-label="Move pink analysis marker" aria-valuetext={markerLabel} type="range" min={domain.min} max={domain.max - 60000} step={60000} value={Math.min(selectedTime, domain.max - 60000)} onChange={event => pick(Number(event.target.value))} />
+      </label>
+    </details>
     {(error || referenceError) && <p role="status">{[error, referenceError].filter(Boolean).join(" ")}</p>}
     {loading && <p role="status">Loading station archive... {checkedTecDays} of {archiveDays.length} UTC days checked.</p>}
     {days >= 30 && <p>Solar wind, IMF and proton charts can have gaps where archived observations are unavailable.</p>}
-    <p>Pink analysis marker: <strong>{new Date(selectedTime).toISOString().replace("T", " ").replace("Z", " UTC")}</strong></p>
-    <details className={styles.fineTime}><summary>Fine time adjustment</summary>
-    <label style={{ display: "block" }}>Move the analysis time
-      <input aria-label="Move pink analysis marker" type="range" min={domain.min} max={domain.max - 60000} step={60000} value={Math.min(selectedTime, domain.max - 60000)} onChange={event => pick(Number(event.target.value))} />
-    </label></details>
-    <p>Drag the continuous pink line or its arrow to move the marker through the shared UTC timeline. Focus the line and use the arrow keys for fine adjustment. The regional daily TEC chart plots all measured days in the window by default.</p>
     {magneticProfile.length > 0 && (
       <section className="card" aria-label="Measured VTEC versus magnetic latitude">
         <strong>Measured VTEC versus magnetic latitude</strong>
         <p style={{ fontSize: ".8rem" }}>
-          GOPI station values nearest to the pink marker, within 20 minutes · IGRF dip latitude · {new Date(selectedTime).toISOString().replace("T", " ").replace("Z", " UTC")}
+          GOPI readings within 20 minutes of {markerLabel} · IGRF dip latitude
         </p>
         <LineChart
           labels={magneticProfile.map(point => `${point.dip.toFixed(1)}° · ${point.station}`)}
@@ -638,9 +646,12 @@ export default function StormAnalysis({
           preserveSamples
           toggleableLegend
         />
-        <p style={{ fontSize: ".78rem", marginBottom: 0 }}>
-          {magneticProfile.map(point => `${point.station}: ${point.value.toFixed(1)} TECU at μ=${point.dip.toFixed(1)}°`).join(" · ")}
-        </p>
+        <ul className={styles.profileReadings} role="list">
+          {magneticProfile.map(point => <li key={point.station}>
+            <strong>{point.station}</strong>
+            <span>{point.value.toFixed(1)} TECU · {point.dip.toFixed(1)}°</span>
+          </li>)}
+        </ul>
       </section>
     )}
     <div style={{ marginBottom: "1rem" }}>
