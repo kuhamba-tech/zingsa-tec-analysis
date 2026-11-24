@@ -9,12 +9,10 @@ import gzip
 import logging
 import math
 from statistics import mean
-import threading
-from xml.etree import ElementTree
 
-_BASE = "https://archive.data.noaa.gov/satellite-spaceweather/"
+from .solar1_archive import NETCDF_LOCK, cache_product_file, daily_keys, product_file
+
 _EPOCH = datetime(1958, 1, 1, tzinfo=timezone.utc)
-_NETCDF_LOCK = threading.Lock()
 _FIELDS = {
     "solar_wind_speed": "speed_proton",
     "solar_wind_density": "n_proton",
@@ -66,27 +64,45 @@ def _aggregate_daily_bins(day: date, times, values) -> dict[str, list[tuple[date
     }
 
 
-@lru_cache(maxsize=32)
-def _daily_bins(day: date, cache_hour: int) -> dict[str, list[tuple[datetime, float]]]:
-    import requests
+@lru_cache(maxsize=768)
+def _read_bins(day: date, key: str, level: int) -> dict[str, list[tuple[datetime, float]]]:
+    import numpy as np
     from netCDF4 import Dataset
 
-    prefix = f"SWFO/SOLAR-1/SWIPS/swips-l3/{day:%Y/%m}/oe_swips-l3_solar1_s{day:%Y%m%d}T"
-    response = requests.get(_BASE, params={"list-type": "2", "prefix": prefix}, timeout=(3, 6))
-    response.raise_for_status()
-    keys = [
-        node.text for node in ElementTree.fromstring(response.content).findall(".//{*}Key")
-        if node.text and node.text.startswith(prefix) and node.text.endswith("_pub.nc.gz")
-    ]
-    if not keys:
-        return {}
-    response = requests.get(_BASE + max(keys), timeout=(3, 6))
-    response.raise_for_status()
-    with _NETCDF_LOCK, Dataset("swips", memory=gzip.decompress(response.content)) as dataset:
-        times = dataset["time_utc"][:].tolist()
-        values = {metric: dataset[field][:].tolist() for metric, field in _FIELDS.items()}
+    content = product_file(key)
+    with NETCDF_LOCK, Dataset("swips", memory=gzip.decompress(content)) as dataset:
+        if level == 3:
+            times = dataset["time_utc"][:].tolist()
+            values = {metric: dataset[field][:].tolist() for metric, field in _FIELDS.items()}
+        else:
+            # Use valid proton moments from the same sweep. L2 may only report
+            # uncorrected moments during gaps in the L3 product.
+            times = dataset["sweep_mid_time"][:].tolist()
+            # Early operational files predate the optional quality flag.
+            good = np.ma.filled(dataset["flags"][:] == 0, False) if "flags" in dataset.variables else True
+            values = {}
+            for metric, field in zip(_FIELDS, ("proton_v_{kind}_gse", "proton_n_{kind}", "proton_t_{kind}")):
+                corrected = np.ma.filled(dataset[field.format(kind="corr")][:], np.nan)
+                uncorrected = np.ma.filled(dataset[field.format(kind="uncorr")][:], np.nan)
+                if metric == "solar_wind_speed":
+                    corrected = np.linalg.norm(corrected, axis=1)
+                    uncorrected = np.linalg.norm(uncorrected, axis=1)
+                values[metric] = np.where(good, np.where(np.isfinite(corrected), corrected, uncorrected), np.nan).tolist()
 
-    return _aggregate_daily_bins(day, times, values)
+    bins = _aggregate_daily_bins(day, times, values)
+    cache_product_file(key, content)
+    return bins
+
+
+def _daily_bins(day: date, cache_hour: int) -> dict[str, list[tuple[datetime, float]]]:
+    for level in (3, 2):
+        try:
+            key = daily_keys(f"SWIPS/swips-l{level}", cache_hour).get(day)
+            if key and any((bins := _read_bins(day, key, level)).values()):
+                return bins
+        except Exception as exc:
+            log.warning("SOLAR-1 Level %d plasma unavailable for %s: %s", level, day, exc)
+    return {}
 
 
 def fill_plasma_history(stored, *, start: datetime, stop: datetime, now: datetime) -> None:
@@ -95,6 +111,8 @@ def fill_plasma_history(stored, *, start: datetime, stop: datetime, now: datetim
         return
     metrics = (*_FIELDS, _PRESSURE_METRIC)
     existing = {metric: dict(stored.get(metric, [])) for metric in metrics}
+    saved_pressure = existing[_PRESSURE_METRIC].copy()
+    step = timedelta(minutes=15)
     days = [start.date() + timedelta(days=i) for i in range((stop.date() - start.date()).days + 1)]
     hour = int(now.timestamp() // 3600)
 
@@ -105,11 +123,18 @@ def fill_plasma_history(stored, *, start: datetime, stop: datetime, now: datetim
             log.warning("SOLAR-1 plasma backfill unavailable for %s: %s", day, exc)
             return {}
 
-    with ThreadPoolExecutor(max_workers=5) as pool:
+    with ThreadPoolExecutor(max_workers=10) as pool:
         for day_bins in pool.map(load, days):
             for metric, points in day_bins.items():
                 for stamp, value in points:
                     if start <= stamp < stop:
+                        if metric == _PRESSURE_METRIC and stamp in saved_pressure:
+                            before = saved_pressure.get(stamp - step)
+                            after = saved_pressure.get(stamp + step)
+                            if before is not None and after is not None:
+                                low, high = min(before, value, after), max(before, value, after)
+                                if low > 0 and high <= 1.5 * low and saved_pressure[stamp] > 3 * high:
+                                    existing[metric][stamp] = value
                         existing[metric].setdefault(stamp, value)
     for metric, points in existing.items():
         if points:

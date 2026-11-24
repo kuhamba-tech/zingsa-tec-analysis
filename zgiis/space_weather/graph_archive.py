@@ -273,7 +273,7 @@ def _merge_panel(
             history = [row for row in combined if row["t"] < live_start]
             recent = combined[len(history):]
             combined = history + _stride(recent, live_points)
-    else:
+    elif live_points > 0:
         combined = _stride(combined, max(live_points, _LIVE_POINTS))
     rebuilt = _rows_to_panel(combined, list(fields.values()))
     for extra in ("unit",):
@@ -317,7 +317,8 @@ def extend_monitor_payload(
         payload.get("dst") or {},
         {"dst": "dst"},
         stored,
-        live_points=_LIVE_POINTS,
+        # Dst is already sparse. Thinning creates gaps beyond the chart's hourly tolerance.
+        live_points=0,
     )
     merged["kp"] = _merge_panel(
         payload.get("kp") or {},
@@ -353,7 +354,7 @@ def extend_monitor_payload(
         "times": protons.get("times") or [],
         **(protons.get("series") or {}),
     }
-    rebuilt = _merge_panel(flat, proton_fields, stored, live_points=_LIVE_POINTS)
+    rebuilt = _merge_panel(flat, proton_fields, stored, live_points=_LIVE_POINTS, preserve_history=True)
     merged["protons"] = {
         "labels": rebuilt.get("labels") or [],
         "times": rebuilt.get("times") or [],

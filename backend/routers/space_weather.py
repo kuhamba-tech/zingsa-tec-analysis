@@ -1012,6 +1012,15 @@ def goes_xray_archive(start: date, end: date, _=Depends(require_api_key)):
     return get_xray_archive(start, end)
 
 
+@router.get("/goes-proton-archive")
+def goes_proton_archive(start: date, end: date, _=Depends(require_api_key)):
+    from zgiis.space_weather.goes_proton_archive import get_proton_archive
+
+    if not 0 <= (end - start).days < 30:
+        raise HTTPException(status_code=422, detail="Select up to 30 UTC days per request.")
+    return get_proton_archive(start, end)
+
+
 @router.get("/solar-brief", response_model=SolarBriefResponse)
 async def solar_brief(force_refresh: bool = Query(False), _=Depends(require_api_key)):
     """Earth-facing sunspot count, NOAA C/M/X chances, and SolarHam's daily pictures."""

@@ -6,12 +6,11 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 from functools import lru_cache
-from threading import Lock
-
 import requests
 
+from .solar1_archive import NETCDF_LOCK
+
 _ROOT = "https://data.ngdc.noaa.gov/platforms/solar-space-observing-satellites/goes"
-_NETCDF_LOCK = Lock()
 _LOG = logging.getLogger(__name__)
 
 
@@ -23,7 +22,7 @@ def _decode_day(content: bytes, day: date) -> list[dict]:
         return value if value is not None and math.isfinite(value) and value > 0 else None
 
     # libnetcdf calls must be serialized even when the downloads run in parallel.
-    with _NETCDF_LOCK, Dataset("xrs.nc", memory=content) as dataset:
+    with NETCDF_LOCK, Dataset("xrs.nc", memory=content) as dataset:
         time = dataset["time"]
         stamps = num2date(time[:], time.units, getattr(time, "calendar", "standard"),
                           only_use_cftime_datetimes=False)
@@ -54,25 +53,29 @@ def _directory(satellite: int, year: int, month: int) -> dict[str, str]:
 
 
 def get_xray_archive(start: date, end: date) -> list[dict]:
+    return get_goes_archive(start, end, _directory, _read_day)
+
+
+def get_goes_archive(start: date, end: date, directory, read_day) -> list[dict]:
     days = [start + timedelta(days=i) for i in range((end - start).days + 1)]
     # GOES-19 replaced GOES-16 as GOES-East on 7 April 2025.
     groups = {day: (19 if day >= date(2025, 4, 7) else 16, day.year, day.month) for day in days}
     with ThreadPoolExecutor(max_workers=6) as pool:
-        listings = {group: pool.submit(_directory, *group) for group in set(groups.values())}
+        listings = {group: pool.submit(directory, *group) for group in set(groups.values())}
         files = {}
         for group, listing in listings.items():
             try:
                 files[group] = listing.result()
             except requests.RequestException as exc:
-                _LOG.warning("GOES XRS archive listing unavailable for %s: %s", group, exc)
+                _LOG.warning("GOES archive listing unavailable for %s: %s", group, exc)
         downloads = {}
         for day, group in groups.items():
             if url := files.get(group, {}).get(day.strftime("%Y%m%d")):
-                downloads[day] = pool.submit(_read_day, url, day)
+                downloads[day] = pool.submit(read_day, url, day)
         rows = []
         for day, download in downloads.items():
             try:
                 rows.extend(download.result())
             except (requests.RequestException, OSError, RuntimeError, ValueError, IndexError, KeyError) as exc:
-                _LOG.warning("GOES XRS archive day unavailable for %s: %s", day, exc)
+                _LOG.warning("GOES archive day unavailable for %s: %s", day, exc)
     return rows

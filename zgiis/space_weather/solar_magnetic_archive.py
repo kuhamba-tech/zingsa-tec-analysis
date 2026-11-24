@@ -8,36 +8,29 @@ from functools import lru_cache
 import gzip
 import logging
 import math
-import threading
 from statistics import mean
-from xml.etree import ElementTree
 
-_BASE = "https://archive.data.noaa.gov/satellite-spaceweather/"
+from .solar1_archive import NETCDF_LOCK, cache_product_file, daily_keys, product_file
+
 _EPOCH = datetime(1958, 1, 1, tzinfo=timezone.utc)
-_NETCDF_LOCK = threading.Lock()
 _FIELDS = ("imf_bt", "imf_by", "imf_bz")
 log = logging.getLogger(__name__)
 
 
-@lru_cache(maxsize=32)
 def _daily_bins(day: date, cache_hour: int) -> dict[str, list[tuple[datetime, float]]]:
-    import requests
+    key = daily_keys("MAG/mag-l3", cache_hour).get(day)
+    return _read_bins(day, key) if key else {}
+
+
+@lru_cache(maxsize=768)
+def _read_bins(day: date, key: str) -> dict[str, list[tuple[datetime, float]]]:
     from netCDF4 import Dataset
 
-    prefix = f"SWFO/SOLAR-1/MAG/mag-l3/{day:%Y/%m}/oe_mag-l3_solar1_s{day:%Y%m%d}T"
-    response = requests.get(_BASE, params={"list-type": "2", "prefix": prefix}, timeout=(3, 6))
-    response.raise_for_status()
-    keys = [
-        node.text for node in ElementTree.fromstring(response.content).findall(".//{*}Key")
-        if node.text and node.text.startswith(prefix) and node.text.endswith("_pub.nc.gz")
-    ]
-    if not keys:
-        return {}
-    response = requests.get(_BASE + max(keys), timeout=(3, 10))
-    response.raise_for_status()
-    with _NETCDF_LOCK, Dataset("mag", memory=gzip.decompress(response.content)) as dataset:
+    content = product_file(key)
+    with NETCDF_LOCK, Dataset("mag", memory=gzip.decompress(content)) as dataset:
         times = dataset["time_min"][:].tolist()
         vectors = dataset["b_gsm_min"][:].tolist()
+    cache_product_file(key, content)
 
     grouped = {metric: defaultdict(list) for metric in _FIELDS}
     for clock, vector in zip(times, vectors):

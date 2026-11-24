@@ -128,7 +128,7 @@ const TEC_HEATMAP_FAST_TIMEOUT_MS = 5_000;
 /** Solar monitor hits NOAA + NASA DONKI; allow cold-start headroom + one retry. */
 const SOLAR_TIMEOUT_MS = 35_000;
 /** Heliospheric monitor: allow cold NOAA + one retry before aborting. */
-const HELIO_TIMEOUT_MS = 40_000;
+const HELIO_TIMEOUT_MS = 110_000;
 const REPORT_TIMEOUT_MS = 60_000;
 const LIVE_REFRESH_MIN_MS = 20_000;
 /** Short gap before one retry — long delays hurt first paint on mobile. */
@@ -1435,6 +1435,11 @@ export function getIonoVtecPair(force = false): Promise<IonoVtecPairResponse> {
 export const getGoesXrayArchive = (start: string, end: string) =>
   dedupeGet(`goes-xray-archive:${start}:${end}`, () =>
     get<GoesXrayTimelinePoint[]>("/space-weather/goes-xray-archive", { start, end }, 90_000),
+  );
+
+export const getGoesProtonArchive = (start: string, end: string) =>
+  dedupeGet(`goes-proton-archive:${start}:${end}`, () =>
+    get<{ t: string; flux: number }[]>("/space-weather/goes-proton-archive", { start, end }, 90_000),
   );
 
 export const getGfzKpAnalysis = (start: string, end: string, station?: string, includeVtec = true) =>

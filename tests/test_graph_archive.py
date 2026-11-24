@@ -14,6 +14,19 @@ from zgiis.space_weather.graph_archive import (
 
 
 class GraphArchiveTests(unittest.TestCase):
+    def test_dst_keeps_hourly_samples_across_archive_and_live_window(self) -> None:
+        start = datetime(2026, 10, 26, tzinfo=timezone.utc)
+        stamps = [start + timedelta(hours=i) for i in range(30 * 24)]
+        archived, live = stamps[:552], stamps[552:]
+        payload = {"dst": {"times": [stamp.isoformat() for stamp in live], "dst": [-12.0] * len(live), "unit": "nT"}}
+        stored = {"dst": [(stamp, -18.0) for stamp in archived] + [(live[0], -99.0)]}
+
+        dst = extend_monitor_payload(payload, stored)["dst"]
+
+        self.assertEqual(dst["times"], [stamp.isoformat().replace("+00:00", "Z") for stamp in stamps])
+        self.assertEqual(dst["dst"], [-18.0] * len(archived) + [-12.0] * len(live))
+        self.assertEqual(dst["unit"], "nT")
+
     def test_wind_and_imf_keep_archived_quarter_hours(self) -> None:
         live_start = datetime(2026, 11, 18, 12, tzinfo=timezone.utc)
         live_times = [(live_start + timedelta(minutes=i)).isoformat() for i in range(1440)]

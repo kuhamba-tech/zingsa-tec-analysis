@@ -1,4 +1,4 @@
-# Render API + NTRIP collector (omit netCDF4 — needs system libs; COSMIC-2 stays optional).
+# Render API + NTRIP collector.
 fastapi>=0.111.0
 uvicorn[standard]>=0.30.0
 python-multipart>=0.0.9
@@ -10,6 +10,7 @@ numpy>=1.26.0
 pandas>=2.2.0
 requests>=2.31.0
 georinex>=1.16.0
+netCDF4>=1.7.0
 # SANSA Gg uses the actual notebook calibration engine.
 pytecgg==1.3.0
 polars==1.38.1

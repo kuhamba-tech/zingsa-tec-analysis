@@ -147,6 +147,7 @@ export default function SolarWindBzComparison({
       <p style={{ fontSize: ".78rem", margin: ".35rem 0" }}>
         NOAA SWPC RTSW and NOAA NCEI SOLAR-1 archive · density on the left axis · proton temperature on the right axis · UTC observation times
       </p>
+      <p style={{ fontSize: ".78rem" }}>Where Level 3 is unavailable, the archive uses Level 2 proton measurements, which can include uncorrected values.</p>
       {plasmaUnavailable.length > 0 && <p role="status">{plasmaUnavailable.join(", ")} observations unavailable in this window. Missing data remains empty.</p>}
       <LineChart labels={samples.times.map(time => new Date(time).toISOString())} xValues={samples.times} epochMs={samples.times}
         datasets={[

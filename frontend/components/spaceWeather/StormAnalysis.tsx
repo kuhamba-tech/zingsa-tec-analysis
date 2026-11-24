@@ -3,7 +3,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import dynamic from "next/dynamic";
 import Image from "next/image";
-import { getEquatorialElectricField, getGfzKpAnalysis, getGuviOn2Map, getHeliosphericMonitor, getLiveVtecByStation, getTimeSeries, type SolarArchiveDay } from "@/lib/api";
+import { getEquatorialElectricField, getGfzKpAnalysis, getGoesProtonArchive, getGuviOn2Map, getHeliosphericMonitor, getLiveVtecByStation, getTimeSeries, type SolarArchiveDay } from "@/lib/api";
 import { peekHeliosphericMonitor } from "@/lib/heliosphericStore";
 import type { GoesXrayRange } from "@/components/spaceWeather/GoesSolarXrayCard";
 import { loadLineChart } from "@/lib/loadLineChart";
@@ -368,7 +368,7 @@ export default function StormAnalysis({
   const domain = useMemo(() => {
     const max = Date.parse(`${endDay}T00:00:00Z`) + 86400000;
     if (days === 1096) {
-      return { min: Date.parse("2024-01-01T00:00:00Z"), max };
+      return { min: Math.min(max - 86_400_000, Date.parse("2024-01-01T00:00:00Z")), max };
     }
     return { min: max - days * 86400000, max };
   }, [endDay, days]);
@@ -405,9 +405,9 @@ export default function StormAnalysis({
     return () => { cancelled = true; stop(); };
   }, []);
 
-  const archiveDays = useMemo(() => Array.from({ length: days }, (_, index) =>
+  const archiveDays = useMemo(() => Array.from({ length: (domain.max - domain.min) / 86_400_000 }, (_, index) =>
     new Date(domain.max - (index + 1) * 86_400_000).toISOString().slice(0, 10),
-  ), [domain.max, days]);
+  ), [domain.min, domain.max]);
 
   useEffect(() => {
     setRows([]);
@@ -490,29 +490,61 @@ export default function StormAnalysis({
     () => new Map(networkMean.map((point, index) => [point.time, index])),
     [networkMean],
   );
+  const [protonArchive, setProtonArchive] = useState<{ min: number; max: number; rows: Awaited<ReturnType<typeof getGoesProtonArchive>>; loading: boolean } | null>(null);
+  const loadProtonArchive = archiveDays.length > 7;
+  useEffect(() => {
+    if (!loadProtonArchive) return;
+    let active = true;
+    let index = 0;
+    const rows: Awaited<ReturnType<typeof getGoesProtonArchive>> = [];
+    const load = async () => {
+      while (active && index < archiveDays.length) {
+        const end = index;
+        index += 30;
+        const start = Math.min(index, archiveDays.length) - 1;
+        const result = await getGoesProtonArchive(archiveDays[start], archiveDays[end]).catch(() => []);
+        if (!active) return;
+        rows.push(...result);
+        setProtonArchive({ ...domain, rows: [...rows], loading: true });
+      }
+    };
+    void Promise.all([load(), load()]).then(() => {
+      if (active) setProtonArchive({ ...domain, rows: [...rows], loading: false });
+    });
+    return () => { active = false; };
+  }, [archiveDays, domain, loadProtonArchive]);
+
+  const currentProtonArchive = protonArchive?.min === domain.min && protonArchive.max === domain.max ? protonArchive : null;
   const protonChart = useMemo(() => {
-    if (!helio || helio.protons.labels.length === 0) return null;
-    const epochs = seriesEpochsFromApi(helio.protons.labels, helio.protons.epoch_ms, helio.protons.times);
-    if (!epochs) return null;
-    const datasets = Object.entries(helio.protons.series).map(([energy, values]) => ({
-      label: energy,
-      data: values,
-      color: PROTON_COLORS[energy] ?? "#94a3b8",
-      fill: true,
+    const protons = helio?.protons;
+    const epochs = protons ? seriesEpochsFromApi(protons.labels, protons.epoch_ms, protons.times) ?? [] : [];
+    const series = Object.entries(protons?.series ?? {}).map(([label, values]) => ({
+      label,
+      readings: epochs.flatMap((time, i) => {
+        const value = values[i];
+        return value != null && time >= domain.min && time < domain.max ? [{ time, value }] : [];
+      }),
     }));
-    return { epochs, datasets };
-  }, [helio]);
-  const protonReadings = useMemo(() => {
-    if (!helio || !protonChart) return [];
-    return Object.entries(helio.protons.series).map(([energy, values]) => ({
-      energy,
-      reading: nearestReading(
-        protonChart.epochs.map((time, index) => ({ time, value: values[index] ?? null })),
-        selectedTime,
-        OBSERVATION_READOUT_TOLERANCE_MS,
-      ),
-    }));
-  }, [helio, protonChart, selectedTime]);
+    const historical = (currentProtonArchive?.rows ?? []).map(({ t, flux }) => ({ time: Date.parse(t), value: flux }))
+      .filter(point => point.time >= domain.min && point.time < domain.max)
+      .sort((a, b) => a.time - b.time);
+    const archiveLabel = ">=500 MeV (NCEI +X)";
+    if (historical.length) series.push({ label: archiveLabel, readings: historical });
+    const times = [...new Set(series.flatMap(({ readings }) => readings.map(point => point.time)))].sort((a, b) => a - b);
+    if (!times.length) return null;
+    const datasets = series.map(({ label, readings }) => {
+      const values = new Map(readings.map(({ time, value }) => [time, value]));
+      return {
+        label, data: times.map(time => values.get(time) ?? null),
+        color: label === archiveLabel ? "#fb7185" : PROTON_COLORS[label] ?? "#94a3b8",
+        omitMissingPoints: true, spanGaps: (label === archiveLabel ? 10 : 35) * 60_000, tension: 0,
+      };
+    });
+    return { epochs: times, labels: times.map(time => new Date(time).toISOString()), datasets, series };
+  }, [helio, currentProtonArchive, domain]);
+  const protonReadings = useMemo(() => (protonChart?.series ?? []).map(({ label, readings }) => ({
+    energy: label, reading: nearestReading(readings, selectedTime, OBSERVATION_READOUT_TOLERANCE_MS),
+  })), [protonChart, selectedTime]);
   const panels = [
     { plot: "dst" as const, title: "Dst", unit: "Dst (nT)", color: "#f8fafc", tolerance: 35 * 60000, cadence: 65 * 60000, data: points(helio?.dst?.times ?? [], helio?.dst?.dst ?? []) },
     { plot: "speed" as const, title: "Solar wind speed", unit: "Vsw (km/s)", color: "#3b82f6", tolerance: OBSERVATION_READOUT_TOLERANCE_MS, cadence: 20 * 60000, data: points(helio?.solar_wind.times ?? [], helio?.solar_wind.speed ?? []) },
@@ -590,29 +622,33 @@ export default function StormAnalysis({
         height={300}
       />
     </section>}
-    {helio && <section className="card" aria-label="GOES proton flux">
+    {(helio || loadProtonArchive) && <section className="card" aria-label="GOES proton flux">
       <strong>GOES proton flux</strong>
       <p style={{ fontSize: ".78rem" }}>Integral channels · NOAA SWPC · pfu (particles cm⁻² s⁻¹ sr⁻¹) · shared Analysis UTC window</p>
+      {loadProtonArchive && <p role="status">
+        {(!currentProtonArchive || currentProtonArchive.loading) ? "Loading the NCEI 500 MeV archive. " : ""}
+        The NCEI +X telescope provides the historical 500 MeV series. The 10, 50 and 100 MeV series use available SWPC observations.
+      </p>}
       {protonChart ? <>
         <p aria-live="polite" style={{ fontSize: ".8rem", margin: "0 0 .45rem" }}>
           Selected {new Date(selectedTime).toISOString().replace("T", " ").slice(0, 16)} UTC
           {" · "}{protonReadings.map(({ energy, reading }) => `${energy}: ${reading ? `${reading.value!.toPrecision(3)} pfu at ${new Date(reading.time).toISOString().slice(11, 16)} UTC` : "N/A"}`).join(" · ")}
         </p>
         <LineChart
-          labels={helio.protons.labels}
+          labels={protonChart.labels}
           xValues={protonChart.epochs}
           epochMs={protonChart.epochs}
           datasets={protonChart.datasets}
           yLabel="Proton flux (pfu)"
           height={260}
+          preserveSamples
           toggleableLegend
           onPlotAreaChange={plotLayout.reporters.proton}
           onPickTime={pick}
           {...utcTimeAxisProps(domain, { majorHours: 3 })}
         />
-      </> : <p role="status">{helio.protons.labels.length === 0
-        ? "Proton flux unavailable. NOAA has not returned recent or cached observations."
-        : "Proton flux timestamps could not be aligned to UTC; the chart is omitted."}</p>}
+      </> : currentProtonArchive?.loading !== true && (!loadProtonArchive || currentProtonArchive) &&
+        <p role="status">No proton flux observations available in this window.</p>}
     </section>}
     {helio && <DstPressureComparison
       data={helio} analysisDomain={domain} selectedTime={selectedTime} onPlotAreaChange={plotLayout.reporters.pressure} onPickTime={pick}

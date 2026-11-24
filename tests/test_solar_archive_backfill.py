@@ -6,10 +6,22 @@ from datetime import date, datetime, timedelta, timezone
 from unittest.mock import patch
 
 from zgiis.space_weather.solar_magnetic_archive import fill_imf_history
-from zgiis.space_weather.solar_plasma_archive import _aggregate_daily_bins, fill_plasma_history
+from zgiis.space_weather.solar_plasma_archive import _aggregate_daily_bins, _daily_bins, fill_plasma_history
 
 
 class SolarArchiveBackfillTests(unittest.TestCase):
+    def test_plasma_backfill_uses_level_two_when_level_three_is_empty(self) -> None:
+        day = date(2026, 7, 16)
+        stamp = datetime(2026, 7, 16, tzinfo=timezone.utc)
+        available = {"solar_wind_density": [(stamp, 5.0)], "solar_wind_temperature": [(stamp, 80000.0)]}
+        module = "zgiis.space_weather.solar_plasma_archive"
+        with (
+            patch(f"{module}.daily_keys", side_effect=[{day: "level3"}, {day: "level2"}]),
+            patch(f"{module}._read_bins", side_effect=[{"solar_wind_density": []}, available]) as read,
+        ):
+            self.assertEqual(_daily_bins(day, 0), available)
+        self.assertEqual([call.args for call in read.call_args_list], [(day, "level3", 3), (day, "level2", 2)])
+
     def test_archived_pressure_uses_simultaneous_samples_before_binning(self) -> None:
         day = date(2026, 11, 17)
         epoch = datetime(1958, 1, 1, tzinfo=timezone.utc)
@@ -47,6 +59,17 @@ class SolarArchiveBackfillTests(unittest.TestCase):
 
         self.assertEqual(stored["solar_wind_speed"], [(existing_time, 420.0), (archive_time, 430.0)])
         self.assertEqual(stored["solar_wind_density"], [(archive_time, 5.0)])
+
+    def test_archive_pressure_replaces_corroborated_isolated_spike(self) -> None:
+        start = datetime(2026, 6, 18, tzinfo=timezone.utc)
+        stamps = [start + timedelta(minutes=15 * i) for i in range(4)]
+        stored = {"solar_wind_pressure": list(zip(stamps, [0.9, 450.0, 1.1, 50.0]))}
+        with patch("zgiis.space_weather.solar_plasma_archive._daily_bins", return_value={
+            "solar_wind_pressure": [(stamps[1], 1.0), (stamps[3], 1.0)],
+        }):
+            fill_plasma_history(stored, start=start, stop=start + timedelta(hours=1), now=start)
+
+        self.assertEqual(stored["solar_wind_pressure"], list(zip(stamps, [0.9, 1.0, 1.1, 50.0])))
 
     def test_magnetic_backfill_fills_missing_bins_without_replacing_live_values(self) -> None:
         start = datetime(2026, 11, 17, tzinfo=timezone.utc)
