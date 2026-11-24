@@ -1067,13 +1067,21 @@ async def flare_frequencies(
 @router.get("/flare-month", response_model=FlareMonthResponse)
 async def flare_month(
     force_refresh: bool = Query(False),
+    start: date | None = None,
+    end: date | None = None,
     _=Depends(require_api_key),
 ):
-    """Past-month daily C/M/X flare counts and sunspot number for the flare card."""
-    from zgiis.space_weather.flare_frequencies import build_flare_month
+    """Daily C/M/X flare counts and sunspot number for a selected UTC range."""
+    from zgiis.space_weather.flare_frequencies import build_flare_month, build_flare_range
+
+    if (start is None) != (end is None) or (start and end and not 0 <= (end - start).days < 1096):
+        raise HTTPException(status_code=422, detail="Choose a UTC date range of up to 1096 days.")
 
     try:
-        payload = await asyncio.to_thread(build_flare_month, force_refresh=force_refresh)
+        if start and end:
+            payload = await asyncio.to_thread(build_flare_range, start, end, force_refresh=force_refresh)
+        else:
+            payload = await asyncio.to_thread(build_flare_month, force_refresh=force_refresh)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Flare-month fetch failed: {exc}") from exc
     return FlareMonthResponse(**payload)

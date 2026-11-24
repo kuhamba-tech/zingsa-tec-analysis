@@ -548,7 +548,7 @@ export default function StormAnalysis({
     </label></details>
     <p>Drag the continuous pink line or its arrow to move the marker through the shared UTC timeline. Focus the line and use the arrow keys for fine adjustment. The regional daily TEC chart plots all measured days in the window by default.</p>
     <div style={{ marginBottom: "1rem" }}>
-      <SolarFlareMonthChart showDailyStorms />
+      <SolarFlareMonthChart key={`${domain.min}/${endDay}`} showDailyStorms start={new Date(domain.min).toISOString().slice(0, 10)} end={endDay} />
     </div>
     <p style={{ fontSize: ".8rem" }}>
       {flarePeaks.length ? "Red lines mark cataloged M/X flare peaks across the Analysis graphs." : "No cataloged M/X flare peaks in this window."}

@@ -13,6 +13,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta, timezone
+from functools import lru_cache
 from typing import Any
 
 try:
@@ -317,6 +318,10 @@ def build_flare_frequencies(*, force_refresh: bool = False) -> dict[str, Any]:
 
 
 DAILY_SOLAR_URL = "https://services.swpc.noaa.gov/text/daily-solar-indices.txt"
+DAILY_SOLAR_ARCHIVE = (
+    "https://www.ngdc.noaa.gov/stp/space-weather/swpc-products/annual_reports/"
+    "daily_solar_indices_summaries/daily_solar_data"
+)
 _MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
 
@@ -367,6 +372,41 @@ def parse_daily_solar_data(text: str) -> list[dict[str, Any]]:
         )
     rows.sort(key=lambda row: row["date"])
     return rows
+
+
+@lru_cache(maxsize=64)
+def _archive_solar_quarter(year: int, quarter: int, cache_period: int) -> list[dict[str, Any]]:
+    return parse_daily_solar_data(_fetch_text(f"{DAILY_SOLAR_ARCHIVE}/{year}Q{quarter}_DSD.txt", timeout=15))
+
+
+def build_flare_range(start: date, end: date, *, force_refresh: bool = False) -> dict[str, Any]:
+    if force_refresh:
+        _archive_solar_quarter.cache_clear()
+    selected_days = (start + timedelta(days=offset) for offset in range((end - start).days + 1))
+    quarters = sorted({(day.year, (day.month - 1) // 3 + 1) for day in selected_days})
+    cache_period = int(time.time()) // 1800
+    by_day = {}
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        archive = [pool.submit(_archive_solar_quarter, year, quarter, cache_period)
+                   for year, quarter in quarters]
+        recent = pool.submit(build_flare_month, force_refresh=force_refresh)
+        for pending in archive:
+            try:
+                by_day.update((row["date"], row) for row in pending.result())
+            except requests.RequestException:
+                continue
+        for row in recent.result()["days"]:
+            previous = by_day.get(row["date"], {})
+            by_day[row["date"]] = {**previous, **{key: value for key, value in row.items() if value is not None}}
+    first_day, last_day = start.isoformat(), end.isoformat()
+    days = [by_day[key] for key in sorted(by_day) if first_day <= key <= last_day]
+    return {
+        "mode": "live" if days else "unavailable",
+        "updated_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "source": "NOAA SWPC and NCEI Daily Solar Data",
+        "note": "" if days else "No NOAA daily solar data available for this range.",
+        "days": days,
+    }
 
 
 def build_flare_month(*, force_refresh: bool = False) -> dict[str, Any]:

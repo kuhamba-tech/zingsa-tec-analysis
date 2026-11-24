@@ -14,6 +14,7 @@ import {
   Tooltip,
 } from "chart.js";
 import { Chart } from "react-chartjs-2";
+import { formatUtcDayShort } from "@/lib/chartTimeAxis";
 import { getFlareMonth, getGfzKpAnalysis } from "@/lib/api";
 import type { FlareMonthDay, FlareMonthResponse, GfzKpDailyPoint } from "@/lib/types";
 import styles from "./SolarFlareFrequencyChart.module.css";
@@ -27,17 +28,18 @@ function niceMax(peak: number, step: number, floor: number): number {
   return Math.max(floor, Math.ceil(peak / step) * step);
 }
 
-/**
- * Past-month daily C/M/X flares and sunspot numbers from NOAA's daily solar file.
- */
-export default function SolarFlareMonthChart({ showDailyStorms = false }: { showDailyStorms?: boolean }) {
+export default function SolarFlareMonthChart({ showDailyStorms = false, start, end }: {
+  showDailyStorms?: boolean;
+  start?: string;
+  end?: string;
+}) {
   const [payload, setPayload] = useState<FlareMonthResponse | null>(null);
   const [failed, setFailed] = useState(false);
   const [retry, setRetry] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
-    getFlareMonth(retry > 0)
+    getFlareMonth(retry > 0, start, end)
       .then((next) => {
         if (!cancelled) {
           setPayload(next);
@@ -50,9 +52,22 @@ export default function SolarFlareMonthChart({ showDailyStorms = false }: { show
     return () => {
       cancelled = true;
     };
-  }, [retry]);
+  }, [retry, start, end]);
 
-  const days = payload?.days ?? [];
+  const days = useMemo(() => {
+    if (!start || !end) return payload?.days ?? [];
+    const first = Date.parse(start);
+    const count = Math.floor((Date.parse(end) - first) / 86_400_000) + 1;
+    const byDate = new Map(payload?.days.map(day => [day.date, day]));
+    return Array.from({ length: count }, (_, index) => {
+      const time = first + index * 86_400_000;
+      const date = new Date(time).toISOString().slice(0, 10);
+      return byDate.get(date) ?? {
+        date, label: formatUtcDayShort(time), c_count: null, m_count: null, x_count: null, ssn: null,
+      };
+    });
+  }, [payload, start, end]);
+  const hasSolarData = Boolean(payload?.days.length);
   const labels = useMemo(() => days.map((day) => day.label), [days]);
   const cCounts = useMemo(() => days.map((day) => day.c_count), [days]);
   const mCounts = useMemo(() => days.map((day) => day.m_count), [days]);
@@ -131,32 +146,31 @@ export default function SolarFlareMonthChart({ showDailyStorms = false }: { show
 
   return (
     <>
-    <section className={styles.panel} aria-label="Solar flares and sunspot number for the past month">
-      <h2 className={styles.title}>Solar flares and sunspot number, past month</h2>
-      <h3 className={styles.subtitle}>Number of C-, M- and X-class flares of the last month</h3>
+    <section className={styles.panel} aria-label="Daily solar flares and sunspot number">
+      <h2 className={styles.title}>Solar flares and sunspot number</h2>
+      <h3 className={styles.subtitle}>{start && end ? `${start} to ${end} UTC` : "Past month"}</h3>
       <p className={styles.copy}>
-        The graph shows how many C-, M- and X-class solar flares occurred on each day of the past
-        month, together with the daily sunspot number.
+        Daily C-, M- and X-class flare counts and sunspot numbers. Blank days have no observations.
       </p>
       {loading && (
         <div className="banner banner-info" role="status">
-          Loading the past month of flares and sunspot numbers…
+          Loading daily flares and sunspot numbers…
         </div>
       )}
       {failed && !payload && (
         <p className={styles.copy} role="status">
-          The past-month flare chart could not be loaded.{" "}
+          Daily flare and sunspot data could not be loaded.{" "}
           <button className="btn" type="button" onClick={() => setRetry((value) => value + 1)}>
             Retry
           </button>
         </p>
       )}
-      {payload && days.length === 0 && (
+      {payload && !hasSolarData && (
         <p className={styles.copy} role="status">
-          The past-month flare chart is unavailable.
+          No flare or sunspot observations are available for these dates.
         </p>
       )}
-      {days.length > 0 && (
+      {hasSolarData && (
         <div className={styles.chart}>
           <Chart
             type="bar"
@@ -268,7 +282,7 @@ function DailyStormChart({ days }: { days: FlareMonthDay[] }) {
   return (
     <section className={styles.panel} aria-label="Daily geomagnetic storm activity">
       <h2 className={styles.title}>Daily geomagnetic storm activity</h2>
-      <p className={styles.copy}>Highest observed Kp for each UTC day in the flare chart above. Blank days have no Kp observations.</p>
+      <p className={styles.copy}>Highest observed Kp for each UTC day in the selected window. Blank days have no Kp observations.</p>
       {!rows && !failed && <p role="status">Loading daily Kp…</p>}
       {rows && peaks.every(kp => kp == null) && <p role="status">No Kp observations are available for these dates.</p>}
       {failed && <p role="status">Daily Kp could not be loaded. <button className="btn" type="button" onClick={() => {

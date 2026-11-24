@@ -540,15 +540,17 @@ export const getSolarCycleIndices = (startYear = 1965, forceRefresh = false) =>
     ),
   );
 
-export const getFlareMonth = (forceRefresh = false) =>
-  dedupeGet(`space-weather/flare-month${forceRefresh ? ":refresh" : ""}`, () =>
+export const getFlareMonth = (forceRefresh = false, start?: string, end?: string) =>
+  dedupeGet(`space-weather/flare-month:${start ?? ""}:${end ?? ""}${forceRefresh ? ":refresh" : ""}`, () =>
     get<FlareMonthResponse>(
       "/space-weather/flare-month",
       {
         _ts: Date.now(),
+        start,
+        end,
         ...(forceRefresh ? { force_refresh: "true" } : {}),
       },
-      20_000,
+      start ? 45_000 : 20_000,
     ),
   );
 
