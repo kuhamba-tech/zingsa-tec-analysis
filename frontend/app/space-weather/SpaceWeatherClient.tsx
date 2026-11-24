@@ -25,7 +25,6 @@ import ClickableMetricGrid from "@/components/spaceWeather/ClickableMetricGrid";
 import DeferredMount from "@/components/spaceWeather/DeferredMount";
 import SwSectionBanner from "@/components/spaceWeather/SwSectionBanner";
 const StormAnalysis = dynamic(() => import("@/components/spaceWeather/StormAnalysis"), { ssr: false });
-const SourceAnalysisGraphs = dynamic(() => import("@/components/spaceWeather/SourceAnalysisGraphs"), { ssr: false });
 const EquatorialElectricFieldChart = dynamic(
   () => import("@/components/spaceWeather/EquatorialElectricFieldChart"),
   { ssr: false, loading: () => sectionFallback },
@@ -1282,7 +1281,6 @@ export default function SpaceWeatherClient({
             xrayRange={xrayRange}
             onXrayRangeChange={setXrayRange}
           />
-          <SourceAnalysisGraphs />
           <EquatorialElectricFieldChart />
           {/* F10.7 & Sunspot Number — full multi-cycle record */}
           <DeferredMount
