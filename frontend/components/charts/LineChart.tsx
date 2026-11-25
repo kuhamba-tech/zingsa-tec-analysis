@@ -1,5 +1,5 @@
 "use client";
-import ChartDateRange, { ChartDateRangeContext, utcDayBounds, utcDaySampleIndices } from "./ChartDateRange";
+import { ChartDateRangeContext, utcDayBounds, utcDaySampleIndices } from "./ChartDateRange";
 import { useContext } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -542,7 +542,6 @@ export default function LineChart({
 
   return (
     <div>
-      <ChartDateRange />
       {selectedBounds && !drawIdx.length && <p role="status">No loaded observations for {calendar?.day} UTC.</p>}
       {toggleableLegend && (
         <DatasetToggleLegend

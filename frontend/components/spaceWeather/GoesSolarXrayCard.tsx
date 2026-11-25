@@ -1,6 +1,6 @@
 "use client";
 import type { PlotAreaReporter } from "@/lib/chartPlotArea";
-import { ChartDateRangeContext } from "@/components/charts/ChartDateRange";
+import { ChartDateRangeContext, utcDayBounds } from "@/components/charts/ChartDateRange";
 
 import type { CSSProperties, KeyboardEvent } from "react";
 import { useContext, useEffect, useMemo, useState } from "react";
@@ -170,7 +170,7 @@ export default function GoesSolarXrayCard({
       ? windowDays * 24
       : analysisDomain
         ? (analysisDomain.max - analysisDomain.min) / ONE_H_MS
-        : calendar?.day ? 168 : RANGE_HOURS[range];
+        : calendar?.day ? 24 : RANGE_HOURS[range];
     const byMinute = new Map<number, GoesXrayTimelinePoint>();
     const archived = monthly && archive?.end === archiveEnd ? archive.points : [];
     const points = [...archived, ...(timeline ?? [])].filter(point => point?.t);
@@ -207,21 +207,27 @@ export default function GoesSolarXrayCard({
               };
         })
         .filter((p): p is NonNullable<typeof p> => p != null);
-      const endMs = archiveEnd ?? analysisDomain?.max ?? parsed[parsed.length - 1]?.ms ?? Date.now();
-      const startMs = archiveStart ?? analysisDomain?.min ?? endMs - hours * ONE_H_MS;
+      const       endMs =
+        archiveEnd ??
+        analysisDomain?.max ??
+        (calendar?.day ? utcDayBounds(calendar.day).max : parsed[parsed.length - 1]?.ms ?? Date.now());
+      const startMs =
+        archiveStart ??
+        analysisDomain?.min ??
+        (calendar?.day ? utcDayBounds(calendar.day).min : endMs - hours * ONE_H_MS);
       const sliced = parsed.filter((p) => p.ms >= startMs && (monthly ? p.ms < endMs : p.ms <= endMs));
       epochs = sliced.map((p) => p.ms);
       longBand = sliced.map((p) => p.long);
       shortBand = sliced.map((p) => p.short);
       labels = sliced.map((p) => p.t);
     } else if (!monthly && fallbackSeries?.length) {
-      const endMs = parseTimelineEpoch(fallbackUpdated ?? "") ?? Date.now();
+      const endMs = calendar?.day ? utcDayBounds(calendar.day).max : parseTimelineEpoch(fallbackUpdated ?? "") ?? Date.now();
       const step = Math.max(60_000, Math.floor((hours * ONE_H_MS) / Math.max(fallbackSeries.length - 1, 1)));
       const all = fallbackSeries.map((v, i) => ({
         ms: endMs - (fallbackSeries.length - 1 - i) * step,
         v: v > 0 ? v : null,
       }));
-      const startMs = endMs - hours * ONE_H_MS;
+      const startMs = calendar?.day ? utcDayBounds(calendar.day).min : endMs - hours * ONE_H_MS;
       const sliced = all.filter((p) => p.ms >= (analysisDomain?.min ?? startMs) && p.ms <= (analysisDomain?.max ?? endMs));
       epochs = sliced.map((p) => p.ms);
       longBand = sliced.map((p) => p.v);
@@ -230,8 +236,14 @@ export default function GoesSolarXrayCard({
     }
 
     if (!epochs.length && !analysisDomain && !monthly) return null;
-    const endMs = archiveEnd ?? analysisDomain?.max ?? epochs[epochs.length - 1];
-    const startMs = archiveStart ?? analysisDomain?.min ?? endMs - hours * ONE_H_MS;
+    const endMs =
+      archiveEnd ??
+      analysisDomain?.max ??
+      (calendar?.day ? utcDayBounds(calendar.day).max : epochs[epochs.length - 1]);
+    const startMs =
+      archiveStart ??
+      analysisDomain?.min ??
+      (calendar?.day ? utcDayBounds(calendar.day).min : endMs - hours * ONE_H_MS);
     const domain = { min: startMs, max: endMs };
     const axis = utcTimeAxisProps(domain, {
       rangeHours: hours,
@@ -382,7 +394,7 @@ export default function GoesSolarXrayCard({
               },
             ]}
             yLabel="X-ray flux (W/m²)"
-            height={selectedTime != null ? 330 : 260}
+            height={selectedTime != null ? 330 : 300}
             yLogScale
             yMin={1e-9}
             yMax={1e-3}
