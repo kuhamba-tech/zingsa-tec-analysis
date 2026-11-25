@@ -919,6 +919,7 @@ function EquatorialElectricFieldChart({ domain, selectedTime, pick, reportArea }
       if (!samples.size) return;
       setLive(previous => {
         const merged = new Map(previous);
+        merged.clear();
         for (const [time, point] of samples) merged.set(time, point);
         return merged;
       });

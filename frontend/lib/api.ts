@@ -622,12 +622,10 @@ export const getHeliosphericMonitor = (forceRefresh = false, requireNetwork = fa
 };
 
 export const getEquatorialElectricField = (start?: string, days?: number) =>
-  dedupeGet(`space-weather/equatorial-electric-field:${start ?? "live"}:${days ?? ""}`, () =>
-    (start ? get : getWithRetry)<EquatorialElectricFieldResponse>(
-      "/space-weather/equatorial-electric-field",
-      { start, days, _ts: Date.now() },
-      start ? 75_000 : 40_000,
-    ),
+  (start ? get : getWithRetry)<EquatorialElectricFieldResponse>(
+    "/space-weather/equatorial-electric-field",
+    { start, days, _ts: Date.now() },
+    start ? 75_000 : 40_000,
   );
 
 export interface GlobalGimGrid {
