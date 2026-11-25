@@ -30,7 +30,7 @@ export default function InterplanetaryMagneticFieldChart({
   verticalMarkers,
   onPlotAreaChange,
   onPickTime,
-  height = 220,
+  height = 300,
 }: {
   data: ImfSeries;
   analysisDomain?: { min: number; max: number };

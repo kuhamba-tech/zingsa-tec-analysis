@@ -318,7 +318,7 @@ export default function LineChart({
       const { ctx, chartArea, scales: { x } } = chart;
       if (!x || !chartArea || markerReadout.x < x.min || markerReadout.x > x.max) return;
       ctx.save(); ctx.font = "bold 12px sans-serif";
-      const width = Math.min(chartArea.width, Math.max(...markerReadout.lines.map(line => ctx.measureText(line).width)) + 18);
+      const width = Math.min(chartArea.width, Math.max(...markerReadout.lines.map(line => ctx.measureText(line).width)) + 24);
       const height = markerReadout.lines.length * 17 + 10;
       const px = x.getPixelForValue(markerReadout.x);
       const left = Math.max(chartArea.left, Math.min(px - width / 2, chartArea.right - width));

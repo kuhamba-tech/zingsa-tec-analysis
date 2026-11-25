@@ -649,7 +649,7 @@ export default function StormAnalysis({
         verticalMarkers={chartFlarePeaks}
         onPlotAreaChange={plotLayout.reporters.imf}
         onPickTime={pick}
-        height={300}
+        height={360}
       />
     </section>}
     {(helio || loadProtonArchive) && <section className="card" aria-label="GOES proton flux">
@@ -892,26 +892,6 @@ const FIELD_COMPONENTS = [
   { label: "Quiet + penetration", key: "total", color: "#22c55e" },
 ] as const;
 const FIELD_SOURCE = "https://geomag.colorado.edu/online-calculators/real-time-model-ionospheric-electric-fields";
-const FIELD_DAY_MS = 86_400_000;
-const FIELD_HISTORY_CHUNK_MS = 5 * FIELD_DAY_MS;
-
-function mergeFieldPoints(
-  merged: Map<number, EquatorialElectricFieldPoint>,
-  points: Iterable<EquatorialElectricFieldPoint>,
-  start: number,
-  end: number,
-) {
-  for (const point of points) {
-    const time = Date.parse(point.time);
-    if (!Number.isFinite(time) || time < start || time >= end) continue;
-    const previous = merged.get(time);
-    const quiet = point.climatological_mvm ?? previous?.climatological_mvm ?? null;
-    const penetration = point.prompt_penetration_mvm ?? previous?.prompt_penetration_mvm ?? null;
-    if (quiet == null && penetration == null) continue;
-    merged.set(time, { time: point.time, climatological_mvm: quiet, prompt_penetration_mvm: penetration });
-  }
-}
-
 function EquatorialElectricFieldChart({ domain, selectedTime, pick, reportArea }: {
   domain: { min: number; max: number };
   selectedTime: number;
@@ -919,48 +899,8 @@ function EquatorialElectricFieldChart({ domain, selectedTime, pick, reportArea }
   reportArea: PlotAreaReporter;
 }) {
   const { min, max } = domain;
-  const [history, setHistory] = useState(() => new Map<number, EquatorialElectricFieldPoint>());
   const [live, setLive] = useState(() => new Map<number, EquatorialElectricFieldPoint>());
-  const [historyLoading, setHistoryLoading] = useState(true);
-  const [missingChunks, setMissingChunks] = useState(0);
   const [liveUnavailable, setLiveUnavailable] = useState(false);
-  const [retry, setRetry] = useState(0);
-
-  useEffect(() => {
-    let active = true;
-    setHistoryLoading(true);
-    const chunks: { start: number; end: number }[] = [];
-    for (let end = max; end > min;) {
-      const start = Math.max(min, end - FIELD_HISTORY_CHUNK_MS);
-      chunks.push({ start, end });
-      end = start;
-    }
-    let next = 0;
-    let missing = 0;
-    const loadHistory = async () => {
-      while (active && next < chunks.length) {
-        const { start, end } = chunks[next++];
-        const day = new Date(start).toISOString().slice(0, 10);
-        const result = await getEquatorialElectricField(day, (end - start) / FIELD_DAY_MS).catch(() => null);
-        if (!active) return;
-        const samples = new Map<number, EquatorialElectricFieldPoint>();
-        mergeFieldPoints(samples, result?.points ?? [], start, end);
-        const coveredDays = new Set([...samples.keys()].map(time => Math.floor(time / FIELD_DAY_MS))).size;
-        if (coveredDays < (end - start) / FIELD_DAY_MS || result?.note) missing++;
-        if (samples.size) setHistory(previous => {
-          const merged = new Map(previous);
-          mergeFieldPoints(merged, samples.values(), start, end);
-          return merged;
-        });
-      }
-    };
-    void Promise.all([loadHistory(), loadHistory()]).then(() => {
-      if (!active) return;
-      setMissingChunks(missing);
-      setHistoryLoading(false);
-    });
-    return () => { active = false; };
-  }, [min, max, retry]);
 
   useEffect(() => {
     if (max <= Date.now() || min > Date.now()) return;
@@ -969,12 +909,17 @@ function EquatorialElectricFieldChart({ domain, selectedTime, pick, reportArea }
       const result = await getEquatorialElectricField().catch(() => null);
       if (!active) return;
       const samples = new Map<number, EquatorialElectricFieldPoint>();
-      mergeFieldPoints(samples, result?.points ?? [], min, max);
+      for (const point of result?.points ?? []) {
+        const time = Date.parse(point.time);
+        if (!Number.isFinite(time) || time < min || time >= max) continue;
+        if (point.climatological_mvm == null && point.prompt_penetration_mvm == null) continue;
+        samples.set(time, point);
+      }
       setLiveUnavailable(!samples.size);
       if (!samples.size) return;
       setLive(previous => {
         const merged = new Map(previous);
-        mergeFieldPoints(merged, samples.values(), min, max);
+        for (const [time, point] of samples) merged.set(time, point);
         return merged;
       });
     }, 5 * 60_000);
@@ -982,14 +927,12 @@ function EquatorialElectricFieldChart({ domain, selectedTime, pick, reportArea }
   }, [min, max]);
 
   const rows = useMemo(() => {
-    const merged = new Map(history);
-    mergeFieldPoints(merged, live.values(), min, max);
-    return [...merged.entries()].sort(([a], [b]) => a - b).map(([time, point]) => {
+    return [...live.entries()].sort(([a], [b]) => a - b).map(([time, point]) => {
       const quiet = point.climatological_mvm;
       const penetration = point.prompt_penetration_mvm;
       return { time, quiet, penetration, total: quiet != null && penetration != null ? quiet + penetration : null };
     });
-  }, [history, live, min, max]);
+  }, [live]);
   const times = useMemo(() => rows.map(row => row.time), [rows]);
   const labels = useMemo(() => rows.map(row => new Date(row.time).toISOString()), [rows]);
   const quietDays = new Set(rows.filter(row => row.quiet != null).map(row => Math.floor(row.time / 86_400_000))).size;
@@ -1005,13 +948,8 @@ function EquatorialElectricFieldChart({ domain, selectedTime, pick, reportArea }
   return <section aria-label="Equatorial eastward electric field" style={{ marginBottom: "1.25rem" }}>
     <h3>Equatorial eastward electric field</h3>
     <p style={{ fontSize: ".8rem" }}>PPEFM model estimates at 28°E on the magnetic equator. {selected.length ? `Near the marker · ${selected.join(" · ")}` : "No model value near the marker."}</p>
-    {historyLoading && <p role="status">Loading Colorado model history for the selected UTC window…</p>}
     {rows.length > 0 && <p style={{ fontSize: ".8rem" }}>
-      UTC days with model output · Quiet {quietDays} · Prompt penetration {penetrationDays}. Gaps show unavailable intervals.
-    </p>}
-    {!historyLoading && (missingChunks > 0 || !rows.length) && <p role="status">
-      {rows.length ? "Some historical model output is unavailable." : "No model output is available for this window."}{" "}
-      <button className="btn" type="button" onClick={() => setRetry(count => count + 1)}>Retry history</button>
+      Live UTC coverage · Quiet {quietDays} · Prompt penetration {penetrationDays}. Gaps show unavailable intervals.
     </p>}
     {liveUnavailable && <p role="status">The live model feed is temporarily unavailable. It retries automatically.</p>}
     {rows.length > 0 && <LineChart labels={labels} xValues={times} epochMs={times} datasets={datasets}
