@@ -232,9 +232,10 @@ function GuviDailyMap({ selectedTime }: { selectedTime: number }) {
         onError={() => setFailedImage(imageUrl)} />
     </div>}
     <figcaption>
-      TIMED/GUVI Level 3 O/N? daily map. Selected {day} {stamp.slice(11, 16)} UTC.{" "}
+      TIMED/GUVI Level 3 O/N₂ daily map. Selected {day} {stamp.slice(11, 16)} UTC.{" "}
       <a href="https://guvitimed.jhuapl.edu/guvi-galleryl3on2_new" target="_blank" rel="noreferrer">GUVI data portal</a>
-      <div role="status">{!current ? "Loading GUVI map?"
+      {imageUrl && <>{" · "}<a href={imageUrl} target="_blank" rel="noreferrer">Original image with LT and UT labels</a></>}
+      <div role="status">{!current ? "Loading GUVI map…"
         : !map || (imageUrl && failedImage === imageUrl) ? "The GUVI map is temporarily unavailable."
         : !imageUrl ? "No published GUVI map on or before the selected date."
         : map.date === day ? `Map date ${map.date} UTC.`

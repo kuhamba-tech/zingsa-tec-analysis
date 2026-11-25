@@ -238,7 +238,8 @@
 
 .guviImage {
   width: 100%;
-  aspect-ratio: 5 / 3;
+  /* The 1000 × 600 gallery PNG places its orbit time labels below row 520. */
+  aspect-ratio: 1000 / 520;
   overflow: hidden;
   border-radius: 0.5rem;
 }

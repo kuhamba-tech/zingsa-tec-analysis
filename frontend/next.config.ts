@@ -19,6 +19,22 @@ const nextConfig: NextConfig = {
   images: {
     unoptimized: true,
   },
+  async headers() {
+    return [
+      {
+        source: "/_next/static/:path*",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=31536000, immutable" },
+        ],
+      },
+      {
+        source: "/:path*",
+        headers: [
+          { key: "Cache-Control", value: "no-cache, no-store, must-revalidate" },
+        ],
+      },
+    ];
+  },
   experimental: {
     // Tree-shake heavy chart/map barrels so mobile chunks stay smaller.
     optimizePackageImports: ["chart.js", "react-chartjs-2", "ol"],

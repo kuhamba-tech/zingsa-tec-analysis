@@ -38,13 +38,16 @@ export default function ChunkLoadRecovery() {
     }, 12_000);
 
     const reloadOnce = () => {
+      if (cleared) return;
       try {
-        if (sessionStorage.getItem(RELOAD_KEY) === "1") return;
+        const previous = sessionStorage.getItem(RELOAD_KEY);
+        if (previous === "1") {
+          sessionStorage.removeItem(RELOAD_KEY);
+        }
         sessionStorage.setItem(RELOAD_KEY, "1");
       } catch {
-        // If storage is blocked, still attempt a single reload.
+        // If storage is blocked, still attempt a reload.
       }
-      if (cleared) return;
       try {
         const url = new URL(window.location.href);
         url.searchParams.set("_chunk", String(Date.now()));

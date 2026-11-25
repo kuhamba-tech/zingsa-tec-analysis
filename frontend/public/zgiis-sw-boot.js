@@ -98,7 +98,8 @@
       function reloadOnce() {
         if (!armed) return;
         try {
-          if (sessionStorage.getItem(RELOAD_KEY) === "1") return;
+          var previous = sessionStorage.getItem(RELOAD_KEY);
+          if (previous === "1") sessionStorage.removeItem(RELOAD_KEY);
           sessionStorage.setItem(RELOAD_KEY, "1");
         } catch (e) {}
         armed = false;
