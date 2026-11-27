@@ -20,7 +20,7 @@ _BUCKET = "advisory-snapshots"
 _MESSAGE_VIEWS = (
     (
         "metrics",
-        "https://zingsa-gnss-tec.vercel.app/space-weather/capture/metrics/",
+        "https://zingsa-gnss-tec.vercel.app/api/space-weather-metrics-image/",
         "Live metrics",
     ),
     (
@@ -124,13 +124,26 @@ def publish_dashboard_snapshot(issued_at: datetime | None = None) -> str | None:
 
 
 def _publish_view(key: str, page: str, label: str, issued_at: datetime | None, token: str) -> tuple[str, str] | None:
-    png = _capture_png(f"{token}-{key}", page)
+    png = _metrics_png(page) if key == "metrics" else _capture_png(f"{token}-{key}", page)
     if png is None:
         return None
     image_url = _store_png(png, snapshot_object_path(issued_at, f"{token}-{key}"))
     if not image_url:
         return None
     return label, image_url
+
+
+def _metrics_png(url: str) -> bytes | None:
+    try:
+        response = requests.get(url, timeout=45)
+        response.raise_for_status()
+    except requests.RequestException:
+        log.warning("Planetary Kp advisory image request failed")
+        return None
+    if not response.content.startswith(b"\x89PNG\r\n\x1a\n"):
+        log.warning("Planetary Kp advisory image was not a PNG")
+        return None
+    return response.content
 
 
 def publish_message_views(issued_at: datetime | None = None) -> list[tuple[str, str]]:
