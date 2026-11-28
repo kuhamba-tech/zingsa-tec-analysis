@@ -37,6 +37,7 @@ type Props = {
   catalog?: Station[] | null;
   /** When true, this component fetches what it needs. */
   autoload?: boolean;
+  gopiOnly?: boolean;
 };
 
 function chartOptions(title: string) {
@@ -167,7 +168,7 @@ function BandChart({
       </div>
       <div style={{ height: 300 }}>
         {hasData ? (
-          <Line data={{ datasets: bandDatasets(series!) }} options={chartOptions(title)} />
+          <Line aria-label={title} data={{ datasets: bandDatasets(series!) }} options={chartOptions(title)} />
         ) : (
           <div
             className="banner banner-info"
@@ -189,6 +190,7 @@ export default function ZimbabweLatBandTecCharts({
   methodCmp: methodCmpProp,
   catalog: catalogProp,
   autoload = true,
+  gopiOnly = false,
 }: Props) {
   const [stations, setStations] = useState<LiveStationVtecSeries[] | null>(stationSeriesProp ?? null);
   const [methodCmp, setMethodCmp] = useState<TecMethodComparisonResponse | null>(methodCmpProp ?? null);
@@ -219,7 +221,10 @@ export default function ZimbabweLatBandTecCharts({
       const tasks: Promise<unknown>[] = [
         getLiveVtecByStation(hours, resample, profile.constrained ? 50_000 : 90_000)
           .then((rows) => {
-            if (!cancelled && Array.isArray(rows) && rows.length) setStations(rows);
+            if (!cancelled && Array.isArray(rows) && rows.length) {
+              setStations(rows);
+              setError(null);
+            }
           })
           .catch(() => {
             if (!cancelled && !stationSeriesProp) {
@@ -228,7 +233,7 @@ export default function ZimbabweLatBandTecCharts({
           }),
       ];
 
-      if (!methodCmpProp) {
+      if (!gopiOnly && !methodCmpProp) {
         const cmp = getTecMethodCmpParams();
         tasks.push(
           getTecMethodComparison(cmp.hours, undefined, cmp.limit, cmp.timeoutMs)
@@ -258,7 +263,7 @@ export default function ZimbabweLatBandTecCharts({
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [autoload, stationSeriesProp, methodCmpProp, catalogProp]);
+  }, [autoload, stationSeriesProp, methodCmpProp, catalogProp, gopiOnly]);
 
   const lats = useMemo(() => stationLatLookup(catalog), [catalog]);
 
@@ -268,11 +273,11 @@ export default function ZimbabweLatBandTecCharts({
   }, [stations, lats]);
 
   const ggBands = useMemo(() => {
-    if (!stations?.length) return null;
+    if (gopiOnly || !stations?.length) return null;
     const gopiRows = methodCmp?.gopi ?? [];
     const ggRows = methodCmp?.gg ?? [];
     return latBandDiurnalGgFromGopiPlusDelta(stations, gopiRows, ggRows, lats);
-  }, [stations, methodCmp, lats]);
+  }, [gopiOnly, stations, methodCmp, lats]);
 
   const ggFooter =
     ggBands?.mode === "offset"
@@ -288,8 +293,9 @@ export default function ZimbabweLatBandTecCharts({
           ZINGSA TEC comparison — northern / central / southern Zimbabwe
         </div>
         <p className="sw-supporting-text" style={{ margin: 0 }}>
-          Same layout as the illustrative latitudinal graph, now filled with measured Zimbabwe CORS
-          VTEC for both calibrations: Method 1 (GOPI / Seemala) and Method 2 (Gg = Cesaroni).
+          {gopiOnly
+            ? "Measured hourly VTEC from Zimbabwe CORS stations using GOPI / Seemala calibration."
+            : "Same layout as the illustrative latitudinal graph, now filled with measured Zimbabwe CORS VTEC for both calibrations: Method 1 (GOPI / Seemala) and Method 2 (Gg = Cesaroni)."}
         </p>
         {loading && (
           <p className="sw-supporting-text" style={{ margin: "0.45rem 0 0" }}>
@@ -315,7 +321,7 @@ export default function ZimbabweLatBandTecCharts({
         }
       />
 
-      <BandChart
+      {!gopiOnly && <BandChart
         title="ZINGSA TEC comparison — Gg"
         badge={
           ggBands?.mode === "offset"
@@ -329,7 +335,7 @@ export default function ZimbabweLatBandTecCharts({
             ? "Waiting for Gg calibration samples…"
             : "No Gg samples yet — open the comparison feed once Cesaroni calibration has enough live arcs."
         }
-      />
+      />}
     </div>
   );
 }

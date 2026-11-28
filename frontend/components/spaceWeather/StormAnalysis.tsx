@@ -94,6 +94,7 @@ const HeliosphericKpBars = dynamic(() => import("@/components/spaceWeather/Helio
 const DstKpOverview = dynamic(() => import("@/components/spaceWeather/ZimbabweIonoResponseFigures"), { ssr: false });
 const DstPressureComparison = dynamic(() => import("@/components/spaceWeather/DstPressureComparison"), { ssr: false });
 const ZimbabweMeanDiurnalTec = dynamic(() => import("@/components/charts/ZimbabweMeanDiurnalTec"), { ssr: false });
+const ZimbabweLatBandTecCharts = dynamic(() => import("./ZimbabweLatBandTecCharts"), { ssr: false });
 const PROTON_COLORS: Record<string, string> = {
   ">=10 MeV": "#38bdf8",
   ">=50 MeV": "#a78bfa",
@@ -608,15 +609,15 @@ export default function StormAnalysis({
     <div style={{ marginBottom: "1rem" }}>
       <SolarFlareMonthChart key={`${domain.min}/${endDay}`} showDailyStorms start={new Date(domain.min).toISOString().slice(0, 10)} end={endDay} />
     </div>
-    {!hideBroadRangeHighlights && <>
+    {!hideBroadRangeHighlights && (
       <p style={{ fontSize: ".8rem" }}>
         {flarePeaks.length ? "Red lines mark cataloged M/X flare peaks across the Analysis graphs." : "No cataloged M/X flare peaks in this window."}
         {selectedFlare && <strong style={{ color: "#fda4af" }}>
           {" "}{selectedFlare.label} flare peaked at {new Date(selectedFlare.x).toISOString().slice(11, 16)} UTC.
         </strong>}
       </p>
-      <AnalysisSolarDisk time={selectedTime} peaks={flarePeaks} selectedFlare={selectedFlare} onPick={pick} onArchive={setFlareArchive} />
-    </>}
+    )}
+    <AnalysisSolarDisk time={selectedTime} peaks={flarePeaks} selectedFlare={selectedFlare} onPick={pick} onArchive={setFlareArchive} />
     <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: "1rem", margin: "1rem 0" }}>
       <ActiveRegionInspector />
       <FlareActivityTable solar={solar} summaryOnly />
@@ -772,6 +773,9 @@ export default function StormAnalysis({
           <SwarmZimbabwePasses day={new Date(selectedTime).toISOString().slice(0, 10)} />
           <EquatorialElectricFieldChart key={`${domain.min}/${domain.max}`}
             domain={domain} selectedTime={selectedTime} pick={pick} reportArea={plotLayout.reporters.electricField} />
+          <section aria-label="Measured GOPI TEC by Zimbabwe latitude band" style={{ marginBottom: "1.25rem" }}>
+            <ZimbabweLatBandTecCharts gopiOnly />
+          </section>
         </>}
         {isNetworkMean && <div style={{ marginBottom: "1.25rem" }}>
           <strong>Mean daily TEC — northern, central and southern Zimbabwe</strong>
