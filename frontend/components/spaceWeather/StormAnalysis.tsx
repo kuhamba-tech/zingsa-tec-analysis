@@ -859,6 +859,7 @@ function PlanetaryApChart({ domain, selectedTime, pick, reportArea }: {
     ...AP_SOURCES.map(source => ({
       label: source.label, color: source.color,
       data: dates.map(day => data?.series[source.key]?.[day] ?? null),
+      dashed: source.key === "celestrak",
       spanGaps: false, tension: 0, fill: false,
     })),
     ...(data?.live && data.series.gfz?.[data.live.date] == null ? [{
@@ -873,6 +874,11 @@ function PlanetaryApChart({ domain, selectedTime, pick, reportArea }: {
     return value == null ? [] : [`${source.label} ${value}`];
   });
   const live = data?.live;
+  const dailySeriesOverlap = dates.some(day => {
+    const celestrak = data?.series.celestrak?.[day];
+    return celestrak != null && celestrak === data?.series.gfz?.[day];
+  });
+  const hasKyoto = dates.some(day => data?.series.kyoto?.[day] != null);
 
   return <section aria-label="Daily planetary Ap index" style={{ marginBottom: "1rem" }}>
     <h3>Ap index — CelesTrak vs GFZ vs Kyoto</h3>
@@ -881,6 +887,8 @@ function PlanetaryApChart({ domain, selectedTime, pick, reportArea }: {
     {live && <p style={{ fontSize: ".8rem" }}>
       GFZ Ap so far for {live.date} UTC · {live.value} from {live.intervals} of 8 completed three-hour ap intervals.
     </p>}
+    {dailySeriesOverlap && <p style={{ fontSize: ".8rem" }}>CelesTrak (dashed) and GFZ overlap on days with identical Ap values.</p>}
+    {data && !hasKyoto && !data.unavailable.includes("kyoto") && <p style={{ fontSize: ".8rem" }}>No Kyoto definitive Ap values are available for this window.</p>}
     {!data && !failed && <p role="status">Loading daily Ap…</p>}
     {(failed || !!data?.unavailable.length) && <p role="status">Some Ap feeds are temporarily unavailable. The panel refreshes automatically.</p>}
     {data && !datasets.length && <p role="status">No Ap values available in this window yet.</p>}
